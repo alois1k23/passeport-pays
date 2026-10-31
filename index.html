@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Passeport Pays</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Passeport <span>Pays</span></h1>
+    <div class="stats">
+      <strong id="nb">0</strong> pays visités
+      <span class="sep">·</span>
+      <span id="pct">0 %</span> du monde
+    </div>
+  </header>
+
+  <main>
+    <div id="carte" aria-label="Carte du monde"></div>
+
+    <aside>
+      <div class="recherche">
+        <input id="recherche" type="search" placeholder="Rechercher un pays…" autocomplete="off" list="liste-pays">
+        <datalist id="liste-pays"></datalist>
+      </div>
+      <h2>Mes pays</h2>
+      <ul id="visites"></ul>
+      <p id="vide">Clique sur un pays de la carte pour l'ajouter.</p>
+      <div class="actions">
+        <button id="exporter" type="button">Exporter</button>
+        <label class="bouton">Importer<input id="importer" type="file" accept="application/json" hidden></label>
+        <button id="reinit" type="button" class="danger">Tout effacer</button>
+      </div>
+    </aside>
+  </main>
+
+  <div id="infobulle" hidden></div>
+  <div class="zoom">
+    <button id="zplus" type="button" aria-label="Zoomer">+</button>
+    <button id="zmoins" type="button" aria-label="Dézoomer">−</button>
+    <button id="zreset" type="button" aria-label="Recentrer">⟲</button>
+  </div>
+
+  <script src="vendor/d3.min.js"></script>
+  <script src="vendor/topojson-client.min.js"></script>
+  <script src="data/monde.js"></script>
+  <script src="data/noms-fr.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
