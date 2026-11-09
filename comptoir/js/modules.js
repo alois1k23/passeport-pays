@@ -37,9 +37,11 @@ function vueCopilote() {
       <div class="bloc"><h3>Produits mis en avant</h3>
         <table class="table compacte"><tbody>${camp.vedettes.map(x => `<tr><td class="vignette">${visuelProduit(x.p)}</td><td>${esc(x.p.nom)}<div class="sous">${x.ventes90} ventes sur 90 j</div></td><td class="num">${euros(x.p.prix)}</td></tr>`).join('')}</tbody></table>
       </div>
-      <div class="bloc"><h3>Stock face à la demande prévue</h3>
+      <div class="bloc"><h3>Stock et délais face à la demande prévue</h3>
         ${camp.ruptures.length ? `<ul class="todo">${camp.ruptures.map(x => `<li class="alerte"><a href="#produits"><strong>+${x.manque}</strong> ${esc(x.p.nom)} à commander : ${x.prevision} ventes prévues, ${x.p.stock} en stock</a></li>`).join('')}</ul>`
           : '<p class="sous">Votre stock couvre la demande prévue.</p>'}
+        ${camp.dateLimite ? `<p class="encart">Dropshipping : vos fournisseurs livrent en ${Math.max(...camp.vedettes.filter(x => x.p.delai).map(x => x.p.delai[1]))} jours au plus. Date limite de commande affichée aux clients : <strong>${camp.dateLimite.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</strong>.</p>` : ''}
+        ${camp.delaiLong.length ? `<p class="encart alerte-encart">${camp.delaiLong.map(p => esc(p.nom)).join(', ')} : livraison en plus de 10 jours. Retirez-le de la campagne ou passez à un fournisseur européen.</p>` : ''}
       </div>
       <div class="bloc"><h3>Planning</h3><ol class="frise">${camp.planning.map(p => `<li class="${p.passe ? 'passe' : ''}"><span>${esc(p.texte)}</span><time>${p.label}</time></li>`).join('')}</ol></div>
       <div class="rangee">
@@ -81,7 +83,7 @@ function vueMagasin() {
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Caisse</h2><span class="sous">Encaissez une vente au comptoir : le stock du site est mis à jour</span></div>
-      <div class="caisse-produits">${etat.produits.filter(p => p.actif).map(p => `
+      <div class="caisse-produits">${etat.produits.filter(p => p.actif && p.type !== 'drop').length ? '' : '<p class="sous">La caisse sert aux produits que vous avez en stock (marchés, pop-up, boutique). Ajoutez-en un dans Produits.</p>'}${etat.produits.filter(p => p.actif && p.type !== 'drop').map(p => `
         <button class="caisse-btn" data-action="caisse-ajout" data-id="${p.id}" ${p.stock <= 0 ? 'disabled' : ''}>${visuelProduit(p)}<span>${esc(p.nom)}</span><b class="num">${euros(p.prix)}</b><small>${p.stock} en stock</small></button>`).join('')}</div>
       <div class="ticket">
         ${ui.caisse.length ? `<table class="table compacte"><tbody>${ui.caisse.map(l => `<tr><td>${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td><td><button class="icone" data-action="caisse-retire" data-id="${l.produitId}" aria-label="Retirer">×</button></td></tr>`).join('')}
@@ -137,15 +139,24 @@ function encaisser(moyen) {
 
 /* ---------- Conformité française ---------- */
 function tva(c) {
-  const franchise = etat.entreprise.regime === 'franchise';
-  const ttc = c.total, ht = franchise ? ttc : Math.round(ttc / 1.2 * 100) / 100;
-  return { ht, tva: Math.round((ttc - ht) * 100) / 100, ttc, franchise };
+  const taux = tauxTvaVente();
+  const franchise = taux === 0;
+  const ttc = c.total, ht = franchise ? ttc : Math.round(ttc / (1 + taux) * 100) / 100;
+  return { ht, tva: Math.round((ttc - ht) * 100) / 100, ttc, franchise, taux };
 }
 
 function vueConformite() {
   const e = etat.entreprise;
   const factures = etat.commandes.filter(c => c.facture).sort((a, b) => b.date - a.date);
-  const verifs = [
+  const ch = estSuisse();
+  const verifs = ch ? [
+    ['Impressum', !!(e.raison && e.adresse && e.email && !/compléter/.test(e.adresse)), 'Nom, adresse postale et e-mail affichés (obligatoire en Suisse pour la vente en ligne, LCD art. 3)', 'Indiquez votre adresse postale complète : obligatoire pour vendre en ligne', 'mentions'],
+    ['Conditions générales de vente', true, 'Générées : livraison, retours volontaires 30 jours, garantie 2 ans', '', 'cgv'],
+    ['Protection des données (nLPD)', true, 'Déclaration de confidentialité générée, fournisseurs et pays de destination des données listés', '', 'mentions'],
+    ['Transparence dropshipping', etat.produits.filter(p => p.type === 'drop').every(p => p.delai), 'Délais réels de chaque fournisseur affichés sur les fiches et au paiement', 'Indiquez les délais de livraison de chaque fournisseur', null],
+    ['Prix en CHF, TTC', true, 'Prix affichés en francs suisses, frais de livraison indiqués avant le paiement', '', null],
+    ['TVA', true, e.regime === 'ch-assujetti' ? 'Assujetti : TVA 8,1 % détaillée sur chaque facture' : 'Non assujetti (chiffre d’affaires sous CHF 100 000 par an). Comptoir vous prévient à l’approche du seuil.', '', null]
+  ] : [
     ['Mentions légales', !!(e.raison && e.siret && e.adresse), 'Générées à partir de la fiche entreprise', 'Renseignez la raison sociale, le SIRET et l’adresse', 'mentions'],
     ['Conditions générales de vente', true, 'Générées et tenues à jour (livraison, retours, rétractation 14 jours)', '', 'cgv'],
     ['Bandeau cookies (RGPD)', true, 'Accepter et Refuser au même niveau, mesure d’audience sans cookie par défaut', '', null],
@@ -153,8 +164,10 @@ function vueConformite() {
     ['TVA', true, e.regime === 'franchise' ? 'Franchise en base : « TVA non applicable, art. 293 B du CGI » sur les factures' : 'TVA à 20 % détaillée sur chaque facture', '', null],
     ['Facture électronique', true, 'Factures numérotées sans rupture, export Factur-X prêt pour la réforme (simulé)', '', null]
   ];
+  const ca12 = etat.commandes.filter(c => c.date > Date.now() - 365 * 86400000 && !['annulee', 'remboursee', 'attente'].includes(c.statut)).reduce((a, c) => a + c.total, 0);
   return `
-  <div class="tete"><div><h1>Conformité</h1><p class="sous">Factures, mentions obligatoires et RGPD gérés pour vous. Vous vendez, Comptoir s’occupe de la paperasse.</p></div></div>
+  <div class="tete"><div><h1>Conformité</h1><p class="sous">${ch ? 'Impressum, protection des données, TVA et factures gérés pour vous, selon le droit suisse.' : 'Factures, mentions obligatoires et RGPD gérés pour vous.'} Vous vendez, Comptoir s’occupe de la paperasse.</p></div></div>
+  ${ch ? `<p class="encart">Seuil d’assujettissement à la TVA : ${euros(ca12)} de chiffre d’affaires sur 12 mois, soit ${Math.round(ca12 / 1000)} % du seuil de CHF 100 000.</p>` : ''}
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Points de contrôle</h2><span class="sous">${verifs.filter(v => v[1]).length} / ${verifs.length} en règle</span></div>
@@ -166,12 +179,13 @@ function vueConformite() {
     <section class="carte">
       <div class="carte-tete"><h2>Fiche entreprise</h2><span class="sous">Utilisée sur les factures et documents</span></div>
       <label class="champ"><span>Raison sociale</span><input id="en-raison" value="${esc(e.raison)}" data-entreprise="raison"></label>
-      <div class="deux"><label class="champ"><span>Forme juridique</span><select id="en-forme" data-entreprise="forme">${['Micro-entreprise', 'EI', 'EURL', 'SASU', 'SARL', 'SAS'].map(f => `<option ${f === e.forme ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
-      <label class="champ"><span>SIRET</span><input id="en-siret" value="${esc(e.siret)}" data-entreprise="siret"></label></div>
+      <div class="deux"><label class="champ"><span>Forme juridique</span><select id="en-forme" data-entreprise="forme">${(ch ? ['Raison individuelle', 'Sàrl', 'SA'] : ['Micro-entreprise', 'EI', 'EURL', 'SASU', 'SARL', 'SAS']).map(f => `<option ${f === e.forme ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
+      <label class="champ"><span>${ch ? 'N° IDE (CHE-…)' : 'SIRET'}</span><input id="en-siret" value="${esc(e.siret)}" data-entreprise="siret"></label></div>
       <label class="champ"><span>Adresse</span><input id="en-adresse" value="${esc(e.adresse)}" data-entreprise="adresse"></label>
-      <div class="deux"><label class="champ"><span>Régime de TVA</span><select id="en-regime" data-entreprise="regime"><option value="franchise" ${e.regime === 'franchise' ? 'selected' : ''}>Franchise en base</option><option value="normal" ${e.regime === 'normal' ? 'selected' : ''}>Assujetti (20 %)</option></select></label>
-      <label class="champ"><span>N° TVA intracom.</span><input id="en-tva" value="${esc(e.tvaIntra)}" data-entreprise="tvaIntra" placeholder="FR…"></label></div>
-      <label class="champ"><span>Médiateur de la consommation</span><input id="en-med" value="${esc(e.mediateur)}" data-entreprise="mediateur" placeholder="Nom et site du médiateur"></label>
+      <div class="deux"><label class="champ"><span>Régime de TVA</span><select id="en-regime" data-entreprise="regime">${(ch ? [['ch-non', 'Non assujetti'], ['ch-assujetti', 'Assujetti (8,1 %)']] : [['franchise', 'Franchise en base'], ['normal', 'Assujetti (20 %)']]).map(([v, n]) => `<option value="${v}" ${e.regime === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="champ"><span>${ch ? 'N° TVA (CHE-… TVA)' : 'N° TVA intracom.'}</span><input id="en-tva" value="${esc(e.tvaIntra)}" data-entreprise="tvaIntra" placeholder="${ch ? 'CHE-…TVA' : 'FR…'}"></label></div>
+      <label class="champ"><span>E-mail de contact</span><input id="en-email" value="${esc(e.email)}" data-entreprise="email"></label>
+      ${ch ? '' : `<label class="champ"><span>Médiateur de la consommation</span><input id="en-med" value="${esc(e.mediateur)}" data-entreprise="mediateur" placeholder="Nom et site du médiateur"></label>`}
     </section>
   </div>
   <section class="carte sans-pad">
@@ -184,6 +198,14 @@ function vueConformite() {
 
 function texteMentions() {
   const e = etat.entreprise, b = etat.boutique;
+  if (estSuisse()) {
+    const fournisseurs = [...new Set(etat.produits.filter(p => p.type === 'drop').map(p => p.fournisseur))];
+    return `<h2>Impressum et protection des données</h2>
+    <p><strong>Exploitant</strong> : ${esc(e.raison)}, ${esc(e.forme)}${e.siret ? ', IDE ' + esc(e.siret) : ''}, ${esc(e.adresse || '[adresse à compléter]')}. Contact : ${esc(e.email || '[e-mail]')}.</p>
+    ${e.tvaIntra ? `<p>N° TVA : ${esc(e.tvaIntra)}.</p>` : ''}
+    <p><strong>Données personnelles (nLPD)</strong> : nous traitons vos données pour exécuter votre commande. Elles sont transmises au prestataire de paiement, à La Poste et, pour les articles expédiés par nos partenaires, aux fournisseurs suivants : ${fournisseurs.length ? fournisseurs.map(esc).join(', ') : 'aucun'}. Certains se trouvent dans l’Union européenne, qui offre une protection adéquate des données. Vous pouvez demander l’accès, la rectification ou l’effacement de vos données à ${esc(e.email || 'l’adresse de contact')}.</p>
+    <p><strong>Hébergement</strong> : Comptoir, en Suisse et dans l’Union européenne.</p>`;
+  }
   return `<h2>Mentions légales</h2>
   <p><strong>Éditeur du site</strong> : ${esc(e.raison)}, ${esc(e.forme)}, SIRET ${esc(e.siret || '[à compléter]')}, ${esc(e.adresse || '[adresse à compléter]')}. Contact : ${esc(e.email || '[e-mail]')}.</p>
   ${e.tvaIntra ? `<p>N° de TVA intracommunautaire : ${esc(e.tvaIntra)}.</p>` : ''}
@@ -193,7 +215,17 @@ function texteMentions() {
 }
 function texteCGV() {
   const e = etat.entreprise, b = etat.boutique;
-  const modes = Object.values(LIVRAISONS).filter(l => l.transporteur || etat.magasin.clickCollect);
+  const modes = Object.values(livraisonsPays(b.pays)).filter(l => l.transporteur || etat.magasin.clickCollect);
+  if (estSuisse()) {
+    const drops = etat.produits.filter(p => p.type === 'drop' && p.delai);
+    return `<h2>Conditions générales de vente</h2>
+    <p><strong>1. Objet.</strong> Ventes conclues sur le site de ${esc(b.nom)}, exploité par ${esc(e.raison)}, ${esc(e.adresse || '[adresse]')}.</p>
+    <p><strong>2. Prix et paiement.</strong> Prix en francs suisses (CHF), TVA comprise${e.regime === 'ch-assujetti' ? ' (8,1 %)' : ' (entreprise non assujettie à la TVA)'}. Paiement par TWINT, carte ou PostFinance. Aucun frais de douane n’est facturé à la livraison.</p>
+    <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}`).join(' ; ')}. Offerte dès ${euros(SEUIL_PORT_OFFERT)} (hors Priority). ${drops.length ? `Certains articles sont expédiés directement par nos partenaires depuis la Suisse ou l’Europe : le délai indiqué sur chaque fiche produit (de ${Math.min(...drops.map(p => p.delai[0]))} à ${Math.max(...drops.map(p => p.delai[1]))} jours) s’applique.` : ''}</p>
+    <p><strong>4. Retours.</strong> Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. ${esc(b.nom)} accepte toutefois les retours sous 30 jours, frais de retour offerts.</p>
+    <p><strong>5. Garantie.</strong> Garantie de 2 ans pour les défauts (art. 197 ss CO).</p>
+    <p><strong>6. Droit applicable.</strong> Droit suisse, for au siège de l’exploitant, sous réserve des fors impératifs du consommateur.</p>`;
+  }
   return `<h2>Conditions générales de vente</h2>
   <p><strong>1. Objet.</strong> Les présentes conditions régissent les ventes conclues sur le site de ${esc(b.nom)}, exploité par ${esc(e.raison)} (SIRET ${esc(e.siret || '[à compléter]')}).</p>
   <p><strong>2. Prix.</strong> Les prix sont indiqués en euros, toutes taxes comprises${e.regime === 'franchise' ? ' (TVA non applicable, art. 293 B du CGI)' : ''}.</p>
@@ -213,20 +245,20 @@ function rendreModal() {
     const c = etat.commandes.find(x => x.id === m.id);
     const e = etat.entreprise, t = tva(c);
     corps = `<article class="facture">
-      <header><div><strong class="f-nom">${esc(e.raison)}</strong><div>${esc(e.forme)} · SIRET ${esc(e.siret || '—')}</div><div>${esc(e.adresse)}</div></div>
+      <header><div><strong class="f-nom">${esc(e.raison)}</strong><div>${esc(e.forme)} · ${estSuisse() ? 'IDE' : 'SIRET'} ${esc(e.siret || '—')}</div>${e.tvaIntra ? `<div>${esc(e.tvaIntra)}</div>` : ''}<div>${esc(e.adresse)}</div></div>
         <div class="f-num"><span class="eyebrow">Facture</span><div class="mono">${c.facture}</div><div>${new Date(c.date).toLocaleDateString('fr-FR')}</div></div></header>
-      <div class="f-client"><span class="sous">Facturé à</span><div>${esc(c.client.nom)}</div><div class="sous">${esc(c.client.email)} ${esc(c.client.ville)}</div><div class="sous">Commande #${c.numero} · ${c.canal === 'magasin' ? 'vente en boutique' : LIVRAISONS[c.livraison].nom}</div></div>
+      <div class="f-client"><span class="sous">Facturé à</span><div>${esc(c.client.nom)}</div><div class="sous">${esc(c.client.email)} ${esc(c.client.ville)}</div><div class="sous">Commande #${c.numero} · ${c.canal === 'magasin' ? 'vente en boutique' : TOUTES_LIVRAISONS[c.livraison].nom}</div></div>
       <table class="table compacte"><thead><tr><th>Désignation</th><th class="num">Qté</th><th class="num">PU TTC</th><th class="num">Total TTC</th></tr></thead><tbody>
         ${c.lignes.map(l => `<tr><td>${esc(l.nom)}</td><td class="num">${l.qte}</td><td class="num">${euros(l.prix)}</td><td class="num">${euros(l.prix * l.qte)}</td></tr>`).join('')}
         ${c.port ? `<tr><td>Livraison</td><td class="num">1</td><td class="num">${euros(c.port)}</td><td class="num">${euros(c.port)}</td></tr>` : ''}
       </tbody></table>
-      <div class="f-totaux"><div><span>Total HT</span><span>${euros(t.ht)}</span></div><div><span>TVA ${t.franchise ? '' : '20 %'}</span><span>${t.franchise ? '0,00 €' : euros(t.tva)}</span></div><div class="total"><span>Total TTC</span><span>${euros(t.ttc)}</span></div></div>
-      <footer>${t.franchise ? 'TVA non applicable, art. 293 B du CGI. ' : ''}Paiement reçu. Pas d’escompte pour paiement anticipé. En cas de retard de paiement, indemnité forfaitaire de 40 € pour frais de recouvrement (professionnels).</footer>
+      <div class="f-totaux"><div><span>Total HT</span><span>${euros(t.ht)}</span></div><div><span>TVA ${t.franchise ? '' : (Math.round(t.taux * 1000) / 10).toString().replace('.', ',') + ' %'}</span><span>${euros(t.tva)}</span></div><div class="total"><span>Total TTC</span><span>${euros(t.ttc)}</span></div></div>
+      <footer>${estSuisse() ? (t.franchise ? 'Entreprise non assujettie à la TVA. ' : '') + 'Paiement reçu. Merci pour votre achat.' : (t.franchise ? 'TVA non applicable, art. 293 B du CGI. ' : '') + 'Paiement reçu. Pas d’escompte pour paiement anticipé. En cas de retard de paiement, indemnité forfaitaire de 40 € pour frais de recouvrement (professionnels).'}</footer>
     </article>
-    <div class="rangee"><span class="pill good">Factur-X prêt (simulé)</span><span class="sous">PDF lisible + données XML, conforme à la réforme de la facture électronique.</span></div>`;
+    ${estSuisse() ? '<div class="rangee"><span class="pill good">Export comptable prêt (simulé)</span><span class="sous">Factures numérotées, exportables pour votre fiduciaire.</span></div>' : '<div class="rangee"><span class="pill good">Factur-X prêt (simulé)</span><span class="sous">PDF lisible + données XML, conforme à la réforme de la facture électronique.</span></div>'}`;
   } else if (m.type === 'etiquette') {
     const c = etat.commandes.find(x => x.id === m.id);
-    const l = LIVRAISONS[c.livraison];
+    const l = TOUTES_LIVRAISONS[c.livraison];
     corps = `<article class="etiquette">
       <div class="et-tete"><strong>${esc(l.transporteur)}</strong><span>${esc(l.court)}</span></div>
       <div><span class="sous">Expéditeur</span><div>${esc(etat.entreprise.raison)}</div><div>${esc(etat.entreprise.adresse)}</div></div>
@@ -313,7 +345,12 @@ async function importerPhotos(fichiers) {
 
 /* ---------- Offre ---------- */
 function vueOffre() {
-  const plans = [
+  const ch = estSuisse();
+  const plans = ch ? [
+    ['Lancement', 29, 'Votre première boutique de dropshipping', ['Boutique complète et éditeur', 'Catalogue fournisseurs CH et UE', 'Transmission automatique des commandes', 'Calcul de marge nette réelle', 'TWINT, cartes, La Poste', '0 % de commission Comptoir']],
+    ['Croissance', 59, 'Dropshipping + vos propres produits', ['Tout Lancement, plus :', 'Copilote de saison (Singles Day, Black Friday, Noël…)', 'Boutique en FR, DE et IT', 'Domaine .ch offert la 1re année', 'Fiches produits par photo illimitées', 'Session de lancement en visio']],
+    ['Pro', 119, 'Plusieurs boutiques, marchés ou magasin', ['Tout Croissance, plus :', 'Caisse et stock unique (pop-up, marchés, magasin)', '3 boutiques', '5 comptes équipe', 'Export pour votre fiduciaire', 'Conseiller dédié à Lausanne']]
+  ] : [
     ['Atelier', 19, 'Pour démarrer', ['Boutique complète et éditeur', 'Domaine .fr offert la 1re année', 'Copilote de saison', 'Factures et CGV conformes', 'Colissimo et Mondial Relay', '0 % de commission Comptoir']],
     ['Commerce', 39, 'Boutique physique + en ligne', ['Tout Atelier, plus :', 'Caisse et stock unique', 'Click & collect et QR de vitrine', 'Fiche Google synchronisée', 'Fiches produits par photo illimitées', 'Session de lancement en visio']],
     ['Maison', 79, 'Plusieurs boutiques ou salariés', ['Tout Commerce, plus :', '3 points de vente', '5 comptes équipe', 'Domaines de campagne illimités', 'Export comptable automatique', 'Conseiller dédié']]
@@ -324,13 +361,16 @@ function vueOffre() {
     <section class="plan ${i === 1 ? 'conseille' : ''}">
       ${i === 1 ? '<span class="eyebrow">Le plus choisi</span>' : '<span class="eyebrow">&nbsp;</span>'}
       <h2>${nom}</h2><p class="sous">${pour}</p>
-      <div class="prix"><strong>${prix} €</strong><span class="sous">HT / mois</span></div>
+      <div class="prix"><strong>${ch ? 'CHF ' + prix + '.–' : prix + ' €'}</strong><span class="sous">${ch ? 'par mois' : 'HT / mois'}</span></div>
       <ul>${inclus.map(x => `<li>${x}</li>`).join('')}</ul>
       <a class="btn ${i === 1 ? '' : 'fantome'}" href="#creer">Essayer 30 jours</a>
     </section>`).join('')}</div>
   <section class="carte">
     <div class="carte-tete"><h2>Ce qui nous distingue</h2></div>
     <div class="atouts">
+      ${ch ? `<div><strong>Le dropshipping qui tient ses promesses</strong><p class="sous">Fournisseurs en Suisse et en Europe, délais affichés honnêtement, pas de frais de douane surprise pour vos clients.</p></div>
+      <div><strong>La vraie marge, avant de vendre</strong><p class="sous">Coût fournisseur, TVA d’import, dédouanement, frais TWINT et carte, publicité : vous savez ce que vous gagnez par vente.</p></div>
+      <div><strong>Fait pour la Suisse</strong><p class="sous">CHF, TWINT, La Poste, boutique en français, allemand et italien, Impressum et nLPD.</p></div>` : ''}
       <div><strong>Copilote de saison</strong><p class="sous">Chaque temps fort (Black Friday, Noël, fête des mères, soldes) arrive avec une campagne prête, calculée sur vos ventes et votre stock.</p></div>
       <div><strong>Conforme en France</strong><p class="sous">Factures numérotées et facture électronique, CGV, mentions légales, RGPD, TVA : générés et tenus à jour.</p></div>
       <div><strong>Boutique et magasin réunis</strong><p class="sous">Une caisse, un stock, le click & collect et la fiche Google, sans application supplémentaire.</p></div>

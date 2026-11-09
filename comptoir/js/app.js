@@ -1,6 +1,6 @@
 /* Comptoir — application : routage, interface d’administration, éditeur, commandes. */
 
-const CLE = 'comptoir-etat-v1';
+const CLE = 'comptoir-etat-v2';
 let etat = charger();
 const ui = {
   route: 'tableau',
@@ -15,7 +15,8 @@ const ui = {
   confirmation: null,
   produitEdite: null,
   dom: { mois: new Date().getMonth(), motsCles: '', marque: null },
-  assistant: { etape: 1, nom: '', secteur: 'mode', pays: 'fr', theme: 'craie', exemples: true, domaine: null },
+  assistant: { etape: 1, nom: '', secteur: 'maison', pays: 'ch', modele: 'drop', theme: 'leman', exemples: true, domaine: null },
+  sourcing: { niche: '', entrepots: ['CH', 'UE'], delaiMax: 10 },
   confirmerReset: false,
   campagne: null,
   caisse: [],
@@ -27,9 +28,9 @@ const ui = {
 function charger() {
   try {
     const brut = localStorage.getItem(CLE);
-    if (brut) { const e = JSON.parse(brut); if (e && e.version === 1) return completerEtat(e); }
+    if (brut) { const e = JSON.parse(brut); if (e && e.version === 2) return completerEtat(e); }
   } catch (e) { /* stockage indisponible : on repart de la démo */ }
-  return boutiqueDemo();
+  return boutiqueDemoLausanne();
 }
 function sauver() {
   try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch (e) { /* ignoré */ }
@@ -83,6 +84,7 @@ function graphBarres(donnees, { hauteur = 180, format = v => v, surligne = -1, l
 const NAV = [
   ['tableau', 'Tableau de bord'],
   ['copilote', 'Copilote de saison'],
+  ['sourcing', 'Trouver des produits'],
   ['commandes', 'Commandes'],
   ['produits', 'Produits'],
   ['clients', 'Clients'],
@@ -101,7 +103,7 @@ function rendre() {
   $('#nav').innerHTML = NAV.map(([id, nom]) => `<a href="#${id}" class="${route === id ? 'actif' : ''}">${nom}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider ? `<b class="badge">${aValider}</b>` : ''}</a>`).join('');
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : slugifier(etat.boutique.nom) + '.comptoir.shop';
-  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
+  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   $('#vue').innerHTML = (vues[route] || vueTableau)();
   apresRendu();
 }
@@ -122,6 +124,8 @@ function statsPeriode(debut, fin) {
 function vueTableau() {
   const now = Date.now();
   const cur = statsPeriode(now - 30 * JOUR, now + 1);
+  const benef = (d, f) => etat.commandes.filter(c => c.date >= d && c.date < f).reduce((a, c) => a + beneficeCommande(c), 0);
+  const bCur = benef(now - 30 * JOUR, now + 1), bPrev = benef(now - 60 * JOUR, now - 30 * JOUR);
   const prev = statsPeriode(now - 60 * JOUR, now - 30 * JOUR);
   const conv = cur.n / etat.visites30j;
   const aExpedier = etat.commandes.filter(c => c.statut === 'payee' || c.statut === 'preparation');
@@ -148,6 +152,7 @@ function vueTableau() {
     <a class="btn" href="#boutique">Voir la boutique</a></div>
   <div class="kpis">
     <div class="kpi"><span>Chiffre d’affaires</span><strong>${euros(cur.ca)}</strong>${evol(cur.ca, prev.ca)}</div>
+    <div class="kpi"><span>Bénéfice net (estimé)</span><strong>${euros(bCur)}</strong>${evol(bCur, bPrev)}</div>
     <div class="kpi"><span>Commandes</span><strong>${cur.n}</strong>${evol(cur.n, prev.n)}</div>
     <div class="kpi"><span>Panier moyen</span><strong>${euros(cur.panier)}</strong>${evol(cur.panier, prev.panier)}</div>
     <div class="kpi"><span>Taux de conversion</span><strong>${(conv * 100).toFixed(1).replace('.', ',')} %</strong><span class="evol neutre">${etat.visites30j.toLocaleString('fr-FR')} visites (simulées)</span></div>
@@ -155,7 +160,7 @@ function vueTableau() {
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Chiffre d’affaires par jour</h2><span class="sous">30 derniers jours, commandes payées</span></div>
-      <div class="graph-wrap">${graphBarres(jours, { format: v => v >= 1000 ? (v / 1000).toLocaleString('fr-FR') + ' k€' : v + ' €', surligne: 29 })}</div>
+      <div class="graph-wrap">${graphBarres(jours, { format: v => v >= 1000 ? (v / 1000).toLocaleString('fr-FR') + ' k' + (devise() === 'CHF' ? ' CHF' : '€') : v + (devise() === 'CHF' ? ' CHF' : ' €'), surligne: 29 })}</div>
     </section>
     <section class="carte saison-carte">
       <span class="eyebrow">Copilote · prochain temps fort</span>
@@ -179,9 +184,10 @@ function vueTableau() {
         <li class="${aExpedier.length ? 'alerte' : ''}"><a href="#commandes" data-action="filtre-lien" data-filtre="payee"><strong>${aExpedier.length}</strong> commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier</a></li>
         <li class="${attente ? 'alerte' : ''}"><a href="#commandes" data-action="filtre-lien" data-filtre="attente"><strong>${attente}</strong> paiement${attente > 1 ? 's' : ''} en attente</a></li>
         ${stockBas.map(p => `<li class="alerte"><a href="#produits"><strong>${p.stock}</strong> en stock : ${esc(p.nom)}</a></li>`).join('')}
+        ${etat.commandes.filter(c => c.statut === 'fournisseur').length ? `<li><a href="#commandes" data-action="filtre-lien" data-filtre="fournisseur"><strong>${etat.commandes.filter(c => c.statut === 'fournisseur').length}</strong> commandes chez le fournisseur, suivi automatique</a></li>` : ''}
         ${retraits ? `<li class="alerte"><a href="#magasin"><strong>${retraits}</strong> retrait${retraits > 1 ? 's' : ''} click & collect en cours</a></li>` : ''}
         ${etat.boutique.domaine ? '' : '<li class="alerte"><a href="#domaines">Aucun domaine personnalisé : choisissez-en un</a></li>'}
-        ${etat.entreprise.mediateur ? '' : '<li class="alerte"><a href="#conformite">Indiquez votre médiateur de la consommation (obligatoire)</a></li>'}
+        ${etat.entreprise.mediateur || estSuisse() ? '' : '<li class="alerte"><a href="#conformite">Indiquez votre médiateur de la consommation (obligatoire)</a></li>'}
         <li>${etat.rdv ? `<a href="#tableau">Session de lancement le <strong>${dateHeure(etat.rdv)}</strong></a>` : '<button class="todo-btn" data-action="rdv">Réservez votre session de lancement offerte (30 min en visio)</button>'}</li>
       </ul>
     </section>
@@ -190,6 +196,10 @@ function vueTableau() {
 
 /* ---------- Commandes ---------- */
 function fluxPour(c) {
+  if (estDropship(c) && c.canal !== 'magasin') {
+    if (c.statut === 'payee') return [['fournisseur', 'Transmettre au fournisseur'], ['annulee', 'Annuler la commande']];
+    if (c.statut === 'fournisseur') return [['expediee', 'Simuler l’expédition par le fournisseur']];
+  }
   if (c.livraison === 'retrait') {
     if (c.statut === 'preparation') return [['prete', 'Prête : prévenir le client']];
     if (c.statut === 'prete') return [['retiree', 'Remise au client']];
@@ -207,7 +217,7 @@ const FLUX = {
 };
 
 function vueCommandes() {
-  const filtres = [['tous', 'Toutes'], ['payee', 'À préparer'], ['preparation', 'En préparation'], ['expediee', 'Expédiées'], ['livree', 'Livrées'], ['attente', 'En attente'], ['remboursee', 'Remboursées']];
+  const filtres = [['tous', 'Toutes'], ['payee', 'À préparer'], ['preparation', 'En préparation'], ['fournisseur', 'Chez le fournisseur'], ['expediee', 'Expédiées'], ['livree', 'Livrées'], ['attente', 'En attente'], ['remboursee', 'Remboursées']];
   const q = ui.recherche.trim().toLowerCase();
   const liste = [...etat.commandes].sort((a, b) => b.date - a.date)
     .filter(c => ui.filtre === 'tous' || c.statut === ui.filtre)
@@ -242,15 +252,17 @@ function detailCommande(c) {
   return `<aside class="carte detail" aria-label="Commande ${c.numero}">
     <div class="carte-tete"><h2 class="mono">#${c.numero}</h2><button class="icone" data-action="fermer-commande" aria-label="Fermer">Fermer</button></div>
     <div class="rangee">${pill(c.statut)}<span class="sous">${dateHeure(c.date)}</span></div>
-    <div class="bloc"><h3>${c.canal === 'magasin' ? 'Vente en boutique' : 'Livraison'}</h3><p>${c.canal === 'magasin' ? 'Encaissée au comptoir' : esc(LIVRAISONS[c.livraison].nom)}</p></div>
+    <div class="bloc"><h3>${c.canal === 'magasin' ? 'Vente en boutique' : 'Livraison'}</h3><p>${c.canal === 'magasin' ? 'Encaissée au comptoir' : esc(TOUTES_LIVRAISONS[c.livraison].nom)}</p></div>
+    ${estDropship(c) || c.refFournisseur ? `<div class="bloc encart-fournisseur"><h3>Dropshipping</h3><p>${[...new Set(c.lignes.map(l => (etat.produits.find(p => p.id === l.produitId) || {}).fournisseur).filter(Boolean))].map(esc).join(', ')}</p>
+      <p class="sous">${c.refFournisseur ? 'Commande fournisseur <span class="mono">' + esc(c.refFournisseur) + '</span>' : 'Pas encore transmise'} · bénéfice estimé <b>${euros(beneficeCommande(c))}</b></p></div>` : `<div class="bloc"><h3>Bénéfice estimé</h3><p>${euros(beneficeCommande(c))}</p></div>`}
     <div class="bloc"><h3>Client</h3><p>${esc(c.client.nom)}<br><span class="sous">${esc(c.client.email)} · ${esc(c.client.ville)}</span></p></div>
     <div class="bloc"><h3>Articles</h3>
       <table class="table compacte"><tbody>${c.lignes.map(l => `<tr><td>${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td></tr>`).join('')}
       <tr><td></td><td class="sous">Livraison</td><td class="num">${c.port ? euros(c.port) : 'Offerte'}</td></tr>
       <tr class="total"><td></td><td>Total</td><td class="num">${euros(c.total)}</td></tr></tbody></table>
     </div>
-    ${c.suivi ? `<div class="bloc"><h3>Suivi ${esc(LIVRAISONS[c.livraison].transporteur || '')}</h3><p class="mono">${esc(c.suivi)}</p></div>` : ''}
-    <div class="rangee">${c.facture ? `<button class="btn petit fantome" data-action="facture" data-id="${c.id}">Facture ${c.facture}</button>` : ''}${c.suivi && LIVRAISONS[c.livraison].transporteur ? `<button class="btn petit fantome" data-action="etiquette" data-id="${c.id}">Étiquette d’envoi</button>` : ''}</div>
+    ${c.suivi ? `<div class="bloc"><h3>Suivi ${esc(TOUTES_LIVRAISONS[c.livraison].transporteur || '')}</h3><p class="mono">${esc(c.suivi)}</p></div>` : ''}
+    <div class="rangee">${c.facture ? `<button class="btn petit fantome" data-action="facture" data-id="${c.id}">Facture ${c.facture}</button>` : ''}${c.suivi && !estDropship(c) && TOUTES_LIVRAISONS[c.livraison].transporteur ? `<button class="btn petit fantome" data-action="etiquette" data-id="${c.id}">Étiquette d’envoi</button>` : ''}</div>
     <div class="bloc actions">${fluxPour(c).map(([s, nom], i) => `<button class="btn ${i ? 'fantome' : ''} ${s === 'annulee' || s === 'remboursee' ? 'danger' : ''}" data-action="statut" data-id="${c.id}" data-statut="${s}">${nom}</button>`).join('') || '<p class="sous">Aucune action possible : commande clôturée.</p>'}</div>
     <div class="bloc"><h3>Historique</h3><ol class="frise">${[...c.historique].reverse().map(h => `<li><span>${esc(h.texte)}</span><time>${dateHeure(h.date)}</time></li>`).join('')}</ol></div>
     <div class="bloc"><label for="note-${c.id}"><h3>Note interne</h3></label><textarea id="note-${c.id}" rows="2" data-champ="note" data-id="${c.id}" placeholder="Visible uniquement par vous">${esc(c.note)}</textarea></div>
@@ -261,12 +273,13 @@ function changerStatut(id, statut) {
   const c = etat.commandes.find(x => x.id === id);
   if (!c) return;
   c.statut = statut;
-  if (statut === 'expediee' && !c.suivi) c.suivi = ({ relais: 'MR', chronopost: 'XY' }[c.livraison] || '6A') + Math.floor(1e10 + Math.random() * 9e10);
+  if (statut === 'fournisseur') { transmettre(c, false); sauver(); rendre(); return; }
+  if (statut === 'expediee' && !c.suivi) c.suivi = TOUTES_LIVRAISONS[c.livraison].transporteur === 'La Poste' ? '99.60.' + Math.floor(100000 + Math.random() * 899999) + '.' + Math.floor(1e7 + Math.random() * 9e7) : ({ relais: 'MR', chronopost: 'XY' }[c.livraison] || '6A') + Math.floor(1e10 + Math.random() * 9e10);
   if (statut === 'payee' && !c.facture) c.facture = numeroFactureSuivant(etat, Date.now());
   if (statut === 'remboursee' || statut === 'annulee') {
     for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); if (p) p.stock += l.qte; }
   }
-  const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: `Expédiée, suivi ${c.suivi}`, livree: 'Livrée', remboursee: `Remboursée (${euros(c.total)}), avoir émis, stock remis`, annulee: 'Annulée, stock remis', prete: 'Prête à retirer, SMS envoyé au client (simulé)', retiree: 'Remise au client en boutique' };
+  const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: estDropship(c) ? `Expédiée par le fournisseur, suivi ${c.suivi} transmis au client` : `Expédiée, suivi ${c.suivi}`, livree: 'Livrée', remboursee: `Remboursée (${euros(c.total)}), avoir émis, stock remis`, annulee: 'Annulée, stock remis', prete: 'Prête à retirer, SMS envoyé au client (simulé)', retiree: 'Remise au client en boutique' };
   c.historique.push({ date: Date.now(), texte: textes[statut] });
   sauver();
   toast(`Commande #${c.numero} : ${STATUTS[statut].nom.toLowerCase()}. Le client a reçu un e-mail (simulé).`);
@@ -281,15 +294,17 @@ function vueProduits() {
   <div class="tete"><div><h1>Produits</h1><p class="sous">${etat.produits.length} produits · ${etat.produits.filter(x => x.actif).length} en ligne</p></div>
     <div class="rangee"><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
     <input type="file" id="photo-input" accept="image/*" multiple hidden></div>
-  <p class="astuce">Prenez vos produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
+  <p class="astuce">Ajoutez des produits du <a class="lien" href="#sourcing">catalogue fournisseurs</a> (dropshipping) ou prenez vos propres produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
   <div class="maitre-detail ${p ? 'ouvert' : ''}">
     <section class="carte sans-pad"><div class="table-wrap"><table class="table">
-      <thead><tr><th></th><th>Produit</th><th>Catégorie</th><th class="num">Prix</th><th class="num">Stock</th><th>Statut</th></tr></thead>
+      <thead><tr><th></th><th>Produit</th><th>Approvisionnement</th><th class="num">Prix</th><th class="num">Marge nette</th><th class="num">Stock</th><th>Statut</th></tr></thead>
       <tbody>${etat.produits.map(x => `
         <tr data-action="editer-produit" data-id="${x.id}" tabindex="0" class="${p && p.id === x.id ? 'choisi' : ''}">
-          <td class="vignette">${visuelProduit(x)}</td><td>${esc(x.nom)}</td><td>${esc(x.categorie)}</td>
+          <td class="vignette">${visuelProduit(x)}</td><td>${esc(x.nom)}<div class="sous">${esc(x.categorie)}</div></td>
+          <td>${x.type === 'drop' ? `<span class="pill ${ENTREPOTS[x.entrepot] ? ENTREPOTS[x.entrepot].ton : 'info'}">Dropshipping ${x.entrepot || ''}</span>` : '<span class="pill muted">Mon stock</span>'}</td>
           <td class="num">${euros(x.prix)}</td>
-          <td class="num">${x.stock <= 5 ? `<span class="pill ${x.stock <= 0 ? 'bad' : 'warn'}">${x.stock}</span>` : x.stock}</td>
+          <td class="num ${margeProduit(x).nette < 0 ? 'neg' : ''}">${euros(margeProduit(x).nette)}</td>
+          <td class="num">${x.type === 'drop' ? '<span class="sous">Fournisseur</span>' : x.stock <= 5 ? `<span class="pill ${x.stock <= 0 ? 'bad' : 'warn'}">${x.stock}</span>` : x.stock}</td>
           <td>${x.aVerifier ? '<span class="pill warn">À vérifier</span>' : x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}</td></tr>`).join('')}
       </tbody></table></div></section>
     ${p ? `<aside class="carte detail"><form data-form="produit">
@@ -297,9 +312,13 @@ function vueProduits() {
       ${visuelProduit(p, true)}
       <label class="champ"><span>Nom</span><input id="pf-nom" name="nom" required value="${esc(p.nom)}"></label>
       <label class="champ"><span>Description <button type="button" class="lien bouton-lien" data-action="rediger">Rédiger pour moi</button></span><textarea id="pf-desc" name="description" rows="4">${esc(p.description)}</textarea></label>
-      <div class="deux"><label class="champ"><span>Prix (€)</span><input id="pf-prix" name="prix" type="number" min="0" step="0.01" required value="${p.prix}"></label>
-      <label class="champ"><span>Stock</span><input id="pf-stock" name="stock" type="number" min="0" step="1" required value="${p.stock}"></label></div>
-      <label class="champ"><span>Catégorie</span><select id="pf-cat" name="categorie">${cats.map(c => `<option ${c === p.categorie ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <div class="deux"><label class="champ"><span>Prix TTC (${devise()})</span><input id="pf-prix" name="prix" type="number" min="0" step="0.01" required value="${p.prix}"></label>
+      ${p.type === 'drop' ? '<input type="hidden" name="stock" value="999">' : `<label class="champ"><span>Stock</span><input id="pf-stock" name="stock" type="number" min="0" step="1" required value="${p.stock}"></label>`}</div>
+      ${p.type === 'drop' ? `<p class="sous">Fournisseur : ${esc(p.fournisseur || '—')} · entrepôt ${ENTREPOTS[p.entrepot] ? ENTREPOTS[p.entrepot].nom : '—'} · ${p.delai ? p.delai[0] + '–' + p.delai[1] + ' jours' : ''}</p>
+      <label class="champ"><span>Coût fournisseur (${devise()})</span><input id="pf-cout" name="cout" type="number" min="0" step="0.01" value="${p.cout}"></label>`
+      : `<label class="champ"><span>Coût d’achat unitaire (${devise()})</span><input id="pf-cout" name="cout" type="number" min="0" step="0.01" value="${p.cout ?? ''}" placeholder="Pour calculer votre marge"></label>`}
+      ${blocMarge(p)}
+      <label class="champ"><span>Catégorie</span><select id="pf-cat" name="categorie">${[...new Set([p.categorie, ...cats])].map(c => `<option ${c === p.categorie ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="case"><input id="pf-actif" type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Visible dans la boutique</label>
       <div class="rangee"><button class="btn">Enregistrer</button>${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome danger" data-action="supprimer-produit" data-id="${p.id}">Supprimer</button>` : ''}</div>
     </form></aside>` : ''}
@@ -363,6 +382,8 @@ function vueEditeur() {
     panneau = `<label class="champ"><span>Nom de la boutique</span><input id="in-nom" value="${esc(b.nom)}" data-boutique="nom"></label>
       <label class="champ"><span>Slogan</span><input id="in-slogan" value="${esc(b.slogan)}" data-boutique="slogan"></label>
       <label class="champ"><span>Secteur</span><select id="in-secteur" data-boutique="secteur">${Object.entries(SECTEURS).map(([k, v]) => `<option value="${k}" ${b.secteur === k ? 'selected' : ''}>${v.nom}</option>`).join('')}</select></label>
+      <fieldset class="champ"><legend>Langues de la boutique</legend><div class="rangee">${[['fr', 'Français'], ['de', 'Deutsch'], ['it', 'Italiano'], ['en', 'English']].map(([k, n]) => `<label class="case"><input type="checkbox" data-langue="${k}" ${b.langues.includes(k) ? 'checked' : ''} ${k === 'fr' ? 'disabled' : ''}> ${n}</label>`).join('')}</div>
+        <span class="sous">Traduction automatique des pages et fiches produits (simulée), relisible avant publication.</span></fieldset>
       <div class="bloc"><h3>Adresse</h3><p class="mono">${esc(b.domaine ? b.domaine.domaine : slugifier(b.nom) + '.comptoir.shop')}</p><a href="#domaines" class="lien">Changer de domaine</a></div>`;
   }
   return `
@@ -459,8 +480,11 @@ function vueDomaines() {
 /* ---------- Boutique en ligne (vue client) ---------- */
 function vueBoutique() {
   const total = ui.panier.reduce((a, l) => a + l.prix * l.qte, 0);
-  const modes = Object.entries(LIVRAISONS).filter(([k]) => k !== 'retrait' || etat.magasin.clickCollect);
-  if (!modes.find(([k]) => k === ui.livraison)) ui.livraison = 'colissimo';
+  const modes = Object.entries(livraisonsPays(etat.boutique.pays)).filter(([k]) => k !== 'retrait' || etat.magasin.clickCollect);
+  if (!modes.find(([k]) => k === ui.livraison)) ui.livraison = modes[0][0];
+  const delaisDrop = ui.panier.map(l => etat.produits.find(p => p.id === l.produitId)).filter(p => p && p.type === 'drop' && p.delai);
+  const delaiMax = delaisDrop.length ? [Math.max(...delaisDrop.map(p => p.delai[0])), Math.max(...delaisDrop.map(p => p.delai[1]))] : null;
+  const ch = etat.boutique.pays === 'ch';
   const port = total ? fraisPort(ui.livraison, total) : 0;
   return `
   <div class="bandeau-client"><span>Vous voyez <b class="mono">${esc(etat.boutique.domaine ? etat.boutique.domaine.domaine : slugifier(etat.boutique.nom) + '.comptoir.shop')}</b> comme un client. Passez une commande : elle apparaîtra dans l’admin.</span><a href="#tableau" class="btn petit">Retour à l’admin</a></div>
@@ -476,13 +500,13 @@ function vueBoutique() {
           <div class="qte"><button data-action="qte" data-id="${l.produitId}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-action="qte" data-id="${l.produitId}" data-d="1" aria-label="Ajouter un">+</button></div>
           <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux"><div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
-        <fieldset class="modes-livraison"><legend>Livraison</legend>${modes.map(([k, l]) => `<label class="${ui.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${k}" data-livraison ${ui.livraison === k ? 'checked' : ''}><span>${esc(l.nom)}<small>${k === 'retrait' ? esc(etat.magasin.adresse) + ' · prêt en ' + l.delai : l.delai}</small></span><b>${fraisPort(k, total) ? euros(fraisPort(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
+        <fieldset class="modes-livraison"><legend>Livraison</legend>${modes.map(([k, l]) => `<label class="${ui.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${k}" data-livraison ${ui.livraison === k ? 'checked' : ''}><span>${esc(l.nom)}<small>${k === 'retrait' ? esc(etat.magasin.adresse) + ' · prêt en ' + l.delai : delaiMax ? `${delaiMax[0]} à ${delaiMax[1]} jours (expédié par notre partenaire)` : l.delai}</small></span><b>${fraisPort(k, total) ? euros(fraisPort(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
         <form data-form="paiement">
           <label class="champ"><span>Nom</span><input id="pay-nom" name="nom" required value="Alex Morel"></label>
-          <label class="champ"><span>E-mail</span><input id="pay-email" name="email" type="email" required value="alex.morel@exemple.fr"></label>
-          <label class="champ"><span>Ville</span><input id="pay-ville" name="ville" required value="Bordeaux"></label>
+          <label class="champ"><span>E-mail</span><input id="pay-email" name="email" type="email" required value="${ch ? 'alex.morel@exemple.ch' : 'alex.morel@exemple.fr'}"></label>
+          <label class="champ"><span>Ville</span><input id="pay-ville" name="ville" required value="${ch ? 'Lausanne' : 'Bordeaux'}"></label>
           <button class="sf-btn plein">Payer ${euros(total + port)} (simulation)</button>
-          <p class="mini">Carte, paiement en 3 fois ou Wero. En validant, vous acceptez les <button type="button" class="bouton-lien" data-action="doc" data-id="cgv">CGV</button>. Rétractation sous 14 jours.</p>
+          <p class="mini">${ch ? 'TWINT, carte ou PostFinance. Prix en CHF, aucun frais de douane à la livraison.' : 'Carte, paiement en 3 fois ou Wero.'} En validant, vous acceptez les <button type="button" class="bouton-lien" data-action="doc" data-id="cgv">CGV</button>. ${ch ? 'Retour gratuit sous 30 jours.' : 'Rétractation sous 14 jours.'}</p>
         </form>` : '<p>Votre panier est vide.</p>'}
     </aside>
   </div>`;
@@ -500,8 +524,10 @@ function passerCommande(form) {
     client: { nom: d.get('nom'), email: d.get('email'), ville: d.get('ville') },
     lignes: ui.panier.map(l => ({ ...l })), sousTotal, port, total: Math.round((sousTotal + port) * 100) / 100,
     statut: 'payee', suivi: '', note: '',
-    historique: [{ date: now, texte: 'Commande passée en ligne' }, { date: now, texte: 'Paiement par carte accepté (simulé)' }]
+    historique: [{ date: now, texte: 'Commande passée en ligne' }, { date: now, texte: `Paiement ${etat.boutique.pays === 'ch' ? 'TWINT' : 'par carte'} accepté (simulé)` }]
   });
+  const nouvelle = etat.commandes[etat.commandes.length - 1];
+  if (estDropship(nouvelle) && reglages().autoTransmission) transmettre(nouvelle, true);
   for (const l of ui.panier) { const p = etat.produits.find(x => x.id === l.produitId); if (p) p.stock = Math.max(0, p.stock - l.qte); }
   ui.panier = [];
   ui.confirmation = numero;
@@ -518,7 +544,8 @@ function vueAssistant() {
     corps = `<label class="champ"><span>Nom de la boutique</span><input id="as-nom" value="${esc(a.nom)}" placeholder="ex. Atelier Sauge" data-assistant="nom" required></label>
       <label class="champ"><span>Que vendez-vous ?</span><select id="as-secteur" data-assistant="secteur">${Object.entries(SECTEURS).map(([k, v]) => `<option value="${k}" ${a.secteur === k ? 'selected' : ''}>${v.nom}</option>`).join('')}</select></label>
       <label class="champ"><span>Où sont vos clients ?</span><select id="as-pays" data-assistant="pays">${[['fr', 'France'], ['be', 'Belgique'], ['ch', 'Suisse'], ['ca', 'Canada']].map(([k, v]) => `<option value="${k}" ${a.pays === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-      <label class="case"><input id="as-ex" type="checkbox" data-assistant="exemples" ${a.exemples ? 'checked' : ''}> Ajouter 6 produits d’exemple à modifier ensuite</label>`;
+      <fieldset class="champ"><legend>Comment vendez-vous ?</legend><div class="choix-modele">${[['drop', 'Dropshipping', 'Les fournisseurs stockent et expédient. Vous gérez le site et la pub.'], ['stock', 'Mes propres produits', 'Vous fabriquez ou achetez, stockez et expédiez.'], ['mixte', 'Les deux', 'Dropshipping et produits à vous, dans la même boutique.']].map(([k, n, d]) => `<label class="${a.modele === k ? 'actif' : ''}"><input type="radio" name="as-modele" value="${k}" data-assistant="modele" ${a.modele === k ? 'checked' : ''}><strong>${n}</strong><span class="sous">${d}</span></label>`).join('')}</div></fieldset>
+      <label class="case"><input id="as-ex" type="checkbox" data-assistant="exemples" ${a.exemples ? 'checked' : ''}> ${a.modele === 'stock' ? 'Ajouter 6 produits d’exemple à modifier ensuite' : 'Importer les meilleurs produits du catalogue fournisseurs pour cette niche'}</label>`;
   } else if (a.etape === 2) {
     corps = `<div class="themes grands">${Object.entries(THEMES).map(([id, th]) => `
       <button class="theme-choix ${a.theme === id ? 'actif' : ''}" data-action="as-theme" data-id="${id}" style="background:${th.bg};color:${th.text};border-radius:${Math.min(th.radius, 14)}px">
@@ -540,6 +567,7 @@ function vueAssistant() {
     <div class="rangee fin">${a.etape > 1 ? '<button class="btn fantome" data-action="as-prec">Retour</button>' : ''}
       <button class="btn" data-action="${a.etape < 3 ? 'as-suiv' : 'as-creer'}">${a.etape < 3 ? 'Continuer' : 'Créer ma boutique'}</button></div>
     <p class="sous">La boutique de démonstration actuelle sera remplacée. Vous pourrez la restaurer avec « Réinitialiser la démo ».</p>
+    <div class="rangee"><span class="sous">Ou charger une démo :</span><button class="btn petit fantome" data-action="demo" data-id="lausanne">Dropshipping à Lausanne</button><button class="btn petit fantome" data-action="demo" data-id="lyon">Artisan à Lyon</button></div>
   </div>`;
 }
 
@@ -549,15 +577,25 @@ function creerBoutique() {
   const res = suggererDomaines({ marque: nom, secteurId: a.secteur, pays: a.pays });
   const dom = res.resultats.find(r => r.domaine === a.domaine);
   etat = {
-    version: 1,
-    boutique: { nom, secteur: a.secteur, slogan: '', theme: { ...THEMES[a.theme], id: a.theme }, sections: sectionsParDefaut(nom, a.secteur), domaine: dom ? { domaine: dom.domaine, prix: dom.prix, date: Date.now() } : null, publiee: true, pays: a.pays },
-    produits: a.exemples ? produitsDepuisSecteur(a.secteur) : [],
+    version: 2,
+    boutique: { nom, secteur: a.secteur, slogan: '', theme: { ...THEMES[a.theme], id: a.theme }, sections: sectionsParDefaut(nom, a.secteur, a.pays), domaine: dom ? { domaine: dom.domaine, prix: dom.prix, date: Date.now() } : null, publiee: true, pays: a.pays, devise: a.pays === 'ch' ? 'CHF' : 'EUR', modele: a.modele },
+    produits: [],
     commandes: [], visites30j: 0
   };
   completerEtat(etat);
   etat.entreprise.raison = nom;
+  etat.entreprise.regime = a.pays === 'ch' ? 'ch-non' : 'franchise';
+  etat.entreprise.forme = a.pays === 'ch' ? 'Raison individuelle' : 'Micro-entreprise';
+  if (a.exemples) {
+    const drops = CATALOGUE.filter(f => f.niche === a.secteur).map(f => ({ f, s: potentielProduit(f).score })).sort((x, y) => y.s - x.s).map(x => x.f)
+      .filter((f, i, arr) => arr.findIndex(g => g.nom === f.nom) === i);
+    const propres = produitsDepuisSecteur(a.secteur);
+    if (a.modele === 'stock' || !drops.length) etat.produits = propres;
+    else if (a.modele === 'drop') etat.produits = drops.slice(0, 6).map(produitDepuisCatalogue);
+    else etat.produits = [...drops.slice(0, 4).map(produitDepuisCatalogue), ...propres.slice(0, 2)];
+  }
   sauver();
-  ui.assistant = { etape: 1, nom: '', secteur: 'mode', pays: 'fr', theme: 'craie', exemples: true, domaine: null };
+  ui.assistant = { etape: 1, nom: '', secteur: 'maison', pays: 'ch', modele: 'drop', theme: 'leman', exemples: true, domaine: null };
   toast(`${nom} est en ligne. Personnalisez maintenant chaque section.`);
   location.hash = 'editeur';
 }
@@ -634,7 +672,7 @@ document.addEventListener('click', e => {
     case 'as-creer': creerBoutique(); break;
     case 'reset':
       if (!ui.confirmerReset) { ui.confirmerReset = true; el.textContent = 'Confirmer la réinitialisation'; setTimeout(() => { ui.confirmerReset = false; el.textContent = 'Réinitialiser la démo'; }, 4000); break; }
-      ui.confirmerReset = false; etat = boutiqueDemo(); sauver(); ui.commande = null; ui.section = null; toast('Démo Maison Brume restaurée.'); location.hash = 'tableau'; rendre(); break;
+      ui.confirmerReset = false; etat = boutiqueDemoLausanne(); sauver(); ui.commande = null; ui.section = null; toast('Démo Lacustre (Lausanne) restaurée.'); location.hash = 'tableau'; rendre(); break;
   }
 });
 
@@ -675,6 +713,7 @@ document.addEventListener('change', e => {
   else if (t.dataset.livraison !== undefined) { ui.livraison = t.value; rendre(); }
   else if (t.dataset.assistant === 'exemples') ui.assistant.exemples = t.checked;
   else if (t.dataset.assistant === 'domaine') { ui.assistant.domaine = t.value; rendre(); }
+  else if (t.dataset.assistant === 'modele') { ui.assistant.modele = t.value; rendre(); }
   else if (t.dataset.assistant === 'secteur' || t.dataset.assistant === 'pays') ui.assistant[t.dataset.assistant] = t.value;
 });
 
@@ -683,7 +722,7 @@ document.addEventListener('submit', e => {
   const f = e.target;
   if (f.dataset.form === 'produit') {
     const d = new FormData(f);
-    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false };
+    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false };
     const i = etat.produits.findIndex(x => x.id === p.id);
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);
     ui.produitEdite = null; sauver(); toast(`« ${p.nom} » enregistré.`); rendre();

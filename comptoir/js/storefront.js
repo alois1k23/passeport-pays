@@ -3,8 +3,12 @@
 function esc(t) {
   return String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+function devise() {
+  return (typeof etat !== 'undefined' && etat && etat.boutique && etat.boutique.devise) || 'EUR';
+}
 function euros(n) {
-  return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+  const d = devise();
+  return Number(n).toLocaleString(d === 'CHF' ? 'fr-CH' : 'fr-FR', { style: 'currency', currency: d });
 }
 
 function visuelProduit(p, grand = false) {
@@ -48,6 +52,7 @@ function renduSection(s, etat, mode) {
           <article class="sf-carte">
             ${visuelProduit(x)}
             <div class="sf-carte-infos"><h3>${esc(x.nom)}</h3><span>${euros(x.prix)}</span></div>
+            ${x.type === 'drop' && x.delai ? `<small class="sf-delai">Livré en ${x.delai[0]}–${x.delai[1]} jours</small>` : x.type === 'stock' && etat.boutique.modele !== 'stock' ? '<small class="sf-delai">En stock, expédié sous 24 h</small>' : ''}
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
           </article>`).join('') || '<p class="sf-vide">Aucun produit dans cette catégorie.</p>'}
         </div></section>`;

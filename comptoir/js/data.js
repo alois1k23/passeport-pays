@@ -25,6 +25,44 @@ const SAISONS = [
 
 /* Secteurs : mots-clés (volume de recherche mensuel simulé) + courbe saisonnière. */
 const SECTEURS = {
+  maison: {
+    nom: 'Maison & lifestyle',
+    courbe: [80, 72, 78, 80, 86, 74, 70, 72, 88, 100, 138, 150],
+    kws: [['lampe', 90500], ['deco', 90500], ['maison', 60500], ['cadeau', 49500], ['ambiance', 12100], ['cosy', 8100]],
+    categories: ['Luminaires', 'Diffuseurs', 'Textile', 'Rangement', 'Bougies'],
+    produits: [
+      ['Lampe d’ambiance', 'Luminaires', 39, 'Lumière douce, câble USB-C.'],
+      ['Diffuseur ultrasonique', 'Diffuseurs', 49, 'Silencieux, arrêt automatique.'],
+      ['Plaid gaufré', 'Textile', 79, 'Coton bio, 130 × 170 cm.'],
+      ['Organiseur bambou', 'Rangement', 34, 'Modulable, 6 compartiments.'],
+      ['Bougie au bois de cèdre', 'Bougies', 36, 'Cire végétale, 50 h.'],
+      ['Coffret cosy', 'Bougies', 69, 'Bougie, plaid mini et carte.']
+    ]
+  },
+  animaux: {
+    nom: 'Animaux',
+    courbe: [96, 88, 98, 102, 104, 100, 98, 96, 100, 98, 120, 132],
+    kws: [['chien', 135000], ['chat', 110000], ['animaux', 60500], ['jouet', 40500], ['accessoires', 22200], ['croquettes', 49500]],
+    categories: ['Accessoires', 'Couchage', 'Jouets', 'Hygiène'],
+    produits: [
+      ['Fontaine à eau', 'Accessoires', 49, 'Filtre charbon, 2 litres.'],
+      ['Panier apaisant', 'Couchage', 69, 'Lavable en machine.'],
+      ['Balle interactive', 'Jouets', 24, 'Rechargeable USB.'],
+      ['Brosse autonettoyante', 'Hygiène', 19, 'Pour poils courts et longs.']
+    ]
+  },
+  tech: {
+    nom: 'Accessoires tech',
+    courbe: [92, 84, 86, 88, 90, 92, 96, 94, 104, 98, 142, 150],
+    kws: [['chargeur', 74000], ['coque', 90500], ['gadget', 33100], ['tech', 27100], ['accessoires', 22200], ['iphone', 201000]],
+    categories: ['Recharge', 'Accessoires', 'Audio', 'Protection'],
+    produits: [
+      ['Chargeur 3-en-1', 'Recharge', 69, 'Pliable, 15 W.'],
+      ['Support voiture magnétique', 'Accessoires', 35, 'Fixation grille d’aération.'],
+      ['Écouteurs sans fil', 'Audio', 59, 'Réduction de bruit.'],
+      ['Coque antichoc', 'Protection', 29, 'Coins renforcés.']
+    ]
+  },
   deco: {
     nom: 'Décoration & bougies',
     courbe: [70, 62, 68, 72, 88, 66, 58, 60, 78, 96, 132, 150],
@@ -116,6 +154,7 @@ const THEMES = {
   brume: { nom: 'Brume', bg: '#F3F1EC', surface: '#FFFFFF', text: '#23262B', muted: '#6B6F76', primary: '#4F6B5A', onPrimary: '#FFFFFF', font: "'Fraunces', Georgia, serif", body: "'Outfit', system-ui, sans-serif", radius: 4 },
   nocturne: { nom: 'Nocturne', bg: '#111317', surface: '#1B1E24', text: '#F2F0EA', muted: '#9AA0A8', primary: '#E7B75F', onPrimary: '#14161A', font: "'Syne', system-ui, sans-serif", body: "'Outfit', system-ui, sans-serif", radius: 0 },
   craie: { nom: 'Craie', bg: '#FFFFFF', surface: '#F5F6F8', text: '#101318', muted: '#5C6470', primary: '#1F3FD1', onPrimary: '#FFFFFF', font: "'DM Serif Display', Georgia, serif", body: "'IBM Plex Sans', system-ui, sans-serif", radius: 10 },
+  leman: { nom: 'Léman', bg: '#EEF3F4', surface: '#FFFFFF', text: '#14242B', muted: '#566A72', primary: '#1D5C70', onPrimary: '#FFFFFF', font: "'Bricolage Grotesque', system-ui, sans-serif", body: "'Outfit', system-ui, sans-serif", radius: 12 },
   argile: { nom: 'Argile', bg: '#F6E9DC', surface: '#FFF7EF', text: '#3A2418', muted: '#80604E', primary: '#B4532A', onPrimary: '#FFFFFF', font: "'Bricolage Grotesque', system-ui, sans-serif", body: "'Outfit', system-ui, sans-serif", radius: 18 }
 };
 
@@ -145,6 +184,7 @@ const STATUTS = {
   attente: { nom: 'Paiement en attente', ton: 'warn' },
   payee: { nom: 'À préparer', ton: 'info' },
   preparation: { nom: 'En préparation', ton: 'info' },
+  fournisseur: { nom: 'Chez le fournisseur', ton: 'info' },
   expediee: { nom: 'Expédiée', ton: 'accent' },
   livree: { nom: 'Livrée', ton: 'good' },
   prete: { nom: 'Prête à retirer', ton: 'accent' },
@@ -160,11 +200,20 @@ const LIVRAISONS = {
   chronopost: { nom: 'Chronopost express', court: 'Express', prix: 12.9, delai: '24 h', transporteur: 'Chronopost' },
   retrait: { nom: 'Retrait en boutique (click & collect)', court: 'Retrait', prix: 0, delai: '2 h', transporteur: null }
 };
+/* Suisse : La Poste et retrait PickPost / My Post 24 (tarifs indicatifs de la démo). */
+const LIVRAISONS_CH = {
+  'poste-eco': { nom: 'La Poste Economy', court: 'Economy', prix: 7, delai: '2 à 3 jours ouvrables', transporteur: 'La Poste' },
+  'poste-prio': { nom: 'La Poste Priority', court: 'Priority', prix: 9, delai: '1 jour ouvrable', transporteur: 'La Poste' },
+  pickpost: { nom: 'Retrait PickPost / My Post 24', court: 'PickPost', prix: 6, delai: '2 à 3 jours ouvrables', transporteur: 'La Poste' },
+  retrait: LIVRAISONS.retrait
+};
+const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH };
+function livraisonsPays(pays) { return pays === 'ch' ? LIVRAISONS_CH : LIVRAISONS; }
 const SEUIL_PORT_OFFERT = 60;
 function fraisPort(mode, sousTotal) {
-  const l = LIVRAISONS[mode] || LIVRAISONS.colissimo;
+  const l = TOUTES_LIVRAISONS[mode] || LIVRAISONS.colissimo;
   if (mode === 'retrait') return 0;
-  if (mode !== 'chronopost' && sousTotal >= SEUIL_PORT_OFFERT) return 0;
+  if (mode !== 'chronopost' && mode !== 'poste-prio' && sousTotal >= SEUIL_PORT_OFFERT) return 0;
   return l.prix;
 }
 
@@ -184,16 +233,16 @@ function prng(seed) {
   };
 }
 
-function sectionsParDefaut(nom, secteurId) {
+function sectionsParDefaut(nom, secteurId, pays = 'fr') {
   const s = SECTEURS[secteurId];
   const saison = SAISONS[new Date().getMonth()];
   const mk = (type, props) => ({ id: 's' + Math.random().toString(36).slice(2, 9), type, props: { ...TYPES_SECTIONS[type].defaut, ...props } });
   return [
-    mk('annonce', {}),
+    mk('annonce', pays === 'ch' ? { texte: 'Livraison offerte dès CHF 60.– · Paiement TWINT' } : {}),
     mk('hero', { titre: nom, sousTitre: `${s.nom} choisis avec soin, expédiés depuis notre atelier.`, bouton: 'Voir la collection' }),
     mk('saison', { titre: saison.nom, texte: '-15 % sur une sélection jusqu’à la fin du mois', code: saison.kw.replace(/-/g, '').toUpperCase().slice(0, 10) + '15' }),
     mk('produits', { titre: 'Nos best-sellers', nombre: '4' }),
-    mk('arguments', {}),
+    mk('arguments', pays === 'ch' ? { a1: 'Expédié en Suisse', a2: 'Paiement TWINT ou carte', a3: 'Retours gratuits 30 jours' } : {}),
     mk('avis', {}),
     mk('newsletter', {}),
     mk('pied', { texte: `© ${new Date().getFullYear()} ${nom}` })
@@ -282,6 +331,12 @@ function completerEtat(e) {
   e.entreprise = e.entreprise || { raison: e.boutique.nom, forme: 'Micro-entreprise', siret: '', tvaIntra: '', adresse: '', email: '', regime: 'franchise', mediateur: '' };
   e.magasin = e.magasin || { actif: false, adresse: '', horaires: '', clickCollect: false, googleSync: false };
   e.campagnes = e.campagnes || {};
+  e.version = 2;
+  e.boutique.devise = e.boutique.devise || (e.boutique.pays === 'ch' ? 'CHF' : 'EUR');
+  e.boutique.modele = e.boutique.modele || 'stock';
+  e.boutique.langues = e.boutique.langues || ['fr'];
+  e.reglages = e.reglages || { autoTransmission: true, cpa: 8 };
+  for (const p of e.produits) p.type = p.type || 'stock';
   e.rdv = e.rdv || null;
   e.cookies = e.cookies ?? null;
   let n = 0;

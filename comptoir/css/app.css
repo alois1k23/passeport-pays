@@ -103,7 +103,7 @@ main { padding-block: 28px 48px; padding-left: max(32px, env(safe-area-inset-lef
 .tag { font: 500 .74rem var(--f-mono); color: var(--muted); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
 
 /* KPI */
-.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .kpi { background: var(--surface); padding: 16px 18px; display: grid; gap: 4px; }
 .kpi > span:first-child { color: var(--muted); font-size: .84rem; }
 .kpi strong { font: 600 1.6rem/1.1 var(--f-display); font-variant-numeric: tabular-nums; }
@@ -355,6 +355,7 @@ body[data-route="boutique"] main { padding: 0; gap: 0; }
   .grille-2, .editeur { grid-template-columns: minmax(0, 1fr); }
   .panneau { position: static; max-height: none; }
   .kpis { grid-template-columns: 1fr 1fr; }
+  .kpis .kpi:first-child { grid-column: 1 / -1; }
   #apercu { max-height: none; }
   .scene { padding: 10px; }
 }
@@ -457,3 +458,39 @@ body[data-route="boutique"] main { padding: 0; gap: 0; }
 .cote-pied .lien { padding-inline: 8px; font-size: .88rem; }
 @media (max-width: 1180px) { .frise-saisons { grid-template-columns: 1fr 1fr; } .plans { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) { .chiffres strong { font-size: 1.05rem; } .controles li { grid-template-columns: minmax(0, 1fr) auto; } .controles .pill { grid-column: 1 / -1; } }
+
+/* ---------- Dropshipping ---------- */
+.encart { background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; font-size: .88rem; line-height: 1.5; }
+.alerte-encart { background: var(--warn-soft); }
+.cases-ligne { border: 0; padding: 0; margin: 0; }
+.cases-ligne legend { font-size: .84rem; font-weight: 500; color: var(--muted); margin-bottom: 8px; }
+.cases-ligne .case { display: inline-flex; margin-right: 12px; }
+.catalogue { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.produit-cat h2 { font: 600 1.05rem/1.25 var(--f-display); }
+.pc-tete { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.pc-tete .sf-visuel { border-radius: 8px; }
+.pc-tete .sf-visuel span { font-size: 1rem; }
+.pc-tete .rangee { margin-top: 6px; gap: 6px; }
+.potentiel { display: grid; justify-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.potentiel b { font: 600 1.4rem var(--f-display); color: var(--accent); }
+.potentiel span { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.marge { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.marge div { background: var(--surface-2); padding: 8px 10px; }
+.marge dt { font-size: .76rem; color: var(--muted); }
+.marge dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.marge .up, .calcul-marge .up { color: var(--good); }
+.marge .down, .calcul-marge .down, .num.neg { color: var(--bad); }
+.produit-cat .btn, .produit-cat > .pill { justify-self: start; }
+.calcul-marge { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; gap: 3px; }
+.calcul-marge > div { display: flex; justify-content: space-between; gap: 12px; font-size: .88rem; font-variant-numeric: tabular-nums; }
+.calcul-marge .total { font-weight: 700; border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; }
+.calcul-marge p { margin-top: 6px; }
+.choix-modele { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.choix-modele label { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; align-content: start; }
+.choix-modele label.actif { border-color: var(--accent); background: var(--accent-soft); }
+.choix-modele input { justify-self: start; }
+fieldset.champ { border: 0; padding: 0; margin: 0; }
+fieldset.champ legend { font-size: .84rem; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+.encart-fournisseur { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.sf-delai { color: var(--sf-muted); font-size: .8rem; margin-top: -4px; }
+@media (max-width: 640px) { .choix-modele { grid-template-columns: minmax(0, 1fr); } .catalogue { grid-template-columns: minmax(0, 1fr); } }

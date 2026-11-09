@@ -1,6 +1,8 @@
 # Comptoir : créateur de boutiques en ligne (démo)
 
-Prototype d'une plateforme pour créer une boutique en ligne de A à Z, la modifier ensuite et la gérer au quotidien.
+Prototype d'une plateforme pour créer une boutique en ligne de A à Z, la modifier ensuite et la gérer au quotidien. Point de départ : **le dropshipping en Suisse (Lausanne)**, avec la possibilité de tout faire ensuite (produits à soi, marchés, magasin). Le mode France reste disponible.
+
+Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausanne (par défaut, en CHF), et **Maison Brume**, un artisan à Lyon (en euros). On passe de l'une à l'autre depuis « Créer une nouvelle boutique ».
 
 ## Lancer la démo
 
@@ -16,11 +18,16 @@ Ouvrir `comptoir/index.html` dans un navigateur. Rien à installer : HTML, CSS e
 | **Tableau de bord** (`#tableau`) | CA, commandes, panier moyen, conversion sur 30 jours, CA par jour, conseil de saison, tâches (commandes à expédier, stock bas…). |
 | **Commandes** (`#commandes`) | Filtres par statut, recherche, fiche commande, flux de statuts (en attente → à préparer → en préparation → expédiée → livrée → remboursée / annulée), numéro de suivi, historique, note interne. |
 | **Produits / Clients** | Ajout et modification de produits (prix, stock, catégorie, visibilité), liste des clients avec total dépensé. |
+| **Trouver des produits** (`#sourcing`) | Catalogue de fournisseurs (entrepôts Suisse, Europe, Chine) classé par potentiel : marge nette réelle (TVA, port, TVA d'import et dédouanement, frais de paiement, pub), tendance de saison, concurrence, délai. Import en un clic. |
 | **Copilote de saison** (`#copilote`) | Les vraies dates des prochains temps forts (Black Friday, Noël, soldes, fête des mères…). Pour chacun, une campagne prête calculée sur les ventes : produits à pousser, prévision et alertes de stock, bannière, code promo, e-mail, post Instagram, domaine et planning. Validation en un clic. Bilan du dernier temps fort. |
 | **Magasin** (`#magasin`) | Caisse au comptoir avec stock unique site + boutique, retraits click & collect, QR code de vitrine, fiche Google synchronisée (simulée). |
 | **Conformité** (`#conformite`) | Fiche entreprise, factures numérotées en continu (TVA 20 % ou franchise en base), CGV et mentions légales générées, points de contrôle (médiateur, RGPD, facture électronique). |
 | **Offre** (`#offre`) | Formules et tarifs, ce qui distingue Comptoir. |
 | **Voir la boutique** (`#boutique`) | La boutique côté client : bandeau cookies, panier, choix Colissimo / Mondial Relay / Chronopost / retrait en boutique, paiement simulé. La commande et sa facture arrivent dans l'admin. |
+
+Dropshipping : transmission automatique des commandes au fournisseur, statut « chez le fournisseur », bénéfice par commande et sur 30 jours, marge nette et seuil de rentabilité publicitaire (ROAS) sur chaque fiche, délais affichés au client, date limite de commande avant Noël.
+
+Suisse : CHF, TWINT, La Poste (Economy, Priority, PickPost), Impressum, protection des données (nLPD), TVA à 8,1 % ou non-assujetti avec suivi du seuil de CHF 100 000, calendrier suisse (Singles Day, fête des mères le 2e dimanche de mai, 1er Août…), boutique en FR/DE/IT (traduction simulée).
 
 Autres fonctions : ajout de produits **par photo** (fiches créées automatiquement), rédaction de description, étiquettes d'envoi, session d'accompagnement à réserver.
 
@@ -44,7 +51,8 @@ comptoir/
   css/app.css          admin + thèmes de boutique
   js/data.js           secteurs, saisonnalité, thèmes, sections, boutique d'exemple
   js/domains.js        moteur de suggestion de domaines
-  js/copilote.js       calendrier commercial français et génération des campagnes
+  js/copilote.js       calendriers commerciaux France et Suisse, génération des campagnes
+  js/dropshipping.js   catalogue fournisseurs, marge nette, transmission des commandes, démo Lausanne
   js/modules.js        copilote, magasin, conformité, photos, offre, fenêtres
   js/storefront.js     rendu de la boutique (aperçu et version client)
   js/app.js            routage, admin, éditeur, commandes, panier

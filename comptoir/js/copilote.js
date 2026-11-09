@@ -24,7 +24,8 @@ function nieme(annee, mois, jourSemaine, n) { // n-ième jourSemaine du mois (n 
 function ajouterJours(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 
 /* duree : jours de campagne ; cadeau : l’offre met en avant les coffrets / cartes cadeaux */
-function tempsFortsAnnee(an) {
+function tempsFortsAnnee(an, pays = (typeof etat !== 'undefined' && etat ? etat.boutique.pays : 'fr')) {
+  if (pays === 'ch') return tempsFortsSuisse(an);
   const p = paques(an);
   const pentecote = ajouterJours(p, 49);
   let fdm = nieme(an, 4, 0, -1);
@@ -44,6 +45,26 @@ function tempsFortsAnnee(an) {
     { id: 'halloween', nom: 'Halloween', kw: 'halloween', date: new Date(an, 9, 31), duree: 10, remise: 10, cadeau: false, angle: 'Soirées d’automne' },
     { id: 'black-friday', nom: 'Black Friday', kw: 'black-friday', date: ajouterJours(thanksgiving, 1), duree: 4, remise: 20, cadeau: false, angle: 'Notre seule grosse remise de l’année' },
     { id: 'noel', nom: 'Noël', kw: 'noel', date: new Date(an, 11, 25), duree: 24, remise: 0, cadeau: true, angle: 'Des cadeaux qui ont une histoire' }
+  ].map(e => ({ ...e, cle: `${e.id}-${an}`, debut: ajouterJours(e.date, -e.duree), annee: an }));
+}
+
+/* Suisse : pas de dates légales de soldes, fêtes des mères et des pères plus tôt, 1er Août, Singles Day très suivi. */
+function tempsFortsSuisse(an) {
+  const p = paques(an);
+  const thanksgiving = nieme(an, 10, 4, 4);
+  return [
+    { id: 'saint-valentin', nom: 'Saint-Valentin', kw: 'saint-valentin', date: new Date(an, 1, 14), duree: 10, remise: 10, cadeau: true, angle: 'Le cadeau à offrir à deux' },
+    { id: 'paques', nom: 'Pâques', kw: 'paques', date: p, duree: 10, remise: 10, cadeau: true, angle: 'Petites attentions de printemps' },
+    { id: 'fete-des-meres', nom: 'Fête des mères', kw: 'fete-des-meres', date: nieme(an, 4, 0, 2), duree: 14, remise: 10, cadeau: true, angle: 'Pour celle qui a tout' },
+    { id: 'fete-des-peres', nom: 'Fête des pères', kw: 'fete-des-peres', date: nieme(an, 5, 0, 1), duree: 12, remise: 10, cadeau: true, angle: 'Le cadeau qu’il n’achèterait pas lui-même' },
+    { id: 'soldes-ete', nom: 'Soldes d’été', kw: 'soldes', date: new Date(an, 5, 29), duree: 21, remise: 30, cadeau: false, angle: 'Faites de la place pour la rentrée' },
+    { id: '1er-aout', nom: 'Fête nationale', kw: '1er-aout', date: new Date(an, 7, 1), duree: 7, remise: 10, cadeau: false, angle: 'Les soirées d’été au bord du lac' },
+    { id: 'rentree', nom: 'Rentrée scolaire (Vaud)', kw: 'rentree', date: nieme(an, 7, 1, 4), duree: 14, remise: 10, cadeau: false, angle: 'Nouvelle saison, nouvelles envies' },
+    { id: 'halloween', nom: 'Halloween', kw: 'halloween', date: new Date(an, 9, 31), duree: 10, remise: 10, cadeau: false, angle: 'Soirées d’automne' },
+    { id: 'singles-day', nom: 'Singles Day', kw: 'singles-day', date: new Date(an, 10, 11), duree: 3, remise: 15, cadeau: false, angle: 'Faites-vous plaisir, rien que pour vous' },
+    { id: 'black-friday', nom: 'Black Friday', kw: 'black-friday', date: ajouterJours(thanksgiving, 1), duree: 4, remise: 20, cadeau: false, angle: 'Notre seule grosse remise de l’année' },
+    { id: 'noel', nom: 'Noël', kw: 'noel', date: new Date(an, 11, 25), duree: 24, remise: 0, cadeau: true, angle: 'Des cadeaux livrés à temps' },
+    { id: 'soldes-hiver', nom: 'Soldes d’après-Noël', kw: 'soldes', date: new Date(an, 11, 26), duree: 21, remise: 30, cadeau: false, angle: 'Dernières pièces de la saison à prix doux' }
   ].map(e => ({ ...e, cle: `${e.id}-${an}`, debut: ajouterJours(e.date, -e.duree), annee: an }));
 }
 
@@ -85,22 +106,27 @@ function genererCampagne(etat, evt) {
     const parJour = (v30[p.id] || 0) / 30;
     const prevision = Math.max(1, Math.round(parJour * ratio * intensite * evt.duree));
     const estCoffret = /coffret|carte/i.test(p.nom + p.categorie);
-    return { p, ventes90: v90[p.id] || 0, prevision, manque: Math.max(0, prevision - p.stock), score: (v90[p.id] || 0) + (evt.cadeau && estCoffret ? 25 : 0) };
+    return { p, ventes90: v90[p.id] || 0, prevision, manque: p.type === 'drop' ? 0 : Math.max(0, prevision - p.stock), score: (v90[p.id] || 0) + (evt.cadeau && estCoffret ? 25 : 0) };
   }).sort((a, b) => b.score - a.score);
   const vedettes = produits.slice(0, 3);
   const ruptures = produits.filter(x => x.manque > 0);
   const caPrevu = produits.reduce((a, x) => a + Math.min(x.prevision, x.p.stock + x.manque) * x.p.prix * (1 - evt.remise / 100), 0);
 
-  const racines = { soldes: 'SOLDES', 'saint-valentin': 'VALENTIN', paques: 'PAQUES', 'fete-des-meres': 'MAMAN', 'fete-des-peres': 'PAPA', rentree: 'RENTREE', halloween: 'HALLOWEEN', 'black-friday': 'BLACKFRIDAY', noel: 'NOEL' };
+  // Dropshipping : date limite de commande pour que le client reçoive à temps
+  const drops = vedettesDrop(produits);
+  const delaiMax = drops.length ? Math.max(...drops.map(x => x.p.delai[1])) : 0;
+  const dateLimite = delaiMax && (evt.cadeau || evt.id === 'noel') ? ajouterJours(evt.date, -(delaiMax + 1)) : null;
+  const racines = { soldes: 'SOLDES', 'saint-valentin': 'VALENTIN', paques: 'PAQUES', 'fete-des-meres': 'MAMAN', 'fete-des-peres': 'PAPA', rentree: 'RENTREE', halloween: 'HALLOWEEN', 'black-friday': 'BLACKFRIDAY', noel: 'NOEL', 'singles-day': 'SINGLES', '1er-aout': 'AOUT' };
   const code = evt.remise ? (racines[evt.kw] || evt.kw.replace(/-/g, '').toUpperCase().slice(0, 10)) + evt.remise : '';
   const offre = evt.remise ? `-${evt.remise} % avec le code ${code}` : 'Emballage cadeau offert et livraison garantie avant le 24';
+  const delaiLong = produits.filter(x => x.p.type === 'drop' && x.p.delai && x.p.delai[1] > 10).map(x => x.p);
   const dateTxt = evt.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const finCampagne = evt.id === 'noel' ? ajouterJours(evt.date, -5) : ['soldes-hiver', 'soldes-ete'].includes(evt.id) ? ajouterJours(evt.date, evt.duree) : evt.id === 'black-friday' ? ajouterJours(evt.date, 3) : evt.date;
   const fmt = d => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   const lancement = ['soldes-hiver', 'soldes-ete', 'black-friday'].includes(evt.id) ? evt.date : evt.debut;
 
   return {
-    evt, vedettes, ruptures, caPrevu, code, offre,
+    evt, vedettes, ruptures, caPrevu, code, offre, dateLimite, delaiLong,
     banniere: { titre: evt.nom, texte: `${evt.angle}. ${offre}.` },
     email: {
       objet: evt.remise ? `${evt.nom} : -${evt.remise} % chez ${b.nom}` : `${evt.nom} : nos idées cadeaux`,
@@ -109,7 +135,7 @@ function genererCampagne(etat, evt) {
     post: `${evt.angle}\n${vedettes.map(x => x.p.nom).join(' · ')}\n${offre}\n#${evt.kw.replace(/-/g, '')} #${slugifier(b.nom).replace(/-/g, '')} #${secteur.kws[0][0]} #faitmain #commercelocal`,
     domaine: `${evt.kw}-${slugifier(b.nom)}.${b.pays || 'fr'}`,
     planning: [
-      { date: ajouterJours(lancement, -21), texte: 'Réassort des produits en rupture, préparation des visuels' },
+      { date: ajouterJours(lancement, -21), texte: drops.length ? 'Vérification des stocks et délais fournisseurs, préparation des visuels' : 'Réassort des produits en rupture, préparation des visuels' },
       { date: ajouterJours(lancement, -7), texte: 'E-mail d’annonce aux clients et publication Instagram' },
       { date: lancement, texte: 'Lancement : bannière et code promo activés' },
       { date: finCampagne, texte: evt.id === 'noel' ? 'Date limite de commande pour une livraison avant Noël' : 'Fin de la campagne, retour automatique à la bannière normale' }
@@ -117,6 +143,8 @@ function genererCampagne(etat, evt) {
     dateTxt
   };
 }
+
+function vedettesDrop(produits) { return produits.slice(0, 3).filter(x => x.p.type === 'drop' && x.p.delai); }
 
 /* Bilan d’un temps fort passé : CA des N jours avant l’événement vs les N jours précédents. */
 function bilanCampagne(etat, evt) {
