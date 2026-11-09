@@ -214,6 +214,9 @@ test('fichiers statiques : le code serveur et la base ne sont pas servis', async
   assert.equal((await fetch(`${base}/js/../server/server.js`)).status, 404);
   assert.equal((await fetch(`${base}/js/app.js`)).status, 200);
   assert.equal((await fetch(`${base}/s/${slug}`)).status, 200);
+  assert.match(await (await fetch(`${base}/`)).text(), /ce que vous gagnez vraiment/);
+  assert.match(await (await fetch(`${base}/app`)).text(), /id="vue"/);
+  assert.equal((await fetch(`${base}/img/apercu-analyse.jpg`)).headers.get('content-type'), 'image/jpeg');
 });
 
 test('réseaux sociaux : brouillon, validation, publication automatique à l’échéance', async () => {

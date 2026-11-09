@@ -12,7 +12,7 @@ const fournisseurs = require('./fournisseurs');
 const social = require('./social');
 
 const RACINE_FRONT = path.resolve(__dirname, '..', '..');
-const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|css\/[\w.-]+\.css|js\/[\w.-]+\.js)$/;
+const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|accueil\.html|css\/[\w.-]+\.css|js\/[\w.-]+\.js|img\/[\w.-]+\.(jpg|png|svg))$/;
 const POLICES = ["'Fraunces', Georgia, serif", "'DM Serif Display', Georgia, serif", "'Syne', system-ui, sans-serif", "'Bricolage Grotesque', system-ui, sans-serif", "'Outfit', system-ui, sans-serif", "'IBM Plex Sans', system-ui, sans-serif"];
 const COULEUR = /^#[0-9a-f]{6}$/i;
 const IMAGE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
@@ -546,7 +546,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const route = r.trouver(req.method, chemin);
       if (!route) {
         if (req.method === 'GET') {
-          if (chemin === '/' && servirStatique(res, RACINE_FRONT, 'index.html')) return;
+          if (chemin === '/' && servirStatique(res, RACINE_FRONT, 'accueil.html')) return;
+          if ((chemin === '/app' || chemin === '/demo') && servirStatique(res, RACINE_FRONT, 'index.html')) return;
           if (/^\/s\/[\w-]+$/.test(chemin) && servirStatique(res, RACINE_FRONT, 'boutique.html')) return;
           if (FICHIERS_PUBLICS.test(chemin) && servirStatique(res, RACINE_FRONT, chemin.slice(1))) return;
         }

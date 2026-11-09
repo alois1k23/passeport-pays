@@ -19,7 +19,7 @@ async function api(methode, chemin, corps) {
 }
 
 async function initServeur() {
-  if (!/^https?:$/.test(location.protocol)) return;
+  if (!/^https?:$/.test(location.protocol) || location.pathname.startsWith('/demo')) return;
   let s;
   try {
     const rep = await fetch('/api/session', { cache: 'no-store', credentials: 'same-origin' });

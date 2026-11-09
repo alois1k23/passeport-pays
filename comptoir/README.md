@@ -8,6 +8,8 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 
 **Version réelle (serveur)** : `cd comptoir && npm start`, puis ouvrir http://localhost:3000. On y crée un compte et une boutique publique (`/s/<nom>`). Les commandes, paiements (TWINT/cartes via Stripe, ou simulation), fournisseurs et factures sont gérés en base. Il faut Node 22.13 ou plus récent ; rien d'autre à installer. Détails dans [`server/README.md`](server/README.md).
 
+**Site public** : avec le serveur, `/` affiche la page d'accueil commerciale (`accueil.html`), `/app` l'application et `/demo` la démo.
+
 **Démo sans serveur** : ouvrir `comptoir/index.html` dans un navigateur. Les données restent dans le navigateur (localStorage). Le bouton « Réinitialiser la démo » remet la boutique d'exemple.
 
 ## Ce que fait la démo
@@ -21,6 +23,7 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 | **Commandes** (`#commandes`) | Filtres par statut, recherche, fiche commande, flux de statuts (en attente → à préparer → en préparation → expédiée → livrée → remboursée / annulée), numéro de suivi, historique, note interne. |
 | **Produits / Clients** | Ajout et modification de produits (prix, stock, catégorie, visibilité), liste des clients avec total dépensé. |
 | **Trouver des produits** (`#sourcing`) | Catalogue de fournisseurs (entrepôts Suisse, Europe, Chine) classé par potentiel : marge nette réelle (TVA, port, TVA d'import et dédouanement, frais de paiement, pub), tendance de saison, concurrence, délai. Import en un clic. |
+| **Analyse** (`#analyse`) | 5 onglets sur 7 jours, 30 jours, 90 jours ou 12 mois, comparés à la période précédente, avec filtre par canal et export CSV. Ventes : chiffres clés et mini-courbes, courbe comparée, carte des heures d'achat, livraison, villes, constats automatiques. Produits : classement, part, évolution, marge, tendance. Clients : nouveaux et revenus, taux de réachat, valeur client, rétention par cohorte, montant des paniers. Marketing : entonnoir, réseaux, tests, temps forts. Rentabilité : cascade du chiffre d'affaires au bénéfice, compte de résultat, seuil de TVA. |
 | **Réseaux sociaux** (`#social`) | Pilote automatique : calendrier de publications Instagram, TikTok, Facebook, Pinterest généré à partir des produits, ventes, marges et temps forts. Pour chaque publication : accroche des 3 premières secondes, légende, hashtags et script vidéo plan par plan. Validation ou publication automatique, statistiques, et le pilote programme davantage ce qui convertit. Lancement intensif TikTok, micro-influenceurs. |
 | **Tests produits** (`#tests`) | Plans de test (publicités Meta, publicités TikTok, TikTok organique), saisie des résultats du jour, verdict automatique : couper, attendre, garder ou augmenter le budget, selon la marge brute. Objectif de 3 à 5 produits testés par semaine. |
 | **Copilote de saison** (`#copilote`) | Les vraies dates des prochains temps forts (Black Friday, Noël, soldes, fête des mères…). Pour chacun, une campagne prête calculée sur les ventes : produits à pousser, prévision et alertes de stock, bannière, code promo, e-mail, post Instagram, domaine et planning. Validation en un clic. Bilan du dernier temps fort. |
@@ -56,6 +59,10 @@ comptoir/
   js/data.js           secteurs, saisonnalité, thèmes, sections, boutique d'exemple
   js/domains.js        moteur de suggestion de domaines
   js/copilote.js       calendriers commerciaux France et Suisse, génération des campagnes
+  js/graphiques.js     graphiques SVG (courbes, cascade, cartes de chaleur, entonnoir, barres)
+  js/analyse.js        module Analyse et export CSV
+  js/palette.js        palette de commandes (Ctrl+K) et thème clair/sombre
+  accueil.html         page d'accueil commerciale
   js/social.js         pilote automatique des réseaux sociaux
   js/methode.js        grille produit gagnant, tests produits, micro-influenceurs
   js/dropshipping.js   catalogue fournisseurs, marge nette, transmission des commandes, démo Lausanne

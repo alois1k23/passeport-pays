@@ -185,10 +185,21 @@ function boutiqueDemoLausanne() {
   produits.push({ id: 'p7', nom: 'Coffret Léman fait main', categorie: 'Bougies', prix: 59, description: 'Bougie, savon et carte postale du lac, assemblés à Lausanne.', stock: 4, teinte: 195, actif: true, type: 'stock', cout: 21 });
   const now = Date.now(), jour = 86400000;
   const commandes = [];
-  for (let d = 75; d >= 0; d--) {
-    const n = Math.floor(rand() * (d < 20 ? 3.4 : d < 45 ? 2.2 : 1.3));
+  // 13 mois d’historique : croissance progressive, saisonnalité du secteur, pics le soir et le week-end.
+  const HEURES = [0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 4, 5, 8, 7, 5, 4, 4, 5, 7, 10, 12, 11, 8, 3];
+  const totalH = HEURES.reduce((a, b) => a + b, 0);
+  const tirerHeure = () => { let v = rand() * totalH; for (let h = 0; h < 24; h++) { v -= HEURES[h]; if (v <= 0) return h; } return 20; };
+  const minuit = new Date(); minuit.setHours(0, 0, 0, 0);
+  const clientsFideles = [];
+  for (let d = 395; d >= 0; d--) {
+    const jourDate = new Date(minuit.getTime() - d * jour);
+    const saison = SECTEURS.maison.courbe[jourDate.getMonth()] / 100;
+    const croissance = 0.35 + 0.65 * Math.pow(1 - d / 395, 1.4);
+    const weekend = [0, 6].includes(jourDate.getDay()) ? 1.25 : 1;
+    const n = Math.floor(rand() * 4.6 * saison * croissance * weekend + rand() * 0.6);
     for (let k = 0; k < n; k++) {
-      const date = now - d * jour - Math.floor(rand() * jour * 0.8);
+      let date = jourDate.getTime() + tirerHeure() * 3600000 + Math.floor(rand() * 3600000);
+      if (date > now) date = now - Math.floor(rand() * 3600000);
       const lignes = [];
       const nb = 1 + Math.floor(rand() * 1.8);
       for (let j = 0; j < nb; j++) {
@@ -206,13 +217,16 @@ function boutiqueDemoLausanne() {
       else if (d > 3) statut = rand() < 0.5 ? 'livree' : 'expediee';
       else if (d > 0) statut = drop ? (rand() < 0.5 ? 'expediee' : 'fournisseur') : 'preparation';
       else statut = rand() < 0.12 ? 'attente' : 'payee';
-      const prenom = PRENOMS[Math.floor(rand() * PRENOMS.length)];
-      const nomF = NOMS[Math.floor(rand() * NOMS.length)];
+      let prenom = PRENOMS[Math.floor(rand() * PRENOMS.length)];
+      let nomF = NOMS[Math.floor(rand() * NOMS.length)];
+      let villeF = VILLES_CH[Math.floor(rand() * VILLES_CH.length)];
+      if (clientsFideles.length > 20 && rand() < 0.22) { [prenom, nomF, villeF] = clientsFideles[Math.floor(rand() * clientsFideles.length)]; }
+      else if (rand() < 0.35) clientsFideles.push([prenom, nomF, villeF]);
       const hist = [{ date, texte: 'Commande passée (TWINT)' }];
       if (drop && !['attente', 'payee'].includes(statut)) hist.push({ date: date + 600000, texte: 'Transmise automatiquement au fournisseur' });
       commandes.push({
         id: '', numero: 0, date,
-        client: { nom: `${prenom} ${nomF}`, email: `${prenom}.${nomF}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + '@exemple.ch', ville: VILLES_CH[Math.floor(rand() * VILLES_CH.length)] },
+        client: { nom: `${prenom} ${nomF}`, email: `${prenom}.${nomF}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + '@exemple.ch', ville: villeF },
         lignes, sousTotal, port, total: Math.round((sousTotal + port) * 100) / 100,
         statut, livraison, canal: 'web',
         suivi: ['expediee', 'livree'].includes(statut) ? '99.60.' + Math.floor(100000 + rand() * 899999) + '.' + Math.floor(10000000 + rand() * 89999999) : '',

@@ -8,22 +8,30 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=DM+Serif+Display&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600&family=Syne:wght@600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=DM+Serif+Display&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600&family=Syne:wght@600;700&display=swap">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <div class="app">
   <aside class="cote">
-    <a class="marque" href="#tableau" aria-label="Comptoir, tableau de bord"><span class="marque-logo">C</span><b>Comptoir</b></a>
-    <div class="boutique-actuelle"><span class="sous">Boutique</span><strong id="nom-boutique"></strong><span class="mono" id="domaine-actuel"></span></div>
+    <a class="marque" href="#tableau" aria-label="Comptoir, vue d’ensemble"><span class="marque-logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M4 9h16l-1.5 10.5a1 1 0 0 1-1 .5H6.5a1 1 0 0 1-1-.5L4 9Zm4 0V7a4 4 0 0 1 8 0v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span><b>Comptoir</b></a>
+    <div class="boutique-actuelle"><span class="pastille" aria-hidden="true"></span><div><strong id="nom-boutique"></strong><span class="mono" id="domaine-actuel"></span></div></div>
     <nav id="nav" aria-label="Navigation principale"></nav>
     <div class="cote-pied">
-      <a class="lien" href="#offre">L’offre et les tarifs</a>
-      <a class="btn" href="#creer">Créer une nouvelle boutique</a>
+      <a class="lien" href="#offre">Offre et tarifs</a>
+      <a class="btn" href="#creer">Nouvelle boutique</a>
       <button class="btn fantome" data-action="reset">Réinitialiser la démo</button>
     </div>
   </aside>
-  <main id="vue"></main>
+  <div class="colonne">
+    <header class="barre-haut">
+      <div class="fil" id="fil"></div>
+      <button class="recherche-btn" data-action="palette" aria-label="Rechercher une page ou une action"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Rechercher</span><kbd>Ctrl K</kbd></button>
+      <span class="mode-badge" id="mode-badge">Démo</span>
+      <button class="icone-btn" data-action="theme" id="theme-btn" aria-label="Changer de thème"></button>
+    </header>
+    <main id="vue"></main>
+  </div>
 </div>
 <div id="toast" role="status" hidden></div>
 <div id="tip" hidden></div>
@@ -37,6 +45,9 @@
 <script src="js/modules.js"></script>
 <script src="js/social.js"></script>
 <script src="js/methode.js"></script>
+<script src="js/graphiques.js"></script>
+<script src="js/analyse.js"></script>
+<script src="js/palette.js"></script>
 <script src="js/serveur.js"></script>
 <script src="js/app.js"></script>
 <!-- contenu-artifact:fin -->

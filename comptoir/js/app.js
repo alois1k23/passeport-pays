@@ -1,6 +1,6 @@
 /* Comptoir — application : routage, interface d’administration, éditeur, commandes. */
 
-const CLE = 'comptoir-etat-v3';
+const CLE = 'comptoir-etat-v4';
 let etat = charger();
 const ui = {
   route: 'tableau',
@@ -81,35 +81,84 @@ function graphBarres(donnees, { hauteur = 180, format = v => v, surligne = -1, l
 }
 
 /* ---------- Coque de l’application ---------- */
+/* Icônes au trait (24 × 24), dessinées pour Comptoir. */
+const ICONES = {
+  tableau: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  analyse: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
+  copilote: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="m10 15 1.5 1.5L15 13"/>',
+  commandes: '<path d="M6 3h12l1 18-3.5-2-3 2-3-2L6 21Z"/><path d="M9 8h6M9 12h6"/>',
+  clients: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>',
+  magasin: '<path d="M3 9 4.5 4h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0Z"/><path d="M5 13v8h14v-8M10 21v-5h4v5"/>',
+  produits: '<path d="m12 3 8.5 4.5v9L12 21l-8.5-4.5v-9Z"/><path d="m3.5 7.5 8.5 4.5 8.5-4.5M12 12v9"/>',
+  sourcing: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  tests: '<path d="M9 3h6M10 3v6l-5.5 9.5A1.5 1.5 0 0 0 5.8 21h12.4a1.5 1.5 0 0 0 1.3-2.5L14 9V3"/><path d="M7.5 15h9"/>',
+  social: '<path d="M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1Z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
+  domaines: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  editeur: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/>',
+  conformite: '<path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z"/><path d="m9 12 2 2 4-4"/>',
+  boutique: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  soleil: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  lune: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/>',
+  auto: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18" /><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor"/>',
+  offre: '<path d="M20 12 12 20l-8-8V4h8Z"/><circle cx="8.5" cy="8.5" r="1.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>'
+};
+const icone = (nom, taille = 16) => `<svg viewBox="0 0 24 24" width="${taille}" height="${taille}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[nom] || ''}</svg>`;
+
 const NAV = [
-  ['tableau', 'Tableau de bord'],
-  ['copilote', 'Copilote de saison'],
-  ['social', 'Réseaux sociaux'],
-  ['sourcing', 'Trouver des produits'],
-  ['tests', 'Tests produits'],
-  ['commandes', 'Commandes'],
-  ['produits', 'Produits'],
-  ['clients', 'Clients'],
-  ['magasin', 'Magasin'],
-  ['editeur', 'Éditeur du site'],
-  ['domaines', 'Domaines'],
-  ['conformite', 'Conformité'],
-  ['boutique', 'Voir la boutique']
+  ['tableau', 'Vue d’ensemble', 'Pilotage'],
+  ['analyse', 'Analyse', 'Pilotage'],
+  ['copilote', 'Copilote de saison', 'Pilotage'],
+  ['commandes', 'Commandes', 'Ventes'],
+  ['clients', 'Clients', 'Ventes'],
+  ['magasin', 'Magasin et caisse', 'Ventes'],
+  ['produits', 'Produits', 'Catalogue'],
+  ['sourcing', 'Trouver des produits', 'Catalogue'],
+  ['tests', 'Tests produits', 'Catalogue'],
+  ['social', 'Réseaux sociaux', 'Croissance'],
+  ['domaines', 'Domaines', 'Croissance'],
+  ['editeur', 'Éditeur du site', 'Boutique'],
+  ['conformite', 'Conformité', 'Boutique'],
+  ['boutique', 'Voir la boutique', 'Boutique']
 ];
+const TITRES_HORS_NAV = { creer: ['Boutique', 'Nouvelle boutique'], offre: ['Comptoir', 'Offre et tarifs'] };
+
+/* Thème : système, clair ou sombre (mémorisé dans ce navigateur). */
+function appliquerTheme() {
+  let t = 'auto';
+  try { t = localStorage.getItem('comptoir-theme') || 'auto'; } catch { /* ignoré */ }
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  const b = document.getElementById('theme-btn');
+  if (b) { b.innerHTML = icone(t === 'dark' ? 'lune' : t === 'light' ? 'soleil' : 'auto', 15); b.title = `Thème : ${{ auto: 'système', light: 'clair', dark: 'sombre' }[t]}`; }
+}
+appliquerTheme();
 
 function rendre() {
   const route = ui.route;
   document.body.dataset.route = route;
   const aTraiter = etat.commandes.filter(c => c.statut === 'payee' || c.statut === 'preparation').length;
   const aValider = prochainsTempsForts(2).filter(e => !etat.campagnes[e.cle]).length;
-  $('#nav').innerHTML = NAV.map(([id, nom]) => `<a href="#${id}" class="${route === id ? 'actif' : ''}">${nom}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider ? `<b class="badge">${aValider}</b>` : ''}</a>`).join('');
+  let groupe = '';
+  $('#nav').innerHTML = NAV.map(([id, nom, g]) => {
+    const tete = g !== groupe ? `<div class="nav-groupe">${(groupe = g)}</div>` : '';
+    return `${tete}<a href="#${id}" class="${route === id ? 'actif' : ''}" ${route === id ? 'aria-current="page"' : ''}>${icone(id)}<span>${nom}</span>${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider ? `<b class="badge">${aValider}</b>` : ''}</a>`;
+  }).join('');
+  const n = NAV.find(x => x[0] === route);
+  const [g, t] = n ? [n[2], n[1]] : (TITRES_HORS_NAV[route] || ['Comptoir', '']);
+  $('#fil').innerHTML = `<i>${esc(etat.boutique.nom)}</i><i>/</i><span>${esc(g)}</span><i>/</i><b>${esc(t)}</b>`;
+  const enLigne = typeof SERVEUR !== 'undefined' && SERVEUR.connecte;
+  $('#mode-badge').textContent = enLigne ? 'En ligne' : 'Démo';
+  $('#mode-badge').classList.toggle('reel', enLigne);
+  document.title = `${t || 'Comptoir'} · ${etat.boutique.nom}`;
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : (typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? location.host + '/s/' + SERVEUR.slug : slugifier(etat.boutique.nom) + '.comptoir.shop');
-  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
+  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   $('#vue').innerHTML = (vues[route] || vueTableau)();
   apresRendu();
 }
 
+let minuterieRedim = null;
+window.addEventListener('resize', () => { clearTimeout(minuterieRedim); minuterieRedim = setTimeout(() => { if (['tableau', 'analyse'].includes(ui.route)) rendre(); }, 200); });
 function apresRendu() {
   if (ui.route === 'editeur') rendreApercu();
   if (ui.route === 'magasin') dessinerQR();
@@ -132,11 +181,12 @@ function vueTableau() {
   const conv = cur.n / etat.visites30j;
   const aExpedier = etat.commandes.filter(c => c.statut === 'payee' || c.statut === 'preparation');
   const attente = etat.commandes.filter(c => c.statut === 'attente').length;
-  const jours = [];
+  const jours = [], joursPrec = [];
   for (let i = 29; i >= 0; i--) {
     const d0 = new Date(now - i * JOUR); d0.setHours(0, 0, 0, 0);
-    const s = statsPeriode(d0.getTime(), d0.getTime() + JOUR);
-    jours.push({ label: dateCourte(d0), v: Math.round(s.ca), tip: `${dateCourte(d0)} : ${euros(s.ca)} · ${s.n} commande${s.n > 1 ? 's' : ''}` });
+    const s = statsPeriode(d0.getTime(), d0.getTime() + JOUR), sp = statsPeriode(d0.getTime() - 30 * JOUR, d0.getTime() - 29 * JOUR);
+    jours.push({ label: dateCourte(d0), v: s.ca, n: s.n, panier: s.panier, net: etat.commandes.filter(c => c.date >= d0.getTime() && c.date < d0.getTime() + JOUR).reduce((a, c) => a + beneficeCommande(c), 0) });
+    joursPrec.push(sp.ca);
   }
   const mois = new Date().getMonth();
   const saison = SAISONS[mois];
@@ -150,19 +200,18 @@ function vueTableau() {
   const evol = (a, b) => b ? `<span class="evol ${a >= b ? 'up' : 'down'}">${pct(a / b - 1)} vs 30 j préc.</span>` : '';
 
   return `
-  <div class="tete"><div><h1>Bonjour</h1><p class="sous">Voici l’activité de ${esc(etat.boutique.nom)} sur les 30 derniers jours.</p></div>
-    <a class="btn" href="#boutique">Voir la boutique</a></div>
+  <div class="tete"><div><h1>Vue d’ensemble</h1><p class="sous">Activité de ${esc(etat.boutique.nom)} sur les 30 derniers jours, comparée aux 30 jours précédents.</p></div>
+    <div class="rangee"><a class="btn fantome" href="#analyse">Analyse détaillée</a><a class="btn" href="#boutique">Voir la boutique</a></div></div>
   <div class="kpis">
-    <div class="kpi"><span>Chiffre d’affaires</span><strong>${euros(cur.ca)}</strong>${evol(cur.ca, prev.ca)}</div>
-    <div class="kpi"><span>Bénéfice net (estimé)</span><strong>${euros(bCur)}</strong>${evol(bCur, bPrev)}</div>
-    <div class="kpi"><span>Commandes</span><strong>${cur.n}</strong>${evol(cur.n, prev.n)}</div>
-    <div class="kpi"><span>Panier moyen</span><strong>${euros(cur.panier)}</strong>${evol(cur.panier, prev.panier)}</div>
-    <div class="kpi"><span>Taux de conversion</span><strong>${(conv * 100).toFixed(1).replace('.', ',')} %</strong><span class="evol neutre">${etat.visites30j.toLocaleString('fr-FR')} visites (simulées)</span></div>
+    ${tuile({ nom: 'Chiffre d’affaires', valeur: euros(cur.ca), actuel: cur.ca, precedent: prev.ca, tendance: jours.map(j => j.v) })}
+    ${tuile({ nom: 'Bénéfice net (estimé)', valeur: euros(bCur), actuel: bCur, precedent: bPrev, tendance: jours.map(j => j.net) })}
+    ${tuile({ nom: 'Commandes', valeur: cur.n.toLocaleString('fr-FR'), actuel: cur.n, precedent: prev.n, tendance: jours.map(j => j.n) })}
+    ${tuile({ nom: 'Panier moyen', valeur: euros(cur.panier), actuel: cur.panier, precedent: prev.panier, tendance: jours.map(j => j.panier) })}
   </div>
   <div class="grille-2">
     <section class="carte">
-      <div class="carte-tete"><h2>Chiffre d’affaires par jour</h2><span class="sous">30 derniers jours, commandes payées</span></div>
-      <div class="graph-wrap">${graphBarres(jours, { format: v => v >= 1000 ? (v / 1000).toLocaleString('fr-FR') + ' k' + (devise() === 'CHF' ? ' CHF' : '€') : v + (devise() === 'CHF' ? ' CHF' : ' €'), surligne: 29 })}</div>
+      <div class="carte-tete"><h2>Chiffre d’affaires par jour</h2><a class="lien" href="#analyse">Détails</a></div>
+      ${courbe({ fraction: 0.6, labels: jours.map(j => j.label), series: [{ nom: '30 derniers jours', valeurs: jours.map(j => j.v), classe: 's1', aire: true }, { nom: '30 jours précédents', valeurs: joursPrec, classe: 'gris', pointille: true }], format: compact, formatTip: v => euros(v), hauteur: 230 })}
     </section>
     <section class="carte saison-carte">
       <span class="eyebrow">Copilote · prochain temps fort</span>
