@@ -12,7 +12,7 @@ function euros(n) {
 }
 
 function visuelProduit(p, grand = false) {
-  if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${p.image}" alt="${esc(p.nom)}"></div>`;
+  if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${/^data:image\/(jpeg|png|webp);base64,/.test(p.image) ? esc(p.image) : ''}" alt="${esc(p.nom)}"></div>`;
   const h = p.teinte ?? 30;
   const initiales = p.nom.split(/\s+/).filter(m => m.length > 2).slice(0, 2).map(m => m[0]).join('');
   return `<div class="sf-visuel${grand ? ' grand' : ''}" style="background:
@@ -22,7 +22,9 @@ function visuelProduit(p, grand = false) {
 }
 
 function varsTheme(t) {
-  return `--sf-bg:${t.bg};--sf-surface:${t.surface};--sf-text:${t.text};--sf-muted:${t.muted};--sf-primary:${t.primary};--sf-on-primary:${t.onPrimary};--sf-font:${t.font};--sf-body:${t.body};--sf-radius:${t.radius}px`;
+  // Chaque valeur est échappée : le thème vient de la configuration du marchand.
+  const v = x => esc(String(x ?? '').replace(/[;{}<>]/g, ''));
+  return `--sf-bg:${v(t.bg)};--sf-surface:${v(t.surface)};--sf-text:${v(t.text)};--sf-muted:${v(t.muted)};--sf-primary:${v(t.primary)};--sf-on-primary:${v(t.onPrimary)};--sf-font:${v(t.font)};--sf-body:${v(t.body)};--sf-radius:${Number(t.radius) || 0}px`;
 }
 
 function renduSection(s, etat, mode) {

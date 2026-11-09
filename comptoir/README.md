@@ -4,9 +4,11 @@ Prototype d'une plateforme pour créer une boutique en ligne de A à Z, la modif
 
 Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausanne (par défaut, en CHF), et **Maison Brume**, un artisan à Lyon (en euros). On passe de l'une à l'autre depuis « Créer une nouvelle boutique ».
 
-## Lancer la démo
+## Lancer
 
-Ouvrir `comptoir/index.html` dans un navigateur. Rien à installer : HTML, CSS et JavaScript, sans serveur. Les données sont gardées dans le navigateur (localStorage). Le bouton « Réinitialiser la démo » remet la boutique d'exemple.
+**Version réelle (serveur)** : `cd comptoir && npm start`, puis ouvrir http://localhost:3000. On y crée un compte et une boutique publique (`/s/<nom>`). Les commandes, paiements (TWINT/cartes via Stripe, ou simulation), fournisseurs et factures sont gérés en base. Il faut Node 22.13 ou plus récent ; rien d'autre à installer. Détails dans [`server/README.md`](server/README.md).
+
+**Démo sans serveur** : ouvrir `comptoir/index.html` dans un navigateur. Les données restent dans le navigateur (localStorage). Le bouton « Réinitialiser la démo » remet la boutique d'exemple.
 
 ## Ce que fait la démo
 
@@ -56,12 +58,16 @@ comptoir/
   js/modules.js        copilote, magasin, conformité, photos, offre, fenêtres
   js/storefront.js     rendu de la boutique (aperçu et version client)
   js/app.js            routage, admin, éditeur, commandes, panier
+  js/serveur.js        mode connecté : compte, synchronisation avec l'API
+  js/boutique-client.js  boutique publique servie par le serveur (/s/<slug>)
+  boutique.html        page de la boutique publique
+  server/              serveur Node sans dépendance (API, base SQLite, paiements, fournisseurs, tests)
 ```
 
 ## Pour passer en production
 
-1. **Back-end + base de données** (ex. Node/NestJS ou Django + PostgreSQL) : comptes marchands, boutiques multi-locataires, produits, commandes, clients.
-2. **Paiement** : Stripe Connect (chaque marchand encaisse sur son compte, la plateforme prend une commission).
+1. ~~Back-end et base de données~~ : **fait**. Voir `server/` (comptes, boutiques, commandes, paiements, fournisseurs, webhooks, 11 tests).
+2. ~~Paiement TWINT et cartes~~ : **fait** via Stripe Checkout. Il reste à ouvrir le compte Stripe et à configurer les clés. Pour encaisser au nom de chaque marchand, il faudra passer à Stripe Connect.
 3. **Domaines** : API d'un registrar (OVH, Gandi ou Namecheap) pour vérifier la disponibilité, réserver et configurer le DNS ; certificats HTTPS automatiques.
 4. **Données de demande** : Google Trends / Keyword Planner, Search Console, historique réel de ventes.
 5. **Hébergement des boutiques** : rendu des pages à partir du JSON des sections (le même que l'éditeur), servi derrière un CDN.

@@ -1,0 +1,20 @@
+[
+  { "id": "f01", "nom": "Lampe coucher de soleil", "niche": "maison", "categorie": "Luminaires", "cout": 9.5, "portF": 4.5, "entrepot": "CN", "delai": [9, 16], "prix": 39, "fournisseur": "Shenzhen Home Supply (démo)" },
+  { "id": "f02", "nom": "Lampe coucher de soleil", "niche": "maison", "categorie": "Luminaires", "cout": 12.9, "portF": 5.9, "entrepot": "UE", "delai": [4, 7], "prix": 39, "fournisseur": "EuroDepot Lyon (démo)" },
+  { "id": "f03", "nom": "Humidificateur effet flamme", "niche": "maison", "categorie": "Diffuseurs", "cout": 14, "portF": 5, "entrepot": "UE", "delai": [3, 6], "prix": 54, "fournisseur": "EuroDepot Lyon (démo)" },
+  { "id": "f04", "nom": "Veilleuse lune 3D", "niche": "maison", "categorie": "Luminaires", "cout": 7, "portF": 4, "entrepot": "CN", "delai": [10, 18], "prix": 29, "fournisseur": "Shenzhen Home Supply (démo)" },
+  { "id": "f05", "nom": "Plaid gaufré coton bio", "niche": "maison", "categorie": "Textile", "cout": 24, "portF": 6.9, "entrepot": "UE", "delai": [4, 7], "prix": 79, "fournisseur": "Textil Porto (démo)" },
+  { "id": "f06", "nom": "Organiseur de tiroir en bambou", "niche": "maison", "categorie": "Rangement", "cout": 8, "portF": 5.5, "entrepot": "CH", "delai": [2, 3], "prix": 34, "fournisseur": "Fournisseur Lémanique (démo)" },
+  { "id": "f07", "nom": "Bougie au bois de cèdre", "niche": "maison", "categorie": "Bougies", "cout": 11, "portF": 6, "entrepot": "CH", "delai": [1, 3], "prix": 36, "fournisseur": "Fournisseur Lémanique (démo)" },
+  { "id": "f08", "nom": "Fontaine à eau pour chat", "niche": "animaux", "categorie": "Accessoires", "cout": 13, "portF": 5, "entrepot": "UE", "delai": [4, 7], "prix": 49, "fournisseur": "PetDepot Milano (démo)" },
+  { "id": "f09", "nom": "Panier apaisant pour chien", "niche": "animaux", "categorie": "Couchage", "cout": 18, "portF": 8, "entrepot": "UE", "delai": [5, 8], "prix": 69, "fournisseur": "PetDepot Milano (démo)" },
+  { "id": "f10", "nom": "Balle interactive pour chat", "niche": "animaux", "categorie": "Jouets", "cout": 5, "portF": 4, "entrepot": "CN", "delai": [10, 20], "prix": 24, "fournisseur": "Ningbo Pets (démo)" },
+  { "id": "f11", "nom": "Chargeur 3-en-1 pliable", "niche": "tech", "categorie": "Recharge", "cout": 17, "portF": 5, "entrepot": "UE", "delai": [4, 6], "prix": 69, "fournisseur": "TechHub Rotterdam (démo)" },
+  { "id": "f12", "nom": "Support voiture magnétique", "niche": "tech", "categorie": "Accessoires", "cout": 9, "portF": 4, "entrepot": "CN", "delai": [9, 16], "prix": 35, "fournisseur": "Shenzhen Mobile (démo)" },
+  { "id": "f13", "nom": "Traceur d’objets Bluetooth", "niche": "tech", "categorie": "Accessoires", "cout": 8, "portF": 4, "entrepot": "CN", "delai": [10, 18], "prix": 29, "fournisseur": "Shenzhen Mobile (démo)" },
+  { "id": "f14", "nom": "Masque LED visage", "niche": "beaute", "categorie": "Visage", "cout": 39, "portF": 7, "entrepot": "UE", "delai": [4, 7], "prix": 149, "fournisseur": "BeautyLab Barcelona (démo)" },
+  { "id": "f15", "nom": "Brosse soufflante", "niche": "beaute", "categorie": "Cheveux", "cout": 24, "portF": 6, "entrepot": "UE", "delai": [4, 6], "prix": 89, "fournisseur": "BeautyLab Barcelona (démo)" },
+  { "id": "f16", "nom": "Rouleau quartz rose", "niche": "beaute", "categorie": "Visage", "cout": 4, "portF": 3.5, "entrepot": "CN", "delai": [10, 20], "prix": 25, "fournisseur": "Guangzhou Beauty (démo)" },
+  { "id": "f17", "nom": "Pistolet de massage compact", "niche": "sport", "categorie": "Matériel", "cout": 22, "portF": 6, "entrepot": "UE", "delai": [3, 6], "prix": 89, "fournisseur": "FitStock Berlin (démo)" },
+  { "id": "f18", "nom": "Tapis de yoga en liège", "niche": "sport", "categorie": "Matériel", "cout": 28, "portF": 7, "entrepot": "CH", "delai": [2, 3], "prix": 79, "fournisseur": "Fournisseur Lémanique (démo)" }
+]

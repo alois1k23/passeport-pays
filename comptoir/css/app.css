@@ -35,6 +35,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { min-height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); }
 h1, h2, h3 { margin: 0; text-wrap: balance; }
@@ -459,6 +460,11 @@ body[data-route="boutique"] main { padding: 0; gap: 0; }
 @media (max-width: 1180px) { .frise-saisons { grid-template-columns: 1fr 1fr; } .plans { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) { .chiffres strong { font-size: 1.05rem; } .controles li { grid-template-columns: minmax(0, 1fr) auto; } .controles .pill { grid-column: 1 / -1; } }
 
+/* ---------- Mode connecté ---------- */
+.connexion { margin-top: 6vh; }
+.cote-pied .compte { padding-inline: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-boutique .cookies { background: #FFFFFF; color: #151821; border-color: #E0E3EA; }
+
 /* ---------- Dropshipping ---------- */
 .encart { background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; font-size: .88rem; line-height: 1.5; }
 .alerte-encart { background: var(--warn-soft); }
@@ -494,3 +500,4 @@ fieldset.champ legend { font-size: .84rem; font-weight: 500; color: var(--muted)
 .encart-fournisseur { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .sf-delai { color: var(--sf-muted); font-size: .8rem; margin-top: -4px; }
 @media (max-width: 640px) { .choix-modele { grid-template-columns: minmax(0, 1fr); } .catalogue { grid-template-columns: minmax(0, 1fr); } }
+.app:has(> .cote[hidden]) { grid-template-columns: minmax(0, 1fr); }

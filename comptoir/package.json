@@ -1,0 +1,11 @@
+{
+  "name": "comptoir",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Créateur de boutiques en ligne pour la Suisse : dropshipping, paiements TWINT, fournisseurs, conformité.",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test server/test/*.test.js"
+  }
+}
