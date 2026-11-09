@@ -9,6 +9,7 @@ const { transaction } = require('./db');
 const prix = require('./prix');
 const { choisirPrestataire } = require('./paiements');
 const fournisseurs = require('./fournisseurs');
+const social = require('./social');
 
 const RACINE_FRONT = path.resolve(__dirname, '..', '..');
 const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|css\/[\w.-]+\.css|js\/[\w.-]+\.js)$/;
@@ -96,7 +97,13 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8 },
       campagnes: config.campagnes || {},
       rdv: config.rdv || null,
-      cookies: config.cookies || null
+      cookies: config.cookies || null,
+      social: social.nettoyerReglages(config.social),
+      tests: (Array.isArray(config.tests) ? config.tests : []).slice(-50).map(t => ({
+        id: String(t.id).slice(0, 30), produitId: String(t.produitId).slice(0, 40), canal: ['meta', 'tiktok-ads', 'organique'].includes(t.canal) ? t.canal : 'meta',
+        budgetJour: Math.max(0, Number(t.budgetJour) || 0), debut: Number(t.debut) || Date.now(),
+        resultats: (Array.isArray(t.resultats) ? t.resultats : []).slice(0, 60).map(r => Object.fromEntries(['depense', 'vues', 'clics', 'ventes'].map(k => [k, Math.max(0, Number(r[k]) || 0)])))
+      }))
     };
   }
   function nettoyerProduit(p) {
@@ -243,7 +250,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/api/admin/etat', exigerMarchand, ctx => {
     const config = lireConfig(ctx.boutique);
     const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(lireCommande);
-    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
+    const publications = db.prepare('SELECT * FROM publications WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(social.lire);
+    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
   });
   r.put('/api/admin/config', exigerMarchand, ctx => {
     const config = nettoyerConfig(ctx.corps.config);
@@ -347,6 +355,49 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       return { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config) } };
     });
   });
+  /* ---------- Réseaux sociaux ---------- */
+  const publicationDeBoutique = (boutiqueId, id) => {
+    const row = db.prepare('SELECT * FROM publications WHERE id = ? AND boutique_id = ?').get(id, boutiqueId);
+    if (!row) throw erreur(404, 'Publication introuvable.', 'publication_introuvable');
+    return social.lire(row);
+  };
+  r.post('/api/admin/publications', exigerMarchand, ctx => {
+    const liste = Array.isArray(ctx.corps.publications) ? ctx.corps.publications : [];
+    if (!liste.length || liste.length > 80) throw erreur(400, 'Entre 1 et 80 publications à la fois.', 'invalide');
+    const propres = liste.map(social.nettoyerPublication);
+    transaction(db, () => { for (const p of propres) social.enregistrer(db, ctx.boutique.id, { ...p, id: auth.nouvelId('pub_') }); });
+    return { statut: 201, corps: { n: propres.length } };
+  });
+  r.put('/api/admin/publications/:id', exigerMarchand, ctx => {
+    const avant = publicationDeBoutique(ctx.boutique.id, ctx.params.id);
+    if (avant.statut === 'publiee') throw erreur(409, 'Une publication en ligne ne se modifie plus ici.', 'deja_publiee');
+    social.enregistrer(db, ctx.boutique.id, { ...social.nettoyerPublication({ ...avant, ...ctx.corps.publication }), id: avant.id });
+    return { ok: true };
+  });
+  r.delete('/api/admin/publications/:id', exigerMarchand, ctx => {
+    publicationDeBoutique(ctx.boutique.id, ctx.params.id);
+    db.prepare('DELETE FROM publications WHERE id = ?').run(ctx.params.id);
+    return { ok: true };
+  });
+  r.post('/api/admin/publications/:id/publier', exigerMarchand, async ctx => {
+    const p = publicationDeBoutique(ctx.boutique.id, ctx.params.id);
+    const config = lireConfig(ctx.boutique);
+    if (!config.social.comptes[p.reseau]) throw erreur(409, 'Connectez d’abord ce réseau.', 'compte_absent');
+    return { publication: await social.publier(db, ctx.boutique.id, p, config) };
+  });
+
+  /* Publie les publications programmées arrivées à échéance (appelé chaque minute). */
+  async function publierEcheances(maintenant = Date.now()) {
+    const dues = db.prepare("SELECT p.*, b.config FROM publications p JOIN boutiques b ON b.id = p.boutique_id WHERE p.statut = 'programmee' AND p.date <= ? LIMIT 200").all(maintenant);
+    let n = 0;
+    for (const row of dues) {
+      const config = JSON.parse(row.config);
+      if (!config.social || !config.social.comptes || !config.social.comptes[row.reseau]) continue;
+      try { await social.publier(db, row.boutique_id, social.lire(row), config); n++; } catch (e) { journal.error('[social]', e.message); }
+    }
+    return n;
+  }
+
   r.get('/api/admin/emails', exigerMarchand, ctx => db.prepare('SELECT destinataire, sujet, corps, cree_le FROM emails WHERE boutique_id = ? ORDER BY id DESC LIMIT 50').all(ctx.boutique.id));
 
   /* ---------- Boutique publique ---------- */
@@ -488,7 +539,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/demo-fournisseur/commandes/:ref/expedier', exigerCleDemo, async ctx => { await expedierDemo(ctx.params.ref); return { ok: true }; });
 
   /* ---------- Gestionnaire HTTP ---------- */
-  return async function gerer(req, res) {
+  async function gerer(req, res) {
     const url = new URL(req.url, 'http://local');
     const chemin = url.pathname;
     try {
@@ -523,7 +574,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (res.headersSent) return res.end();
       envoyerJson(res, e.statut, { erreur: e.message, code: e.code });
     }
-  };
+  }
+  gerer.publierEcheances = publierEcheances;
+  return gerer;
 }
 
 function escHtml(t) {

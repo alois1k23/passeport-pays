@@ -1,6 +1,6 @@
 /* Comptoir — application : routage, interface d’administration, éditeur, commandes. */
 
-const CLE = 'comptoir-etat-v2';
+const CLE = 'comptoir-etat-v3';
 let etat = charger();
 const ui = {
   route: 'tableau',
@@ -84,7 +84,9 @@ function graphBarres(donnees, { hauteur = 180, format = v => v, surligne = -1, l
 const NAV = [
   ['tableau', 'Tableau de bord'],
   ['copilote', 'Copilote de saison'],
+  ['social', 'Réseaux sociaux'],
   ['sourcing', 'Trouver des produits'],
+  ['tests', 'Tests produits'],
   ['commandes', 'Commandes'],
   ['produits', 'Produits'],
   ['clients', 'Clients'],
@@ -103,7 +105,7 @@ function rendre() {
   $('#nav').innerHTML = NAV.map(([id, nom]) => `<a href="#${id}" class="${route === id ? 'actif' : ''}">${nom}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider ? `<b class="badge">${aValider}</b>` : ''}</a>`).join('');
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : (typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? location.host + '/s/' + SERVEUR.slug : slugifier(etat.boutique.nom) + '.comptoir.shop');
-  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
+  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   $('#vue').innerHTML = (vues[route] || vueTableau)();
   apresRendu();
 }

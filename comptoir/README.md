@@ -21,6 +21,8 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 | **Commandes** (`#commandes`) | Filtres par statut, recherche, fiche commande, flux de statuts (en attente → à préparer → en préparation → expédiée → livrée → remboursée / annulée), numéro de suivi, historique, note interne. |
 | **Produits / Clients** | Ajout et modification de produits (prix, stock, catégorie, visibilité), liste des clients avec total dépensé. |
 | **Trouver des produits** (`#sourcing`) | Catalogue de fournisseurs (entrepôts Suisse, Europe, Chine) classé par potentiel : marge nette réelle (TVA, port, TVA d'import et dédouanement, frais de paiement, pub), tendance de saison, concurrence, délai. Import en un clic. |
+| **Réseaux sociaux** (`#social`) | Pilote automatique : calendrier de publications Instagram, TikTok, Facebook, Pinterest généré à partir des produits, ventes, marges et temps forts. Pour chaque publication : accroche des 3 premières secondes, légende, hashtags et script vidéo plan par plan. Validation ou publication automatique, statistiques, et le pilote programme davantage ce qui convertit. Lancement intensif TikTok, micro-influenceurs. |
+| **Tests produits** (`#tests`) | Plans de test (publicités Meta, publicités TikTok, TikTok organique), saisie des résultats du jour, verdict automatique : couper, attendre, garder ou augmenter le budget, selon la marge brute. Objectif de 3 à 5 produits testés par semaine. |
 | **Copilote de saison** (`#copilote`) | Les vraies dates des prochains temps forts (Black Friday, Noël, soldes, fête des mères…). Pour chacun, une campagne prête calculée sur les ventes : produits à pousser, prévision et alertes de stock, bannière, code promo, e-mail, post Instagram, domaine et planning. Validation en un clic. Bilan du dernier temps fort. |
 | **Magasin** (`#magasin`) | Caisse au comptoir avec stock unique site + boutique, retraits click & collect, QR code de vitrine, fiche Google synchronisée (simulée). |
 | **Conformité** (`#conformite`) | Fiche entreprise, factures numérotées en continu (TVA 20 % ou franchise en base), CGV et mentions légales générées, points de contrôle (médiateur, RGPD, facture électronique). |
@@ -33,7 +35,7 @@ Suisse : CHF, TWINT, La Poste (Economy, Priority, PickPost), Impressum, protecti
 
 Autres fonctions : ajout de produits **par photo** (fiches créées automatiquement), rédaction de description, étiquettes d'envoi, session d'accompagnement à réserver.
 
-La stratégie (cible, différenciation, prix, conquête, feuille de route) est dans [`STRATEGIE.md`](STRATEGIE.md).
+La stratégie (cible, différenciation, prix, conquête, feuille de route) est dans [`STRATEGIE.md`](STRATEGIE.md). Les règles de la méthode de lancement (grille produit gagnant, tests, réseaux sociaux), leurs sources et leurs limites sont dans [`METHODE.md`](METHODE.md).
 
 ## Moteur de domaines (`js/domains.js`)
 
@@ -54,6 +56,8 @@ comptoir/
   js/data.js           secteurs, saisonnalité, thèmes, sections, boutique d'exemple
   js/domains.js        moteur de suggestion de domaines
   js/copilote.js       calendriers commerciaux France et Suisse, génération des campagnes
+  js/social.js         pilote automatique des réseaux sociaux
+  js/methode.js        grille produit gagnant, tests produits, micro-influenceurs
   js/dropshipping.js   catalogue fournisseurs, marge nette, transmission des commandes, démo Lausanne
   js/modules.js        copilote, magasin, conformité, photos, offre, fenêtres
   js/storefront.js     rendu de la boutique (aperçu et version client)

@@ -266,6 +266,8 @@ function rendreModal() {
       <div class="code-barre" aria-hidden="true">${Array.from(c.suivi || 'X').map((ch, i) => `<i style="width:${1 + (ch.charCodeAt(0) + i) % 4}px"></i>`).join('')}</div>
       <div class="mono et-suivi">${esc(c.suivi)}</div>
     </article><p class="sous">Étiquette générée via l’API ${esc(l.transporteur)} (simulée). Poids estimé : ${(c.lignes.reduce((a, x) => a + x.qte, 0) * 0.45).toFixed(1).replace('.', ',')} kg.</p>`;
+  } else if (m.type === 'html') {
+    corps = m.html;
   } else if (m.type === 'doc') {
     corps = `<article class="doc-legal">${m.id === 'cgv' ? texteCGV() : texteMentions()}</article>`;
   } else if (m.type === 'rdv') {

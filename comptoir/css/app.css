@@ -501,3 +501,49 @@ fieldset.champ legend { font-size: .84rem; font-weight: 500; color: var(--muted)
 .sf-delai { color: var(--sf-muted); font-size: .8rem; margin-top: -4px; }
 @media (max-width: 640px) { .choix-modele { grid-template-columns: minmax(0, 1fr); } .catalogue { grid-template-columns: minmax(0, 1fr); } }
 .app:has(> .cote[hidden]) { grid-template-columns: minmax(0, 1fr); }
+
+/* ---------- Réseaux sociaux ---------- */
+.interrupteur { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; font-weight: 500; }
+.interrupteur:has(input:checked) { border-color: var(--good); background: var(--good-soft); color: var(--good); }
+.comptes { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.compte-reseau { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 8px; align-content: start; justify-items: start; }
+.compte-reseau.connecte { border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
+.mini-champ { width: 100%; }
+.mini-champ input { max-width: 90px; }
+.reseau { font: 600 .74rem var(--f-mono); padding: 2px 7px; border-radius: 4px; color: #FFFFFF; white-space: nowrap; }
+.r-tiktok { background: #111317; } .r-instagram { background: #B8336A; } .r-facebook { background: #2F5BB8; } .r-pinterest { background: #B3261E; }
+.jour { display: grid; gap: 6px; }
+.jour h3 { margin-top: 6px; }
+.pub { display: grid; grid-template-columns: 48px auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--surface); }
+.pub:hover, .pub:focus-visible { border-color: var(--accent); }
+.pub.brouillon { border-style: dashed; }
+.pub-heure { color: var(--muted); }
+.pub-corps { display: grid; gap: 2px; min-width: 0; }
+.pub-corps strong { font-weight: 600; font-size: .9rem; }
+.appris { margin: 0; padding-left: 18px; display: grid; gap: 8px; line-height: 1.45; }
+.pub-detail { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; }
+.modal-corps:has(.pub-detail) { width: min(860px, 100%); }
+.telephone { border: 8px solid var(--ink); border-radius: 26px; overflow: hidden; background: var(--surface-2); align-self: start; display: grid; }
+.tel-entete { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; }
+.telephone .sf-visuel { border-radius: 0; aspect-ratio: 9/14; }
+.tel-accroche { padding: 10px; font-weight: 600; font-size: .86rem; }
+.pub-edition { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.script { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.script li { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; font-size: .88rem; }
+@media (max-width: 640px) { .pub-detail { grid-template-columns: minmax(0, 1fr); } .telephone { max-width: 220px; } .pub { grid-template-columns: auto auto minmax(0, 1fr); } .pub .pill { justify-self: end; } .pub-corps { grid-column: 1 / -1; grid-row: 2; } }
+
+/* ---------- Méthode : critères et tests ---------- */
+.criteres summary { cursor: pointer; list-style: none; }
+.criteres summary::-webkit-details-marker { display: none; }
+.criteres ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.criteres li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; font-size: .84rem; }
+.criteres li b { font: 600 .74rem var(--f-mono); }
+.criteres li.ok b { color: var(--good); } .criteres li.ko b { color: var(--bad); }
+.objectif { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.objectif > strong { font: 600 1.8rem var(--f-display); color: var(--accent); }
+.test { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; }
+.test-tete { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.test-tete .sf-visuel { border-radius: 6px; }
+.test-tete .sf-visuel span { font-size: .8rem; }
+.saisie-test { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; align-items: end; }
+.test .bouton-lien { justify-self: start; font-size: .82rem; color: var(--muted); }

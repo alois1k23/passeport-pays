@@ -215,3 +215,29 @@ test('fichiers statiques : le code serveur et la base ne sont pas servis', async
   assert.equal((await fetch(`${base}/js/app.js`)).status, 200);
   assert.equal((await fetch(`${base}/s/${slug}`)).status, 200);
 });
+
+test('réseaux sociaux : brouillon, validation, publication automatique à l’échéance', async () => {
+  const c = config('Lacustre');
+  c.social = { comptes: { instagram: true, tiktok: false }, reglages: { auto: true, validation: true, frequence: { instagram: 3 } } };
+  await marchand('PUT', '/api/admin/config', { config: c });
+  const maintenant = Date.now();
+  const r = await marchand('POST', '/api/admin/publications', { publications: [
+    { reseau: 'instagram', date: maintenant - 1000, format: 'Reel', pilier: 'probleme', accroche: 'Un salon trop froid ?', legende: 'x', hashtags: ['#a'], statut: 'programmee' },
+    { reseau: 'tiktok', date: maintenant - 1000, format: 'Vidéo', pilier: 'produit', accroche: 'POV', legende: 'y', statut: 'programmee' },
+    { reseau: 'instagram', date: maintenant + 86400000, format: 'Carrousel', pilier: 'avis', accroche: 'Avis', legende: 'z' }
+  ] });
+  assert.equal(r.statut, 201);
+  assert.equal((await marchand('POST', '/api/admin/publications', { publications: [{ reseau: 'myspace', date: 1 }] })).statut, 400);
+  const n = await serveur.listeners('request')[0].publierEcheances();
+  assert.equal(n, 1, 'seule la publication Instagram due part (TikTok non connecté, la 3e est un brouillon futur)');
+  const e = await marchand('GET', '/api/admin/etat');
+  const insta = e.json.publications.find(p => p.accroche === 'Un salon trop froid ?');
+  assert.equal(insta.statut, 'publiee');
+  assert.ok(insta.stats.vues > 0 && insta.stats.simulees);
+  assert.equal((await marchand('PUT', `/api/admin/publications/${insta.id}`, { publication: { legende: 'modif' } })).statut, 409);
+  const brouillon = e.json.publications.find(p => p.statut === 'brouillon');
+  await marchand('PUT', `/api/admin/publications/${brouillon.id}`, { publication: { statut: 'programmee', legende: 'validée' } });
+  const pub = await marchand('POST', `/api/admin/publications/${brouillon.id}/publier`);
+  assert.equal(pub.json.publication.statut, 'publiee');
+  assert.equal(e.json.social.comptes.pinterest, false);
+});

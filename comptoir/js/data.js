@@ -338,6 +338,7 @@ function completerEtat(e) {
   e.reglages = e.reglages || { autoTransmission: true, cpa: 8 };
   for (const p of e.produits) p.type = p.type || 'stock';
   e.rdv = e.rdv || null;
+  e.publications = e.publications || [];
   e.cookies = e.cookies ?? null;
   let n = 0;
   for (const c of [...e.commandes].sort((a, b) => a.date - b.date)) {

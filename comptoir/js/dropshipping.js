@@ -130,6 +130,7 @@ function vueSourcing() {
         <div><dt>Douane et TVA import</dt><dd>${marge.importTva + marge.douane ? euros(marge.importTva + marge.douane) : '—'}</dd></div>
         <div><dt>Marge nette après pub</dt><dd class="${marge.nette >= 0 ? 'up' : 'down'}">${euros(marge.nette)} · ${Math.round(marge.taux * 100)} %</dd></div>
       </dl>
+      ${blocCriteres(f)}
       <p class="sous">${esc(raisons.join(' · '))}</p>
       ${importes.has(f.id) ? '<span class="pill good">Dans votre boutique</span>' : `<button class="btn" data-action="importer-produit" data-id="${f.id}">Importer dans ma boutique</button>`}
     </article>`).join('') || '<p class="sous">Aucun produit ne correspond à ces filtres.</p>'}</div>

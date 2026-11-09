@@ -84,6 +84,16 @@ CREATE TABLE IF NOT EXISTS emails (
   envoye INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS publications (
+  id TEXT PRIMARY KEY,
+  boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE,
+  reseau TEXT NOT NULL,
+  date INTEGER NOT NULL,
+  statut TEXT NOT NULL,                -- brouillon | programmee | publiee | echec
+  donnees TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS publications_echeance ON publications(statut, date);
+
 -- Faux fournisseur de démonstration (représente une API externe).
 CREATE TABLE IF NOT EXISTS demo_fournisseur_commandes (
   ref TEXT PRIMARY KEY,
