@@ -16,7 +16,15 @@ Ouvrir `comptoir/index.html` dans un navigateur. Rien à installer : HTML, CSS e
 | **Tableau de bord** (`#tableau`) | CA, commandes, panier moyen, conversion sur 30 jours, CA par jour, conseil de saison, tâches (commandes à expédier, stock bas…). |
 | **Commandes** (`#commandes`) | Filtres par statut, recherche, fiche commande, flux de statuts (en attente → à préparer → en préparation → expédiée → livrée → remboursée / annulée), numéro de suivi, historique, note interne. |
 | **Produits / Clients** | Ajout et modification de produits (prix, stock, catégorie, visibilité), liste des clients avec total dépensé. |
-| **Voir la boutique** (`#boutique`) | La boutique côté client : panier, paiement simulé. La commande arrive dans l'admin. |
+| **Copilote de saison** (`#copilote`) | Les vraies dates des prochains temps forts (Black Friday, Noël, soldes, fête des mères…). Pour chacun, une campagne prête calculée sur les ventes : produits à pousser, prévision et alertes de stock, bannière, code promo, e-mail, post Instagram, domaine et planning. Validation en un clic. Bilan du dernier temps fort. |
+| **Magasin** (`#magasin`) | Caisse au comptoir avec stock unique site + boutique, retraits click & collect, QR code de vitrine, fiche Google synchronisée (simulée). |
+| **Conformité** (`#conformite`) | Fiche entreprise, factures numérotées en continu (TVA 20 % ou franchise en base), CGV et mentions légales générées, points de contrôle (médiateur, RGPD, facture électronique). |
+| **Offre** (`#offre`) | Formules et tarifs, ce qui distingue Comptoir. |
+| **Voir la boutique** (`#boutique`) | La boutique côté client : bandeau cookies, panier, choix Colissimo / Mondial Relay / Chronopost / retrait en boutique, paiement simulé. La commande et sa facture arrivent dans l'admin. |
+
+Autres fonctions : ajout de produits **par photo** (fiches créées automatiquement), rédaction de description, étiquettes d'envoi, session d'accompagnement à réserver.
+
+La stratégie (cible, différenciation, prix, conquête, feuille de route) est dans [`STRATEGIE.md`](STRATEGIE.md).
 
 ## Moteur de domaines (`js/domains.js`)
 
@@ -36,6 +44,8 @@ comptoir/
   css/app.css          admin + thèmes de boutique
   js/data.js           secteurs, saisonnalité, thèmes, sections, boutique d'exemple
   js/domains.js        moteur de suggestion de domaines
+  js/copilote.js       calendrier commercial français et génération des campagnes
+  js/modules.js        copilote, magasin, conformité, photos, offre, fenêtres
   js/storefront.js     rendu de la boutique (aperçu et version client)
   js/app.js            routage, admin, éditeur, commandes, panier
 ```

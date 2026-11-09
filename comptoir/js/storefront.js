@@ -8,6 +8,7 @@ function euros(n) {
 }
 
 function visuelProduit(p, grand = false) {
+  if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${p.image}" alt="${esc(p.nom)}"></div>`;
   const h = p.teinte ?? 30;
   const initiales = p.nom.split(/\s+/).filter(m => m.length > 2).slice(0, 2).map(m => m[0]).join('');
   return `<div class="sf-visuel${grand ? ' grand' : ''}" style="background:
@@ -64,7 +65,8 @@ function renduSection(s, etat, mode) {
     case 'faq':
       return `<section class="sf-faq"><h2>Questions fréquentes</h2>${[[p.q1, p.r1], [p.q2, p.r2]].filter(q => q[0]).map(([q, r]) => `<details><summary>${esc(q)}</summary><p>${esc(r)}</p></details>`).join('')}</section>`;
     case 'pied':
-      return `<footer class="sf-pied"><strong>${esc(etat.boutique.nom)}</strong><span>${esc(p.texte)}</span><span>${esc(p.contact)}</span></footer>`;
+      return `<footer class="sf-pied"><strong>${esc(etat.boutique.nom)}</strong><span>${esc(p.texte)}</span><span>${esc(p.contact)}</span>
+        <span class="sf-legal"><button type="button" data-action="doc" data-id="mentions">Mentions légales</button><button type="button" data-action="doc" data-id="cgv">CGV</button></span></footer>`;
     default:
       return '';
   }

@@ -366,3 +366,94 @@ body[data-route="boutique"] main { padding: 0; gap: 0; }
   .detail-score > div, .parts li { grid-template-columns: 90px minmax(0, 1fr) auto; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+/* ---------- Modules : copilote, magasin, conformité, offre ---------- */
+.pile { display: grid; gap: 20px; align-content: start; min-width: 0; }
+.astuce { color: var(--muted); font-size: .88rem; margin-top: -8px; }
+.bouton-lien { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 500; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.champ > span .bouton-lien { float: right; font-size: .82rem; }
+.todo-btn { width: 100%; text-align: left; border: 0; padding: 9px 12px; border-radius: 8px; background: var(--accent-soft); cursor: pointer; font: inherit; color: var(--ink); }
+.frise-saisons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.frise-saisons button { display: grid; gap: 4px; justify-items: start; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer; color: var(--ink); }
+.frise-saisons button strong { font: 600 1.05rem var(--f-display); }
+.frise-saisons button.actif { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.titre-campagne { font: 600 1.6rem/1.15 var(--f-display); margin-top: 6px; }
+.chiffres { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.chiffres > div { background: var(--surface-2); padding: 10px 12px; display: grid; gap: 2px; }
+.chiffres strong { font: 600 1.25rem var(--f-display); font-variant-numeric: tabular-nums; }
+.chiffres .up { color: var(--good); } .chiffres .down { color: var(--bad); }
+.brouillon { margin: 0; white-space: pre-wrap; font: .86rem/1.5 var(--f-body); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 220px; overflow: auto; }
+.frise li.passe { opacity: .55; }
+.caisse-produits { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.caisse-btn { display: grid; gap: 4px; text-align: left; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; color: var(--ink); align-content: start; }
+.caisse-btn:hover:not(:disabled) { border-color: var(--accent); }
+.caisse-btn:disabled { opacity: .45; cursor: default; }
+.caisse-btn .sf-visuel { border-radius: 6px; aspect-ratio: 4/3; }
+.caisse-btn .sf-visuel span { font-size: 1rem; }
+.caisse-btn span { font-size: .84rem; line-height: 1.3; }
+.caisse-btn small { color: var(--muted); font-size: .75rem; }
+.ticket { border-top: 1px dashed var(--line); padding-top: 12px; display: grid; gap: 12px; }
+.qr-ligne { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.qr { width: 148px; height: 148px; padding: 8px; background: #FFFFFF; border-radius: 8px; border: 1px solid var(--line); flex: none; }
+.qr img, .qr canvas { display: block; width: 132px; height: 132px; }
+.qr-ligne .bloc { flex: 1; min-width: 180px; }
+.qr-ligne .mono { word-break: break-all; }
+.controles { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.controles li { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.controles li:last-child { border-bottom: 0; padding-bottom: 0; }
+.controles .pill { justify-self: start; }
+.plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.plan { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 22px; display: grid; gap: 10px; align-content: start; }
+.plan.conseille { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.plan h2 { font: 600 1.5rem var(--f-display); }
+.prix { display: flex; align-items: baseline; gap: 6px; }
+.prix strong { font: 600 2.2rem var(--f-display); }
+.plan ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.plan .btn { justify-self: start; margin-top: 6px; }
+.atouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
+.atouts > div { display: grid; gap: 4px; }
+
+/* Fenêtres */
+#modal { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; }
+#modal[hidden] { display: none; }
+.modal-fond { position: absolute; inset: 0; background: rgba(10, 12, 18, .5); }
+.modal-corps { position: relative; background: var(--surface); color: var(--ink); border-radius: 12px; padding: 48px 24px 24px; width: min(640px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: grid; gap: 14px; }
+.modal-x { position: absolute; top: 12px; right: 12px; }
+.modal-corps h2 { font: 600 1.35rem var(--f-display); }
+.creneaux { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.facture { background: #FFFFFF; color: #151821; border: 1px solid #E0E3EA; border-radius: 8px; padding: 22px; display: grid; gap: 16px; font-size: .88rem; }
+.facture .table th { background: #F7F8FA; color: #5B6372; border-color: #E0E3EA; }
+.facture .table td { border-color: #E0E3EA; }
+.facture header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.facture .f-nom { font: 600 1.15rem var(--f-display); }
+.facture .f-num { text-align: right; }
+.facture .eyebrow { color: #2B44C9; }
+.facture .sous { color: #5B6372; }
+.f-totaux { display: grid; gap: 4px; justify-self: end; min-width: 220px; }
+.f-totaux div { display: flex; justify-content: space-between; gap: 20px; font-variant-numeric: tabular-nums; }
+.f-totaux .total { font-weight: 700; border-top: 1px solid #E0E3EA; padding-top: 4px; }
+.facture footer { color: #5B6372; font-size: .76rem; border-top: 1px solid #E0E3EA; padding-top: 10px; }
+.etiquette { background: #FFFFFF; color: #151821; border: 2px solid #151821; border-radius: 6px; padding: 18px; display: grid; gap: 12px; width: min(360px, 100%); justify-self: center; }
+.etiquette .sous { color: #5B6372; }
+.et-tete { display: flex; justify-content: space-between; font: 700 1.1rem var(--f-display); border-bottom: 2px solid #151821; padding-bottom: 8px; }
+.et-dest { font-size: 1.05rem; }
+.code-barre { display: flex; gap: 2px; height: 56px; align-items: stretch; }
+.code-barre i { background: #151821; display: block; }
+.et-suivi { text-align: center; letter-spacing: .1em; }
+.doc-legal { display: grid; gap: 10px; line-height: 1.6; }
+
+/* Boutique : livraison, cookies, liens légaux */
+.modes-livraison { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+.modes-livraison legend { font-weight: 600; margin-bottom: 6px; }
+.modes-livraison label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--sf-text) 18%, transparent); border-radius: max(var(--sf-radius), 4px); cursor: pointer; font-size: .9rem; }
+.modes-livraison label.actif { border-color: var(--sf-primary); box-shadow: 0 0 0 1px var(--sf-primary); }
+.modes-livraison small { display: block; color: var(--sf-muted); font-size: .78rem; }
+.mini { font-size: .78rem; color: var(--sf-muted); }
+.mini .bouton-lien { color: var(--sf-text); font-size: inherit; }
+.cookies { position: fixed; z-index: 20; left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); width: min(420px, calc(100% - 32px)); background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; box-shadow: 0 16px 40px -20px rgba(10, 12, 18, .5); font-size: .86rem; }
+.sf-legal { display: flex; gap: 14px; }
+.sf-legal button { border: 0; background: none; padding: 0; color: var(--sf-muted); font: inherit; text-decoration: underline; cursor: pointer; }
+.sf-visuel.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cote-pied .lien { padding-inline: 8px; font-size: .88rem; }
+@media (max-width: 1180px) { .frise-saisons { grid-template-columns: 1fr 1fr; } .plans { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .chiffres strong { font-size: 1.05rem; } .controles li { grid-template-columns: minmax(0, 1fr) auto; } .controles .pill { grid-column: 1 / -1; } }

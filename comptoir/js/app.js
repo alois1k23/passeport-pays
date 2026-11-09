@@ -16,14 +16,18 @@ const ui = {
   produitEdite: null,
   dom: { mois: new Date().getMonth(), motsCles: '', marque: null },
   assistant: { etape: 1, nom: '', secteur: 'mode', pays: 'fr', theme: 'craie', exemples: true, domaine: null },
-  confirmerReset: false
+  confirmerReset: false,
+  campagne: null,
+  caisse: [],
+  modal: null,
+  livraison: 'colissimo'
 };
 
 /* ---------- Persistance ---------- */
 function charger() {
   try {
     const brut = localStorage.getItem(CLE);
-    if (brut) { const e = JSON.parse(brut); if (e && e.version === 1) return e; }
+    if (brut) { const e = JSON.parse(brut); if (e && e.version === 1) return completerEtat(e); }
   } catch (e) { /* stockage indisponible : on repart de la démo */ }
   return boutiqueDemo();
 }
@@ -78,11 +82,14 @@ function graphBarres(donnees, { hauteur = 180, format = v => v, surligne = -1, l
 /* ---------- Coque de l’application ---------- */
 const NAV = [
   ['tableau', 'Tableau de bord'],
+  ['copilote', 'Copilote de saison'],
   ['commandes', 'Commandes'],
   ['produits', 'Produits'],
   ['clients', 'Clients'],
+  ['magasin', 'Magasin'],
   ['editeur', 'Éditeur du site'],
   ['domaines', 'Domaines'],
+  ['conformite', 'Conformité'],
   ['boutique', 'Voir la boutique']
 ];
 
@@ -90,16 +97,19 @@ function rendre() {
   const route = ui.route;
   document.body.dataset.route = route;
   const aTraiter = etat.commandes.filter(c => c.statut === 'payee' || c.statut === 'preparation').length;
-  $('#nav').innerHTML = NAV.map(([id, nom]) => `<a href="#${id}" class="${route === id ? 'actif' : ''}">${nom}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}</a>`).join('');
+  const aValider = prochainsTempsForts(2).filter(e => !etat.campagnes[e.cle]).length;
+  $('#nav').innerHTML = NAV.map(([id, nom]) => `<a href="#${id}" class="${route === id ? 'actif' : ''}">${nom}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider ? `<b class="badge">${aValider}</b>` : ''}</a>`).join('');
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : slugifier(etat.boutique.nom) + '.comptoir.shop';
-  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant };
+  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   $('#vue').innerHTML = (vues[route] || vueTableau)();
   apresRendu();
 }
 
 function apresRendu() {
   if (ui.route === 'editeur') rendreApercu();
+  if (ui.route === 'magasin') dessinerQR();
+  rendreModal();
 }
 
 /* ---------- Tableau de bord ---------- */
@@ -127,6 +137,9 @@ function vueTableau() {
   const secteur = SECTEURS[etat.boutique.secteur];
   const indice = secteur.courbe[mois];
   const stockBas = etat.produits.filter(p => p.actif && p.stock <= 5);
+  const prochain = prochainsTempsForts(1)[0];
+  const campProchain = genererCampagne(etat, prochain);
+  const retraits = etat.commandes.filter(c => c.livraison === 'retrait' && c.canal === 'web' && ['payee', 'preparation', 'prete'].includes(c.statut)).length;
   const recentes = [...etat.commandes].sort((a, b) => b.date - a.date).slice(0, 6);
   const evol = (a, b) => b ? `<span class="evol ${a >= b ? 'up' : 'down'}">${pct(a / b - 1)} vs 30 j préc.</span>` : '';
 
@@ -145,12 +158,12 @@ function vueTableau() {
       <div class="graph-wrap">${graphBarres(jours, { format: v => v >= 1000 ? (v / 1000).toLocaleString('fr-FR') + ' k€' : v + ' €', surligne: 29 })}</div>
     </section>
     <section class="carte saison-carte">
-      <span class="eyebrow">Saison · ${MOIS_LONG[mois]}</span>
-      <h2>${esc(saison.nom)}</h2>
-      <p>${esc(saison.conseil)}</p>
+      <span class="eyebrow">Copilote · prochain temps fort</span>
+      <h2>${esc(prochain.nom)}, ${prochain.date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</h2>
+      <p>Dans ${Math.ceil((prochain.date - new Date()) / JOUR)} jours. ${etat.campagnes[prochain.cle] ? 'Votre campagne est programmée.' : `Campagne prête : ${euros(campProchain.caPrevu)} de ventes prévues${campProchain.ruptures.length ? `, ${campProchain.ruptures.length} produit${campProchain.ruptures.length > 1 ? 's' : ''} à réassortir` : ''}.`}</p>
       <div class="jauge"><div style="width:${Math.min(100, indice / 1.8)}%"></div></div>
       <p class="sous">Demande « ${esc(secteur.nom)} » : indice ${indice} (100 = mois moyen)</p>
-      <div class="rangee"><a class="btn" href="#domaines">Trouver un domaine de campagne</a><a class="btn fantome" href="#editeur">Modifier la bannière</a></div>
+      <div class="rangee"><a class="btn" href="#copilote">${etat.campagnes[prochain.cle] ? 'Voir la campagne' : 'Relire et valider'}</a><a class="btn fantome" href="#domaines">Domaine de campagne</a></div>
     </section>
   </div>
   <div class="grille-2">
@@ -166,13 +179,24 @@ function vueTableau() {
         <li class="${aExpedier.length ? 'alerte' : ''}"><a href="#commandes" data-action="filtre-lien" data-filtre="payee"><strong>${aExpedier.length}</strong> commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier</a></li>
         <li class="${attente ? 'alerte' : ''}"><a href="#commandes" data-action="filtre-lien" data-filtre="attente"><strong>${attente}</strong> paiement${attente > 1 ? 's' : ''} en attente</a></li>
         ${stockBas.map(p => `<li class="alerte"><a href="#produits"><strong>${p.stock}</strong> en stock : ${esc(p.nom)}</a></li>`).join('')}
+        ${retraits ? `<li class="alerte"><a href="#magasin"><strong>${retraits}</strong> retrait${retraits > 1 ? 's' : ''} click & collect en cours</a></li>` : ''}
         ${etat.boutique.domaine ? '' : '<li class="alerte"><a href="#domaines">Aucun domaine personnalisé : choisissez-en un</a></li>'}
+        ${etat.entreprise.mediateur ? '' : '<li class="alerte"><a href="#conformite">Indiquez votre médiateur de la consommation (obligatoire)</a></li>'}
+        <li>${etat.rdv ? `<a href="#tableau">Session de lancement le <strong>${dateHeure(etat.rdv)}</strong></a>` : '<button class="todo-btn" data-action="rdv">Réservez votre session de lancement offerte (30 min en visio)</button>'}</li>
       </ul>
     </section>
   </div>`;
 }
 
 /* ---------- Commandes ---------- */
+function fluxPour(c) {
+  if (c.livraison === 'retrait') {
+    if (c.statut === 'preparation') return [['prete', 'Prête : prévenir le client']];
+    if (c.statut === 'prete') return [['retiree', 'Remise au client']];
+    if (c.statut === 'retiree') return [['remboursee', 'Rembourser']];
+  }
+  return FLUX[c.statut] || [];
+}
 const FLUX = {
   attente: [['payee', 'Marquer comme payée'], ['annulee', 'Annuler la commande']],
   payee: [['preparation', 'Commencer la préparation'], ['annulee', 'Annuler la commande']],
@@ -218,14 +242,16 @@ function detailCommande(c) {
   return `<aside class="carte detail" aria-label="Commande ${c.numero}">
     <div class="carte-tete"><h2 class="mono">#${c.numero}</h2><button class="icone" data-action="fermer-commande" aria-label="Fermer">Fermer</button></div>
     <div class="rangee">${pill(c.statut)}<span class="sous">${dateHeure(c.date)}</span></div>
+    <div class="bloc"><h3>${c.canal === 'magasin' ? 'Vente en boutique' : 'Livraison'}</h3><p>${c.canal === 'magasin' ? 'Encaissée au comptoir' : esc(LIVRAISONS[c.livraison].nom)}</p></div>
     <div class="bloc"><h3>Client</h3><p>${esc(c.client.nom)}<br><span class="sous">${esc(c.client.email)} · ${esc(c.client.ville)}</span></p></div>
     <div class="bloc"><h3>Articles</h3>
       <table class="table compacte"><tbody>${c.lignes.map(l => `<tr><td>${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td></tr>`).join('')}
       <tr><td></td><td class="sous">Livraison</td><td class="num">${c.port ? euros(c.port) : 'Offerte'}</td></tr>
       <tr class="total"><td></td><td>Total</td><td class="num">${euros(c.total)}</td></tr></tbody></table>
     </div>
-    ${c.suivi ? `<div class="bloc"><h3>Suivi Colissimo</h3><p class="mono">${esc(c.suivi)}</p></div>` : ''}
-    <div class="bloc actions">${FLUX[c.statut].map(([s, nom], i) => `<button class="btn ${i ? 'fantome' : ''} ${s === 'annulee' || s === 'remboursee' ? 'danger' : ''}" data-action="statut" data-id="${c.id}" data-statut="${s}">${nom}</button>`).join('') || '<p class="sous">Aucune action possible : commande clôturée.</p>'}</div>
+    ${c.suivi ? `<div class="bloc"><h3>Suivi ${esc(LIVRAISONS[c.livraison].transporteur || '')}</h3><p class="mono">${esc(c.suivi)}</p></div>` : ''}
+    <div class="rangee">${c.facture ? `<button class="btn petit fantome" data-action="facture" data-id="${c.id}">Facture ${c.facture}</button>` : ''}${c.suivi && LIVRAISONS[c.livraison].transporteur ? `<button class="btn petit fantome" data-action="etiquette" data-id="${c.id}">Étiquette d’envoi</button>` : ''}</div>
+    <div class="bloc actions">${fluxPour(c).map(([s, nom], i) => `<button class="btn ${i ? 'fantome' : ''} ${s === 'annulee' || s === 'remboursee' ? 'danger' : ''}" data-action="statut" data-id="${c.id}" data-statut="${s}">${nom}</button>`).join('') || '<p class="sous">Aucune action possible : commande clôturée.</p>'}</div>
     <div class="bloc"><h3>Historique</h3><ol class="frise">${[...c.historique].reverse().map(h => `<li><span>${esc(h.texte)}</span><time>${dateHeure(h.date)}</time></li>`).join('')}</ol></div>
     <div class="bloc"><label for="note-${c.id}"><h3>Note interne</h3></label><textarea id="note-${c.id}" rows="2" data-champ="note" data-id="${c.id}" placeholder="Visible uniquement par vous">${esc(c.note)}</textarea></div>
   </aside>`;
@@ -235,11 +261,12 @@ function changerStatut(id, statut) {
   const c = etat.commandes.find(x => x.id === id);
   if (!c) return;
   c.statut = statut;
-  if (statut === 'expediee' && !c.suivi) c.suivi = '6A' + Math.floor(1e10 + Math.random() * 9e10);
+  if (statut === 'expediee' && !c.suivi) c.suivi = ({ relais: 'MR', chronopost: 'XY' }[c.livraison] || '6A') + Math.floor(1e10 + Math.random() * 9e10);
+  if (statut === 'payee' && !c.facture) c.facture = numeroFactureSuivant(etat, Date.now());
   if (statut === 'remboursee' || statut === 'annulee') {
     for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); if (p) p.stock += l.qte; }
   }
-  const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: `Expédiée, suivi ${c.suivi}`, livree: 'Livrée', remboursee: `Remboursée (${euros(c.total)}), stock remis`, annulee: 'Annulée, stock remis' };
+  const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: `Expédiée, suivi ${c.suivi}`, livree: 'Livrée', remboursee: `Remboursée (${euros(c.total)}), avoir émis, stock remis`, annulee: 'Annulée, stock remis', prete: 'Prête à retirer, SMS envoyé au client (simulé)', retiree: 'Remise au client en boutique' };
   c.historique.push({ date: Date.now(), texte: textes[statut] });
   sauver();
   toast(`Commande #${c.numero} : ${STATUTS[statut].nom.toLowerCase()}. Le client a reçu un e-mail (simulé).`);
@@ -252,7 +279,9 @@ function vueProduits() {
   const cats = SECTEURS[etat.boutique.secteur].categories;
   return `
   <div class="tete"><div><h1>Produits</h1><p class="sous">${etat.produits.length} produits · ${etat.produits.filter(x => x.actif).length} en ligne</p></div>
-    <button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
+    <div class="rangee"><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
+    <input type="file" id="photo-input" accept="image/*" multiple hidden></div>
+  <p class="astuce">Prenez vos produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
   <div class="maitre-detail ${p ? 'ouvert' : ''}">
     <section class="carte sans-pad"><div class="table-wrap"><table class="table">
       <thead><tr><th></th><th>Produit</th><th>Catégorie</th><th class="num">Prix</th><th class="num">Stock</th><th>Statut</th></tr></thead>
@@ -261,13 +290,13 @@ function vueProduits() {
           <td class="vignette">${visuelProduit(x)}</td><td>${esc(x.nom)}</td><td>${esc(x.categorie)}</td>
           <td class="num">${euros(x.prix)}</td>
           <td class="num">${x.stock <= 5 ? `<span class="pill ${x.stock <= 0 ? 'bad' : 'warn'}">${x.stock}</span>` : x.stock}</td>
-          <td>${x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}</td></tr>`).join('')}
+          <td>${x.aVerifier ? '<span class="pill warn">À vérifier</span>' : x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}</td></tr>`).join('')}
       </tbody></table></div></section>
     ${p ? `<aside class="carte detail"><form data-form="produit">
       <div class="carte-tete"><h2>${etat.produits.find(x => x.id === p.id) ? 'Modifier le produit' : 'Nouveau produit'}</h2><button type="button" class="icone" data-action="fermer-produit">Fermer</button></div>
       ${visuelProduit(p, true)}
       <label class="champ"><span>Nom</span><input id="pf-nom" name="nom" required value="${esc(p.nom)}"></label>
-      <label class="champ"><span>Description</span><textarea id="pf-desc" name="description" rows="3">${esc(p.description)}</textarea></label>
+      <label class="champ"><span>Description <button type="button" class="lien bouton-lien" data-action="rediger">Rédiger pour moi</button></span><textarea id="pf-desc" name="description" rows="4">${esc(p.description)}</textarea></label>
       <div class="deux"><label class="champ"><span>Prix (€)</span><input id="pf-prix" name="prix" type="number" min="0" step="0.01" required value="${p.prix}"></label>
       <label class="champ"><span>Stock</span><input id="pf-stock" name="stock" type="number" min="0" step="1" required value="${p.stock}"></label></div>
       <label class="champ"><span>Catégorie</span><select id="pf-cat" name="categorie">${cats.map(c => `<option ${c === p.categorie ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
@@ -430,10 +459,13 @@ function vueDomaines() {
 /* ---------- Boutique en ligne (vue client) ---------- */
 function vueBoutique() {
   const total = ui.panier.reduce((a, l) => a + l.prix * l.qte, 0);
-  const port = total >= 60 || !total ? 0 : 5.9;
+  const modes = Object.entries(LIVRAISONS).filter(([k]) => k !== 'retrait' || etat.magasin.clickCollect);
+  if (!modes.find(([k]) => k === ui.livraison)) ui.livraison = 'colissimo';
+  const port = total ? fraisPort(ui.livraison, total) : 0;
   return `
   <div class="bandeau-client"><span>Vous voyez <b class="mono">${esc(etat.boutique.domaine ? etat.boutique.domaine.domaine : slugifier(etat.boutique.nom) + '.comptoir.shop')}</b> comme un client. Passez une commande : elle apparaîtra dans l’admin.</span><a href="#tableau" class="btn petit">Retour à l’admin</a></div>
   <div class="boutique-live">${renduBoutique(etat, { mode: 'live', panier: ui.panier })}</div>
+  ${etat.cookies ? '' : `<div class="cookies" role="region" aria-label="Cookies"><p>${esc(etat.boutique.nom)} utilise des cookies de mesure d’audience pour améliorer le site. Vous pouvez les accepter ou les refuser.</p><div class="rangee"><button class="btn petit fantome" data-action="cookies" data-choix="refus">Refuser</button><button class="btn petit fantome" data-action="cookies" data-choix="accord">Accepter</button></div></div>`}
   <div class="tiroir ${ui.panierOuvert ? 'ouvert' : ''}" aria-hidden="${!ui.panierOuvert}">
     <div class="tiroir-fond" data-action="fermer-panier"></div>
     <aside class="tiroir-corps" style="${varsTheme(etat.boutique.theme)}">
@@ -444,11 +476,13 @@ function vueBoutique() {
           <div class="qte"><button data-action="qte" data-id="${l.produitId}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-action="qte" data-id="${l.produitId}" data-d="1" aria-label="Ajouter un">+</button></div>
           <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux"><div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
+        <fieldset class="modes-livraison"><legend>Livraison</legend>${modes.map(([k, l]) => `<label class="${ui.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${k}" data-livraison ${ui.livraison === k ? 'checked' : ''}><span>${esc(l.nom)}<small>${k === 'retrait' ? esc(etat.magasin.adresse) + ' · prêt en ' + l.delai : l.delai}</small></span><b>${fraisPort(k, total) ? euros(fraisPort(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
         <form data-form="paiement">
           <label class="champ"><span>Nom</span><input id="pay-nom" name="nom" required value="Alex Morel"></label>
           <label class="champ"><span>E-mail</span><input id="pay-email" name="email" type="email" required value="alex.morel@exemple.fr"></label>
           <label class="champ"><span>Ville</span><input id="pay-ville" name="ville" required value="Bordeaux"></label>
           <button class="sf-btn plein">Payer ${euros(total + port)} (simulation)</button>
+          <p class="mini">Carte, paiement en 3 fois ou Wero. En validant, vous acceptez les <button type="button" class="bouton-lien" data-action="doc" data-id="cgv">CGV</button>. Rétractation sous 14 jours.</p>
         </form>` : '<p>Votre panier est vide.</p>'}
     </aside>
   </div>`;
@@ -457,10 +491,11 @@ function vueBoutique() {
 function passerCommande(form) {
   const d = new FormData(form);
   const sousTotal = ui.panier.reduce((a, l) => a + l.prix * l.qte, 0);
-  const port = sousTotal >= 60 ? 0 : 5.9;
+  const port = fraisPort(ui.livraison, sousTotal);
   const numero = Math.max(1000, ...etat.commandes.map(c => c.numero)) + 1;
   const now = Date.now();
   etat.commandes.push({
+    livraison: ui.livraison, canal: 'web', facture: numeroFactureSuivant(etat, now),
     id: 'c' + numero, numero, date: now,
     client: { nom: d.get('nom'), email: d.get('email'), ville: d.get('ville') },
     lignes: ui.panier.map(l => ({ ...l })), sousTotal, port, total: Math.round((sousTotal + port) * 100) / 100,
@@ -519,6 +554,8 @@ function creerBoutique() {
     produits: a.exemples ? produitsDepuisSecteur(a.secteur) : [],
     commandes: [], visites30j: 0
   };
+  completerEtat(etat);
+  etat.entreprise.raison = nom;
   sauver();
   ui.assistant = { etape: 1, nom: '', secteur: 'mode', pays: 'fr', theme: 'craie', exemples: true, domaine: null };
   toast(`${nom} est en ligne. Personnalisez maintenant chaque section.`);
@@ -635,6 +672,7 @@ document.addEventListener('change', e => {
   else if (t.dataset.champ === 'dom-mois') { ui.dom.mois = Number(t.value); rendre(); }
   else if (t.dataset.boutiqueDom === 'pays') { etat.boutique.pays = t.value; sauver(); rendre(); }
   else if (t.dataset.boutique === 'secteur') { rendre(); }
+  else if (t.dataset.livraison !== undefined) { ui.livraison = t.value; rendre(); }
   else if (t.dataset.assistant === 'exemples') ui.assistant.exemples = t.checked;
   else if (t.dataset.assistant === 'domaine') { ui.assistant.domaine = t.value; rendre(); }
   else if (t.dataset.assistant === 'secteur' || t.dataset.assistant === 'pays') ui.assistant[t.dataset.assistant] = t.value;
@@ -645,7 +683,7 @@ document.addEventListener('submit', e => {
   const f = e.target;
   if (f.dataset.form === 'produit') {
     const d = new FormData(f);
-    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), categorie: d.get('categorie'), actif: d.get('actif') === 'on' };
+    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false };
     const i = etat.produits.findIndex(x => x.id === p.id);
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);
     ui.produitEdite = null; sauver(); toast(`« ${p.nom} » enregistré.`); rendre();
@@ -673,8 +711,9 @@ document.addEventListener('pointermove', e => {
 /* Routage par ancre (#commandes, #editeur…) */
 function surHash() {
   const r = location.hash.slice(1);
-  ui.route = [...NAV.map(n => n[0]), 'creer'].includes(r) ? r : 'tableau';
+  ui.route = [...NAV.map(n => n[0]), 'creer', 'offre'].includes(r) ? r : 'tableau';
   if (ui.route !== 'boutique') { ui.panierOuvert = false; }
+  ui.modal = null;
   rendre();
   window.scrollTo(0, 0);
 }

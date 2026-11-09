@@ -147,9 +147,26 @@ const STATUTS = {
   preparation: { nom: 'En préparation', ton: 'info' },
   expediee: { nom: 'Expédiée', ton: 'accent' },
   livree: { nom: 'Livrée', ton: 'good' },
+  prete: { nom: 'Prête à retirer', ton: 'accent' },
+  retiree: { nom: 'Retirée', ton: 'good' },
   remboursee: { nom: 'Remboursée', ton: 'muted' },
   annulee: { nom: 'Annulée', ton: 'bad' }
 };
+
+/* Modes de livraison proposés au client (prix TTC, offerts dès 60 € sauf retrait gratuit). */
+const LIVRAISONS = {
+  colissimo: { nom: 'Colissimo à domicile', court: 'Colissimo', prix: 5.9, delai: '48 h', transporteur: 'Colissimo' },
+  relais: { nom: 'Mondial Relay en point relais', court: 'Point relais', prix: 3.9, delai: '3 à 5 jours', transporteur: 'Mondial Relay' },
+  chronopost: { nom: 'Chronopost express', court: 'Express', prix: 12.9, delai: '24 h', transporteur: 'Chronopost' },
+  retrait: { nom: 'Retrait en boutique (click & collect)', court: 'Retrait', prix: 0, delai: '2 h', transporteur: null }
+};
+const SEUIL_PORT_OFFERT = 60;
+function fraisPort(mode, sousTotal) {
+  const l = LIVRAISONS[mode] || LIVRAISONS.colissimo;
+  if (mode === 'retrait') return 0;
+  if (mode !== 'chronopost' && sousTotal >= SEUIL_PORT_OFFERT) return 0;
+  return l.prix;
+}
 
 const PRENOMS = ['Camille', 'Léa', 'Hugo', 'Manon', 'Lucas', 'Chloé', 'Nathan', 'Inès', 'Louis', 'Jade', 'Gabriel', 'Zoé', 'Arthur', 'Lina', 'Jules', 'Emma', 'Tom', 'Sarah', 'Noah', 'Alice', 'Paul', 'Clara', 'Adam', 'Romane'];
 const NOMS = ['Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit', 'Durand', 'Leroy', 'Moreau', 'Simon', 'Laurent', 'Lefebvre', 'Michel', 'Garcia', 'Roux', 'Fournier', 'Girard', 'Bonnet', 'Lambert'];
@@ -216,27 +233,33 @@ function boutiqueDemo() {
         if (ex) ex.qte++; else lignes.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1 });
       }
       const sousTotal = lignes.reduce((a, l) => a + l.prix * l.qte, 0);
-      const port = sousTotal >= 60 ? 0 : 5.9;
+      const r = rand();
+      const enMagasin = r < 0.1;
+      const livraison = enMagasin ? 'retrait' : r < 0.55 ? 'colissimo' : r < 0.85 ? 'relais' : r < 0.93 ? 'retrait' : 'chronopost';
+      const port = enMagasin ? 0 : fraisPort(livraison, sousTotal);
       let statut;
       if (d > 10) statut = rand() < 0.05 ? 'remboursee' : 'livree';
       else if (d > 4) statut = rand() < 0.5 ? 'livree' : 'expediee';
       else if (d > 1) statut = rand() < 0.6 ? 'expediee' : 'preparation';
       else statut = rand() < 0.15 ? 'attente' : 'payee';
+      if (livraison === 'retrait') statut = { livree: 'retiree', expediee: 'prete' }[statut] || statut;
+      if (enMagasin) statut = 'retiree';
       const prenom = PRENOMS[Math.floor(rand() * PRENOMS.length)];
       const nomF = NOMS[Math.floor(rand() * NOMS.length)];
       commandes.push({
         id: 'c' + numero, numero: numero++, date,
         client: { nom: `${prenom} ${nomF}`, email: `${prenom}.${nomF}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + '@exemple.fr', ville: VILLES[Math.floor(rand() * VILLES.length)] },
         lignes, sousTotal, port, total: Math.round((sousTotal + port) * 100) / 100,
-        statut, suivi: ['expediee', 'livree'].includes(statut) ? 'LA' + Math.floor(100000000 + rand() * 899999999) + 'FR' : '',
-        historique: [{ date, texte: 'Commande passée' }],
+        statut, livraison, canal: enMagasin ? 'magasin' : 'web',
+        suivi: ['expediee', 'livree'].includes(statut) ? 'LA' + Math.floor(100000000 + rand() * 899999999) + 'FR' : '',
+        historique: [{ date, texte: enMagasin ? 'Vente encaissée en boutique' : 'Commande passée' }],
         note: ''
       });
     }
   }
   // Numéros dans l’ordre chronologique
   commandes.sort((a, b) => a.date - b.date).forEach((c, i) => { c.numero = 1001 + i; c.id = 'c' + c.numero; });
-  return {
+  return completerEtat({
     version: 1,
     boutique: {
       nom, secteur: 'deco', slogan: 'Bougies et objets pour les soirs d’hiver',
@@ -245,6 +268,32 @@ function boutiqueDemo() {
       domaine: null, publiee: true, pays: 'fr'
     },
     produits, commandes,
-    visites30j: 4180
-  };
+    visites30j: 4180,
+    entreprise: {
+      raison: 'Maison Brume', forme: 'Micro-entreprise', siret: '912 345 678 00017', tvaIntra: '',
+      adresse: '14 rue des Tanneurs, 69001 Lyon', email: 'bonjour@maisonbrume.fr', regime: 'franchise', mediateur: ''
+    },
+    magasin: { actif: true, adresse: '14 rue des Tanneurs, 69001 Lyon', horaires: 'Mar.–sam. 10 h–19 h', clickCollect: true, googleSync: true }
+  });
+}
+
+/* Ajoute les champs des versions récentes à un état plus ancien (migration douce). */
+function completerEtat(e) {
+  e.entreprise = e.entreprise || { raison: e.boutique.nom, forme: 'Micro-entreprise', siret: '', tvaIntra: '', adresse: '', email: '', regime: 'franchise', mediateur: '' };
+  e.magasin = e.magasin || { actif: false, adresse: '', horaires: '', clickCollect: false, googleSync: false };
+  e.campagnes = e.campagnes || {};
+  e.rdv = e.rdv || null;
+  e.cookies = e.cookies ?? null;
+  let n = 0;
+  for (const c of [...e.commandes].sort((a, b) => a.date - b.date)) {
+    c.livraison = c.livraison || 'colissimo';
+    c.canal = c.canal || 'web';
+    if (!c.facture && !['attente', 'annulee'].includes(c.statut)) c.facture = numeroFactureSuivant(e, c.date);
+    n++;
+  }
+  return e;
+}
+function numeroFactureSuivant(e, date) {
+  e.compteurFacture = (e.compteurFacture || 0) + 1;
+  return `FA-${new Date(date).getFullYear()}-${String(e.compteurFacture).padStart(4, '0')}`;
 }
