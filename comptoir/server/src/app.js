@@ -104,10 +104,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       social: social.nettoyerReglages(config.social),
       automatisations: relances.nettoyer(config.automatisations),
       offres: Remises.offresDe(config),
+      lancement: Object.fromEntries(Object.entries(config.lancement || {}).slice(0, 30).map(([k, v]) => [String(k).slice(0, 20), !!v])),
       tests: (Array.isArray(config.tests) ? config.tests : []).slice(-50).map(t => ({
         id: String(t.id).slice(0, 30), produitId: String(t.produitId).slice(0, 40), canal: ['meta', 'tiktok-ads', 'organique'].includes(t.canal) ? t.canal : 'meta',
         budgetJour: Math.max(0, Number(t.budgetJour) || 0), debut: Number(t.debut) || Date.now(),
-        resultats: (Array.isArray(t.resultats) ? t.resultats : []).slice(0, 60).map(r => Object.fromEntries(['depense', 'vues', 'clics', 'ventes'].map(k => [k, Math.max(0, Number(r[k]) || 0)])))
+        resultats: (Array.isArray(t.resultats) ? t.resultats : []).slice(0, 60).map(r => Object.fromEntries(['depense', 'vues', 'impressions', 'vues3s', 'clics', 'ventes'].map(k => [k, Math.max(0, Number(r[k]) || 0)])))
       }))
     };
   }
@@ -259,7 +260,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const publications = db.prepare('SELECT * FROM publications WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(social.lire);
     const abonnes = db.prepare('SELECT COUNT(*) AS n FROM abonnes WHERE boutique_id = ?').get(ctx.boutique.id).n;
     const envois = Object.fromEntries(db.prepare("SELECT substr(cle, 1, instr(cle, ':') - 1) AS type, COUNT(*) AS n FROM envois_auto WHERE boutique_id = ? GROUP BY type").all(ctx.boutique.id).map(x => [x.type, x.n]));
-    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
+    const avis = db.prepare('SELECT id, commande_id AS commandeId, produit_id AS produitId, note, texte, prenom, ville, cree_le AS date, reponse FROM avis WHERE boutique_id = ? ORDER BY cree_le DESC LIMIT 300').all(ctx.boutique.id);
+    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
   });
   r.put('/api/admin/config', exigerMarchand, ctx => {
     const config = nettoyerConfig(ctx.corps.config);
@@ -412,14 +414,16 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/api/public/:slug', ctx => {
     const b = boutiqueParSlug(ctx.params.slug);
     const config = lireConfig(b);
-    const produits = listerProduits(b.id).filter(p => p.actif).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, ...p }) => p);
+    const notes = statsAvis(b.id);
+    const produits = listerProduits(b.id).filter(p => p.actif).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, ...p }) => ({ ...p, avis: notes[p.id] || null }));
+    const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
     return {
       boutique: config.boutique,
       magasin: { clickCollect: !!config.magasin.clickCollect, adresse: config.magasin.adresse || '' },
       entreprise: { raison: config.entreprise.raison, adresse: config.entreprise.adresse, email: config.entreprise.email, forme: config.entreprise.forme, siret: config.entreprise.siret, regime: config.entreprise.regime },
-      produits,
+      produits, avisRecents,
       livraisons: prix.modesLivraison(config),
-      seuilPortOffert: prix.SEUIL_PORT_OFFERT,
+      seuilPortOffert: Remises.offresDe(config).seuilPort,
       offres: (({ paliersActifs, paliers, suggestions, barrePort }) => ({ paliersActifs, paliers, suggestions, barrePort }))(Remises.offresDe(config)),
       newsletter: relances.nettoyer(config.automatisations).bienvenue,
       paiement: paiement.nom
@@ -439,14 +443,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       email: valider.email(cl.email),
       adresse: ctx.corps.livraison === 'retrait' ? '' : valider.texte(cl.adresse, 'L’adresse', { max: 200 }),
       npa: ctx.corps.livraison === 'retrait' ? '' : valider.texte(cl.npa, 'Le code postal', { min: 4, max: 10 }),
-      ville: valider.texte(cl.ville, 'La ville', { max: 100 })
+      ville: valider.texte(cl.ville, 'La ville', { max: 100 }),
+      consentement: cl.consentement === true || cl.consentement === 'on' ? Date.now() : null
     };
     if (config.boutique.pays === 'ch' && client.npa && !/^\d{4}$/.test(client.npa)) throw erreur(400, 'Le NPA suisse compte 4 chiffres.', 'npa_invalide');
     const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
     if (ctx.corps.code && calcul.codeValide === false) throw erreur(400, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
     const lignes = calcul.lignes;
     const sousTotal = calcul.sousTotal, remise = calcul.remise;
-    const port = prix.fraisPort(mode, calcul.apresRemise);
+    const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);
     const total = prix.arrondi(calcul.apresRemise + port);
     const devise = config.boutique.devise || 'EUR';
     const { commande, pmt } = transaction(db, () => {
@@ -465,6 +470,42 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { commandeId: commande.id, numero: commande.numero, jeton: commande.jeton, total, paiementUrl: session.url } };
   });
+  /* Avis vérifiés : seul un client ayant reçu sa commande peut noter, une fois par produit. */
+  const statsAvis = boutiqueId => Object.fromEntries(db.prepare('SELECT produit_id, AVG(note) AS m, COUNT(*) AS n FROM avis WHERE boutique_id = ? GROUP BY produit_id').all(boutiqueId).map(x => [x.produit_id, { moyenne: x.m, n: x.n }]));
+  r.post('/api/public/:slug/avis', ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(String(ctx.corps.commandeId || ''), b.id);
+    const jeton = String(ctx.corps.jeton || '');
+    if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    if (!['expediee', 'livree', 'retiree'].includes(row.statut)) throw erreur(409, 'Vous pourrez donner votre avis après réception de la commande.', 'pas_encore');
+    const c = lireCommande(row);
+    const liste = Array.isArray(ctx.corps.avis) ? ctx.corps.avis.slice(0, 20) : [];
+    let n = 0;
+    for (const a of liste) {
+      if (!c.lignes.some(l => l.produitId === a.produitId)) continue;
+      const note = Math.round(Number(a.note));
+      if (!(note >= 1 && note <= 5)) throw erreur(400, 'Note entre 1 et 5 étoiles.', 'note_invalide');
+      n += db.prepare('INSERT OR IGNORE INTO avis (id, boutique_id, commande_id, produit_id, note, texte, prenom, ville, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(auth.nouvelId('av_'), b.id, c.id, a.produitId, note, String(a.texte || '').trim().slice(0, 1000), c.client.nom.split(' ')[0].slice(0, 40), (c.client.ville || '').slice(0, 60), Date.now()).changes;
+    }
+    if (!n) throw erreur(409, 'Avis déjà enregistré pour cette commande.', 'deja_note');
+    return { statut: 201, corps: { n } };
+  });
+  r.get('/api/public/:slug/avis-a-donner', ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(String(ctx.query.get('commande') || ''), b.id);
+    const jeton = String(ctx.query.get('jeton') || '');
+    if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    const c = lireCommande(row);
+    const deja = new Set(db.prepare('SELECT produit_id FROM avis WHERE commande_id = ?').all(c.id).map(x => x.produit_id));
+    return { prenom: c.client.nom.split(' ')[0], produits: c.lignes.filter(l => !deja.has(l.produitId)).map(l => ({ produitId: l.produitId, nom: l.nom })) };
+  });
+  r.patch('/api/admin/avis/:id', exigerMarchand, ctx => {
+    const res = db.prepare('UPDATE avis SET reponse = ? WHERE id = ? AND boutique_id = ?').run(String(ctx.corps.reponse || '').slice(0, 1000) || null, ctx.params.id, ctx.boutique.id);
+    if (!res.changes) throw erreur(404, 'Avis introuvable.', 'avis_introuvable');
+    return { ok: true };
+  });
+
   r.post('/api/public/:slug/code', ctx => {
     const b = boutiqueParSlug(ctx.params.slug);
     const saisi = String(ctx.corps.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');

@@ -39,7 +39,7 @@ async function rechargerEtat() {
   SERVEUR.paiement = e.serveur.paiement;
 }
 const urlBoutique = () => `${location.origin}/s/${SERVEUR.slug}`;
-const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, offres: etat.offres });
+const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, offres: etat.offres, lancement: etat.lancement || {} });
 async function rafraichir(message) {
   try { await rechargerEtat(); } catch (e) { toast(e.message); }
   rendre();

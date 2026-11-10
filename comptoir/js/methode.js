@@ -33,56 +33,85 @@ function blocCriteres(f) {
     <ul>${c.map(x => `<li class="${x.ok ? 'ok' : 'ko'}"><b>${x.ok ? 'Oui' : 'Non'}</b><span><strong>${esc(x.nom)}</strong><br><span class="sous">${esc(x.detail)} (${esc(x.source)})</span></span></li>`).join('')}</ul></details>`;
 }
 
-/* ---------- 2. Tests produits : règles pour arrêter ou augmenter le budget ---------- */
+/* ---------- 2. Tests produits ----------
+   Règles (sources et limites dans METHODE.md) :
+   - marge de contribution par vente = prix HT − achat − import/douane − frais de paiement (avant publicité) ;
+     c’est aussi le coût d’acquisition d’équilibre (CPA d’équilibre). ROAS d’équilibre = prix / contribution.
+   - couper : dépense ≥ 3 × CPA d’équilibre sans aucune vente, après au moins 500 impressions (règle répandue, 2× à 5× selon les sources) ;
+     ou coût par vente au-dessus du CPA d’équilibre une fois la fenêtre de jugement passée.
+   - apprentissage : Meta et TikTok visent environ 50 conversions en 7 jours ; TikTok déconseille toute modification avant 20.
+   - accroche : part des impressions qui regardent 3 secondes (hook rate), cible 30 à 40 % (Motion).
+   - augmenter : pas de pourcentage fixe reconnu. Soit horizontal (nouvelles créas sur l’angle gagnant, Common Thread Collective),
+     soit hausse de budget puis environ 7 jours d’attente avant de juger (Ben Heath). */
 const CANAUX_TEST = {
-  meta: { nom: 'Publicités Meta (Instagram, Facebook)', jours: 3, ensembles: 5, regle: '5 à 10 ensembles de publicités pendant 3 jours (Minea).' },
-  'tiktok-ads': { nom: 'Publicités TikTok', jours: 3, ensembles: 5, regle: 'Tester d’abord les 3 premières secondes de la vidéo, puis les miniatures (Gabriel St-Germain).' },
-  organique: { nom: 'TikTok organique', jours: 30, ensembles: 0, regle: '3 à 5 vidéos de 10 à 30 secondes par jour pendant 30 jours, sans budget publicitaire (Kamil Sattar).' }
+  meta: { nom: 'Publicités Meta (Instagram, Facebook)', jours: 3, apprentissage: 50, regle: '5 à 10 créas dans un même test, jugées après 3 jours (Minea ; 1 à 2 jours selon Jordan Welch). Vidéo verticale, message lisible sans le son dans les 3 premières secondes, 15 s ou moins (Meta).' },
+  'tiktok-ads': { nom: 'Publicités TikTok', jours: 3, apprentissage: 50, gel: 20, regle: '3 à 5 créas très différentes par groupe d’annonces, style natif, texte à l’écran court (TikTok). Testez d’abord les 3 premières secondes (Gabriel St-Germain).' },
+  organique: { nom: 'TikTok organique', jours: 30, apprentissage: 0, regle: '3 à 5 vidéos de 10 à 30 s par jour pendant 30 jours (Kamil Sattar). Des mesures plus prudentes montrent déjà un gain en passant de 1 à 2–5 publications par semaine (Buffer).' }
 };
+const SEUIL_COUPE = 3;          // × CPA d’équilibre dépensé sans vente
+const IMPRESSIONS_MIN = 500;
+const HOOK_CIBLE = [0.30, 0.40];
+const CTR_SIGNAL = 0.02;        // CTR lien > 2 % : signal positif (Harry Coleman)
 
-function margeBruteProduit(p) {
-  const m = margeProduit(p, { cpa: 0 });
-  return m.avantPub;
-}
+function contributionProduit(p) { return margeProduit(p, { cpa: 0 }).avantPub; }
+const margeBruteProduit = contributionProduit; // ancien nom, conservé pour les autres écrans
 
 function analyseTest(t) {
   const p = etat.produits.find(x => x.id === t.produitId);
   if (!p) return null;
-  const mb = margeBruteProduit(p);
-  const tot = k => t.resultats.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-  const depense = tot('depense'), ventes = tot('ventes'), clics = tot('clics'), vues = tot('vues');
+  const mb = contributionProduit(p);
+  const roasEq = mb > 0 ? p.prix / mb : Infinity;
+  const tot = k => t.resultats.reduce((a, r) => a + (Number(k === 'impressions' ? (r.impressions ?? r.vues) : r[k]) || 0), 0);
+  const depense = tot('depense'), ventes = tot('ventes'), clics = tot('clics'), impressions = tot('impressions'), vues3s = tot('vues3s');
+  const vues = impressions;
   const cpa = ventes ? depense / ventes : null;
   const roas = depense ? ventes * p.prix / depense : null;
   const jours = t.resultats.length;
   const canal = CANAUX_TEST[t.canal];
-  let verdict, raison, ton;
+  const hook = impressions && vues3s ? vues3s / impressions : null;
+  const ctr = impressions ? clics / impressions : null;
+  const cpm = impressions ? depense / impressions * 1000 : null;
+  const cvr = clics ? ventes / clics : null;
+  const ventes7 = t.resultats.slice(-7).reduce((a, r) => a + (Number(r.ventes) || 0), 0);
+  const enApprentissage = canal.apprentissage && ventes7 < canal.apprentissage;
+  const budgetMin = mb > 0 && canal.apprentissage ? canal.apprentissage * mb / 7 : null;
+  let verdict, raison, ton, conseil = '';
   if (t.canal === 'organique') {
-    const tauxClic = vues ? clics / vues * 1000 : 0;
-    if (jours < 7) { verdict = 'Continuer'; ton = 'info'; raison = `Jour ${jours} sur 30. Publiez 3 à 5 vidéos par jour et gardez les accroches qui retiennent.`; }
+    const taux = vues ? clics / vues * 1000 : 0;
+    if (jours < 7) { verdict = 'Continuer'; ton = 'info'; raison = `Jour ${jours} sur 30. Gardez le rythme et notez les accroches qui retiennent.`; }
     else if (ventes === 0 && jours >= 14) { verdict = 'Changer d’angle'; ton = 'warn'; raison = '14 jours sans vente : testez un autre problème ou une autre accroche avant d’abandonner le produit.'; }
-    else { verdict = ventes ? 'Continuer' : 'Continuer'; ton = ventes ? 'good' : 'info'; raison = `${clics} clics pour ${vues.toLocaleString('fr-FR')} vues (${tauxClic.toFixed(1).replace('.', ',')} pour 1000). ${ventes} ventes.`; }
+    else { verdict = 'Continuer'; ton = ventes ? 'good' : 'info'; raison = `${clics} clics pour ${vues.toLocaleString('fr-FR')} vues (${taux.toFixed(1).replace('.', ',')} pour 1000). ${ventes} vente${ventes > 1 ? 's' : ''}.`; }
   } else if (!jours) { verdict = 'À lancer'; ton = 'muted'; raison = canal.regle; }
-  else if (depense > mb && !ventes) { verdict = 'Couper'; ton = 'bad'; raison = `${euros(depense)} dépensés sans vente : plus que votre marge brute (${euros(mb)}).`; }
-  else if (cpa !== null && cpa > mb) { verdict = 'Couper'; ton = 'bad'; raison = `Coût par vente ${euros(cpa)} > marge brute ${euros(mb)} : chaque vente vous fait perdre de l’argent (Minea).`; }
-  else if (cpa !== null && jours >= canal.jours && cpa <= mb * 0.7) { verdict = 'Augmenter le budget'; ton = 'good'; raison = `Coût par vente ${euros(cpa)}, soit ${Math.round(cpa / mb * 100)} % de la marge brute. Augmentez de 20 % tous les 2 jours tant que ça tient (règle Comptoir).`; }
-  else if (jours >= canal.jours) { verdict = 'Garder et optimiser'; ton = 'info'; raison = 'Rentable mais juste : changez les 3 premières secondes de vos vidéos avant d’augmenter le budget.'; }
-  else { verdict = 'Attendre'; ton = 'info'; raison = `Jour ${jours} sur ${canal.jours}. Ne coupez pas avant ${canal.jours} jours, sauf si la dépense dépasse déjà la marge brute.`; }
-  return { p, mb, depense, ventes, clics, vues, cpa, roas, jours, verdict, raison, ton, budgetJour: t.budgetJour, ctr: vues ? clics / vues * 100 : null };
+  else if (!ventes && depense >= SEUIL_COUPE * mb && impressions >= IMPRESSIONS_MIN) { verdict = 'Couper'; ton = 'bad'; raison = `${euros(depense)} dépensés sans vente, soit plus de ${SEUIL_COUPE} fois le coût d’acquisition d’équilibre (${euros(mb)}).`; }
+  else if (cpa !== null && jours >= canal.jours && cpa > mb) { verdict = hook !== null && hook < HOOK_CIBLE[0] ? 'Changer l’accroche' : 'Couper'; ton = 'bad'; raison = `Coût par vente ${euros(cpa)} au-dessus du seuil d’équilibre ${euros(mb)} : chaque vente coûte de l’argent.${hook !== null && hook < HOOK_CIBLE[0] ? ` L’accroche retient peu (${fmtPct(hook)} regardent 3 s, cible 30–40 %) : testez de nouvelles premières secondes avant d’abandonner le produit.` : ''}`; }
+  else if (cpa !== null && jours >= canal.jours && cpa <= mb * 0.7) {
+    verdict = 'Augmenter'; ton = 'good';
+    raison = `Coût par vente ${euros(cpa)}, soit ${Math.round(cpa / mb * 100)} % du seuil d’équilibre. ROAS ${roas.toFixed(2).replace('.', ',')} pour un ROAS d’équilibre de ${roasEq.toFixed(2).replace('.', ',')}.`;
+    conseil = enApprentissage && canal.gel && ventes7 < canal.gel ? `Ne touchez à rien avant ${canal.gel} conversions (TikTok).` : 'Deux options : ajouter 2 ou 3 nouvelles créas sur le même angle (horizontal), ou augmenter le budget puis attendre environ 7 jours avant de juger.';
+  } else if (jours >= canal.jours) { verdict = 'Garder et itérer'; ton = 'info'; raison = 'Rentable mais sans marge de sécurité : changez les 3 premières secondes ou testez un nouvel angle avant d’augmenter le budget.'; }
+  else { verdict = 'Attendre'; ton = 'info'; raison = `Jour ${jours} sur ${canal.jours}. Jugez après ${canal.jours} jours, sauf si la dépense sans vente dépasse ${SEUIL_COUPE} × ${euros(mb)}.`; }
+  return { p, mb, roasEq, depense, ventes, clics, vues, impressions, vues3s, cpa, roas, jours, verdict, raison, conseil, ton, budgetJour: t.budgetJour, ctr, hook, cpm, cvr, ventes7, enApprentissage, budgetMin, apprentissage: canal.apprentissage };
 }
 
 function etatTests() { etat.tests = etat.tests || []; return etat.tests; }
 
-/* Démo : deux tests déjà menés pour montrer les deux issues. */
+/* Démo : deux tests déjà menés, un rentable, un à couper. */
 function semerTests() {
   const drops = etat.produits.filter(p => p.type === 'drop');
   if (drops.length < 2) return;
   const j = 86400000, now = Date.now();
   etat.tests = [
     { id: nouvelId('t'), produitId: drops[1].id, canal: 'meta', budgetJour: 50, debut: now - 6 * j, resultats: [
-      { depense: 50, vues: 9800, clics: 160, ventes: 3 }, { depense: 50, vues: 10400, clics: 171, ventes: 4 }, { depense: 50, vues: 9100, clics: 150, ventes: 5 }] },
+      { depense: 50, impressions: 9800, vues3s: 3430, clics: 210, ventes: 3 }, { depense: 50, impressions: 10400, vues3s: 3740, clics: 228, ventes: 4 }, { depense: 50, impressions: 9100, vues3s: 3180, clics: 196, ventes: 5 }] },
     { id: nouvelId('t'), produitId: drops[drops.length - 1].id, canal: 'meta', budgetJour: 50, debut: now - 4 * j, resultats: [
-      { depense: 50, vues: 8800, clics: 60, ventes: 0 }, { depense: 50, vues: 9300, clics: 72, ventes: 1 }] }
+      { depense: 50, impressions: 8800, vues3s: 1580, clics: 61, ventes: 0 }, { depense: 50, impressions: 9300, vues3s: 1670, clics: 70, ventes: 1 }] }
   ];
+}
+
+function jaugeSimple(valeur, cible, libelle) {
+  if (valeur === null) return `<div class="metrique"><span>${libelle}</span><b>—</b></div>`;
+  const ok = cible === null ? null : valeur >= cible;
+  return `<div class="metrique ${ok === null ? '' : ok ? 'ok' : 'ko'}"><span>${libelle}</span><b>${fmtPct(valeur)}</b></div>`;
 }
 
 function vueTests() {
@@ -92,27 +121,38 @@ function vueTests() {
   const candidats = etat.produits.filter(p => p.actif);
   const t0 = ui.nouveauTest || { produitId: candidats[0] && candidats[0].id, canal: 'meta', budgetJour: 50 };
   const pChoisi = etat.produits.find(p => p.id === t0.produitId);
+  const mb0 = pChoisi ? contributionProduit(pChoisi) : 0;
+  const canal0 = CANAUX_TEST[t0.canal];
   return `
-  <div class="tete"><div><h1>Tests produits</h1><p class="sous">Testez vite, coupez ce qui ne rapporte pas, augmentez le budget de ce qui marche. Les règles s’appliquent toutes seules.</p></div>
-    <div class="objectif"><strong>${semaine}</strong><span>produit${semaine > 1 ? 's' : ''} testé${semaine > 1 ? 's' : ''} cette semaine<br><span class="sous">objectif : 3 à 5</span></span></div></div>
+  <div class="tete"><div><h1>Tests produits</h1><p class="sous">Testez vite, coupez ce qui ne rapporte pas, augmentez ce qui marche. Les verdicts suivent des règles sourcées, détaillées dans METHODE.md.</p></div>
+    <div class="objectif"><strong>${semaine}</strong><span>test${semaine > 1 ? 's' : ''} lancé${semaine > 1 ? 's' : ''} cette semaine<br><span class="sous">3 à 5 produits par semaine (Minea)</span></span></div></div>
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Tests en cours</h2></div>
       ${tests.length ? tests.slice().reverse().map(t => {
         const a = analyseTest(t);
         if (!a) return '';
+        const org = t.canal === 'organique';
         return `<article class="test">
-          <div class="test-tete">${visuelProduit(a.p)}<div><strong>${esc(a.p.nom)}</strong><div class="sous">${esc(CANAUX_TEST[t.canal].nom)} · jour ${a.jours}${t.canal !== 'organique' ? ` · ${euros(t.budgetJour)}/jour` : ''}</div></div><span class="pill ${a.ton}">${a.verdict}</span></div>
+          <div class="test-tete">${visuelProduit(a.p)}<div><strong>${esc(a.p.nom)}</strong><div class="sous">${esc(CANAUX_TEST[t.canal].nom)} · jour ${a.jours}${org ? '' : ` · ${euros(t.budgetJour)}/jour`}</div></div><span class="pill ${a.ton}">${a.verdict}</span></div>
           <div class="chiffres">
-            <div><span class="sous">${t.canal === 'organique' ? 'Vues' : 'Dépensé'}</span><strong>${t.canal === 'organique' ? a.vues.toLocaleString('fr-FR') : euros(a.depense)}</strong></div>
+            <div><span class="sous">${org ? 'Vues' : 'Dépensé'}</span><strong>${org ? a.vues.toLocaleString('fr-FR') : euros(a.depense)}</strong></div>
             <div><span class="sous">Ventes</span><strong>${a.ventes}</strong></div>
-            <div><span class="sous">${t.canal === 'organique' ? 'Clics' : 'Coût par vente'}</span><strong>${t.canal === 'organique' ? a.clics : a.cpa === null ? '—' : euros(a.cpa)}</strong></div>
-            <div><span class="sous">Marge brute</span><strong>${euros(a.mb)}</strong></div>
+            <div><span class="sous">${org ? 'Clics' : 'Coût par vente'}</span><strong>${org ? a.clics : a.cpa === null ? '—' : euros(a.cpa)}</strong></div>
+            <div><span class="sous">${org ? 'Contribution / vente' : 'ROAS / équilibre'}</span><strong>${org ? euros(a.mb) : `${a.roas === null ? '—' : a.roas.toFixed(2).replace('.', ',')} / ${isFinite(a.roasEq) ? a.roasEq.toFixed(2).replace('.', ',') : '∞'}`}</strong></div>
           </div>
-          <p class="sous">${esc(a.raison)}</p>
+          ${org ? '' : `<div class="metriques">
+            ${jaugeSimple(a.hook, HOOK_CIBLE[0], 'Regardent 3 s (cible 30–40 %)')}
+            ${jaugeSimple(a.ctr, CTR_SIGNAL, 'Taux de clic (signal > 2 %)')}
+            <div class="metrique"><span>Coût pour 1000 affichages</span><b>${a.cpm === null ? '—' : euros(a.cpm)}</b></div>
+            ${jaugeSimple(a.cvr, null, 'Conversion des clics')}
+          </div>`}
+          <p class="sous">${esc(a.raison)}${a.conseil ? ` <b>${esc(a.conseil)}</b>` : ''}</p>
+          ${a.apprentissage && !org ? `<div class="apprentissage"><span class="sous">Phase d’apprentissage : ${a.ventes7} / ${a.apprentissage} ventes sur 7 jours${a.enApprentissage ? ' · évitez de modifier le test' : ' · terminée'}</span><span class="piste-app"><i style="width:${Math.min(100, a.ventes7 / a.apprentissage * 100)}%"></i></span></div>` : ''}
           <form class="saisie-test" data-form="resultat-test" data-id="${t.id}">
-            ${t.canal === 'organique' ? '' : `<label class="champ"><span>Dépense du jour</span><input name="depense" type="number" min="0" step="0.01" required></label>`}
-            <label class="champ"><span>Vues</span><input name="vues" type="number" min="0" required></label>
+            ${org ? '' : `<label class="champ"><span>Dépense</span><input name="depense" type="number" min="0" step="0.01" required></label>`}
+            <label class="champ"><span>${org ? 'Vues' : 'Impressions'}</span><input name="impressions" type="number" min="0" required></label>
+            ${org ? '' : `<label class="champ"><span>Vues 3 s</span><input name="vues3s" type="number" min="0"></label>`}
             <label class="champ"><span>Clics</span><input name="clics" type="number" min="0" required></label>
             <label class="champ"><span>Ventes</span><input name="ventes" type="number" min="0" required></label>
             <button class="btn petit">Ajouter le jour ${a.jours + 1}</button>
@@ -128,10 +168,13 @@ function vueTests() {
           <label class="champ"><span>Produit</span><select name="produitId" data-nouveau-test="produitId">${candidats.map(p => `<option value="${p.id}" ${p.id === t0.produitId ? 'selected' : ''}>${esc(p.nom)}</option>`).join('')}</select></label>
           <label class="champ"><span>Canal</span><select name="canal" data-nouveau-test="canal">${Object.entries(CANAUX_TEST).map(([k, c]) => `<option value="${k}" ${k === t0.canal ? 'selected' : ''}>${c.nom}</option>`).join('')}</select></label>
           ${t0.canal === 'organique' ? '' : `<label class="champ"><span>Budget par jour (${devise()})</span><input name="budgetJour" type="number" min="5" step="1" value="${t0.budgetJour}" data-nouveau-test="budgetJour"></label>`}
-          ${pChoisi ? `<div class="encart">
-            <strong>Règles appliquées</strong><br>${esc(CANAUX_TEST[t0.canal].regle)}<br>
-            Coupez si le coût par vente dépasse la marge brute : <b>${euros(margeBruteProduit(pChoisi))}</b> pour ce produit.<br>
-            ${t0.canal === 'organique' ? 'Le pilote des réseaux sociaux peut publier les 3 vidéos par jour pour vous.' : `Budget total du test : <b>${euros(t0.budgetJour * CANAUX_TEST[t0.canal].jours)}</b> sur ${CANAUX_TEST[t0.canal].jours} jours.`}
+          ${pChoisi ? `<div class="encart calcul-eq">
+            <div><span>Contribution par vente (avant publicité)</span><b>${euros(mb0)}</b></div>
+            <div><span>Coût d’acquisition d’équilibre</span><b>${euros(mb0)}</b></div>
+            <div><span>ROAS d’équilibre</span><b>${mb0 > 0 ? (pChoisi.prix / mb0).toFixed(2).replace('.', ',') : '∞'}</b></div>
+            ${t0.canal === 'organique' ? '' : `<div><span>Coupure si dépense sans vente ≥</span><b>${euros(SEUIL_COUPE * mb0)}</b></div>
+            <div><span>Budget/jour pour finir l’apprentissage (${canal0.apprentissage} ventes en 7 j)</span><b>${euros(canal0.apprentissage * mb0 / 7)}</b></div>`}
+            <p class="sous">${esc(canal0.regle)}${t0.canal !== 'organique' && t0.budgetJour < canal0.apprentissage * mb0 / 7 ? ' À ce budget, la phase d’apprentissage ne se terminera pas en 7 jours : c’est normal pour un premier test, mais jugez sur le coût par vente, pas sur les indicateurs de la plateforme.' : ''}</p>
           </div>` : ''}
           <button class="btn">Lancer le test</button>
         </form>
@@ -140,14 +183,15 @@ function vueTests() {
         <div class="carte-tete"><h2>Avant de dépenser en publicité</h2></div>
         <ol class="appris">
           <li>Commencez par le contenu gratuit : TikTok organique et micro-influenceurs payés à la commission (Kamil Sattar).</li>
-          <li>Ne passez à la publicité payante qu’avec un budget de test que vous pouvez perdre.</li>
-          <li>Un produit = un angle. Si l’accroche ne retient pas dans les 3 premières secondes, changez l’accroche avant le produit (Gabriel St-Germain).</li>
+          <li>Activez d’abord les e-mails automatiques : relance de paiement, bienvenue, demande d’avis (écran Conversion).</li>
+          <li>Un produit, plusieurs accroches : 4 à 5 vidéos × 3 accroches (podcast Hors des Clous). Environ 5 % des créas seulement deviennent gagnantes, et la moitié perdent : c’est normal (Motion, 2026).</li>
+          <li>Les formats qui gagnent le plus souvent : déballage et démonstration (Motion, 2026).</li>
           <li>Surveillez les retours : 30 % de retours suffisent à effacer la marge (Minea).</li>
         </ol>
       </section>
     </div>
   </div>
-  <p class="note">Les règles s’appuient sur des conseils publics (Minea, Kamil Sattar, Gabriel St-Germain) détaillés dans METHODE.md, avec leurs limites. Les chiffres de démo sont fictifs.</p>`;
+  <p class="note">Les chiffres de démo sont fictifs. Les seuils publiés (hook rate, CTR, apprentissage) sont des repères, pas des garanties.</p>`;
 }
 
 /* ---------- 3. Micro-influenceurs (réseaux sociaux) ---------- */

@@ -302,3 +302,32 @@ test('relance de paiement abandonné, reprise et récupération ; demande d’av
   e = await marchand('GET', '/api/admin/etat');
   assert.ok(e.json.envois.paiement >= 2 && e.json.envois.avis >= 1);
 });
+
+test('avis vérifiés : lien personnel, une fois par produit, publiés avec la note', async () => {
+  const e = await marchand('GET', '/api/admin/etat');
+  const livree = e.json.commandes.find(c => c.statut === 'livree' || c.statut === 'remboursee' || c.statut === 'expediee');
+  const enAttente = e.json.commandes.find(c => c.statut === 'attente');
+  const row = jeton => db.prepare('SELECT jeton_client FROM commandes WHERE id = ?').get(jeton).jeton_client;
+  const acheteur = client();
+  // commande non reçue : refus
+  if (enAttente) assert.equal((await acheteur('POST', `/api/public/${slug}/avis`, { commandeId: enAttente.id, jeton: row(enAttente.id), avis: [{ produitId: enAttente.lignes[0].produitId, note: 5 }] })).statut, 409);
+  const cible = e.json.commandes.find(c => c.statut === 'expediee' || c.statut === 'livree');
+  assert.ok(cible, 'une commande expédiée ou livrée existe');
+  assert.equal((await acheteur('POST', `/api/public/${slug}/avis`, { commandeId: cible.id, jeton: 'faux', avis: [] })).statut, 404);
+  const aDonner = await acheteur('GET', `/api/public/${slug}/avis-a-donner?commande=${cible.id}&jeton=${row(cible.id)}`);
+  assert.equal(aDonner.json.produits.length, cible.lignes.length);
+  assert.equal((await acheteur('POST', `/api/public/${slug}/avis`, { commandeId: cible.id, jeton: row(cible.id), avis: [{ produitId: cible.lignes[0].produitId, note: 9 }] })).statut, 400);
+  const ok = await acheteur('POST', `/api/public/${slug}/avis`, { commandeId: cible.id, jeton: row(cible.id), avis: [{ produitId: cible.lignes[0].produitId, note: 4, texte: 'Très joli, livré vite.' }] });
+  assert.equal(ok.statut, 201);
+  assert.equal((await acheteur('POST', `/api/public/${slug}/avis`, { commandeId: cible.id, jeton: row(cible.id), avis: [{ produitId: cible.lignes[0].produitId, note: 1 }] })).statut, 409, 'pas deux fois');
+  const pub = await acheteur('GET', `/api/public/${slug}`);
+  const p = pub.json.produits.find(x => x.id === cible.lignes[0].produitId);
+  assert.equal(p.avis.n, 1); assert.equal(p.avis.moyenne, 4);
+  assert.equal(pub.json.avisRecents[0].texte, 'Très joli, livré vite.');
+  const av = (await marchand('GET', '/api/admin/etat')).json.avis[0];
+  await marchand('PATCH', `/api/admin/avis/${av.id}`, { reponse: 'Merci !' });
+  assert.equal((await acheteur('GET', `/api/public/${slug}`)).json.avisRecents[0].reponse, 'Merci !');
+  const autre = client();
+  await autre('POST', '/api/auth/connexion', { email: 'max@exemple.ch', motDePasse: 'autre mot de passe solide' });
+  assert.equal((await autre('PATCH', `/api/admin/avis/${av.id}`, { reponse: 'pirate' })).statut, 404);
+});

@@ -70,3 +70,55 @@ Yomi Denzel fait l'objet de critiques publiques :
 - de nombreux avis jugent le coût réel de ses formations supérieur au prix annoncé, à cause du budget publicitaire nécessaire.
 
 Beaucoup d'avis en ligne viennent de sites affiliés ou concurrents. C'est une raison de plus pour que Comptoir s'appuie sur des **règles vérifiables et sourcées**, et non sur des promesses de revenus. Comptoir n'affiche aucune promesse de gain.
+
+---
+
+## Recherche élargie (novembre 2026)
+
+Trois recherches supplémentaires, détaillées et sourcées dans [`docs/recherche/`](docs/recherche/) :
+
+1. **Youtubeurs et formateurs** : Kamil Sattar, Sebastian Ghiorghiu, AC Hampton, Harry Coleman, Jordan Welch, Wholesale Ted, Davie Fogarty, Mark Builds Brands, Lucas Bivert, podcast Hors des Clous. Les points sur Yomi Denzel portent surtout sur les critiques dont il fait l'objet.
+2. **Conversion, e-mail et Suisse** : Baymard Institute, Klaviyo, Omnisend, Spiegel Research Center, Shopify, la Poste et HWZ, Swiss Payment Monitor, et les textes légaux (OIP, directive européenne Omnibus).
+3. **Publicité et contenu** : aide officielle de Meta et de TikTok, Ben Heath, Jon Loomer, Common Thread Collective, benchmark Motion (Runneth) 2026, Buffer, Collabstr.
+
+Chaque point y est classé selon sa fiabilité : première main, praticien, ou résumé de seconde main. Aucune vidéo n'a été regardée. Les chiffres de revenus des créateurs sont auto-déclarés.
+
+### Correction de nos propres règles
+
+- **« +20 % de budget tous les 2 jours » est supprimée.** Aucune source officielle ni aucun praticien nommé ne la soutient : c'est une règle empirique de blogs. Comptoir propose maintenant deux voies sourcées :
+  - ajouter de nouvelles créas sur l'angle gagnant, avant tout (Common Thread Collective) ;
+  - ou augmenter le budget, puis attendre environ 7 jours avant de juger, avec des hausses plus fortes sur les petits budgets (Ben Heath).
+- **On raisonne en marge de contribution**, c'est-à-dire avant publicité, et non en « marge brute » floue. Le coût d'acquisition d'équilibre est égal à cette marge, et le ROAS d'équilibre vaut prix ÷ marge de contribution.
+- **Règle de coupe** : 3 fois le coût d'acquisition d'équilibre dépensé sans aucune vente, après au moins 500 impressions. C'est la règle la plus répandue (de 2× à 5× selon les sources), mais elle ne vient ni d'une plateforme ni d'un praticien nommé : elle est présentée comme telle.
+- **Phase d'apprentissage** : environ 50 conversions en 7 jours sur Meta et sur TikTok. TikTok déconseille toute modification avant 20 conversions. Comptoir affiche la progression et le budget nécessaire pour en sortir.
+
+### Ce qui est entré dans le logiciel
+
+| Fonction | Fondement |
+|---|---|
+| Date de livraison estimée (jours ouvrables, fériés suisses, heure limite 14 h) au lieu de « 3–5 jours » | Baymard : afficher une date, avec une fenêtre courte |
+| Barre « plus que X pour la livraison offerte », seuil réglable avec assistant fondé sur les paniers réels | Baymard : les coûts additionnels sont la 1re cause d'abandon ; Shopify |
+| Relance de paiement abandonné en 3 messages (1 h, 24 h, 72 h), sans remise par défaut, avec lien de reprise | Klaviyo, Omnisend ; Sebastian Ghiorghiu |
+| E-mail de bienvenue avec code, demande d'avis après livraison, reconquête des inactifs | Créateurs interrogés ; Klaviyo |
+| Remises par quantité et codes promo, non cumulables | Créateurs (offres groupées) ; calcul identique navigateur/serveur |
+| Suggestion d'un produit complémentaire dans le panier | Ezra Firestone, Sebastian Ghiorghiu. Les taux d'acceptation spectaculaires cités ailleurs sont des cas isolés |
+| Avis vérifiés liés à une commande, tous publiés, méthode affichée, réponses publiques | Spiegel Research Center (effet des 5 premiers avis) ; directive Omnibus |
+| Mots fréquents des avis comme angles d'accroche et points à corriger | AC Hampton (émotions dans les commentaires) |
+| Consentement explicite aux e-mails marketing ; reconquête réservée aux clients qui ont accepté | LCD suisse, à faire vérifier par un juriste |
+| Indicateurs publicitaires : part des impressions qui regardent 3 secondes (cible 30–40 %), CTR (signal au-dessus de 2 %), CPM, conversion des clics, ROAS comparé au ROAS d'équilibre, MER | Motion ; Harry Coleman ; Common Thread Collective |
+| 3 variantes d'accroche par vidéo, contraintes de format (9:16, 3 premières secondes, 15 s ou moins, zones de sécurité), horaires appris sur vos résultats | Podcast Hors des Clous (vidéos × accroches) ; Meta ; Buffer |
+| Plan de lancement en 90 jours, étapes d'action cochées automatiquement, sans objectif de revenu | Synthèse ; les jalons de revenus d'AC Hampton sont auto-déclarés et ne sont pas repris |
+
+### Choix éthiques assumés
+
+- Pas de faux comptes à rebours, pas de faux stock, pas de faux avis. Aucun créateur trouvé ne les recommande explicitement, et les guides du secteur jugent ces pratiques trompeuses.
+- Pas de promesse de revenus. Selon les sources consultées, 90 à 95 % des boutiques de dropshipping échouent, et des formations ont été sanctionnées : la FTC a obtenu en 2025 contre Ecommerce Empire Builders une interdiction à vie et un jugement de 9,79 M$.
+- Pas de réutilisation des vidéos d'autres créateurs dans les publicités, contrairement à ce que conseille Jordan Welch : c'est un risque de violation du droit d'auteur.
+
+### Pistes non encore intégrées
+
+- Vente additionnelle en un clic après le paiement, avec règles « si X alors Y » et taux d'acceptation par offre.
+- Garde-fou sur les prix barrés : historique des prix, prix de référence pratiqué 30 jours (OIP suisse), mode « UE » avec le prix le plus bas des 30 derniers jours.
+- Abandons suivis étape par étape (panier, livraison, paiement) et par moyen de paiement.
+- Choix du fournisseur selon le pays du client (Wholesale Ted), fiche fournisseur avec note et délai de réponse.
+- Mention de partenariat commercial dans les publications de micro-influenceurs, exigée par TikTok pour les outils tiers.

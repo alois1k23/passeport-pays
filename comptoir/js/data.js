@@ -209,11 +209,14 @@ const LIVRAISONS_CH = {
 };
 const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH };
 function livraisonsPays(pays) { return pays === 'ch' ? LIVRAISONS_CH : LIVRAISONS; }
-const SEUIL_PORT_OFFERT = 60;
+const SEUIL_PORT_DEFAUT = 60;
+/* Seuil de livraison offerte de la boutique (réglable dans Conversion ; 0 = jamais offerte). */
+function seuilPort() { try { return etat && etat.offres && etat.offres.seuilPort !== undefined ? Number(etat.offres.seuilPort) : SEUIL_PORT_DEFAUT; } catch { return SEUIL_PORT_DEFAUT; } }
 function fraisPort(mode, sousTotal) {
   const l = TOUTES_LIVRAISONS[mode] || LIVRAISONS.colissimo;
   if (mode === 'retrait') return 0;
-  if (mode !== 'chronopost' && mode !== 'poste-prio' && sousTotal >= SEUIL_PORT_OFFERT) return 0;
+  const seuil = seuilPort();
+  if (seuil > 0 && mode !== 'chronopost' && mode !== 'poste-prio' && sousTotal >= seuil) return 0;
   return l.prix;
 }
 

@@ -5,7 +5,7 @@
 
 const AUTO_DEFAUT = {
   bienvenue: { actif: true, remise: 10, code: 'BIENVENUE10' },
-  paiement: { actif: true, etapes: [{ heures: 1 }, { heures: 24 }], remise: 0, code: '' },
+  paiement: { actif: true, etapes: [{ heures: 1 }, { heures: 24 }, { heures: 72 }], remise: 0, code: '' },
   avis: { actif: true, jours: 7 },
   reconquete: { actif: false, jours: 90, remise: 15, code: 'RETOUR15' }
 };
@@ -34,7 +34,64 @@ function statsConversion() {
   };
 }
 
+/* ---------- Avis vérifiés ---------- */
+const AVIS_DEMO = {
+  5: ['Superbe, exactement comme sur les photos. Livré vite.', 'Très belle qualité, je recommande sans hésiter.', 'Cadeau parfait, emballage soigné.', 'Ambiance garantie le soir, on adore.', 'Rapport qualité-prix excellent, arrivé en 3 jours.'],
+  4: ['Très bien, juste un peu plus petit que prévu.', 'Bon produit, livraison un jour plus tard qu’annoncé.', 'Joli et pratique. Le câble pourrait être plus long.'],
+  3: ['Correct, mais la couleur est plus froide que sur la photo.', 'Fait le travail, sans plus.'],
+  2: ['Déçu par la finition, un petit défaut sur le côté.'],
+  1: ['Arrivé abîmé. Le service client a proposé un échange.']
+};
+function semerAvis() {
+  etat.avis = [];
+  const livrees = etat.commandes.filter(c => c.canal === 'web' && c.statut === 'livree');
+  for (const c of livrees) {
+    const h = hacheTexte(c.id + 'avis');
+    if (h > 0.24) continue;
+    const l = c.lignes[0];
+    const r = hacheTexte(c.id + 'n');
+    const note = r < 0.62 ? 5 : r < 0.86 ? 4 : r < 0.94 ? 3 : r < 0.97 ? 2 : 1;
+    const textes = AVIS_DEMO[note];
+    etat.avis.push({ id: 'av' + c.id, commandeId: c.id, produitId: l.produitId, note, texte: textes[Math.floor(hacheTexte(c.id + 't') * textes.length)], prenom: c.client.nom.split(' ')[0], ville: c.client.ville, date: c.date + 9 * JOUR, reponse: note <= 2 ? 'Merci pour votre retour, nous vous avons écrit pour organiser l’échange.' : null });
+  }
+  etat.avis.sort((a, b) => b.date - a.date);
+}
+function statsAvisProduits() {
+  const s = {};
+  for (const a of etat.avis || []) { const x = s[a.produitId] = s[a.produitId] || { somme: 0, n: 0 }; x.somme += a.note; x.n++; }
+  return Object.fromEntries(Object.entries(s).map(([k, v]) => [k, { moyenne: v.somme / v.n, n: v.n }]));
+}
+const MOTS_VIDES = new Set('le la les un une des de du et à au aux en pour par sur avec sans très plus moins que qui est sont a été je j on nous vous il elle ce cet cette mais pas ne bien tout trop un peu comme mon ma mes notre nos votre vos leur leurs dans se s y d l qu n c arrivé fait'.split(' '));
+function motsFrequents(textes) {
+  const c = {};
+  for (const t of textes) for (const m of t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[a-z]{4,}/g) || []) if (!MOTS_VIDES.has(m)) c[m] = (c[m] || 0) + 1;
+  return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 10);
+}
+function blocAvis() {
+  const avis = etat.avis || [];
+  const n = avis.length;
+  const moyenne = n ? avis.reduce((s, a) => s + a.note, 0) / n : 0;
+  const repart = [5, 4, 3, 2, 1].map(k => ({ nom: `${k} étoile${k > 1 ? 's' : ''}`, v: avis.filter(a => a.note === k).length }));
+  const positifs = motsFrequents(avis.filter(a => a.note >= 4).map(a => a.texte));
+  const negatifs = motsFrequents(avis.filter(a => a.note <= 3).map(a => a.texte));
+  return `<section class="carte">
+    <div class="carte-tete"><h2>Avis clients vérifiés</h2><span class="sous">${n} avis · moyenne ${n ? moyenne.toFixed(1).replace('.', ',') : '—'} / 5</span></div>
+    <p class="sous">Collectés par l’e-mail de demande d’avis, uniquement auprès de clients livrés. Un produit avec 5 avis a une probabilité d’achat bien plus élevée qu’un produit sans avis (Spiegel Research Center), et une note de 4,2 à 4,5 inspire plus confiance qu’un 5,0 parfait. Tous les avis sont publiés.</p>
+    <div class="grille-2 serre">
+      <div>${barresH(repart, { format: v => String(v) })}</div>
+      <div class="mots"><h3>Ce que vos clients apprécient</h3><p>${positifs.map(([m, k]) => `<span class="tag">${esc(m)} ${k}</span>`).join(' ') || '<span class="sous">—</span>'}</p>
+        <h3>Ce qui revient dans les critiques</h3><p>${negatifs.map(([m, k]) => `<span class="tag">${esc(m)} ${k}</span>`).join(' ') || '<span class="sous">—</span>'}</p>
+        <p class="sous">Les mots positifs sont de bons angles pour vos accroches ; les critiques indiquent quoi corriger (photo, délai, fournisseur).</p></div>
+    </div>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Note</th><th>Avis</th><th>Produit</th><th>Réponse publique</th></tr></thead><tbody>
+      ${avis.slice(0, 12).map(a => `<tr><td class="mono">${'★'.repeat(a.note)}<span class="sous">${'★'.repeat(5 - a.note)}</span></td><td>${esc(a.texte)}<div class="sous">${esc(a.prenom)}, ${esc(a.ville)} · ${dateCourte(a.date)}</div></td><td class="sous">${esc((etat.produits.find(p => p.id === a.produitId) || { nom: '—' }).nom)}</td>
+        <td><input class="reponse-avis" data-avis="${esc(a.id)}" value="${esc(a.reponse || '')}" placeholder="Répondre publiquement" aria-label="Réponse à l’avis de ${esc(a.prenom)}"></td></tr>`).join('') || '<tr><td colspan="4" class="vide">Pas encore d’avis. Ils arriveront avec la demande d’avis envoyée après livraison.</td></tr>'}
+    </tbody></table></div>
+  </section>`;
+}
+
 function vueConversion() {
+  if (!etat.avis && !connecteServeur()) { semerAvis(); sauver(); }
   const { a, o } = etatConversion();
   const s = statsConversion();
   const codes = Remises.codesValables(etat);
@@ -51,7 +108,7 @@ function vueConversion() {
     { cle: 'avis', titre: 'Demande d’avis', quand: `${a.avis.jours} jours après la livraison`, envoyes: s.envois.avis || 0,
       reglages: `<label class="champ"><span>Délai après livraison (jours)</span><input type="number" min="1" max="60" value="${a.avis.jours}" data-auto="avis.jours"></label>`,
       apercu: 'Vous avez reçu votre commande. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir.' },
-    { cle: 'reconquete', titre: 'Reconquête des clients inactifs', quand: `Sans commande depuis ${a.reconquete.jours} jours`, envoyes: s.envois.reconquete || 0,
+    { cle: 'reconquete', titre: 'Reconquête des clients inactifs', quand: `Sans commande depuis ${a.reconquete.jours} jours, clients ayant accepté les e-mails`, envoyes: s.envois.reconquete || 0,
       reglages: `<label class="champ"><span>Inactif depuis (jours)</span><input type="number" min="30" max="365" value="${a.reconquete.jours}" data-auto="reconquete.jours"></label><label class="champ"><span>Remise (%)</span><input type="number" min="0" max="50" value="${a.reconquete.remise}" data-auto="reconquete.remise"></label><label class="champ"><span>Code</span><input value="${esc(a.reconquete.code)}" data-auto="reconquete.code"></label>`,
       apercu: `De nouveaux produits sont arrivés depuis votre dernière commande. Pour votre retour : −${a.reconquete.remise} % avec ${a.reconquete.code}.` }
   ];
@@ -80,6 +137,7 @@ function vueConversion() {
       <div class="carte-tete"><h2>Remises par quantité</h2><label class="interrupteur petit"><input type="checkbox" data-offre="paliersActifs" ${o.paliersActifs ? 'checked' : ''}><span>${o.paliersActifs ? 'Actives' : 'Désactivées'}</span></label></div>
       <p class="sous">Le panier affiche « Ajoutez 1 article : −5 % ». Non cumulable avec un code promo : la remise la plus avantageuse pour le client s’applique.</p>
       <div class="paliers">${[0, 1].map(i => { const p = o.paliers[i] || { qte: i + 2, remise: 0 }; return `<div class="deux"><label class="champ"><span>Dès (articles)</span><input type="number" min="2" max="20" value="${p.qte}" data-palier="${i}.qte"></label><label class="champ"><span>Remise (%)</span><input type="number" min="0" max="50" value="${p.remise}" data-palier="${i}.remise"></label></div>`; }).join('')}</div>
+      ${assistantSeuil(o)}
       <label class="case"><input type="checkbox" data-offre="barrePort" ${o.barrePort ? 'checked' : ''}> Barre « plus que X pour la livraison offerte » dans le panier</label>
       <label class="case"><input type="checkbox" data-offre="suggestions" ${o.suggestions ? 'checked' : ''}> Suggérer un produit complémentaire dans le panier</label>
     </section>
@@ -90,6 +148,21 @@ function vueConversion() {
       </tbody></table></div>
       <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="70" value="10" required aria-label="Remise en %"><button class="btn petit">Ajouter</button></form>
     </section>
+  </div>
+  ${blocAvis()}`;
+}
+
+/* Assistant du seuil de livraison offerte : répartition des paniers réels (90 jours). */
+function assistantSeuil(o) {
+  const paniers = etat.commandes.filter(c => c.canal === 'web' && compteVentes(c) && c.date > Date.now() - 90 * JOUR).map(c => c.total - (c.port || 0)).sort((a, b) => a - b);
+  const q = f => paniers.length ? paniers[Math.min(paniers.length - 1, Math.floor(f * paniers.length))] : 0;
+  const au = s => paniers.length ? paniers.filter(x => x >= s).length / paniers.length : 0;
+  const med = q(0.5), p75 = q(0.75);
+  const propose = Math.ceil(p75 / 5) * 5;
+  return `<div class="assistant-seuil">
+    <label class="champ"><span>Livraison offerte dès (${devise()}, 0 = jamais)</span><input type="number" min="0" max="1000" step="5" value="${o.seuilPort}" data-seuil></label>
+    ${paniers.length >= 10 ? `<p class="sous">Sur 90 jours : panier médian <b>${euros(med)}</b>, 3 commandes sur 4 sous <b>${euros(p75)}</b>. Avec le seuil actuel, ${fmtPct(au(o.seuilPort))} des commandes ont la livraison offerte.
+      Un seuil un peu au-dessus du panier habituel incite à ajouter un article ; ${o.seuilPort !== propose ? `<button type="button" class="bouton-lien" data-action="seuil-propose" data-v="${propose}">essayer ${euros(propose)}</button>` : 'c’est le cas ici'}. Vérifiez l’effet sur la marge dans Analyse › Rentabilité.</p>` : '<p class="sous">L’assistant proposera un seuil à partir de vos paniers réels dès 10 commandes.</p>'}
   </div>`;
 }
 
@@ -108,6 +181,8 @@ document.addEventListener('change', e => {
     const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Number(t.value) : t.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     majChemin(a, t.dataset.auto, v);
     sauver(); rendre();
+  } else if (t.dataset.seuil !== undefined) {
+    etatConversion(); etat.offres.seuilPort = Math.max(0, Number(t.value) || 0); sauver(); rendre();
   } else if (t.dataset.offre) {
     etatConversion(); etat.offres[t.dataset.offre] = t.checked; sauver(); rendre();
   } else if (t.dataset.palier) {
@@ -117,6 +192,14 @@ document.addEventListener('change', e => {
     o.paliers[i][k] = Number(t.value);
     sauver(); rendre();
   }
+});
+document.addEventListener('change', async e => {
+  const t = e.target;
+  if (!t.dataset || !t.dataset.avis) return;
+  const a = (etat.avis || []).find(x => x.id === t.dataset.avis);
+  if (!a) return;
+  a.reponse = t.value.trim() || null;
+  try { if (connecteServeur()) await api('PATCH', `/api/admin/avis/${encodeURIComponent(a.id)}`, { reponse: a.reponse || '' }); else sauver(); toast('Réponse publiée sous l’avis.'); } catch (err) { toast(err.message); }
 });
 document.addEventListener('submit', e => {
   if (e.target.dataset.form !== 'ajout-code') return;
@@ -129,6 +212,8 @@ document.addEventListener('submit', e => {
   sauver(); toast(`Code ${code} ajouté.`); rendre();
 });
 document.addEventListener('click', e => {
+  const sp = e.target.closest('[data-action="seuil-propose"]');
+  if (sp) { etatConversion(); etat.offres.seuilPort = Number(sp.dataset.v); sauver(); toast(`Livraison offerte dès ${euros(Number(sp.dataset.v))}.`); rendre(); return; }
   const el = e.target.closest('[data-action="suppr-code"]');
   if (!el) return;
   const { o } = etatConversion();

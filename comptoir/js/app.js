@@ -204,6 +204,7 @@ function vueTableau() {
   return `
   <div class="tete"><div><h1>Vue d’ensemble</h1><p class="sous">Activité de ${esc(etat.boutique.nom)} sur les 30 derniers jours, comparée aux 30 jours précédents.</p></div>
     <div class="rangee"><a class="btn fantome" href="#analyse">Analyse détaillée</a><a class="btn" href="#boutique">Voir la boutique</a></div></div>
+  ${blocLancement()}
   <div class="kpis">
     ${tuile({ nom: 'Chiffre d’affaires', valeur: euros(cur.ca), actuel: cur.ca, precedent: prev.ca, tendance: jours.map(j => j.v) })}
     ${tuile({ nom: 'Bénéfice net (estimé)', valeur: euros(bCur), actuel: bCur, precedent: bPrev, tendance: jours.map(j => j.net) })}
@@ -533,6 +534,10 @@ function vueDomaines() {
 /* ---------- Boutique en ligne (vue client) ---------- */
 function vueBoutique() {
   etatConversion();
+  if (!etat.avis && !connecteServeur()) semerAvis();
+  const notes = statsAvisProduits();
+  etat.produits.forEach(p => { p.avis = notes[p.id] || null; });
+  etat.avisRecents = (etat.avis || []).filter(a => a.texte).slice(0, 6);
   const calc = Remises.appliquer(ui.panier, etat, ui.codePromo || '');
   const total = calc.apresRemise;
   const modes = Object.entries(livraisonsPays(etat.boutique.pays)).filter(([k]) => k !== 'retrait' || etat.magasin.clickCollect);
@@ -554,7 +559,7 @@ function vueBoutique() {
         <ul class="lignes-panier">${ui.panier.map(l => `<li><span>${esc(l.nom)}</span>
           <div class="qte"><button data-action="qte" data-id="${l.produitId}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-action="qte" data-id="${l.produitId}" data-d="1" aria-label="Ajouter un">+</button></div>
           <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
-        ${etat.offres.barrePort && ui.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= SEUIL_PORT_OFFERT ? 'Livraison offerte' : `Plus que <b>${euros(SEUIL_PORT_OFFERT - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / SEUIL_PORT_OFFERT * 100)}%"></i></span></div>` : ''}
+        ${etat.offres.barrePort && ui.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuilPort() ? 'Livraison offerte' : `Plus que <b>${euros(seuilPort() - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuilPort() * 100)}%"></i></span></div>` : ''}
         ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
         <form class="code-promo" data-form="code-demo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(ui.codePromo || '')}"><button class="sf-btn sf-btn-ligne">Appliquer</button></form>
         ${calc.codeValide === false ? '<p class="mini">Ce code n’existe pas ou a expiré.</p>' : calc.codeMoinsBon ? '<p class="mini">Code valable, mais la remise par quantité est plus avantageuse (non cumulable).</p>' : ''}

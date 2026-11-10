@@ -6,7 +6,8 @@
 
 const DEFAUT = {
   bienvenue: { actif: true, remise: 10, code: 'BIENVENUE10' },
-  paiement: { actif: true, etapes: [{ heures: 1 }, { heures: 24 }], remise: 0, code: '' },
+  // 3 messages, sans remise par défaut (Klaviyo, Omnisend : voir METHODE.md)
+  paiement: { actif: true, etapes: [{ heures: 1 }, { heures: 24 }, { heures: 72 }], remise: 0, code: '' },
   avis: { actif: true, jours: 7 },
   reconquete: { actif: false, jours: 90, remise: 15, code: 'RETOUR15' }
 };
@@ -31,6 +32,7 @@ function nettoyer(a) {
 
 function creerTables(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS envois_auto (boutique_id TEXT NOT NULL, cle TEXT NOT NULL, date INTEGER NOT NULL, PRIMARY KEY (boutique_id, cle));
+    CREATE TABLE IF NOT EXISTS avis (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, commande_id TEXT NOT NULL, produit_id TEXT NOT NULL, note INTEGER NOT NULL, texte TEXT NOT NULL, prenom TEXT NOT NULL, ville TEXT NOT NULL, cree_le INTEGER NOT NULL, reponse TEXT, UNIQUE (commande_id, produit_id));
     CREATE TABLE IF NOT EXISTS abonnes (boutique_id TEXT NOT NULL, email TEXT NOT NULL COLLATE NOCASE, cree_le INTEGER NOT NULL, PRIMARY KEY (boutique_id, email));`);
 }
 
@@ -74,7 +76,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       if (maintenant - depuis < a.avis.jours * JOUR || maintenant - depuis > 60 * JOUR) continue;
       if (!reserver(db, boutique.id, `avis:${c.id}`, maintenant)) continue;
       envoyerEmail(boutique.id, c.client.email, `Votre avis sur votre commande ${nom}`,
-        `Bonjour ${c.client.nom},\n\nVous avez reçu ${c.lignes.map(l => l.nom).join(', ')}. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir, et nous à nous améliorer. Répondez simplement à cet e-mail.\n\nMerci,\nL’équipe ${nom}`);
+        `Bonjour ${c.client.nom},\n\nVous avez reçu ${c.lignes.map(l => l.nom).join(', ')}. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir, et nous à nous améliorer. Il prend 30 secondes :\n${urlPublique}/s/${boutique.slug}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}\n\nMerci,\nL’équipe ${nom}`);
       c.avisDemande = maintenant;
       enregistrerCommande(c);
       n++;
@@ -90,9 +92,10 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
     }
     for (const [email, c] of Object.entries(derniere)) {
       if (maintenant - c.date < a.reconquete.jours * JOUR) continue;
+      if (!c.client.consentement) continue; // e-mail marketing : uniquement avec accord explicite
       if (!reserver(db, boutique.id, `reconquete:${email}:${c.id}`, maintenant)) continue;
       envoyerEmail(boutique.id, email, `Ça fait longtemps, ${c.client.nom.split(' ')[0]}`,
-        `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${urlPublique}/s/${boutique.slug}\n\nL’équipe ${nom}`);
+        `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${urlPublique}/s/${boutique.slug}\n\nL’équipe ${nom}\n\nVous recevez cet e-mail car vous avez accepté nos nouvelles. Répondez « STOP » pour ne plus en recevoir.`);
       n++;
     }
   }

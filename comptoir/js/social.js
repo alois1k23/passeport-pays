@@ -41,7 +41,7 @@ const PROBLEMES = {
 const ACCROCHES = {
   probleme: [p => `${p.probleme.charAt(0).toUpperCase() + p.probleme.slice(1)} ? On a la solution.`, p => `Arrête de subir ${p.probleme}. Voici ce qu’on fait à la place.`, p => `Le problème de ${p.probleme}, réglé en 10 secondes.`],
   produit: [p => `POV : tu découvres ${p.nom.toLowerCase()}`, p => `Personne ne parle de ce produit, et pourtant…`, p => `3 raisons pour lesquelles tout le monde veut ${p.nom.toLowerCase()}`, p => `Je ne pensais pas qu’un ${p.categorie.toLowerCase().replace(/s$/, '')} pouvait faire ça`],
-  avis: [p => `${p.prenom}, de ${p.ville}, nous a envoyé cette vidéo`, () => `Ce que nos clients disent après une semaine`, () => `On a lu vos 50 derniers avis. Voici le plus drôle.`],
+  avis: [p => p.citation ? `${p.citation}` : `${p.prenom}, de ${p.ville}, nous a envoyé cette vidéo`, () => `Ce que nos clients disent après une semaine`, () => `On a lu vos 50 derniers avis. Voici le plus drôle.`],
   coulisses: [p => `On prépare vos commandes${p.ch ? ' depuis la Suisse romande' : ''} : viens voir`, () => `Comment on choisit nos produits (on en refuse 9 sur 10)`, () => `Une journée dans notre petite boutique en ligne`],
   saison: [p => `${p.evt} arrive dans ${p.jours} jours : voici l’idée cadeau`, p => `L’idée cadeau ${p.evt} que personne n’aura`, p => `Dernière ligne droite avant ${p.evt}`],
   offre: [p => `${p.remise} jusqu’à dimanche avec le code ${p.code}`, p => `Notre seule promo du mois : ${p.remise}`, () => `Plus que quelques pièces. Après, c’est fini.`]
@@ -58,6 +58,17 @@ function etatSocial() {
 
 /* Petit hachage déterministe pour les statistiques simulées. */
 function hacheTexte(t) { let h = 2166136261; for (const c of String(t)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
+
+/* Horaires appris : les 3 heures de publication qui ont obtenu le plus de clics par vue sur ce réseau
+   (au moins 8 publications). Les horaires « génériques » des études ne valent qu’en attendant. */
+function heuresApprises(reseau) {
+  const l = (etat.publications || []).filter(p => p.reseau === reseau && p.statut === 'publiee' && p.stats && p.stats.vues);
+  if (l.length < 8) return null;
+  const parH = {};
+  for (const p of l) { const h = new Date(p.date).getHours(); const x = parH[h] = parH[h] || { v: 0, c: 0 }; x.v += p.stats.vues; x.c += p.stats.clics; }
+  const top = Object.entries(parH).sort((a, b) => b[1].c / b[1].v - a[1].c / a[1].v).slice(0, 3).map(([h]) => `${String(h).padStart(2, '0')}:00`);
+  return top.length ? top : null;
+}
 
 /* Ce que le pilote a appris : performance relative de chaque pilier et format (clics par 1000 vues). */
 function apprentissage() {
@@ -134,7 +145,8 @@ function genererPlanning(jours = 14) {
     const ecart = 7 / parSemaine;
     for (let i = 0; i * ecart < jours; i++) {
       const jour = new Date(debut); jour.setDate(jour.getDate() + 1 + Math.floor(i * ecart));
-      const [h, m] = RESEAUX[reseau].heures[i % RESEAUX[reseau].heures.length].split(':').map(Number);
+      const heures = heuresApprises(reseau) || RESEAUX[reseau].heures;
+      const [h, m] = heures[i % heures.length].split(':').map(Number);
       jour.setHours(h, m);
       if (existantes.has(reseau + jour.getTime())) continue;
       const graine = `${reseau}-${jour.getTime()}-${etat.boutique.nom}`;
@@ -151,14 +163,18 @@ function genererPlanning(jours = 14) {
         prenom: PRENOMS[Math.floor(hacheTexte(graine + 'n') * PRENOMS.length)], ville: (etat.boutique.pays === 'ch' ? VILLES_CH : VILLES)[Math.floor(hacheTexte(graine + 'v') * 10)],
         evt: evt ? evt.nom : '', evtKw: pilier === 'saison' && evt ? evt.kw : '', jours: evt ? Math.max(1, Math.ceil((evt.date - jour) / 86400000)) : 0,
         dateLimite: (() => { if (!evt) return ''; const d = ajouterJours(evt.date, -((p.delai ? p.delai[1] : 3) + 1)); return d > jour ? d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : ''; })(),
-        code: pilier === 'offre' && campagne ? campagne.c.code : '', remise: campagne ? `-${campagne.e.remise} %` : ''
+        code: pilier === 'offre' && campagne ? campagne.c.code : '', remise: campagne ? `-${campagne.e.remise} %` : '',
+        citation: (() => { const a = (etat.avis || []).find(x => x.produitId === p.id && x.note >= 4 && x.texte.length >= 20 && x.texte.length <= 110); return a ? `« ${a.texte} » (${a.prenom}, ${a.ville})` : ''; })()
       };
       const modeles = ACCROCHES[pilier];
-      const accroche = modeles[Math.floor(hacheTexte(graine + 'a') * modeles.length)](contexte);
+      const iAccroche = Math.floor(hacheTexte(graine + 'a') * modeles.length);
+      const accroche = modeles[iAccroche](contexte);
+      // Variantes à tester : autres accroches du même type + une accroche « problème » (4 à 5 vidéos × 3 accroches, voir METHODE.md)
+      const variantes = [...modeles.filter((_, k) => k !== iAccroche).map(f => f(contexte)), ...(pilier !== 'probleme' ? [ACCROCHES.probleme[0](contexte)] : [])].filter((v, k, arr) => v !== accroche && arr.indexOf(v) === k).slice(0, 2);
       nouvelles.push({
         id: nouvelId('pub'), reseau, format, pilier, date: jour.getTime(), produitId: p.id, produitNom: p.nom,
         accroche, legende: legende(pilier, contexte, accroche, r.ton), hashtags: hashtags({ ...p, evtKw: contexte.evtKw }, reseau),
-        script: ['Vidéo', 'Reel'].includes(format) ? scriptVideo(pilier, contexte, accroche) : null,
+        script: ['Vidéo', 'Reel'].includes(format) ? scriptVideo(pilier, contexte, accroche) : null, variantes,
         statut: r.validation ? 'brouillon' : 'programmee', stats: null
       });
     }
@@ -316,6 +332,8 @@ function modalPublication(p) {
       <label class="champ"><span>Accroche (3 premières secondes)</span><input id="pub-accroche" value="${esc(p.accroche)}" ${p.statut === 'publiee' ? 'disabled' : ''}></label>
       <label class="champ"><span>Légende</span><textarea id="pub-legende" rows="6" ${p.statut === 'publiee' ? 'disabled' : ''}>${esc(p.legende)}</textarea></label>
       <p class="mono sous">${esc(p.hashtags.join(' '))}</p>
+      ${p.variantes && p.variantes.length ? `<div class="bloc"><h3>Accroches à tester en variantes</h3><ul class="variantes">${p.variantes.map(v => `<li>${esc(v)}</li>`).join('')}</ul><p class="sous">Publiez la même vidéo avec une autre accroche : seules les 3 premières secondes changent. Le pilote compare les résultats.</p></div>` : ''}
+      ${p.script ? `<p class="encart">Format : vertical 9:16, message lisible sans le son dans les 3 premières secondes, 15 s ou moins si la vidéo sert aussi de publicité. Gardez le texte hors des 14 % du haut et des 35 % du bas de l’écran (Meta). Une vidéo originale, sans filigrane d’une autre application : Instagram classe les reposts plus bas.</p>` : ''}
       ${p.script ? `<div class="bloc"><h3>Script vidéo</h3><ol class="script">${p.script.map(s => `<li><b class="mono">${s.t}</b><span>${esc(s.texte)}</span></li>`).join('')}</ol></div>` : ''}
       ${p.statut === 'publiee' ? '<span class="pill good">Publiée</span>' : `<div class="rangee">
         <button class="btn" data-action="enregistrer-pub" data-id="${p.id}" data-statut="programmee">${p.statut === 'brouillon' ? 'Valider et programmer' : 'Enregistrer'}</button>

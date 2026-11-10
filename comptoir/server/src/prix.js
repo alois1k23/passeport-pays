@@ -27,9 +27,9 @@ function modesLivraison(config) {
   return modes;
 }
 
-function fraisPort(mode, sousTotal) {
+function fraisPort(mode, sousTotal, seuil = SEUIL_PORT_OFFERT) {
   if (!mode || mode.prix === 0) return 0;
-  if (!mode.jamaisOffert && sousTotal >= SEUIL_PORT_OFFERT) return 0;
+  if (seuil > 0 && !mode.jamaisOffert && sousTotal >= seuil) return 0;
   return mode.prix;
 }
 

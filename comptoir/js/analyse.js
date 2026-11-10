@@ -211,7 +211,7 @@ function ongletClients(t, tp, d0, f0, d1, f1) {
       <p class="sous">Lecture : chaque ligne regroupe les clients arrivés le même mois (avec leur nombre).</p></section>
     <section class="carte"><div class="carte-tete"><h2>Montant des paniers</h2><span class="sous">nombre de commandes par tranche (${devise()})</span></div>
       <div class="graph-wrap">${graphBarres(hist.map(h => ({ label: h.label, v: h.v, tip: `${h.label} ${devise()} : ${h.v} commande${h.v > 1 ? 's' : ''}` })), { labelsTous: true, hauteur: 200 })}</div>
-      <p class="sous">La livraison est offerte dès ${euros(SEUIL_PORT_OFFERT)} : les paniers juste en dessous sont une cible pour une vente additionnelle.</p></section>
+      <p class="sous">La livraison est offerte dès ${euros(seuilPort())} : les paniers juste en dessous sont une cible pour une vente additionnelle.</p></section>
   </div>`;
 }
 
@@ -266,7 +266,7 @@ function ongletRentabilite(t, tp, d0, f0, d1, f1) {
     ${tuile({ nom: 'Bénéfice net', valeur: euros(net), actuel: net, precedent: comparaisonPossible ? netPrev : null })}
     <div class="kpi tuile"><span>Marge nette</span><div class="tuile-ligne"><strong>${fmtPct(ca ? net / ca : 0)}</strong></div><div class="tuile-pied"><span class="sous">du chiffre d’affaires TTC</span></div></div>
     <div class="kpi tuile"><span>Coûts produits</span><div class="tuile-ligne"><strong>${fmtPct(ca ? (achat + douane) / ca : 0)}</strong></div><div class="tuile-pied"><span class="sous">du chiffre d’affaires</span></div></div>
-    <div class="kpi tuile"><span>Publicité</span><div class="tuile-ligne"><strong>${euros(pub)}</strong></div><div class="tuile-pied"><span class="sous">${pub && ca ? `ROAS ${(ca / pub).toFixed(1).replace('.', ',')}` : 'dépense des tests'}</span></div></div>
+    <div class="kpi tuile"><span>Publicité</span><div class="tuile-ligne"><strong>${euros(pub)}</strong></div><div class="tuile-pied"><span class="sous">${pub && ca ? `MER ${(ca / pub).toFixed(1).replace('.', ',')} (chiffre d’affaires ÷ dépenses marketing)` : 'dépense des tests'}</span></div></div>
   </div>
   <section class="carte"><div class="carte-tete"><h2>Du chiffre d’affaires au bénéfice</h2><span class="sous">où part chaque ${devise() === 'CHF' ? 'franc' : 'euro'}</span></div>
     ${cascade(etapes, { format: compact, formatTip: fmtArgent })}</section>

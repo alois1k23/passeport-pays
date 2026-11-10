@@ -7,11 +7,12 @@
      arrondi au centime (le même montant part chez le prestataire de paiement) ;
    - la livraison offerte se calcule sur le sous-total après remise. */
 (function (racine) {
-  const OFFRES_DEFAUT = { paliersActifs: true, paliers: [{ qte: 2, remise: 5 }, { qte: 3, remise: 10 }], suggestions: true, barrePort: true, codes: [] };
+  const OFFRES_DEFAUT = { seuilPort: 60, paliersActifs: true, paliers: [{ qte: 2, remise: 5 }, { qte: 3, remise: 10 }], suggestions: true, barrePort: true, codes: [] };
   const arrondi = n => Math.round(n * 100) / 100;
 
   function offresDe(config) {
     const o = Object.assign({}, OFFRES_DEFAUT, (config && config.offres) || {});
+    o.seuilPort = Math.max(0, Math.min(1000, Number(o.seuilPort) || 0));
     o.paliers = (Array.isArray(o.paliers) ? o.paliers : [])
       .map(p => ({ qte: Math.max(2, Math.min(20, Math.round(Number(p.qte) || 0))), remise: Math.max(0, Math.min(50, Number(p.remise) || 0)) }))
       .filter(p => p.remise > 0).sort((a, b) => a.qte - b.qte).slice(0, 4);

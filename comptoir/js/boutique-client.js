@@ -21,7 +21,7 @@ async function demarrer() {
     $('#app').innerHTML = `<div class="page-erreur"><h1>Boutique introuvable</h1><p>${esc(e.message)}</p></div>`;
     return;
   }
-  etat = { boutique: donnees.boutique, produits: donnees.produits, entreprise: donnees.entreprise, magasin: donnees.magasin };
+  etat = { boutique: donnees.boutique, produits: donnees.produits, entreprise: donnees.entreprise, magasin: donnees.magasin, avisRecents: donnees.avisRecents || [] };
   document.title = donnees.boutique.nom;
   document.body.style.background = donnees.boutique.theme.bg;
   // Le panier ne garde que les produits encore en vente, au prix actuel.
@@ -29,14 +29,25 @@ async function demarrer() {
   vue.livraison = Object.keys(donnees.livraisons)[0];
   const q = new URLSearchParams(location.search);
   if (q.get('reprendre')) { reprendrePaiement(q.get('reprendre'), q.get('jeton')); return; }
+  if (q.get('avis')) { formulaireAvis(q.get('avis'), q.get('jeton')); return; }
   if (q.get('commande')) suivreCommande(q.get('commande'), q.get('jeton'), q.get('annule'));
   rendre();
 }
 
+/* NPA → localité pour les plages les plus courantes de Suisse romande (la saisie reste libre). */
+const NPA_CH = [[1000, 1018, 'Lausanne'], [1020, 1020, 'Renens'], [1009, 1009, 'Pully'], [1110, 1110, 'Morges'], [1260, 1260, 'Nyon'], [1400, 1400, 'Yverdon-les-Bains'], [1700, 1709, 'Fribourg'], [1800, 1800, 'Vevey'], [1820, 1820, 'Montreux'], [1950, 1951, 'Sion'], [1200, 1209, 'Genève'], [1227, 1227, 'Carouge'], [2000, 2000, 'Neuchâtel'], [2300, 2300, 'La Chaux-de-Fonds'], [2500, 2505, 'Bienne'], [3000, 3030, 'Berne'], [8000, 8099, 'Zurich'], [4000, 4059, 'Bâle']];
+document.addEventListener('input', e => {
+  if (e.target.name !== 'npa' || !donnees || donnees.boutique.pays !== 'ch') return;
+  const n = Number(e.target.value);
+  const ville = e.target.form && e.target.form.elements.ville;
+  const t = NPA_CH.find(([a, b]) => n >= a && n <= b);
+  if (t && ville && !ville.value) ville.value = t[2];
+});
+
 function fraisPortClient(cle, sousTotal) {
   const m = donnees.livraisons[cle];
   if (!m || !m.prix) return 0;
-  return !m.jamaisOffert && sousTotal >= donnees.seuilPortOffert ? 0 : m.prix;
+  return donnees.seuilPortOffert > 0 && !m.jamaisOffert && sousTotal >= donnees.seuilPortOffert ? 0 : m.prix;
 }
 
 /* Remises : même calcul que le serveur (js/remises.js), avec le code validé par l’API. */
@@ -70,14 +81,14 @@ function rendre() {
           <ul class="lignes-panier">${vue.panier.map(l => `<li><span>${esc(l.nom)}</span>
             <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-d="1" aria-label="Ajouter un">+</button></div>
             <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
-          ${donnees.offres.barrePort && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuil * 100)}%"></i></span></div>` : ''}
+          ${donnees.offres.barrePort && seuil > 0 && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuil * 100)}%"></i></span></div>` : ''}
           ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
           ${suggestion ? `<div class="suggestion">${visuelProduit(suggestion)}<div><small>Souvent ajouté</small><strong>${esc(suggestion.nom)}</strong><span>${euros(suggestion.prix)}</span></div><button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${esc(suggestion.id)}">Ajouter</button></div>` : ''}
           <form id="form-code" class="code-promo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(vue.code ? vue.code.code : '')}" autocomplete="off"><button class="sf-btn sf-btn-ligne">${vue.code ? 'Changer' : 'Appliquer'}</button></form>
           ${vue.codeMessage ? `<p class="mini">${esc(vue.codeMessage)}</p>` : ''}
           <fieldset class="modes-livraison"><legend>Livraison</legend>${Object.entries(donnees.livraisons).map(([k, m]) => `
             <label class="${vue.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${esc(k)}" data-c="livraison" ${vue.livraison === k ? 'checked' : ''}>
-            <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : delai ? `${delai[0]} à ${delai[1]} jours` : ''}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
+            <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : esc(fenetreLivraison(k === 'poste-prio' && !delai ? [1, 1] : delai || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
           <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
           <form id="commande">
             <label class="champ"><span>Nom et prénom</span><input name="nom" required autocomplete="name"></label>
@@ -85,6 +96,7 @@ function rendre() {
             ${retrait ? '' : `<label class="champ"><span>Adresse</span><input name="adresse" required autocomplete="street-address"></label>
             <div class="deux"><label class="champ"><span>${ch ? 'NPA' : 'Code postal'}</span><input name="npa" required inputmode="numeric" autocomplete="postal-code" ${ch ? 'pattern="[0-9]{4}" maxlength="4"' : ''}></label>`}
             <label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}
+            <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
             <p class="erreur-form" id="erreur" hidden></p>
             <button class="sf-btn plein" ${vue.envoi ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
             <p class="mini">${donnees.paiement === 'stripe' ? (ch ? 'Paiement sécurisé par TWINT ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
@@ -113,7 +125,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, client: Object.fromEntries(d) })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, client: { ...Object.fromEntries(d), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
@@ -182,6 +194,7 @@ document.addEventListener('submit', e => {
   if (e.target.id === 'commande') envoyerCommande(e.target);
   else if (e.target.dataset.sf === 'newsletter') inscrireNewsletter(e.target);
   else if (e.target.id === 'form-code') appliquerCode(e.target.elements.code.value);
+  else if (e.target.id === 'form-avis') envoyerAvis(e.target);
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { vue.legal = null; vue.ouvert = false; rendre(); } });
 
@@ -216,6 +229,33 @@ async function reprendrePaiement(id, jeton) {
     if (!rep.ok) throw new Error(json.erreur);
     location.href = json.paiementUrl;
   } catch (e) { vue.message = `<p>${esc(e.message || 'Impossible de reprendre cette commande.')}</p>`; history.replaceState(null, '', location.pathname); rendre(); }
+}
+
+async function formulaireAvis(id, jeton) {
+  vue.ouvert = true;
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/avis-a-donner?commande=${encodeURIComponent(id)}&jeton=${encodeURIComponent(jeton)}`);
+    const json = await rep.json();
+    if (!rep.ok) throw new Error(json.erreur);
+    vue.avis = { id, jeton };
+    vue.message = json.produits.length ? `<form id="form-avis" class="form-avis"><p>Merci ${esc(json.prenom)} ! Votre avis sera publié avec votre prénom et votre ville, marqué « achat vérifié ».</p>
+      ${json.produits.map(p => `<fieldset data-produit="${esc(p.produitId)}"><legend>${esc(p.nom)}</legend>
+        <div class="etoiles-saisie">${[5, 4, 3, 2, 1].map(n => `<input type="radio" id="n-${esc(p.produitId)}-${n}" name="note-${esc(p.produitId)}" value="${n}" required><label for="n-${esc(p.produitId)}-${n}" title="${n} étoile${n > 1 ? 's' : ''}">★</label>`).join('')}</div>
+        <textarea name="texte-${esc(p.produitId)}" rows="3" maxlength="1000" placeholder="Qu’avez-vous aimé ? Qu’est-ce qui pourrait être mieux ?"></textarea></fieldset>`).join('')}
+      <button class="sf-btn plein">Publier mon avis</button></form>` : '<p>Vous avez déjà donné votre avis pour cette commande. Merci !</p>';
+  } catch (e) { vue.message = `<p>${esc(e.message || 'Lien d’avis invalide.')}</p>`; }
+  history.replaceState(null, '', location.pathname);
+  rendre();
+}
+async function envoyerAvis(form) {
+  const avis = [...form.querySelectorAll('fieldset[data-produit]')].map(f => ({ produitId: f.dataset.produit, note: Number((f.querySelector('input:checked') || {}).value), texte: f.querySelector('textarea').value }));
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/avis`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandeId: vue.avis.id, jeton: vue.avis.jeton, avis }) });
+    const json = await rep.json();
+    if (!rep.ok) throw new Error(json.erreur);
+    vue.message = '<p>Merci, votre avis est publié.</p>';
+  } catch (e) { vue.message = `<p>${esc(e.message || 'Envoi impossible.')}</p>`; }
+  rendre();
 }
 
 demarrer();
