@@ -1,5 +1,5 @@
 /* Comptoir — modules qui font la différence :
-   copilote de saison, magasin & click & collect, conformité française
+   copilote de saison, magasin et retrait, conformité française
    (factures, CGV, mentions légales), ajout de produits par photo,
    session d’accompagnement et page d’offre. */
 
@@ -19,10 +19,10 @@ function vueCopilote() {
   <div class="frise-saisons" role="tablist">${evts.map(e => {
     const st = etat.campagnes[e.cle];
     return `<button role="tab" aria-selected="${e.cle === choisi.cle}" class="${e.cle === choisi.cle ? 'actif' : ''}" data-action="campagne" data-id="${e.cle}">
-      <span class="mono">${e.date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</span>
+      <span class="sous frise-date">${e.date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'long' })}</span>
       <strong>${esc(e.nom)}</strong>
-      <span class="sous">dans ${jours(e.date)} j</span>
-      ${st ? '<span class="pill good">Programmée</span>' : '<span class="pill warn">À valider</span>'}</button>`;
+      <span class="sous">${dansJours(e.date)}</span>
+      ${st ? '<span class="pill good">Programmée</span>' : jours(e.date) <= 21 ? '<span class="pill warn">À valider</span>' : '<span class="pill muted">Préparée</span>'}</button>`;
   }).join('')}</div>
 
   <div class="grille-2">
@@ -38,7 +38,7 @@ function vueCopilote() {
         <table class="table compacte"><tbody>${camp.vedettes.map(x => `<tr><td class="vignette">${visuelProduit(x.p)}</td><td>${esc(x.p.nom)}<div class="sous">${x.ventes90} ventes sur 90 j</div></td><td class="num">${euros(x.p.prix)}</td></tr>`).join('')}</tbody></table>
       </div>
       <div class="bloc"><h3>Stock et délais face à la demande prévue</h3>
-        ${camp.ruptures.length ? `<ul class="todo">${camp.ruptures.map(x => `<li class="alerte"><a href="#produits"><strong>+${x.manque}</strong> ${esc(x.p.nom)} à commander : ${x.prevision} ventes prévues, ${x.p.stock} en stock</a></li>`).join('')}</ul>`
+        ${camp.ruptures.length ? `<ul class="todo">${camp.ruptures.map(x => `<li class="alerte"><a href="#produits"><span class="todo-n">+${x.manque}</span><span class="todo-t">${esc(x.p.nom)} à commander : ${x.prevision} ventes prévues, ${x.p.stock} en stock</span><span class="todo-fl" aria-hidden="true">›</span></a></li>`).join('')}</ul>`
           : '<p class="sous">Votre stock couvre la demande prévue.</p>'}
         ${camp.dateLimite ? `<p class="encart">Dropshipping : vos fournisseurs livrent en ${Math.max(...camp.vedettes.filter(x => x.p.delai).map(x => x.p.delai[1]))} jours au plus. Date limite de commande affichée aux clients : <strong>${camp.dateLimite.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</strong>.</p>` : ''}
         ${camp.delaiLong.length ? `<p class="encart alerte-encart">${camp.delaiLong.map(p => esc(p.nom)).join(', ')} : livraison en plus de 10 jours. Retirez-le de la campagne ou passez à un fournisseur européen.</p>` : ''}
@@ -70,7 +70,7 @@ function vueCopilote() {
   </div>`;
 }
 
-/* ---------- Magasin, caisse et click & collect ---------- */
+/* ---------- Magasin, caisse et retrait ---------- */
 function vueMagasin() {
   const m = etat.magasin;
   const url = 'https://' + (etat.boutique.domaine ? etat.boutique.domaine.domaine : slugifier(etat.boutique.nom) + '.comptoir.shop');
@@ -86,15 +86,16 @@ function vueMagasin() {
       <div class="caisse-produits">${etat.produits.filter(p => p.actif && p.type !== 'drop').length ? '' : '<p class="sous">La caisse sert aux produits que vous avez en stock (marchés, pop-up, boutique). Ajoutez-en un dans Produits.</p>'}${etat.produits.filter(p => p.actif && p.type !== 'drop').map(p => `
         <button class="caisse-btn" data-action="caisse-ajout" data-id="${p.id}" ${p.stock <= 0 ? 'disabled' : ''}>${visuelProduit(p)}<span>${esc(p.nom)}</span><b class="num">${euros(p.prix)}</b><small>${p.stock} en stock</small></button>`).join('')}</div>
       <div class="ticket">
-        ${ui.caisse.length ? `<table class="table compacte"><tbody>${ui.caisse.map(l => `<tr><td>${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td><td><button class="icone" data-action="caisse-retire" data-id="${l.produitId}" aria-label="Retirer">×</button></td></tr>`).join('')}
-          <tr class="total"><td></td><td>Total TTC</td><td class="num">${euros(totalCaisse)}</td><td></td></tr></tbody></table>
-          <div class="rangee"><button class="btn" data-action="encaisser" data-moyen="carte">Encaisser par carte</button><button class="btn fantome" data-action="encaisser" data-moyen="especes">Espèces</button></div>`
-          : '<p class="sous">Touchez un produit pour l’ajouter au ticket.</p>'}
+        <div class="ticket-tete"><strong>Ticket</strong><span class="sous">${ui.caisse.reduce((a, l) => a + l.qte, 0)} article${ui.caisse.reduce((a, l) => a + l.qte, 0) > 1 ? 's' : ''}</span></div>
+        ${ui.caisse.length ? `<table class="table compacte"><tbody>${ui.caisse.map(l => `<tr><td class="num">${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td><td class="num"><button class="icone" data-action="caisse-retire" data-id="${l.produitId}" aria-label="Retirer ${esc(l.nom)}">×</button></td></tr>`).join('')}</tbody></table>`
+          : '<p class="sous ticket-vide">Touchez un produit pour l’ajouter au ticket.</p>'}
+        <div class="ticket-total"><span>Total TTC</span><strong>${euros(totalCaisse)}</strong></div>
+        <div class="rangee">${estSuisse() ? `<button class="btn" data-action="encaisser" data-moyen="twint" ${ui.caisse.length ? '' : 'disabled'}>TWINT</button>` : ''}<button class="btn${estSuisse() ? ' fantome' : ''}" data-action="encaisser" data-moyen="carte" ${ui.caisse.length ? '' : 'disabled'}>Carte</button><button class="btn fantome" data-action="encaisser" data-moyen="especes" ${ui.caisse.length ? '' : 'disabled'}>Espèces</button></div>
       </div>
     </section>
     <div class="pile">
       <section class="carte">
-        <div class="carte-tete"><h2>Retraits click & collect</h2><span class="sous">${retraits.length} en cours</span></div>
+        <div class="carte-tete"><h2>Retraits en magasin</h2><span class="sous">${retraits.length} en cours</span></div>
         ${retraits.length ? `<table class="table compacte"><tbody>${retraits.map(c => `<tr><td class="mono">#${c.numero}</td><td>${esc(c.client.nom)}<div class="sous">${dateCourte(c.date)}</div></td><td>${pill(c.statut)}</td>
           <td class="num">${c.statut === 'prete' ? `<button class="btn petit" data-action="statut" data-id="${c.id}" data-statut="retiree">Remis au client</button>` : `<button class="btn petit fantome" data-action="statut" data-id="${c.id}" data-statut="prete">Prête</button>`}</td></tr>`).join('')}</tbody></table>`
           : '<p class="sous">Aucun retrait en attente.</p>'}
@@ -108,7 +109,7 @@ function vueMagasin() {
         <div class="carte-tete"><h2>Infos du magasin</h2></div>
         <label class="champ"><span>Adresse</span><input id="mg-adresse" value="${esc(m.adresse)}" data-magasin="adresse"></label>
         <label class="champ"><span>Horaires</span><input id="mg-horaires" value="${esc(m.horaires)}" data-magasin="horaires"></label>
-        <label class="case"><input id="mg-cc" type="checkbox" data-magasin="clickCollect" ${m.clickCollect ? 'checked' : ''}> Proposer le retrait en boutique (click & collect)</label>
+        <label class="case"><input id="mg-cc" type="checkbox" data-magasin="clickCollect" ${m.clickCollect ? 'checked' : ''}> Proposer le retrait en boutique</label>
         <label class="case"><input id="mg-g" type="checkbox" data-magasin="googleSync" ${m.googleSync ? 'checked' : ''}> Synchroniser la fiche Google (horaires et stock)</label>
         ${m.googleSync ? `<p class="sous"><span class="pill good">Synchronisée</span> ${visibles} produits en stock visibles sur Google (simulé)</p>` : ''}
       </section>
@@ -126,7 +127,7 @@ function encaisser(moyen) {
     client: { nom: 'Client en boutique', email: '', ville: etat.magasin.adresse.split(',').pop().trim() || '' },
     lignes: ui.caisse.map(l => ({ ...l })), sousTotal: total, port: 0, total: Math.round(total * 100) / 100,
     statut: 'retiree', livraison: 'retrait', canal: 'magasin', suivi: '', note: '',
-    historique: [{ date: now, texte: `Vente encaissée en boutique (${moyen === 'carte' ? 'carte' : 'espèces'})` }]
+    historique: [{ date: now, texte: `Vente encaissée en boutique (${moyen === 'especes' ? 'espèces' : moyen === 'twint' ? 'TWINT' : 'carte'})` }]
   };
   c.facture = numeroFactureSuivant(etat, now);
   etat.commandes.push(c);
@@ -145,6 +146,7 @@ function tva(c) {
   return { ht, tva: Math.round((ttc - ht) * 100) / 100, ttc, franchise, taux };
 }
 
+const COMPLETER = { Impressum: 'en-adresse', 'Mentions légales': 'en-siret', 'Médiateur de la consommation': 'en-med', 'Transparence dropshipping': '' };
 function vueConformite() {
   const e = etat.entreprise;
   const factures = etat.commandes.filter(c => c.facture).sort((a, b) => b.date - a.date);
@@ -155,7 +157,7 @@ function vueConformite() {
     ['Protection des données (nLPD)', true, 'Déclaration de confidentialité générée, fournisseurs et pays de destination des données listés', '', 'mentions'],
     ['Transparence dropshipping', etat.produits.filter(p => p.type === 'drop').every(p => p.delai), 'Délais réels de chaque fournisseur affichés sur les fiches et au paiement', 'Indiquez les délais de livraison de chaque fournisseur', null],
     ['Prix en CHF, TTC', true, 'Prix affichés en francs suisses, frais de livraison indiqués avant le paiement', '', null],
-    ['TVA', true, e.regime === 'ch-assujetti' ? 'Assujetti : TVA 8,1 % détaillée sur chaque facture' : 'Non assujetti (chiffre d’affaires sous CHF 100 000 par an). Comptoir vous prévient à l’approche du seuil.', '', null]
+    ['TVA', true, e.regime === 'ch-assujetti' ? 'Assujetti : TVA 8,1 % détaillée sur chaque facture' : `Non assujetti (chiffre d’affaires sous ${euros(100000)} par an). Comptoir vous prévient à l’approche du seuil.`, '', null]
   ] : [
     ['Mentions légales', !!(e.raison && e.siret && e.adresse), 'Générées à partir de la fiche entreprise', 'Renseignez la raison sociale, le SIRET et l’adresse', 'mentions'],
     ['Conditions générales de vente', true, 'Générées et tenues à jour (livraison, retours, rétractation 14 jours)', '', 'cgv'],
@@ -164,35 +166,37 @@ function vueConformite() {
     ['TVA', true, e.regime === 'franchise' ? 'Franchise en base : « TVA non applicable, art. 293 B du CGI » sur les factures' : 'TVA à 20 % détaillée sur chaque facture', '', null],
     ['Facture électronique', true, 'Factures numérotées sans rupture, export Factur-X prêt pour la réforme (simulé)', '', null]
   ];
+  const pageF = Math.min(ui.pageFacture || 1, Math.max(1, Math.ceil(factures.length / 25)));
   const ca12 = etat.commandes.filter(c => c.date > Date.now() - 365 * 86400000 && !['annulee', 'remboursee', 'attente'].includes(c.statut)).reduce((a, c) => a + c.total, 0);
   return `
   <div class="tete"><div><h1>Conformité</h1><p class="sous">${ch ? 'Impressum, protection des données, TVA et factures gérés pour vous, selon le droit suisse.' : 'Factures, mentions obligatoires et RGPD gérés pour vous.'} Vous vendez, Comptoir s’occupe de la paperasse.</p></div></div>
-  ${ch ? `<p class="encart">Seuil d’assujettissement à la TVA : ${euros(ca12)} de chiffre d’affaires sur 12 mois, soit ${Math.round(ca12 / 1000)} % du seuil de CHF 100 000.</p>` : ''}
+  ${ch ? `<p class="encart">Seuil d’assujettissement à la TVA : ${euros(ca12)} de chiffre d’affaires sur 12 mois, soit ${Math.round(ca12 / 1000)} % du seuil de ${euros(100000)}.</p>` : ''}
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Points de contrôle</h2><span class="sous">${verifs.filter(v => v[1]).length} / ${verifs.length} en règle</span></div>
       <ul class="controles">${verifs.map(([nom, ok, oui, non, doc]) => `<li>
         <span class="pill ${ok ? 'good' : 'warn'}">${ok ? 'En règle' : 'À compléter'}</span>
         <div><strong>${nom}</strong><div class="sous">${ok ? oui : non}</div></div>
-        ${doc ? `<button class="btn petit fantome" data-action="doc" data-id="${doc}">Lire</button>` : ''}</li>`).join('')}</ul>
+        <span class="controle-action">${!ok ? `<button class="btn petit" data-action="completer-fiche" data-champ="${COMPLETER[nom] || ''}">Compléter</button>` : doc ? `<button class="btn petit fantome" data-action="doc" data-id="${doc}">Lire</button>` : ''}</span></li>`).join('')}</ul>
     </section>
     <section class="carte">
       <div class="carte-tete"><h2>Fiche entreprise</h2><span class="sous">Utilisée sur les factures et documents</span></div>
       <label class="champ"><span>Raison sociale</span><input id="en-raison" value="${esc(e.raison)}" data-entreprise="raison"></label>
       <div class="deux"><label class="champ"><span>Forme juridique</span><select id="en-forme" data-entreprise="forme">${(ch ? ['Raison individuelle', 'Sàrl', 'SA'] : ['Micro-entreprise', 'EI', 'EURL', 'SASU', 'SARL', 'SAS']).map(f => `<option ${f === e.forme ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
-      <label class="champ"><span>${ch ? 'N° IDE (CHE-…)' : 'SIRET'}</span><input id="en-siret" value="${esc(e.siret)}" data-entreprise="siret"></label></div>
+      <label class="champ"><span>${ch ? 'Numéro IDE' : 'SIRET'}</span><input id="en-siret" value="${esc(e.siret)}" data-entreprise="siret" placeholder="${ch ? 'CHE-123.456.789' : '123 456 789 00012'}"></label></div>
       <label class="champ"><span>Adresse</span><input id="en-adresse" value="${esc(e.adresse)}" data-entreprise="adresse"></label>
       <div class="deux"><label class="champ"><span>Régime de TVA</span><select id="en-regime" data-entreprise="regime">${(ch ? [['ch-non', 'Non assujetti'], ['ch-assujetti', 'Assujetti (8,1 %)']] : [['franchise', 'Franchise en base'], ['normal', 'Assujetti (20 %)']]).map(([v, n]) => `<option value="${v}" ${e.regime === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-      <label class="champ"><span>${ch ? 'N° TVA (CHE-… TVA)' : 'N° TVA intracom.'}</span><input id="en-tva" value="${esc(e.tvaIntra)}" data-entreprise="tvaIntra" placeholder="${ch ? 'CHE-…TVA' : 'FR…'}"></label></div>
+      <label class="champ"><span>${ch ? 'Numéro TVA' : 'TVA intracommunautaire'}</span><input id="en-tva" value="${esc(e.tvaIntra)}" data-entreprise="tvaIntra" placeholder="${ch ? 'CHE-123.456.789 TVA' : 'FR12345678901'}"></label></div>
       <label class="champ"><span>E-mail de contact</span><input id="en-email" value="${esc(e.email)}" data-entreprise="email"></label>
       ${ch ? '' : `<label class="champ"><span>Médiateur de la consommation</span><input id="en-med" value="${esc(e.mediateur)}" data-entreprise="mediateur" placeholder="Nom et site du médiateur"></label>`}
     </section>
   </div>
   <section class="carte sans-pad">
-    <div class="carte-tete pad"><h2>Factures</h2><span class="sous">${factures.length} factures, numérotation continue</span></div>
-    <div class="table-wrap"><table class="table"><thead><tr><th>N° facture</th><th>Date</th><th>Client</th><th>Canal</th><th class="num">HT</th><th class="num">TVA</th><th class="num">TTC</th><th></th></tr></thead>
-    <tbody>${factures.slice(0, 40).map(c => { const t = tva(c); return `<tr><td class="mono">${c.facture}</td><td>${dateCourte(c.date)}</td><td>${esc(c.client.nom)}</td><td>${c.canal === 'magasin' ? 'Boutique' : 'En ligne'}</td>
-      <td class="num">${euros(t.ht)}</td><td class="num">${t.franchise ? '—' : euros(t.tva)}</td><td class="num">${euros(t.ttc)}</td><td><button class="btn petit fantome" data-action="facture" data-id="${c.id}">Voir</button></td></tr>`; }).join('')}</tbody></table></div>
+    <div class="carte-tete pad"><h2>Factures</h2><span class="sous">${factures.length} facture${factures.length > 1 ? 's' : ''}, numérotation continue</span></div>
+    <div class="table-wrap"><table class="table table-cartes"><thead><tr><th>N° facture</th><th>Date</th><th>Client</th><th>Canal</th><th class="num">HT</th><th class="num">TVA</th><th class="num">TTC</th><th></th></tr></thead>
+    <tbody>${factures.slice((pageF - 1) * 25, pageF * 25).map(c => { const t = tva(c); return `<tr><td class="mono carte-titre" data-label="Facture">${c.facture}</td><td data-label="Date">${dateCourte(c.date)}</td><td data-label="Client">${esc(c.client.nom)}</td><td data-label="Canal">${c.canal === 'magasin' ? 'Boutique' : 'En ligne'}</td>
+      <td class="num" data-label="HT">${euros(t.ht)}</td><td class="num" data-label="TVA">${t.franchise ? '—' : euros(t.tva)}</td><td class="num" data-label="TTC">${euros(t.ttc)}</td><td class="num"><button class="btn petit fantome" data-action="facture" data-id="${c.id}">Voir</button></td></tr>`; }).join('')}</tbody></table></div>
+    ${pagination(factures.length, pageF, 25, 'page-facture')}
   </section>`;
 }
 
@@ -316,7 +320,7 @@ function redigerDescription(nom, cat) {
   const sec = SECTEURS[b.secteur];
   return `${nom} : une pièce de notre collection ${cat.toLowerCase()}, sélectionnée par ${b.nom}. ` +
     `Pensé pour durer et pour se glisser naturellement chez vous. Expédié sous 48 h, retours gratuits 30 jours. ` +
-    `Idéal en ${sec.kws.find(k => k[0] === 'cadeau') ? 'cadeau' : 'idée cadeau'} pour ${SAISONS[new Date().getMonth()].nom.toLowerCase()}.`;
+    `Idéal en ${sec.kws.find(k => k[0] === 'cadeau') ? 'cadeau' : 'idée cadeau'} pour ${saisonDuMois(new Date().getMonth()).nom.toLowerCase()}.`;
 }
 function reduireImage(fichier, taille = 480) {
   return new Promise((ok, ko) => {

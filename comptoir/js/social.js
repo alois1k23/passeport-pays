@@ -15,7 +15,7 @@ const RESEAUX = {
 const PILIERS = {
   probleme: { nom: 'Problème → solution', court: 'Problème' },
   produit: { nom: 'Démonstration produit', court: 'Démo' },
-  avis: { nom: 'Avis client / UGC', court: 'Avis' },
+  avis: { nom: 'Avis et contenus clients', court: 'Avis' },
   coulisses: { nom: 'Coulisses', court: 'Coulisses' },
   saison: { nom: 'Temps fort de saison', court: 'Saison' },
   offre: { nom: 'Offre limitée', court: 'Offre' }
@@ -276,13 +276,13 @@ function vueSocial() {
   <div class="comptes">${Object.entries(RESEAUX).map(([k, n]) => `
     <div class="compte-reseau ${s.comptes[k] ? 'connecte' : ''}">
       <span class="reseau r-${k}">${n.nom}</span>
-      ${s.comptes[k] ? `<span class="pill good">Connecté</span><label class="champ mini-champ"><span>Publications / semaine</span><input type="number" min="0" max="21" value="${r.frequence[k]}" data-frequence="${k}"></label><button class="bouton-lien" data-action="compte-social" data-id="${k}">Déconnecter</button>`
-      : `<button class="btn petit fantome" data-action="compte-social" data-id="${k}">Connecter</button>`}
+      ${s.comptes[k] ? `<span class="etat-compte ok">Connecté</span><label class="champ mini-champ"><span>Publications / semaine</span><input type="number" min="0" max="21" value="${r.frequence[k]}" data-frequence="${k}"></label><button class="btn petit fantome" data-action="compte-social" data-id="${k}">Déconnecter</button>`
+      : `<span class="etat-compte">Non connecté</span><p class="sous">Connectez le compte pour que le pilote y publie.</p><button class="btn petit" data-action="compte-social" data-id="${k}">Connecter</button>`}
     </div>`).join('')}</div>
 
   <div class="kpis">
     <div class="kpi"><span>Publications (30 j)</span><strong>${publiees.filter(p => p.date > Date.now() - 30 * 86400000).length}</strong><span class="evol neutre">${avenir.length} à venir</span></div>
-    <div class="kpi"><span>Vues</span><strong>${tot('vues').toLocaleString('fr-FR')}</strong></div>
+    <div class="kpi"><span>Vues</span><strong>${tot('vues').toLocaleString('fr-FR')}</strong><span class="evol neutre">${publiees.length} publication${publiees.length > 1 ? 's' : ''} publiée${publiees.length > 1 ? 's' : ''}</span></div>
     <div class="kpi"><span>Clics vers la boutique</span><strong>${tot('clics').toLocaleString('fr-FR')}</strong><span class="evol neutre">${a.global.toFixed(1).replace('.', ',')} pour 1000 vues</span></div>
     <div class="kpi"><span>Ventes attribuées</span><strong>${tot('ventes')}</strong>${publiees.some(p => p.stats && p.stats.simulees) ? '<span class="evol neutre">statistiques simulées</span>' : ''}</div>
   </div>

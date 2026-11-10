@@ -45,8 +45,17 @@ function statsConversion() {
 
 /* ---------- Avis vérifiés ---------- */
 const AVIS_DEMO = {
-  5: ['Superbe, exactement comme sur les photos. Livré vite.', 'Très belle qualité, je recommande sans hésiter.', 'Cadeau parfait, emballage soigné.', 'Ambiance garantie le soir, on adore.', 'Rapport qualité-prix excellent, arrivé en 3 jours.'],
-  4: ['Très bien, juste un peu plus petit que prévu.', 'Bon produit, livraison un jour plus tard qu’annoncé.', 'Joli et pratique. Le câble pourrait être plus long.'],
+  5: ['Superbe, exactement comme sur les photos. Livré vite.', 'Très belle qualité, je recommande sans hésiter.', 'Cadeau parfait, emballage soigné.', 'Rapport qualité-prix excellent, arrivé en 3 jours.'],
+  4: ['Très bien, juste un peu plus petit que prévu.', 'Bon produit, livraison un jour plus tard qu’annoncé.'],
+};
+/* Avis propres à certains produits : jamais une remarque sur un câble pour un plaid. */
+const AVIS_SPECIFIQUES = [
+  [/lamp|lumin|bougie|diffus|humidif|veilleuse/i, 5, 'Ambiance garantie le soir, on adore.'],
+  [/lamp|chargeur|humidif|diffus|veilleuse/i, 4, 'Joli et pratique. Le câble pourrait être plus long.'],
+  [/plaid|coton|coussin|linge/i, 5, 'Très doux, il ne bouloche pas après lavage.'],
+  [/organis|tiroir|rangement|bambou/i, 4, 'Pratique, les compartiments sont un peu étroits.']
+];
+const AVIS_DEMO_SUITE = {
   3: ['Correct, mais la couleur est plus froide que sur la photo.', 'Fait le travail, sans plus.'],
   2: ['Déçu par la finition, un petit défaut sur le côté.'],
   1: ['Arrivé abîmé. Le service client a proposé un échange.']
@@ -60,7 +69,8 @@ function semerAvis() {
     const l = c.lignes[0];
     const r = hacheTexte(c.id + 'n');
     const note = r < 0.62 ? 5 : r < 0.86 ? 4 : r < 0.94 ? 3 : r < 0.97 ? 2 : 1;
-    const textes = AVIS_DEMO[note];
+    const prod = etat.produits.find(p => p.id === l.produitId);
+    const textes = [...(AVIS_DEMO[note] || []), ...(AVIS_DEMO_SUITE[note] || []), ...AVIS_SPECIFIQUES.filter(([re, n]) => n === note && prod && re.test(`${prod.nom} ${prod.categorie}`)).map(x => x[2])];
     etat.avis.push({ id: 'av' + c.id, commandeId: c.id, produitId: l.produitId, note, texte: textes[Math.floor(hacheTexte(c.id + 't') * textes.length)], prenom: c.client.nom.split(' ')[0], ville: c.client.ville, date: Math.min(c.date + 9 * JOUR, Date.now() - JOUR), reponse: note <= 2 ? 'Merci pour votre retour, nous vous avons écrit pour organiser l’échange.' : null });
   }
   etat.avis.sort((a, b) => b.date - a.date);
@@ -99,8 +109,8 @@ function blocAvis() {
         <p class="sous">Les mots positifs sont de bons angles pour vos accroches ; les critiques indiquent quoi corriger (photo, délai, fournisseur).</p></div>
     </div>
     <div class="table-wrap"><table class="table"><thead><tr><th>Note</th><th>Avis</th><th>Produit</th><th>Réponse publique</th></tr></thead><tbody>
-      ${avis.slice(0, 12).map(a => `<tr><td class="mono">${'★'.repeat(a.note)}<span class="sous">${'★'.repeat(5 - a.note)}</span></td><td>${esc(a.texte)}<div class="sous">${esc(a.prenom)}, ${esc(a.ville)} · ${dateCourte(a.date)}</div></td><td class="sous">${esc((etat.produits.find(p => p.id === a.produitId) || { nom: '—' }).nom)}</td>
-        <td><input class="reponse-avis" data-avis="${esc(a.id)}" value="${esc(a.reponse || '')}" placeholder="Répondre publiquement" aria-label="Réponse à l’avis de ${esc(a.prenom)}"></td></tr>`).join('') || '<tr><td colspan="4" class="vide">Pas encore d’avis. Ils arriveront avec la demande d’avis envoyée après livraison.</td></tr>'}
+      ${avis.slice(0, 12).map(a => `<tr><td class="etoiles-cel"><span class="etoiles" aria-label="${a.note} sur 5">${'★'.repeat(a.note)}<span class="etoiles-vides">${'★'.repeat(5 - a.note)}</span></span></td><td>${esc(a.texte)}<div class="sous">${esc(a.prenom)}, ${esc(a.ville)} · ${dateCourte(a.date)}</div></td><td class="sous">${esc((etat.produits.find(p => p.id === a.produitId) || { nom: '—' }).nom)}</td>
+        <td><textarea class="reponse-avis" rows="2" data-avis="${esc(a.id)}" placeholder="Répondre publiquement" aria-label="Réponse à l’avis de ${esc(a.prenom)}">${esc(a.reponse || "")}</textarea></td></tr>`).join('') || '<tr><td colspan="4" class="vide">Pas encore d’avis. Ils arriveront avec la demande d’avis envoyée après livraison.</td></tr>'}
     </tbody></table></div>
   </section>`;
 }
@@ -142,7 +152,7 @@ function vueConversion() {
       <article class="flux-ligne">
         <div class="flux-titre"><strong>${f.titre}</strong><span class="sous">${f.quand}</span></div>
         <div class="flux-apercu"><span class="sous">Aperçu</span><p>${esc(f.apercu)}</p></div>
-        <div class="flux-chiffre"><b class="mono">${f.envoyes}</b><span class="sous">envoyés</span></div>
+        <div class="flux-chiffre"><b>${f.envoyes.toLocaleString("fr-FR")}</b><span class="sous">envoyés</span></div>
         ${interrupteur(f.cle, a[f.cle].actif)}
         <details class="flux-reglages"><summary>Réglages</summary><div class="deux">${f.reglages}</div></details>
       </article>`).join('')}</div>
@@ -158,11 +168,11 @@ function vueConversion() {
     </section>
     ${blocRegles(o)}
     <section class="carte sans-pad">
-      <div class="carte-tete pad"><h2>Codes promo valables</h2><span class="sous">${codes.length} codes</span></div>
+      <div class="carte-tete pad"><h2>Codes promo valables</h2><span class="sous">${codes.length} code${codes.length > 1 ? "s" : ""}</span></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th class="num">Remise</th><th>Origine</th><th></th></tr></thead><tbody>
-        ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}</td><td class="num">${c.source === 'Code manuel' ? `<button class="bouton-lien" data-action="suppr-code" data-code="${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
+        ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}</td><td class="num">${c.source === 'Code manuel' ? `<button class="btn petit fantome danger-doux" data-action="suppr-code" data-code="${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
       </tbody></table></div>
-      <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="70" value="10" required aria-label="Remise en %"><button class="btn petit">Ajouter</button></form>
+      <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="70" value="10" required aria-label="Remise en %"><button class="btn">Ajouter</button></form>
     </section>
   </div>
   ${blocAvis()}`;
@@ -203,7 +213,7 @@ function blocRegles(o) {
       <td class="num"><input type="number" min="0" max="50" value="${r.remise}" data-regle="${i}.remise" class="mini-nombre" aria-label="Remise en %"> %</td>
       <td><select data-regle="${i}.type" aria-label="Moment"><option value="panier" ${r.type === 'panier' ? 'selected' : ''}>Dans le panier</option><option value="apres" ${r.type === 'apres' ? 'selected' : ''}>Après l’achat</option></select></td>
       <td class="num">${s.vues}</td><td class="num">${s.acceptees}<div class="sous">${fmtPct(s.taux)}</div></td><td class="num">${euros(s.ca)}</td>
-      <td class="num"><label class="case"><input type="checkbox" data-regle="${i}.actif" ${r.actif ? 'checked' : ''}> Active</label><button class="bouton-lien" data-action="suppr-regle" data-i="${i}">Retirer</button></td></tr>`; }).join('') || '<tr><td colspan="8" class="vide">Aucune offre. Ajoutez-en une : par exemple, une bougie proposée avec le diffuseur.</td></tr>'}
+      <td class="num actions-regle"><label class="interrupteur petit"><input type="checkbox" data-regle="${i}.actif" ${r.actif ? 'checked' : ''} aria-label="Offre active"><span>${r.actif ? 'Active' : 'Inactive'}</span></label><button class="btn petit fantome danger-doux" data-action="suppr-regle" data-i="${i}">Retirer</button></td></tr>`; }).join('') || '<tr><td colspan="8" class="vide">Aucune offre. Ajoutez-en une : par exemple, une bougie proposée avec le diffuseur.</td></tr>'}
     </tbody></table></div>
     <div class="pad-x pad-b"><button class="btn petit fantome" data-action="ajout-regle" ${etat.produits.length < 2 ? 'disabled' : ''}>Ajouter une offre</button>${connecteServeur() ? '' : ' <span class="sous">Démo : vues et acceptations simulées.</span>'}</div>
   </section>`;

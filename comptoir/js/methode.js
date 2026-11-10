@@ -41,11 +41,11 @@ function blocCriteres(f) {
      ou coût par vente au-dessus du CPA d’équilibre une fois la fenêtre de jugement passée.
    - apprentissage : Meta et TikTok visent environ 50 conversions en 7 jours ; TikTok déconseille toute modification avant 20.
    - accroche : part des impressions qui regardent 3 secondes (hook rate), cible 30 à 40 % (Motion).
-   - augmenter : pas de pourcentage fixe reconnu. Soit horizontal (nouvelles créas sur l’angle gagnant, Common Thread Collective),
+   - augmenter : pas de pourcentage fixe reconnu. Soit horizontal (nouvelles publicités sur l’angle gagnant, Common Thread Collective),
      soit hausse de budget puis environ 7 jours d’attente avant de juger (Ben Heath). */
 const CANAUX_TEST = {
-  meta: { nom: 'Publicités Meta (Instagram, Facebook)', jours: 3, apprentissage: 50, regle: '5 à 10 créas dans un même test, jugées après 3 jours (Minea ; 1 à 2 jours selon Jordan Welch). Vidéo verticale, message lisible sans le son dans les 3 premières secondes, 15 s ou moins (Meta).' },
-  'tiktok-ads': { nom: 'Publicités TikTok', jours: 3, apprentissage: 50, gel: 20, regle: '3 à 5 créas très différentes par groupe d’annonces, style natif, texte à l’écran court (TikTok). Testez d’abord les 3 premières secondes (Gabriel St-Germain).' },
+  meta: { nom: 'Publicités Meta (Instagram, Facebook)', jours: 3, apprentissage: 50, regle: '5 à 10 publicités dans un même test, jugées après 3 jours (Minea ; 1 à 2 jours selon Jordan Welch). Vidéo verticale, message lisible sans le son dans les 3 premières secondes, 15 s ou moins (Meta).' },
+  'tiktok-ads': { nom: 'Publicités TikTok', jours: 3, apprentissage: 50, gel: 20, regle: '3 à 5 publicités très différentes par groupe d’annonces, style natif, texte à l’écran court (TikTok). Testez d’abord les 3 premières secondes (Gabriel St-Germain).' },
   organique: { nom: 'TikTok organique', jours: 30, apprentissage: 0, regle: '3 à 5 vidéos de 10 à 30 s par jour pendant 30 jours (Kamil Sattar). Des mesures plus prudentes montrent déjà un gain en passant de 1 à 2–5 publications par semaine (Buffer).' }
 };
 const SEUIL_COUPE = 3;          // × CPA d’équilibre dépensé sans vente
@@ -86,8 +86,8 @@ function analyseTest(t) {
   else if (cpa !== null && jours >= canal.jours && cpa > mb) { verdict = hook !== null && hook < HOOK_CIBLE[0] ? 'Changer l’accroche' : 'Couper'; ton = 'bad'; raison = `Coût par vente ${euros(cpa)} au-dessus du seuil d’équilibre ${euros(mb)} : chaque vente coûte de l’argent.${hook !== null && hook < HOOK_CIBLE[0] ? ` L’accroche retient peu (${fmtPct(hook)} regardent 3 s, cible 30–40 %) : testez de nouvelles premières secondes avant d’abandonner le produit.` : ''}`; }
   else if (cpa !== null && jours >= canal.jours && cpa <= mb * 0.7) {
     verdict = 'Augmenter'; ton = 'good';
-    raison = `Coût par vente ${euros(cpa)}, soit ${Math.round(cpa / mb * 100)} % du seuil d’équilibre. ROAS ${roas.toFixed(2).replace('.', ',')} pour un ROAS d’équilibre de ${roasEq.toFixed(2).replace('.', ',')}.`;
-    conseil = enApprentissage && canal.gel && ventes7 < canal.gel ? `Ne touchez à rien avant ${canal.gel} conversions (TikTok).` : 'Deux options : ajouter 2 ou 3 nouvelles créas sur le même angle (horizontal), ou augmenter le budget puis attendre environ 7 jours avant de juger.';
+    raison = `Coût par vente ${euros(cpa)}, soit ${Math.round(cpa / mb * 100)} % du seuil d’équilibre. Rendement pub ${roas.toFixed(2).replace('.', ',')} pour un seuil d’équilibre de ${roasEq.toFixed(2).replace('.', ',')}.`;
+    conseil = enApprentissage && canal.gel && ventes7 < canal.gel ? `Ne touchez à rien avant ${canal.gel} conversions (TikTok).` : 'Deux options : ajouter 2 ou 3 nouvelles publicités sur le même angle (horizontal), ou augmenter le budget puis attendre environ 7 jours avant de juger.';
   } else if (jours >= canal.jours) { verdict = 'Garder et itérer'; ton = 'info'; raison = 'Rentable mais sans marge de sécurité : changez les 3 premières secondes ou testez un nouvel angle avant d’augmenter le budget.'; }
   else { verdict = 'Attendre'; ton = 'info'; raison = `Jour ${jours} sur ${canal.jours}. Jugez après ${canal.jours} jours, sauf si la dépense sans vente dépasse ${SEUIL_COUPE} × ${euros(mb)}.`; }
   return { p, mb, roasEq, depense, ventes, clics, vues, impressions, vues3s, cpa, roas, jours, verdict, raison, conseil, ton, budgetJour: t.budgetJour, ctr, hook, cpm, cvr, ventes7, enApprentissage, budgetMin, apprentissage: canal.apprentissage };
@@ -139,25 +139,24 @@ function vueTests() {
             <div><span class="sous">${org ? 'Vues' : 'Dépensé'}</span><strong>${org ? a.vues.toLocaleString('fr-FR') : euros(a.depense)}</strong></div>
             <div><span class="sous">Ventes</span><strong>${a.ventes}</strong></div>
             <div><span class="sous">${org ? 'Clics' : 'Coût par vente'}</span><strong>${org ? a.clics : a.cpa === null ? '—' : euros(a.cpa)}</strong></div>
-            <div><span class="sous">${org ? 'Contribution / vente' : 'ROAS / équilibre'}</span><strong>${org ? euros(a.mb) : `${a.roas === null ? '—' : a.roas.toFixed(2).replace('.', ',')} / ${isFinite(a.roasEq) ? a.roasEq.toFixed(2).replace('.', ',') : '∞'}`}</strong></div>
+            <div><span class="sous">${org ? 'Contribution / vente' : 'Rendement pub / seuil'}</span><strong>${org ? euros(a.mb) : `${a.roas === null ? '—' : a.roas.toFixed(2).replace('.', ',')} / ${isFinite(a.roasEq) ? a.roasEq.toFixed(2).replace('.', ',') : '∞'}`}</strong></div>
           </div>
           ${org ? '' : `<div class="metriques">
-            ${jaugeSimple(a.hook, HOOK_CIBLE[0], 'Regardent 3 s (cible 30–40 %)')}
-            ${jaugeSimple(a.ctr, CTR_SIGNAL, 'Taux de clic (signal > 2 %)')}
+            ${jaugeSimple(a.hook, HOOK_CIBLE[0], 'Vues de 3 s · cible 30–40\u00a0%')}
+            ${jaugeSimple(a.ctr, CTR_SIGNAL, 'Taux de clic · signal dès 2\u00a0%')}
             <div class="metrique"><span>Coût pour 1000 affichages</span><b>${a.cpm === null ? '—' : euros(a.cpm)}</b></div>
             ${jaugeSimple(a.cvr, null, 'Conversion des clics')}
           </div>`}
           <p class="sous">${esc(a.raison)}${a.conseil ? ` <b>${esc(a.conseil)}</b>` : ''}</p>
           ${a.apprentissage && !org ? `<div class="apprentissage"><span class="sous">Phase d’apprentissage : ${a.ventes7} / ${a.apprentissage} ventes sur 7 jours${a.enApprentissage ? ' · évitez de modifier le test' : ' · terminée'}</span><span class="piste-app"><i style="width:${Math.min(100, a.ventes7 / a.apprentissage * 100)}%"></i></span></div>` : ''}
-          <form class="saisie-test" data-form="resultat-test" data-id="${t.id}">
-            ${org ? '' : `<label class="champ"><span>Dépense</span><input name="depense" type="number" min="0" step="0.01" required></label>`}
+          <form class="saisie-test" id="saisie-${t.id}" data-form="resultat-test" data-id="${t.id}"><span class="saisie-titre">Résultats du jour ${a.jours + 1}</span>
+            ${org ? '' : `<label class="champ"><span>Dépense (${devise()})</span><input name="depense" type="number" min="0" step="0.01" required></label>`}
             <label class="champ"><span>${org ? 'Vues' : 'Impressions'}</span><input name="impressions" type="number" min="0" required></label>
             ${org ? '' : `<label class="champ"><span>Vues 3 s</span><input name="vues3s" type="number" min="0"></label>`}
             <label class="champ"><span>Clics</span><input name="clics" type="number" min="0" required></label>
             <label class="champ"><span>Ventes</span><input name="ventes" type="number" min="0" required></label>
-            <button class="btn petit">Ajouter le jour ${a.jours + 1}</button>
           </form>
-          <button class="bouton-lien" data-action="supprimer-test" data-id="${t.id}">Arrêter et retirer ce test</button>
+          <div class="test-pied"><button class="btn petit fantome danger-doux" data-action="supprimer-test" data-id="${t.id}">Arrêter le test</button><button class="btn petit" type="submit" form="saisie-${t.id}">Enregistrer le jour ${a.jours + 1}</button></div>
         </article>`;
       }).join('') : '<p class="sous">Aucun test pour l’instant. Lancez-en un à droite.</p>'}
     </section>
@@ -171,7 +170,7 @@ function vueTests() {
           ${pChoisi ? `<div class="encart calcul-eq">
             <div><span>Contribution par vente (avant publicité)</span><b>${euros(mb0)}</b></div>
             <div><span>Coût d’acquisition d’équilibre</span><b>${euros(mb0)}</b></div>
-            <div><span>ROAS d’équilibre</span><b>${mb0 > 0 ? (pChoisi.prix / mb0).toFixed(2).replace('.', ',') : '∞'}</b></div>
+            <div><span>Rendement pub d’équilibre</span><b>${mb0 > 0 ? (pChoisi.prix / mb0).toFixed(2).replace('.', ',') : '∞'}</b></div>
             ${t0.canal === 'organique' ? '' : `<div><span>Coupure si dépense sans vente ≥</span><b>${euros(SEUIL_COUPE * mb0)}</b></div>
             <div><span>Budget/jour pour finir l’apprentissage (${canal0.apprentissage} ventes en 7 j)</span><b>${euros(canal0.apprentissage * mb0 / 7)}</b></div>`}
             <p class="sous">${esc(canal0.regle)}${t0.canal !== 'organique' && t0.budgetJour < canal0.apprentissage * mb0 / 7 ? ' À ce budget, la phase d’apprentissage ne se terminera pas en 7 jours : c’est normal pour un premier test, mais jugez sur le coût par vente, pas sur les indicateurs de la plateforme.' : ''}</p>
@@ -184,14 +183,14 @@ function vueTests() {
         <ol class="appris">
           <li>Commencez par le contenu gratuit : TikTok organique et micro-influenceurs payés à la commission (Kamil Sattar).</li>
           <li>Activez d’abord les e-mails automatiques : relance de paiement, bienvenue, demande d’avis (écran Conversion).</li>
-          <li>Un produit, plusieurs accroches : 4 à 5 vidéos × 3 accroches (podcast Hors des Clous). Environ 5 % des créas seulement deviennent gagnantes, et la moitié perdent : c’est normal (Motion, 2026).</li>
+          <li>Un produit, plusieurs accroches : 4 à 5 vidéos × 3 accroches (podcast Hors des Clous). Environ 5 % des publicités seulement deviennent gagnantes, et la moitié perdent : c’est normal (Motion, 2026).</li>
           <li>Les formats qui gagnent le plus souvent : déballage et démonstration (Motion, 2026).</li>
           <li>Surveillez les retours : 30 % de retours suffisent à effacer la marge (Minea).</li>
         </ol>
       </section>
     </div>
   </div>
-  <p class="note">Les chiffres de démo sont fictifs. Les seuils publiés (hook rate, CTR, apprentissage) sont des repères, pas des garanties.</p>`;
+  <p class="note">Les chiffres de démo sont fictifs. Les seuils publiés (taux d’accroche, taux de clic, apprentissage) sont des repères, pas des garanties.</p>`;
 }
 
 /* ---------- 3. Micro-influenceurs (réseaux sociaux) ---------- */
@@ -201,8 +200,8 @@ function blocInfluenceurs() {
   const fr = b.pays !== 'ch';
   return `<section class="carte">
     <div class="carte-tete"><h2>Micro-influenceurs</h2><span class="sous">Payés à la commission, sans avance</span></div>
-    <p class="sous">Contactez beaucoup de petits comptes (Kamil Sattar conseille 50 à 100 par jour au démarrage) : produit offert et 15 % de commission sur les ventes faites avec leur code.</p>
-    <pre class="brouillon">Bonjour ! On adore tes vidéos. On est ${b.nom}, une petite boutique${b.pays === 'ch' ? ' de Suisse romande' : ''}. On aimerait t’offrir notre ${(etat.produits[0] || { nom: 'produit phare' }).nom.toLowerCase()} et te proposer 15 % sur chaque vente avec ton code ${code}. Ça te dit ?</pre>
+    <p class="sous">Contactez beaucoup de petits comptes (Kamil Sattar conseille 50 à 100 par jour au démarrage) : produit offert, 15 % de commission sur les ventes faites avec leur code, et 10 % de remise pour leur communauté.</p>
+    <pre class="brouillon">Bonjour ! On adore tes vidéos. On est ${b.nom}, une petite boutique${b.pays === 'ch' ? ' de Suisse romande' : ''}. On aimerait t’offrir notre ${(etat.produits[0] || { nom: 'produit phare' }).nom.toLowerCase()} et te proposer 15 % de commission sur chaque vente faite avec ton code ${code} (−10 % pour ta communauté). Ça te dit ?</pre>
     <p class="encart">${fr ? 'France (loi du 9 juin 2023) : l’influenceur doit afficher « Publicité » ou « Collaboration commerciale ». En dropshipping, il est responsable envers l’acheteur et doit indiquer l’identité du fournisseur.' : 'Suisse : la loi contre la concurrence déloyale interdit la publicité déguisée. Demandez une mention claire « Publicité » ou « Collaboration commerciale ».'}</p>
   </section>`;
 }

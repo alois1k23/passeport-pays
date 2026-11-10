@@ -5,7 +5,7 @@
 
 const PERIODES = [[7, '7 jours'], [30, '30 jours'], [90, '90 jours'], [365, '12 mois']];
 const ONGLETS_ANALYSE = [['ventes', 'Ventes'], ['produits', 'Produits'], ['clients', 'Clients'], ['marketing', 'Marketing'], ['rentabilite', 'Rentabilité']];
-const JOURS_SEMAINE = ['Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.', 'Dim.'];
+const JOURS_SEMAINE = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const TAUX_CONVERSION_ESTIME = 0.018;
 
 let comparaisonPossible = true;
@@ -117,15 +117,15 @@ function ongletVentes(t, tp, d0, f0, d1, f1) {
   <section class="carte constats"><h2>À retenir</h2><ul>${constats.map(c => `<li>${c}</li>`).join('')}</ul></section>
   <section class="carte">
     <div class="carte-tete"><h2>Chiffre d’affaires</h2><span class="sous">par ${t.length > 31 || t.length === 12 ? (t.length === 12 ? 'mois' : 'semaine') : 'jour'}</span></div>
-    ${courbe({ labels: t.map(x => x.label), series: [{ nom: 'Période actuelle', valeurs: parT.map(x => x.ca), classe: 's1', aire: true }, { nom: 'Période précédente', valeurs: parTp.map(x => x.ca), classe: 'gris', pointille: true }], format: compact, formatTip: fmtArgent })}
+    ${courbe({ unite: devise(), labels: t.map(x => x.label), series: [{ nom: 'Période actuelle', valeurs: parT.map(x => x.ca), classe: 's1', aire: true }, { nom: 'Période précédente', valeurs: parTp.map(x => x.ca), classe: 'gris', pointille: true }], format: compact, formatTip: fmtArgent })}
   </section>
-  <div class="grille-2">
-    <section class="carte"><div class="carte-tete"><h2>Quand vos clients achètent</h2><span class="sous">commandes par jour et tranche de 2 heures</span></div>
+  <section class="carte"><div class="carte-tete"><h2>Quand vos clients achètent</h2><span class="sous">commandes par jour et tranche de 2 heures</span></div>
       ${chaleur({ lignes: JOURS_SEMAINE, colonnes: Array.from({ length: 12 }, (_, i) => `${i * 2}h`), valeurs: grille, tip: (l, c, v) => `${l} ${c} : ${v} commande${v > 1 ? 's' : ''}` })}</section>
+  <div class="grille-2">
     <section class="carte"><div class="carte-tete"><h2>Livraison et canal</h2><span class="sous">part du chiffre d’affaires</span></div>
       ${barresH(livraisons, { format: v => fmtPct(v / (cur.ca || 1)) })}</section>
-  </div>
-  <section class="carte"><div class="carte-tete"><h2>Villes</h2><span class="sous">chiffre d’affaires</span></div>${barresH(villes, { format: fmtArgent })}</section>`;
+    <section class="carte"><div class="carte-tete"><h2>Villes</h2><span class="sous">chiffre d’affaires</span></div>${barresH(villes, { format: fmtArgent })}</section>
+  </div>`;
 }
 
 function ongletProduits(t, tp, d0, f0, d1, f1) {
@@ -237,7 +237,7 @@ function ongletMarketing(t, tp, d0, f0) {
   </div>
   <div class="grille-2">
     <section class="carte sans-pad"><div class="carte-tete pad"><h2>Tests produits</h2><span class="sous">dépense publicitaire et retour</span></div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Produit</th><th class="num">Dépense</th><th class="num">Ventes</th><th class="num">Coût par vente</th><th class="num">ROAS</th><th>Verdict</th></tr></thead>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Produit</th><th class="num">Dépense</th><th class="num">Ventes</th><th class="num">Coût par vente</th><th class="num" title="Chiffre d’affaires généré par franc dépensé en publicité (ROAS)">Rendement pub</th><th>Verdict</th></tr></thead>
       <tbody>${tests.map(x => `<tr><td>${esc(x.p.nom)}</td><td class="num">${euros(x.depense)}</td><td class="num">${x.ventes}</td><td class="num">${x.cpa === null ? '—' : euros(x.cpa)}</td><td class="num">${x.roas === null ? '—' : x.roas.toFixed(2).replace('.', ',')}</td><td><span class="pill ${x.ton}">${x.verdict}</span></td></tr>`).join('') || '<tr><td colspan="6" class="vide">Aucun test avec dépense.</td></tr>'}</tbody></table></div></section>
     <section class="carte"><div class="carte-tete"><h2>Temps forts passés</h2><span class="sous">chiffre d’affaires pendant, comparé à la période juste avant</span></div>
       ${barresH(passes.filter(x => x.b.evolution !== null).map(x => ({ nom: x.e.nom, v: x.b.evolution, detail: euros(x.b.pendant) })), { format: v => (v >= 0 ? '+' : '−') + fmtPct(Math.abs(v)) })}</section>

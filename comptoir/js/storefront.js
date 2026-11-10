@@ -22,11 +22,29 @@ function euros(n) {
 function visuelProduit(p, grand = false) {
   if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${/^data:image\/(jpeg|png|webp);base64,/.test(p.image) ? esc(p.image) : ''}" alt="${esc(p.nom)}"></div>`;
   const h = p.teinte ?? 30;
-  const initiales = p.nom.split(/\s+/).filter(m => m.length > 2).slice(0, 2).map(m => m[0]).join('');
-  return `<div class="sf-visuel${grand ? ' grand' : ''}" style="background:
-    radial-gradient(circle at 30% 25%, hsl(${h} 45% 88%), transparent 60%),
-    linear-gradient(150deg, hsl(${h} 32% 76%), hsl(${(h + 30) % 360} 28% 58%))">
-    <span>${esc(initiales)}</span></div>`;
+  // Sans photo : fond uni teinté et pictogramme de la catégorie (plus sobre que des initiales).
+  return `<div class="sf-visuel sans-photo${grand ? ' grand' : ''}" style="--teinte:${Number(h) || 0}" role="img" aria-label="${esc(p.nom)}">${pictoProduit(p)}</div>`;
+}
+
+const PICTOS_PRODUIT = [
+  [/lamp|lumin|éclair|veilleuse|guirlande/i, '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V17h5v-1.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z"/>'],
+  [/bougie|parfum|encens/i, '<path d="M8 21h8V11H8v10ZM12 11V8M12 8c-1.4-1-1.6-2.6 0-5 1.6 2.4 1.4 4 0 5Z"/>'],
+  [/diffus|humidif|huile/i, '<path d="M12 3s-5 6-5 10a5 5 0 0 0 10 0c0-4-5-10-5-10Z"/>'],
+  [/plaid|coussin|linge|textile|coton|couverture/i, '<path d="M4 6h16v12H4zM4 10h16M4 14h16M9 6v12M15 6v12"/>'],
+  [/chargeur|câble|cable|tech|audio|écouteur|support|usb/i, '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>'],
+  [/organis|rangement|boîte|boite|panier|tiroir/i, '<path d="M3 8h18v12H3zM3 8l2-4h14l2 4M9 12h6"/>'],
+  [/bijou|bague|collier|bracelet|boucle/i, '<path d="M6 3h12l3 6-9 12L3 9l3-6ZM3 9h18M9 3l3 18M15 3l-3 18"/>'],
+  [/animal|chien|chat|laisse|gamelle/i, '<circle cx="7" cy="9" r="2"/><circle cx="17" cy="9" r="2"/><circle cx="10" cy="5" r="2"/><circle cx="14" cy="5" r="2"/><path d="M12 12c-3 0-5 3-5 5.5S9 20 12 19c3 1 5 .5 5-1.5S15 12 12 12Z"/>'],
+  [/sport|yoga|fitness|gourde|bouteille/i, '<path d="M9 3h6M10 3v3l-2 3v12h8V9l-2-3V3"/>'],
+  [/beaut|soin|crème|creme|savon|cosm/i, '<path d="M9 2h6v4H9zM7 6h10l-1 16H8L7 6Z"/>'],
+  [/café|cafe|thé|the|tasse|mug|épicerie|chocolat|miel/i, '<path d="M4 8h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8ZM16 10h2a2 2 0 0 1 0 4h-2"/>'],
+  [/vase|déco|deco|cadre|miroir|plante/i, '<path d="M9 3h6l-1 4c3 2 4 5 3 9-1 3-3 5-5 5s-4-2-5-5c-1-4 0-7 3-9L9 3Z"/>'],
+  [/vêtement|vetement|mode|sac|t-shirt|pull|chaussette|écharpe/i, '<path d="M9 3 4 6l2 4 2-1v12h8V9l2 1 2-4-5-3a3 3 0 0 1-6 0Z"/>']
+];
+function pictoProduit(p) {
+  const t = `${p.categorie || ''} ${p.nom || ''}`;
+  const d = (PICTOS_PRODUIT.find(([re]) => re.test(t)) || [null, '<path d="M6 8h12l-1 12H7L6 8ZM9 8V6a3 3 0 0 1 6 0v2"/>'])[1];
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 }
 
 /* Date de livraison estimée : jours ouvrables (sans week-ends ni jours fériés nationaux suisses).
@@ -89,7 +107,7 @@ function renduSection(s, etat, mode) {
           <article class="sf-carte">
             <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>
             <div class="sf-carte-infos"><h3><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${x.prixBarre ? `<s class="sf-barre">${euros(x.prixBarre)}</s> ` : ''}${euros(x.prix)}</span></div>
-            <small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}${x.avis && x.avis.n ? ` · <span class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} (${x.avis.n} avis vérifiés)</span>` : ''}</small>
+            ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}<small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}</small>
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
           </article>`).join('') || '<p class="sf-vide">Aucun produit dans cette catégorie.</p>'}
         </div></section>`;
@@ -102,7 +120,7 @@ function renduSection(s, etat, mode) {
       // Avis vérifiés réels s’il y en a ; sinon les textes saisis dans l’éditeur.
       const reels = (etat.avisRecents || []).slice(0, 4);
       const etoiles = n => '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
-      if (reels.length) return `<section class="sf-avis">${reels.map(a => `
+      if (reels.length) return `<section class="sf-avis"><h2 class="sf-avis-titre">${esc(p.titre || 'Ce qu’en disent nos clients')}</h2>${reels.map(a => `
         <figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${etoiles(a.note)}</div><blockquote>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom)}${a.ville ? ', ' + esc(a.ville) : ''} · achat vérifié</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}
         <p class="sf-methode">Avis vérifiés : seuls les clients ayant reçu leur commande peuvent noter, via un lien personnel envoyé par e-mail. Tous les avis sont publiés, positifs comme négatifs.</p></section>`;
       return `<section class="sf-avis">${[[p.a1, p.n1], [p.a2, p.n2]].filter(a => a[0]).map(([a, n]) => `

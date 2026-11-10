@@ -112,11 +112,11 @@ function vueSourcing() {
   return `
   <div class="tete"><div><h1>Trouver des produits</h1><p class="sous">Catalogue fournisseurs classé selon votre marge nette réelle, la saison, la concurrence et le délai de livraison.</p></div></div>
   ${estSuisse() ? `<p class="encart">Pour vendre en Suisse, privilégiez les entrepôts suisses et européens. Vos clients attendent un colis en 2 à 7 jours. Avec un envoi de Chine, ils risquent de payer eux-mêmes la TVA d’importation et des frais de dédouanement à la livraison : c’est la première cause de mauvais avis.</p>` : ''}
-  <section class="carte filtres-domaine">
+  <section class="carte barre-sourcing">
     <label class="champ"><span>Niche</span><select id="sc-niche" data-sourcing="niche"><option value="">Toutes</option>${niches.map(n => `<option value="${n}" ${s.niche === n ? 'selected' : ''}>${esc(SECTEURS[n].nom)}</option>`).join('')}</select></label>
-    <fieldset class="champ cases-ligne"><legend>Entrepôt</legend>${Object.entries(ENTREPOTS).map(([k, e]) => `<label class="case"><input type="checkbox" data-entrepot="${k}" ${s.entrepots.includes(k) ? 'checked' : ''}> ${e.nom}</label>`).join('')}</fieldset>
+    <fieldset class="champ"><legend>Entrepôt</legend><div class="puces">${Object.entries(ENTREPOTS).map(([k, e]) => `<label class="puce"><input type="checkbox" data-entrepot="${k}" ${s.entrepots.includes(k) ? 'checked' : ''}><span>${e.nom}</span></label>`).join('')}</div></fieldset>
     <label class="champ"><span>Délai maximum</span><select id="sc-delai" data-sourcing="delaiMax">${[[7, '7 jours'], [10, '10 jours'], [20, '20 jours']].map(([v, n]) => `<option value="${v}" ${s.delaiMax === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-    <label class="champ"><span>Coût pub par vente (estimé)</span><input id="sc-cpa" type="number" min="0" step="0.5" value="${reglages().cpa}" data-reglage="cpa"></label>
+    <label class="champ"><span>Coût pub par vente (estimé)</span><span class="avec-unite"><input id="sc-cpa" type="number" min="0" step="0.5" value="${reglages().cpa}" data-reglage="cpa"><i>${devise()}</i></span></label>
   </section>
   <div class="catalogue">${liste.map(({ f, score, marge, raisons }) => `
     <article class="carte produit-cat">
@@ -132,9 +132,9 @@ function vueSourcing() {
       </dl>
       ${blocCriteres(f)}
       <p class="sous">${esc(raisons.join(' · '))}</p>
-      ${importes.has(f.id) ? '<span class="pill good">Dans votre boutique</span>' : `<button class="btn" data-action="importer-produit" data-id="${f.id}">Importer dans ma boutique</button>`}
+      <div class="pc-pied">${importes.has(f.id) ? '<span class="pc-importe">✓ Dans votre boutique</span><a class="btn fantome" href="#produits">Voir le produit</a>' : `<button class="btn" data-action="importer-produit" data-id="${f.id}">Importer dans ma boutique</button>`}</div>
     </article>`).join('') || '<p class="sous">Aucun produit ne correspond à ces filtres.</p>'}</div>
-  <p class="note">Démo : fournisseurs, coûts et délais fictifs. Frais de paiement estimés à 2,5 % + 0,30 ; frais de dédouanement transporteur estimés.</p>`;
+  <p class="note">Démo : fournisseurs, coûts et délais fictifs. Frais de paiement estimés à 2,5 % + ${euros(0.3)} par vente ; frais de dédouanement transporteur estimés.</p>`;
 }
 
 /* Bloc « marge » affiché dans la fiche produit. */
@@ -149,7 +149,7 @@ function blocMarge(p) {
     ${ligne('Frais de paiement', m.paiement)}
     ${ligne('Publicité par vente', m.cpa)}
     <div class="total ${m.nette >= 0 ? 'up' : 'down'}"><span>Marge nette</span><span>${euros(m.nette)} (${Math.round(m.taux * 100)} %)</span></div>
-    <p class="sous">Seuil de rentabilité publicitaire : ROAS ${isFinite(m.roasSeuil) ? m.roasSeuil.toFixed(1).replace('.', ',') : '∞'}. En dessous, chaque vente issue de la pub vous coûte de l’argent.</p></div>`;
+    <p class="sous">Seuil de rentabilité publicitaire (ROAS) : ${isFinite(m.roasSeuil) ? m.roasSeuil.toFixed(1).replace('.', ',') : '∞'}. En dessous, chaque vente issue de la pub vous coûte de l’argent.</p></div>`;
 }
 
 /* Bénéfice estimé d’une commande. */
@@ -185,7 +185,7 @@ function boutiqueDemoLausanne() {
   // Démo : l’humidificateur était à 59 pendant 3 mois, réduit à 54 depuis 3 semaines (prix barré licite).
   produits[1].prixReference = 59;
   produits[1].historiquePrix = [{ date: Date.now() - 120 * 86400000, prix: 59 }, { date: Date.now() - 21 * 86400000, prix: 54 }];
-  produits.push({ id: 'p7', nom: 'Coffret Léman fait main', categorie: 'Bougies', prix: 59, description: 'Bougie, savon et carte postale du lac, assemblés à Lausanne.', stock: 4, teinte: 195, actif: true, type: 'stock', cout: 21 });
+  produits.push({ id: 'p7', nom: 'Coffret Léman fait main', categorie: 'Coffrets cadeaux', prix: 59, description: 'Bougie, savon et carte postale du lac, assemblés à Lausanne.', stock: 4, teinte: 195, actif: true, type: 'stock', cout: 21 });
   const now = Date.now(), jour = 86400000;
   const commandes = [];
   // 13 mois d’historique : croissance progressive, saisonnalité du secteur, pics le soir et le week-end.

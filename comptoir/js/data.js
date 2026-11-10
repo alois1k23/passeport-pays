@@ -14,14 +14,28 @@ const SAISONS = [
   { mois: 2, nom: 'Printemps', kw: 'printemps', force: 0.5, conseil: 'Renouvelez les visuels : couleurs claires, nouveautés, grand ménage de printemps.' },
   { mois: 3, nom: 'Pâques', kw: 'paques', force: 0.55, conseil: 'Petits cadeaux et décoration de table : une bannière Pâques suffit.' },
   { mois: 4, nom: 'Fête des mères', kw: 'fete-des-meres', force: 0.95, conseil: 'Fête des mères le dernier dimanche de mai : la meilleure période du printemps pour le cadeau.' },
-  { mois: 5, nom: 'Fête des pères & soldes d’été', kw: 'fete-des-peres', force: 0.7, conseil: 'Fête des pères le 3e dimanche de juin, puis soldes d’été fin juin.' },
+  { mois: 5, nom: 'Fête des pères et soldes d’été', kw: 'fete-des-peres', force: 0.7, conseil: 'Fête des pères le 3e dimanche de juin, puis soldes d’été fin juin.' },
   { mois: 6, nom: 'Vacances d’été', kw: 'ete', force: 0.45, conseil: 'Trafic plus faible : idéal pour tester de nouveaux produits et préparer la rentrée.' },
   { mois: 7, nom: 'Préparation rentrée', kw: 'rentree', force: 0.5, conseil: 'Préparez les campagnes de septembre et les stocks de fin d’année.' },
   { mois: 8, nom: 'Rentrée', kw: 'rentree', force: 0.65, conseil: 'Nouvelle saison : les clients reviennent, relancez votre newsletter.' },
-  { mois: 9, nom: 'Halloween & premiers cadeaux', kw: 'halloween', force: 0.6, conseil: 'Les premiers achats de Noël commencent : publiez vos coffrets dès la mi-octobre.' },
-  { mois: 10, nom: 'Black Friday', kw: 'black-friday', force: 1, conseil: 'Black Friday le vendredi après Thanksgiving, puis Cyber Monday. Réservez un domaine de campagne et préparez vos offres.' },
+  { mois: 9, nom: 'Halloween et premiers cadeaux', kw: 'halloween', force: 0.6, conseil: 'Les premiers achats de Noël commencent : publiez vos coffrets dès la mi-octobre.' },
+  { mois: 10, nom: 'Black Friday', kw: 'black-friday', force: 1, conseil: 'Fin novembre, suivi du Cyber Monday le lundi : la plus grosse semaine de ventes en ligne de l’année. Réservez un domaine de campagne et préparez vos offres.' },
   { mois: 11, nom: 'Noël', kw: 'noel', force: 1, conseil: 'Pic de l’année : mettez en avant les cartes cadeaux et la date limite de livraison avant le 24.' }
 ];
+/* Suisse : dates et temps forts propres (fête des mères le 2e dimanche de mai, 1er Août…). */
+const SAISONS_CH = {
+  0: { conseil: 'Les soldes commencent juste après Noël et durent tout janvier : préparez une sélection « dernières pièces ».' },
+  4: { conseil: 'Fête des mères le 2e dimanche de mai en Suisse : la meilleure période du printemps pour le cadeau.' },
+  5: { nom: 'Fête des pères et soldes d’été', conseil: 'Fête des pères le 1er dimanche de juin en Suisse, puis soldes d’été dès fin juin.' },
+  7: { nom: '1er Août et préparation de la rentrée', kw: 'rentree', conseil: 'Fête nationale le 1er août : une sélection rouge et blanc suffit. Préparez ensuite la rentrée.' },
+  9: { nom: 'Halloween et premiers cadeaux' }
+};
+function saisonDuMois(mois) {
+  const base = SAISONS[mois];
+  let ch = false;
+  try { ch = !!(etat && etat.boutique && etat.boutique.pays === 'ch'); } catch { /* état pas encore chargé */ }
+  return ch && SAISONS_CH[mois] ? { ...base, ...SAISONS_CH[mois] } : base;
+}
 
 /* Secteurs : mots-clés (volume de recherche mensuel simulé) + courbe saisonnière. */
 const SECTEURS = {
@@ -171,7 +185,7 @@ const TYPES_SECTIONS = {
   annonce: { nom: 'Barre d’annonce', champs: [['texte', 'Texte', 'text']], defaut: { texte: 'Livraison offerte dès 60 € d’achat' } },
   hero: { nom: 'Bannière d’accueil', champs: [['titre', 'Titre', 'text'], ['sousTitre', 'Sous-titre', 'textarea'], ['bouton', 'Texte du bouton', 'text'], ['align', 'Alignement', 'select:gauche,centre']], defaut: { titre: 'Votre nouvelle collection', sousTitre: 'Une phrase qui donne envie de découvrir vos produits.', bouton: 'Découvrir', align: 'gauche' } },
   saison: { nom: 'Bannière saisonnière', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'textarea'], ['code', 'Code promo', 'text']], defaut: { titre: 'Offre de saison', texte: '-15 % sur toute la boutique', code: 'SAISON15' } },
-  produits: { nom: 'Grille de produits', champs: [['titre', 'Titre', 'text'], ['nombre', 'Nombre de produits', 'select:3,4,6,8'], ['categorie', 'Catégorie', 'categorie']], defaut: { titre: 'Nos best-sellers', nombre: '4', categorie: '' } },
+  produits: { nom: 'Grille de produits', champs: [['titre', 'Titre', 'text'], ['nombre', 'Nombre de produits', 'select:3,4,6,8'], ['categorie', 'Catégorie', 'categorie']], defaut: { titre: 'Nos meilleures ventes', nombre: '4', categorie: '' } },
   arguments: { nom: 'Arguments clés', champs: [['a1', 'Argument 1', 'text'], ['a2', 'Argument 2', 'text'], ['a3', 'Argument 3', 'text']], defaut: { a1: 'Fabriqué en France', a2: 'Expédié sous 48 h', a3: 'Retours gratuits 30 jours' } },
   texte: { nom: 'Bloc texte', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'textarea']], defaut: { titre: 'Notre histoire', texte: 'Racontez qui vous êtes, comment vous fabriquez et pourquoi.' } },
   avis: { nom: 'Avis clients', champs: [['a1', 'Avis 1', 'textarea'], ['n1', 'Auteur 1', 'text'], ['a2', 'Avis 2', 'textarea'], ['n2', 'Auteur 2', 'text']], defaut: { a1: 'Produit superbe et livraison rapide.', n1: 'Camille, Lyon', a2: 'Je recommande les yeux fermés.', n2: 'Hugo, Nantes' } },
@@ -198,7 +212,7 @@ const LIVRAISONS = {
   colissimo: { nom: 'Colissimo à domicile', court: 'Colissimo', prix: 5.9, delai: '48 h', transporteur: 'Colissimo' },
   relais: { nom: 'Mondial Relay en point relais', court: 'Point relais', prix: 3.9, delai: '3 à 5 jours', transporteur: 'Mondial Relay' },
   chronopost: { nom: 'Chronopost express', court: 'Express', prix: 12.9, delai: '24 h', transporteur: 'Chronopost' },
-  retrait: { nom: 'Retrait en boutique (click & collect)', court: 'Retrait', prix: 0, delai: '2 h', transporteur: null }
+  retrait: { nom: 'Retrait en boutique', court: 'Retrait', prix: 0, delai: '2 h', transporteur: null }
 };
 /* Suisse : La Poste et retrait PickPost / My Post 24 (tarifs indicatifs de la démo). */
 const LIVRAISONS_CH = {
@@ -244,7 +258,7 @@ function sectionsParDefaut(nom, secteurId, pays = 'fr') {
     mk('annonce', pays === 'ch' ? { texte: 'Livraison offerte dès CHF 60.– · Paiement TWINT' } : {}),
     mk('hero', { titre: nom, sousTitre: `${s.nom} choisis avec soin, expédiés depuis notre atelier.`, bouton: 'Voir la collection' }),
     mk('saison', { titre: saison.nom, texte: '-15 % sur une sélection jusqu’à la fin du mois', code: saison.kw.replace(/-/g, '').toUpperCase().slice(0, 12) + '15' }),
-    mk('produits', { titre: 'Nos best-sellers', nombre: '4' }),
+    mk('produits', { titre: 'Nos meilleures ventes', nombre: '4' }),
     mk('arguments', pays === 'ch' ? { a1: 'Livraison suivie jusqu’à votre porte', a2: 'Paiement TWINT ou carte', a3: 'Retours gratuits 30 jours' } : {}),
     mk('avis', {}),
     mk('newsletter', {}),

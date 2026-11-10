@@ -39,7 +39,7 @@ function sauver() {
 /* ---------- Utilitaires ---------- */
 const $ = s => document.querySelector(s);
 const JOUR = 86400000;
-function dateCourte(t) { return new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }); }
+function dateCourte(t) { const d = new Date(t); return d.toLocaleDateString('fr-FR', d.getFullYear() === new Date().getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }); }
 function dateHeure(t) { return new Date(t).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
 function pct(n) { return (n > 0 ? '+' : '') + Math.round(n * 100) + ' %'; }
 function pill(statut) { const s = STATUTS[statut]; return `<span class="pill ${s.ton}">${s.nom}</span>`; }
@@ -151,6 +151,7 @@ function rendre() {
   }).join('');
   const n = NAV.find(x => x[0] === route);
   const [g, t] = n ? [n[2], n[1]] : (TITRES_HORS_NAV[route] || ['Comptoir', '']);
+  requestAnimationFrame(() => { if (matchMedia('(max-width: 760px)').matches) document.querySelector('#nav a.actif')?.scrollIntoView({ inline: 'center', block: 'nearest' }); });
   $('#fil').innerHTML = `<i>${esc(etat.boutique.nom)}</i><i>/</i><span>${esc(g)}</span><i>/</i><b>${esc(t)}</b>`;
   const enLigne = typeof SERVEUR !== 'undefined' && SERVEUR.connecte;
   $('#mode-badge').textContent = enLigne ? 'En ligne' : 'Démo';
@@ -177,6 +178,15 @@ function etatVide(ico, titre, texte, action = '') {
 }
 
 /* ---------- Tableau de bord ---------- */
+/* Pied de tableau paginé générique : « 1–25 sur 427 », boutons Précédente / Suivante (data-action, data-d). */
+function pagination(total, page, parPage, action) {
+  const pages = Math.max(1, Math.ceil(total / parPage));
+  if (pages <= 1) return '';
+  const debut = (page - 1) * parPage;
+  return `<div class="pagination"><span class="sous">${debut + 1}–${Math.min(debut + parPage, total)} sur ${total.toLocaleString('fr-FR')}</span>
+    <div class="rangee"><button class="btn petit fantome" data-action="${action}" data-d="-1" ${page <= 1 ? 'disabled' : ''}>Précédente</button><span class="sous">Page ${page} / ${pages}</span><button class="btn petit fantome" data-action="${action}" data-d="1" ${page >= pages ? 'disabled' : ''}>Suivante</button></div></div>`;
+}
+
 function statsPeriode(debut, fin) {
   const cs = etat.commandes.filter(c => c.date >= debut && c.date < fin && compteVentes(c));
   const ca = cs.reduce((a, c) => a + c.total, 0);
@@ -203,7 +213,7 @@ function vueTableau() {
     joursPrec.push(sp.ca);
   }
   const mois = new Date().getMonth();
-  const saison = SAISONS[mois];
+  const saison = saisonDuMois(mois);
   const secteur = SECTEURS[etat.boutique.secteur];
   const indice = secteur.courbe[mois];
   const stockBas = etat.produits.filter(p => p.actif && p.stock <= 5);
@@ -226,7 +236,7 @@ function vueTableau() {
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Chiffre d’affaires par jour</h2><a class="lien" href="#analyse">Détails</a></div>
-      ${courbe({ fraction: 0.6, labels: jours.map(j => j.label), series: [{ nom: '30 derniers jours', valeurs: jours.map(j => j.v), classe: 's1', aire: true }, { nom: '30 jours précédents', valeurs: joursPrec, classe: 'gris', pointille: true }], format: compact, formatTip: v => euros(v), hauteur: 230 })}
+      ${courbe({ fraction: 0.6, unite: devise(), labels: jours.map(j => j.label), series: [{ nom: '30 derniers jours', valeurs: jours.map(j => j.v), classe: 's1', aire: true }, { nom: '30 jours précédents', valeurs: joursPrec, classe: 'gris', pointille: true }], format: compact, formatTip: v => euros(v), hauteur: 230 })}
     </section>
     <section class="carte saison-carte">
       <span class="eyebrow">Copilote · prochain temps fort</span>
@@ -240,22 +250,28 @@ function vueTableau() {
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Dernières commandes</h2><a href="#commandes" class="lien">Toutes les commandes</a></div>
-      ${recentes.length ? `<div class="table-wrap"><table class="table"><tbody>${recentes.map(c => `
+      ${recentes.length ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>N°</th><th>Client</th><th class="num">Total</th><th>Statut</th></tr></thead><tbody>${recentes.map(c => `
         <tr data-action="ouvrir-commande" data-id="${c.id}" tabindex="0"><td class="mono">#${c.numero}</td><td>${esc(c.client.nom)}<div class="sous">${dateCourte(c.date)} · ${esc(c.client.ville || '')}</div></td><td class="num">${euros(c.total)}</td><td>${pill(c.statut)}</td></tr>`).join('')}
       </tbody></table></div>` : etatVide('commandes', 'Pas encore de commande', 'Partagez le lien de votre boutique ou lancez le pilote des réseaux sociaux pour obtenir vos premières visites.', '<a class="btn petit" href="#social">Préparer mes publications</a>')}
     </section>
     <section class="carte">
       <div class="carte-tete"><h2>À faire</h2></div>
-      <ul class="todo">
-        <li class="${aExpedier.length ? 'alerte' : ''}"><a href="#commandes" data-action="filtre-lien" data-filtre="payee"><strong>${aExpedier.length}</strong> commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier</a></li>
-        <li class="${attente ? 'alerte' : ''}"><a href="#commandes" data-action="filtre-lien" data-filtre="attente"><strong>${attente}</strong> paiement${attente > 1 ? 's' : ''} en attente</a></li>
-        ${stockBas.map(p => `<li class="alerte"><a href="#produits"><strong>${p.stock}</strong> en stock : ${esc(p.nom)}</a></li>`).join('')}
-        ${etat.commandes.filter(c => c.statut === 'fournisseur').length ? `<li><a href="#commandes" data-action="filtre-lien" data-filtre="fournisseur"><strong>${etat.commandes.filter(c => c.statut === 'fournisseur').length}</strong> commandes chez le fournisseur, suivi automatique</a></li>` : ''}
-        ${retraits ? `<li class="alerte"><a href="#magasin"><strong>${retraits}</strong> retrait${retraits > 1 ? 's' : ''} click & collect en cours</a></li>` : ''}
-        ${etat.boutique.domaine ? '' : '<li class="alerte"><a href="#domaines">Aucun domaine personnalisé : choisissez-en un</a></li>'}
-        ${etat.entreprise.mediateur || estSuisse() ? '' : '<li class="alerte"><a href="#conformite">Indiquez votre médiateur de la consommation (obligatoire)</a></li>'}
-        <li>${etat.rdv ? `<a href="#tableau">Session de lancement le <strong>${dateHeure(etat.rdv)}</strong></a>` : '<button class="todo-btn" data-action="rdv">Réservez votre session de lancement offerte (30 min en visio)</button>'}</li>
-      </ul>
+      ${(() => {
+        const nFour = etat.commandes.filter(c => c.statut === 'fournisseur').length;
+        const item = (n, texte, lien, { alerte = false, filtre = '' } = {}) => `<li class="${alerte ? 'alerte' : ''}"><a href="#${lien}" ${filtre ? `data-action="filtre-lien" data-filtre="${filtre}"` : ''}><span class="todo-n">${n === null ? '<i></i>' : n}</span><span class="todo-t">${texte}</span><span class="todo-fl" aria-hidden="true">›</span></a></li>`;
+        const items = [
+          item(aExpedier.length, `commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier`, 'commandes', { alerte: aExpedier.length > 0, filtre: 'payee' }),
+          item(attente, `paiement${attente > 1 ? 's' : ''} en attente`, 'commandes', { alerte: attente > 0, filtre: 'attente' }),
+          ...stockBas.map(p => item(p.stock, `Stock bas : ${esc(p.nom)}`, 'produits', { alerte: true })),
+          nFour ? item(nFour, `commande${nFour > 1 ? 's' : ''} chez le fournisseur (suivi automatique)`, 'commandes', { filtre: 'fournisseur' }) : '',
+          retraits ? item(retraits, `retrait${retraits > 1 ? 's' : ''} en magasin en cours`, 'magasin', { alerte: true }) : '',
+          etat.boutique.domaine ? '' : item(null, 'Choisir un domaine personnalisé', 'domaines', { alerte: true }),
+          etat.entreprise.mediateur || estSuisse() ? '' : item(null, 'Indiquer votre médiateur de la consommation (obligatoire)', 'conformite', { alerte: true })
+        ];
+        return `<ul class="todo">${items.join('')}
+        <li>${etat.rdv ? `<a href="#tableau"><span class="todo-n"><i></i></span><span class="todo-t">Session de lancement le <strong>${dateHeure(etat.rdv)}</strong></span></a>` : '<button class="todo-btn" data-action="rdv"><span class="todo-n"><i></i></span><span class="todo-t">Réserver la session de lancement offerte (30 min en visio)</span><span class="todo-fl" aria-hidden="true">›</span></button>'}</li>
+      </ul>`;
+      })()}
     </section>
   </div>`;
 }
@@ -464,7 +480,7 @@ function vueProduits() {
           <td data-label="Approvisionnement">${x.type === 'drop' ? `<span class="pill ${ENTREPOTS[x.entrepot] ? ENTREPOTS[x.entrepot].ton : 'info'}">Dropshipping ${x.entrepot || ''}</span>` : '<span class="pill muted">Mon stock</span>'}</td>
           <td class="num" data-label="Prix">${euros(x.prix)}</td>
           <td class="num ${margeProduit(x).nette < 0 ? 'neg' : ''}" data-label="Marge nette">${euros(margeProduit(x).nette)}</td>
-          <td class="num" data-label="Stock">${x.type === 'drop' ? '<span class="sous">Fournisseur</span>' : x.stock <= 5 ? `<span class="pill ${x.stock <= 0 ? 'bad' : 'warn'}">${x.stock}</span>` : x.stock}</td>
+          <td class="num" data-label="Stock">${x.type === 'drop' ? '<span class="sous" title="Stock géré par le fournisseur">—</span>' : x.stock <= 5 ? `<span class="stock-bas ${x.stock <= 0 ? 'rupture' : ''}" title="${x.stock <= 0 ? 'Rupture de stock' : 'Stock bas'}">${x.stock}</span>` : x.stock}</td>
           <td data-label="Statut">${x.aVerifier ? '<span class="pill warn">À vérifier</span>' : x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}</td></tr>`).join('')}
       </tbody></table></div>${produitsFiltres().length ? '' : etatVide('produits', etat.produits.length ? 'Aucun produit ne correspond' : 'Aucun produit', etat.produits.length ? 'Modifiez la recherche ou le filtre.' : 'Importez un produit du catalogue fournisseurs ou créez le vôtre.', '<a class="btn petit" href="#sourcing">Trouver des produits</a>')}</section>
     ${p ? `<aside class="carte detail"><form data-form="produit">
@@ -540,7 +556,7 @@ function vueClients() {
         <thead><tr><th>Client</th><th>Ville</th><th class="num">Commandes</th><th class="num">Total dépensé</th><th class="num">Panier moyen</th><th>Dernière commande</th></tr></thead>
         <tbody>${liste.slice(debut, debut + PAR_PAGE).map(c => `<tr data-action="ouvrir-client" data-id="${esc(c.cle)}" tabindex="0" class="${c.cle === ui.client ? 'choisi' : ''}">
           <td data-label="Client"><div>${esc(c.nom)}${c.segments.includes('meilleurs') ? ' <span class="tag">Top 10 %</span>' : ''}</div><div class="sous">${esc(c.email || 'Sans e-mail')}</div></td>
-          <td data-label="Ville">${esc(c.ville || '—')}</td><td data-label="Commandes" class="num">${c.n}</td><td data-label="Total" class="num">${euros(c.total)}</td><td data-label="Panier moyen" class="num">${euros(c.panier)}</td>
+          <td data-label="Ville">${esc(c.ville || '—')}</td><td data-label="Commandes" class="num">${c.n}${c.n === 0 ? `<div class="sous">${c.commandes.some(x => x.statut === 'remboursee') ? 'remboursée' : c.commandes.some(x => x.statut === 'attente') ? 'non payée' : 'annulée'}</div>` : ''}</td><td data-label="Total" class="num">${c.n ? euros(c.total) : '—'}</td><td data-label="Panier moyen" class="num">${c.n ? euros(c.panier) : '—'}</td>
           <td data-label="Dernière">${dateCourte(c.derniere)}${c.segments.includes('inactifs') ? '<div class="sous">inactif</div>' : ''}</td></tr>`).join('')}</tbody>
       </table></div>
       ${pages > 1 ? `<div class="pagination"><span class="sous">${debut + 1}–${Math.min(debut + PAR_PAGE, liste.length)} sur ${liste.length}</span><div class="rangee"><button class="btn petit fantome" data-action="page-client" data-d="-1" ${ui.pageClient <= 1 ? 'disabled' : ''}>Précédente</button><span class="sous">Page ${ui.pageClient} / ${pages}</span><button class="btn petit fantome" data-action="page-client" data-d="1" ${ui.pageClient >= pages ? 'disabled' : ''}>Suivante</button></div></div>` : ''}`
@@ -585,9 +601,9 @@ function vueEditeur() {
       <li class="${ui.section === s.id ? 'ouvert' : ''}">
         <div class="ls-tete">
           <button class="ls-nom" data-action="choisir-section" data-id="${s.id}" aria-expanded="${ui.section === s.id}">${esc(TYPES_SECTIONS[s.type].nom)}</button>
-          <button class="icone" data-action="monter" data-id="${s.id}" ${i === 0 ? 'disabled' : ''} aria-label="Monter">↑</button>
-          <button class="icone" data-action="descendre" data-id="${s.id}" ${i === b.sections.length - 1 ? 'disabled' : ''} aria-label="Descendre">↓</button>
-          <button class="icone" data-action="supprimer-section" data-id="${s.id}" aria-label="Supprimer">×</button>
+          <button class="icone ls-btn" data-action="monter" data-id="${s.id}" ${i === 0 ? 'disabled' : ''} aria-label="Monter" title="Monter"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg></button>
+          <button class="icone ls-btn" data-action="descendre" data-id="${s.id}" ${i === b.sections.length - 1 ? 'disabled' : ''} aria-label="Descendre" title="Descendre"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+          <button class="icone ls-btn danger-doux" data-action="supprimer-section" data-id="${s.id}" aria-label="Supprimer la section" title="Supprimer"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
         </div>
         ${ui.section === s.id ? champsSection(s) : ''}
       </li>`).join('')}</ol>
@@ -622,9 +638,13 @@ function vueEditeur() {
         <button class="${ui.appareil === 'ordinateur' ? 'actif' : ''}" data-action="appareil" data-id="ordinateur">Ordinateur</button>
         <button class="${ui.appareil === 'mobile' ? 'actif' : ''}" data-action="appareil" data-id="mobile">Mobile</button>
       </div>
-      <button class="btn" data-action="publier">${b.modifie ? 'Publier les modifications' : 'Publié'}</button>
+      ${b.modifie ? '<button class="btn" data-action="publier">Publier les modifications</button>' : '<span class="etat-publication">✓ En ligne, à jour</span>'}
     </div></div>
-  <div class="editeur">
+  <div class="segment bascule-editeur" role="group" aria-label="Affichage de l’éditeur">
+    <button class="${ui.vueEdMobile !== 'apercu' ? 'actif' : ''}" data-action="vue-ed-mobile" data-id="modifier">Modifier</button>
+    <button class="${ui.vueEdMobile === 'apercu' ? 'actif' : ''}" data-action="vue-ed-mobile" data-id="apercu">Aperçu</button>
+  </div>
+  <div class="editeur ${ui.vueEdMobile === 'apercu' ? 'mobile-apercu' : 'mobile-modifier'}">
     <aside class="carte panneau">
       <div class="onglets plein">${onglets.map(([id, n]) => `<button class="${ui.ongletEditeur === id ? 'actif' : ''}" data-action="onglet-editeur" data-id="${id}">${n}</button>`).join('')}</div>
       <div class="panneau-corps">${panneau}</div>
@@ -651,7 +671,7 @@ function rendreApercu() {
   const a = $('#apercu');
   if (a) a.innerHTML = renduBoutique(etat, { mode: 'edition', selection: ui.section });
 }
-function modifie() { etat.boutique.modifie = true; sauver(); const b = document.querySelector('[data-action="publier"]'); if (b) b.textContent = 'Publier les modifications'; }
+function modifie() { etat.boutique.modifie = true; sauver(); const b = document.querySelector('[data-action="publier"]'); if (b) b.textContent = 'Publier les modifications'; else { const e = document.querySelector('.etat-publication'); if (e) e.outerHTML = '<button class="btn" data-action="publier">Publier les modifications</button>'; } }
 
 /* ---------- Domaines ---------- */
 function vueDomaines() {
@@ -659,7 +679,7 @@ function vueDomaines() {
   const marque = ui.dom.marque ?? b.nom;
   const res = suggererDomaines({ marque, secteurId: b.secteur, motsCles: ui.dom.motsCles.split(','), pays: b.pays, mois: ui.dom.mois, etat });
   const secteur = SECTEURS[b.secteur];
-  const courbe = secteur.courbe.map((v, i) => ({ label: MOIS[i], v, tip: `${MOIS_LONG[i]} : indice ${v} · ${SAISONS[i].nom}` }));
+  const courbe = secteur.courbe.map((v, i) => ({ label: MOIS[i], v, tip: `${MOIS_LONG[i]} : indice ${v} · ${saisonDuMois(i).nom}` }));
   const ligne = r => `
     <tr class="${r.disponible ? '' : 'indispo'}">
       <td><div class="mono dom">${esc(r.domaine)}</div><div class="sous">${esc(r.raisons.slice(0, 2).join(' · '))}</div></td>
@@ -667,7 +687,7 @@ function vueDomaines() {
       <td><div class="score"><div class="score-barre"><i style="width:${r.score}%"></i></div><b>${r.score}</b></div></td>
       <td>${r.disponible ? '<span class="pill good">Disponible</span>' : r.prime ? '<span class="pill warn">Premium</span>' : '<span class="pill muted">Déjà pris</span>'}</td>
       <td class="num">${r.disponible || r.prime ? euros(r.prix) + '<div class="sous">puis ' + euros(r.renouv) + '/an</div>' : '—'}</td>
-      <td>${r.disponible ? `<button class="btn petit ${b.domaine && b.domaine.domaine === r.domaine ? 'fantome' : ''}" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">${b.domaine && b.domaine.domaine === r.domaine ? 'Choisi' : 'Choisir'}</button>` : ''}</td>
+      <td>${r.disponible ? `<button class="btn petit fantome" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">${b.domaine && b.domaine.domaine === r.domaine ? 'Choisi' : 'Choisir'}</button>` : ''}</td>
     </tr>`;
   const reco = (r, titre, texte) => r ? `<div class="reco"><span class="eyebrow">${titre}</span><div class="mono dom grand">${esc(r.domaine)}</div>
       <div class="detail-score">${Object.entries({ Demande: r.detail.demande, Saison: r.detail.saison, Brièveté: r.detail.court, Mémorisation: r.detail.memo, Extension: r.detail.extension }).map(([k, v]) => `<div><span>${k}</span><div class="score-barre"><i style="width:${v}%"></i></div><b>${v}</b></div>`).join('')}</div>
@@ -700,7 +720,7 @@ function vueDomaines() {
   </div>
   <section class="carte sans-pad">
     <div class="carte-tete pad"><h2>Toutes les suggestions</h2><span class="sous">${res.resultats.filter(r => r.disponible).length} disponibles sur ${res.resultats.length}</span></div>
-    <div class="table-wrap"><table class="table"><thead><tr><th>Domaine</th><th>Type</th><th>Score</th><th>Disponibilité</th><th class="num">Prix 1re année</th><th></th></tr></thead>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Domaine</th><th>Type</th><th>Score</th><th>Disponibilité</th><th class="num">Première année</th><th></th></tr></thead>
     <tbody>${res.resultats.map(ligne).join('')}</tbody></table></div>
   </section>
   <p class="note">Démo : volumes de recherche, disponibilité et prix sont simulés. En production, ils viennent de l’API d’un registrar et de Google Trends.</p>`;
@@ -805,18 +825,17 @@ function vueAssistant() {
     if (!a.domaine && top[0]) a.domaine = top[0].domaine;
     corps = `<p class="sous">Classés selon la demande « ${esc(SECTEURS[a.secteur].nom)} » en ${MOIS_LONG[new Date().getMonth()]} et la facilité à retenir le nom.</p>
       <div class="choix-domaines">${top.map(r => `<label class="choix-dom ${a.domaine === r.domaine ? 'actif' : ''}"><input type="radio" name="as-dom" value="${esc(r.domaine)}" data-assistant="domaine" ${a.domaine === r.domaine ? 'checked' : ''}>
-        <span class="mono">${esc(r.domaine)}</span><b>${r.score}</b><span class="sous">${euros(r.prix)} la 1re année</span></label>`).join('')}
+        <span class="mono">${esc(r.domaine)}</span><b>${r.score}</b><span class="sous">${euros(r.prix)} la première année</span></label>`).join('')}
       <label class="choix-dom ${a.domaine === '' ? 'actif' : ''}"><input type="radio" name="as-dom" value="" data-assistant="domaine" ${a.domaine === '' ? 'checked' : ''}><span>Plus tard, garder l’adresse gratuite</span></label></div>`;
   }
   return `<div class="assistant carte">
-    <a href="#tableau" class="lien">Annuler</a>
-    <h1>Créer une boutique</h1>
+    <div class="assistant-tete"><h1>Créer une boutique</h1><a href="#tableau" class="btn petit fantome">Annuler</a></div>
+    ${typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? '' : '<p class="encart">La boutique de démonstration de ce navigateur sera remplacée. Vous pourrez la retrouver avec « Réinitialiser la démo » dans Paramètres.</p>'}
     <ol class="etapes">${etapes.map((e, i) => `<li class="${i + 1 === a.etape ? 'actif' : i + 1 < a.etape ? 'fait' : ''}">${e}</li>`).join('')}</ol>
     <div class="assistant-corps">${corps}</div>
     <div class="rangee fin">${a.etape > 1 ? '<button class="btn fantome" data-action="as-prec">Retour</button>' : ''}
       <button class="btn" data-action="${a.etape < 3 ? 'as-suiv' : 'as-creer'}">${a.etape < 3 ? 'Continuer' : 'Créer ma boutique'}</button></div>
-    <p class="sous">La boutique de démonstration actuelle sera remplacée. Vous pourrez la restaurer avec « Réinitialiser la démo ».</p>
-    <div class="rangee"><span class="sous">Ou charger une démo :</span><button class="btn petit fantome" data-action="demo" data-id="lausanne">Dropshipping à Lausanne</button><button class="btn petit fantome" data-action="demo" data-id="lyon">Artisan à Lyon</button></div>
+    <div class="rangee"><span class="sous">Ou ouvrir une démo toute prête :</span><button class="btn petit fantome" data-action="demo" data-id="lausanne">Dropshipping à Lausanne</button><button class="btn petit fantome" data-action="demo" data-id="lyon">Artisan à Lyon</button></div>
   </div>`;
 }
 
@@ -888,6 +907,9 @@ document.addEventListener('click', e => {
     case 'ouvrir-commande': if (e.target.closest('.col-case')) break; ui.commande = id; if (ui.route !== 'commandes') location.hash = 'commandes'; else rendre(); break;
     case 'fermer-commande': ui.commande = null; rendre(); break;
     case 'filtre': ui.filtre = el.dataset.filtre; ui.pageCmd = 1; rendre(); break;
+    case 'vue-ed-mobile': ui.vueEdMobile = el.dataset.id; rendre(); break;
+    case 'page-facture': ui.pageFacture = Math.max(1, (ui.pageFacture || 1) + Number(el.dataset.d)); rendre(); break;
+    case 'completer-fiche': { const c = el.dataset.champ ? document.getElementById(el.dataset.champ) : null; if (c) { c.scrollIntoView({ block: 'center', behavior: 'smooth' }); c.focus(); } else location.hash = 'produits'; break; }
     case 'page-cmd': ui.pageCmd = (ui.pageCmd || 1) + Number(el.dataset.d); rendre(); document.querySelector('.table-commandes')?.scrollIntoView({ block: 'start' }); break;
     case 'export-commandes': exporterCommandesCsv(el.dataset.selection ? commandesFiltrees().filter(c => ui.selection.has(c.id)) : commandesFiltrees()); break;
     case 'groupe-statut': changerStatutGroupe([...ui.selection], el.dataset.statut); break;

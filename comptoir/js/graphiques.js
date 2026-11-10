@@ -26,14 +26,14 @@ function compact(v) {
 }
 const fmtArgent = v => euros(v);
 const fmtArgentCompact = v => (devise() === 'CHF' ? 'CHF ' : '') + compact(v) + (devise() === 'CHF' ? '' : ' €');
-const fmtPct = v => (Math.round(v * 1000) / 10).toLocaleString('fr-FR') + ' %';
+const fmtPct = v => (v * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '\u00a0%';
 
 function legendeGraph(items) {
   return `<div class="legende">${items.map(i => `<span><i class="cle ${i.classe}${i.pointille ? ' pointille' : ''}"></i>${esc(i.nom)}</span>`).join('')}</div>`;
 }
 
 /* Courbe(s) dans le temps. series : [{ nom, valeurs, classe: 's1' | 's2' | 's3' | 'gris', pointille, aire }] */
-function courbe({ labels, series, format = compact, formatTip = format, hauteur = 220, fraction = 1 }) {
+function courbe({ labels, series, format = compact, formatTip = format, hauteur = 220, fraction = 1, unite = '' }) {
   const L = largeurDispo(fraction), H = hauteur, m = { g: 56, d: 14, h: 12, b: 26 };
   const n = labels.length;
   const max = Math.max(1, ...series.flatMap(s => s.valeurs));
@@ -42,8 +42,11 @@ function courbe({ labels, series, format = compact, formatTip = format, hauteur 
   const y = v => m.h + (H - m.h - m.b) * (1 - v / haut);
   let svg = `<svg viewBox="0 0 ${L} ${H}" class="graph courbe" role="img" aria-label="${esc(series.map(s => s.nom).join(', '))}">`;
   for (let t = 0; t <= haut + 1e-9; t += pas) svg += `<line x1="${m.g}" x2="${L - m.d}" y1="${y(t)}" y2="${y(t)}" class="grille"/><text x="${m.g - 8}" y="${y(t) + 3.5}" text-anchor="end" class="axe">${esc(format(t))}</text>`;
-  const tous = Math.max(1, Math.ceil(n / 7));
-  labels.forEach((l, i) => { if (i % tous === 0 || i === n - 1) svg += `<text x="${x(i)}" y="${H - 7}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}" class="axe">${esc(l)}</text>`; });
+  if (unite) svg += `<text x="${m.g - 8}" y="${H - 7}" text-anchor="end" class="axe unite">${esc(unite)}</text>`;
+  // Densité des dates selon la largeur (environ une étiquette tous les 72 px), sans chevauchement en fin d’axe.
+  const tous = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((L - m.g - m.d) / 72))));
+  const visible = i => i === n - 1 || (i % tous === 0 && (n - 1 - i) >= tous * 0.6);
+  labels.forEach((l, i) => { if (visible(i)) svg += `<text x="${x(i)}" y="${H - 7}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}" class="axe">${esc(l)}</text>`; });
   [...series].reverse().forEach(s => {
     const pts = s.valeurs.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
     if (s.aire) svg += `<path d="M${x(0)},${y(0)} L${pts.join(' L')} L${x(n - 1)},${y(0)} Z" class="aire ${s.classe}"/>`;
@@ -64,7 +67,7 @@ function barresH(items, { format = compact, max = null, classe = 's1' } = {}) {
   if (!items.length) return '<p class="sous">Pas encore de données sur la période.</p>';
   const m = max ?? Math.max(...items.map(i => Math.abs(i.v)), 1);
   return `<ul class="barres-h">${items.map(i => `<li data-tip="${esc(`${i.nom} : ${format(i.v)}${i.detail ? ' · ' + i.detail : ''}`)}">
-    <span class="bh-nom">${esc(i.nom)}</span><span class="bh-piste"><i class="${i.v < 0 ? 'negatif' : classe}" style="width:${Math.max(1.5, Math.abs(i.v) / m * 100)}%"></i></span><span class="bh-val">${esc(format(i.v))}</span></li>`).join('')}</ul>`;
+    <span class="bh-nom" title="${esc(i.nom)}">${esc(i.nom)}</span><span class="bh-piste"><i class="${i.v < 0 ? 'negatif' : classe}" style="width:${Math.max(1.5, Math.abs(i.v) / m * 100)}%"></i></span><span class="bh-val">${esc(format(i.v))}</span></li>`).join('')}</ul>`;
 }
 
 /* Entonnoir de conversion. etapes : [{ nom, v, estime? }] */

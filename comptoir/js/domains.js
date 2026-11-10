@@ -49,7 +49,7 @@ function signalClients(etat) {
 
 function suggererDomaines({ marque, secteurId, motsCles = [], pays = 'fr', mois = new Date().getMonth(), etat }) {
   const secteur = SECTEURS[secteurId];
-  const saison = SAISONS[mois];
+  const saison = saisonDuMois(mois);
   const base = slugifier(marque).replace(/-/g, '') || 'maboutique';
   const baseTiret = slugifier(marque) || 'ma-boutique';
   const indiceMois = secteur.courbe[mois] / 100;
@@ -87,7 +87,7 @@ function suggererDomaines({ marque, secteurId, motsCles = [], pays = 'fr', mois 
   ajouter(base + 'shop', 'com', { genre: 'marque' });
   ajouter(`${topKws[0].kw}-${slugifier(secteur.kws[1][0])}`, extPays, { genre: 'générique', kw: topKws[0] });
   // Domaines de campagne : mot-clé de la saison en cours et de la suivante.
-  const suivante = SAISONS[(mois + 1) % 12];
+  const suivante = saisonDuMois((mois + 1) % 12);
   ajouter(`${saison.kw}-${baseTiret}`, extPays, { genre: 'campagne', saison });
   ajouter(`${saison.kw}-${topKws[0].kw}`, 'shop', { genre: 'campagne', saison });
   if (suivante.kw !== saison.kw) ajouter(`${suivante.kw}-${baseTiret}`, extPays, { genre: 'campagne', saison: suivante, anticipe: true });
@@ -98,7 +98,7 @@ function suggererDomaines({ marque, secteurId, motsCles = [], pays = 'fr', mois 
     let demande;
     if (c.kw) {
       demande = Math.min(100, (c.kw.vol / maxVol) * 70 * c.kw.boost * indiceMois + 20);
-      raisons.push(`« ${c.kw.kw} » : ~${Math.round(c.kw.vol * indiceMois / 100) * 100} recherches/mois en ${MOIS_LONG[mois]}`);
+      raisons.push(`« ${c.kw.kw} » : environ ${(Math.round(c.kw.vol * indiceMois / 100) * 100).toLocaleString('fr-FR')} recherches par mois en ${MOIS_LONG[mois]}`);
       if (c.kw.cat) raisons.push(`${c.kw.cat} pèse ${Math.round((c.kw.boost - 1) * 100)} % de vos ventes sur 90 jours`);
       if (c.kw.perso) raisons.push('Mot-clé ajouté par vous');
     } else if (c.genre === 'campagne') {

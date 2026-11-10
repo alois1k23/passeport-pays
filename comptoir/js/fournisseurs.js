@@ -44,7 +44,7 @@ function vueFournisseurs() {
   const alt = alternativesProches();
   const controle = (f, cle, libelle) => `<label class="case"><input type="checkbox" data-fsuivi="${esc(f.nom)}|${cle}" ${suivi[f.nom] && suivi[f.nom][cle] ? 'checked' : ''}> ${libelle}</label>`;
   return `
-  <div class="tete"><div><h1>Fournisseurs</h1><p class="sous">Un bon fournisseur fait les bons avis : délais tenus, peu de retours, réponses rapides. Le serveur transmet chaque commande à l’entrepôt le plus proche du client quand le même produit existe ailleurs.</p></div>
+  <div class="tete"><div><h1>Fournisseurs</h1><p class="sous">Un bon fournisseur fait les bons avis : délais tenus, peu de retours, réponses rapides. Comptoir transmet chaque commande à l’entrepôt le plus proche du client quand le même produit existe ailleurs.${fiches.some(f => f.expeditionMoy === null) ? ' Le délai réel se mesure tout seul, entre la transmission de la commande et l’expédition.' : ''}</p></div>
     <a class="btn" href="#sourcing">Trouver des produits</a></div>
   ${alt.length ? `<section class="carte"><div class="carte-tete"><h2>Entrepôts plus proches disponibles</h2><span class="sous">routage automatique à la transmission</span></div>
     <ul class="appris">${alt.map(a => `<li><b>${esc(a.p.nom)}</b> : votre source est en ${ENTREPOTS[a.actuel.entrepot].nom.toLowerCase()} (${a.actuel.delai[0]}–${a.actuel.delai[1]} j). Le même article existe en ${ENTREPOTS[a.mieux.entrepot].nom.toLowerCase()} (${a.mieux.delai[0]}–${a.mieux.delai[1]} j, ${esc(a.mieux.fournisseur)}). Les commandes y sont envoyées automatiquement ; pensez à mettre à jour le délai affiché en important cette source.</li>`).join('')}</ul></section>` : ''}
@@ -55,10 +55,10 @@ function vueFournisseurs() {
       <div class="chiffres">
         <div><span class="sous">Note</span><strong>${f.note ? f.note.toFixed(1).replace('.', ',') + ' / 5' : '—'}</strong></div>
         <div><span class="sous">Délai annoncé</span><strong>${f.annonce ? `${f.annonce[0]}–${f.annonce[1]} j` : '—'}</strong></div>
-        <div><span class="sous">Expédition mesurée</span><strong>${f.expeditionMoy === null ? '—' : `${f.expeditionMoy.toFixed(1).replace('.', ',')} j`}</strong></div>
+        <div><span class="sous">Délai mesuré</span><strong>${f.expeditionMoy === null ? '<span class="sous">à venir</span>' : `${f.expeditionMoy.toFixed(1).replace('.', ',')} j`}</strong></div>
         <div><span class="sous">Remboursements</span><strong class="${f.tauxRemb > 0.05 ? 'down' : ''}">${fmtPct(f.tauxRemb)}</strong></div>
       </div>
-      ${f.expeditionMoy === null ? '<p class="sous">Le délai réel se mesure automatiquement entre la transmission et l’expédition, dès les premières commandes passées par le serveur.</p>' : `<p class="sous">Mesuré sur ${f.nMesures} commande${f.nMesures > 1 ? 's' : ''}.</p>`}
+      ${f.expeditionMoy === null ? '' : `<p class="sous">Mesuré sur ${f.nMesures} commande${f.nMesures > 1 ? 's' : ''}.</p>`}
       ${f.tauxRemb > 0.05 ? '<p class="encart alerte-encart">Plus de 5 % de remboursements : vérifiez la qualité et l’emballage, ou changez de source.</p>' : ''}
       <div class="controles-f">
         ${controle(f, 'echantillon', 'Échantillon commandé et reçu, au prix normal (pas un exemplaire choisi par le fournisseur)')}
