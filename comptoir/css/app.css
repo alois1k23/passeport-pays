@@ -8,7 +8,7 @@
   --surface-2: #F3F4F6;
   --ink: #0F1218;
   --muted: #5E6573;
-  --faint: #8A909C;
+  --faint: #656C79;
   --line: #E5E7EB;
   --line-2: #D9DCE2;
   --accent: #2F55D4;
@@ -32,8 +32,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0B0D12; --surface: #12151C; --surface-2: #181C24; --ink: #ECEEF2; --muted: #9AA1AE; --faint: #6E7582; --line: #232833; --line-2: #2E3440;
-    --accent: #4F8EF0; --accent-ink: #FFFFFF; --accent-soft: #16233F;
+    --bg: #0B0D12; --surface: #12151C; --surface-2: #181C24; --ink: #ECEEF2; --muted: #9AA1AE; --faint: #8B92A0; --line: #232833; --line-2: #2E3440;
+    --accent: #4F8EF0; --accent-ink: #0B0D12; --accent-soft: #16233F;
     --side-bg: #08090D; --side-ink: #8F96A3; --side-ink-fort: #F3F4F6; --side-line: #1A1E27;
     --good: #4FCB8C; --good-soft: #10291D; --warn: #F0B45A; --warn-soft: #2D2210; --bad: #FF8A80; --bad-soft: #321614; --info: #7D9BFF; --info-soft: #1A2240;
     --serie-1: #3987e5; --serie-2: #d95926; --serie-3: #199e70; --serie-gris: #5C6370;
@@ -42,8 +42,8 @@
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0B0D12; --surface: #12151C; --surface-2: #181C24; --ink: #ECEEF2; --muted: #9AA1AE; --faint: #6E7582; --line: #232833; --line-2: #2E3440;
-  --accent: #4F8EF0; --accent-ink: #FFFFFF; --accent-soft: #16233F;
+  --bg: #0B0D12; --surface: #12151C; --surface-2: #181C24; --ink: #ECEEF2; --muted: #9AA1AE; --faint: #8B92A0; --line: #232833; --line-2: #2E3440;
+  --accent: #4F8EF0; --accent-ink: #0B0D12; --accent-soft: #16233F;
   --side-bg: #08090D; --side-ink: #8F96A3; --side-ink-fort: #F3F4F6; --side-line: #1A1E27;
   --good: #4FCB8C; --good-soft: #10291D; --warn: #F0B45A; --warn-soft: #2D2210; --bad: #FF8A80; --bad-soft: #321614; --info: #7D9BFF; --info-soft: #1A2240;
   --serie-1: #3987e5; --serie-2: #d95926; --serie-3: #199e70; --serie-gris: #5C6370;
@@ -309,7 +309,7 @@ body[data-route="boutique"] main { padding: 0; gap: 0; }
 .sf-saison { margin: 0 5cqi; padding: 18px 22px; border-radius: var(--sf-radius); background: color-mix(in srgb, var(--sf-primary) 14%, var(--sf-surface)); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .sf-saison div { display: grid; }
 .sf-saison strong { font: 600 1.15rem var(--sf-font); }
-.sf-saison span { color: var(--sf-muted); }
+.sf-saison span { color: var(--sf-text); }
 .sf-saison code { font: 600 .95rem var(--f-mono); border: 1px dashed var(--sf-primary); padding: 6px 12px; border-radius: var(--sf-radius); color: var(--sf-text); }
 .sf-produits { padding: 6cqi 5cqi 3cqi; display: grid; gap: 22px; }
 .sf-produits h2, .sf-texte h2, .sf-newsletter h2, .sf-faq h2 { font-size: clamp(1.4rem, 3.4cqi, 2.1rem); font-weight: 600; }
@@ -588,7 +588,7 @@ h3 { font: 500 .6875rem/1.3 var(--f-body); letter-spacing: .07em; color: var(--f
 .boutique-actuelle .mono { color: var(--side-ink); font-size: .72rem; display: block; }
 .pastille { width: 8px; height: 8px; border-radius: 50%; background: #3FB97C; box-shadow: 0 0 0 3px rgba(63,185,124,.18); }
 #nav { gap: 1px; }
-.nav-groupe { font: 500 .6563rem/1 var(--f-body); letter-spacing: .09em; text-transform: uppercase; color: #5B6270; padding: 14px 10px 6px; }
+.nav-groupe { font: 500 .6563rem/1 var(--f-body); letter-spacing: .09em; text-transform: uppercase; color: #7E8695; padding: 14px 10px 6px; }
 #nav a { gap: 10px; justify-content: flex-start; padding: 6px 10px; border-radius: var(--r-petit); color: var(--side-ink); font-weight: 450; font-size: .8125rem; }
 #nav a svg { flex: none; opacity: .8; }
 #nav a span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1184,7 +1184,7 @@ textarea.reponse-avis { width: 100%; min-width: 200px; resize: vertical; font: i
 .sf-newsletter input { flex: 1 1 220px; }
 .sf-carte .sf-note { display: block; color: var(--sf-text); font-size: .8rem; }
 .sf-carte .sf-delai { display: block; }
-.sf-etoiles { color: #E0A21B; }
+.sf-etoiles { color: var(--sf-text); }
 /* ---------- Mobile : éditeur, carte de chaleur, menu ---------- */
 .bascule-editeur { display: none; }
 @media (max-width: 900px) {
@@ -1278,3 +1278,7 @@ html, body { overflow-x: clip; }
 .st-table td { vertical-align: middle; }
 @media (max-width: 1100px) { .st-podium { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .st-sources { grid-template-columns: minmax(0, 1fr); } }
+/* Contrastes (audit accessibilité) : étoiles lisibles en clair, étoiles vides décoratives. */
+.etoiles { color: #9A5F0C; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .etoiles { color: #E0A21B; } }
+:root[data-theme="dark"] .etoiles { color: #E0A21B; }

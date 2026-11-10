@@ -17,7 +17,7 @@ Chaque cycle : un domaine, des tests réels (navigateur, serveur, scripts), les 
 
 ## Cycles
 
-### Cycle 1 — Sécurité (0 h 15 – 1 h 00)
+### Cycle 1 — Sécurité (0 h 10 – 0 h 20)
 
 Outils ajoutés : `outils/simulation/securite-xss.js` (pièges dans tous les champs d'un marchand et d'un acheteur, exécution vérifiée dans le navigateur) et `outils/simulation/securite-api.js` (requêtes hostiles ou malformées).
 
@@ -37,3 +37,25 @@ Outils ajoutés : `outils/simulation/securite-xss.js` (pièges dans tous les cha
 4. **Aucune limite de débit sur les routes publiques** : 60 commandes acceptées d'affilée depuis la même adresse (risque d'inondation de fausses commandes et de devinette des codes promo). Limites par adresse et par quart d'heure : 30 commandes, 40 vérifications de code, 20 inscriptions à la newsletter, 20 avis (`LIMITES_FACTEUR` pour les tests de charge).
 
 Tests : 26 (dont 2 nouveaux : saisies malformées et en-têtes, limite de commandes).
+
+### Cycle 2 — Accessibilité (0 h 20 – 0 h 50)
+
+Outil ajouté : `outils/simulation/accessibilite.js` (règles WCAG 2.2 AA : étiquettes, noms des boutons, textes alternatifs, éléments cliquables au clavier, focus visible, langue, titres, contrastes calculés), sur les 20 écrans de l'admin, la fiche produit, l'accueil et l'inscription, en clair et en sombre.
+
+**Défauts trouvés et corrigés**
+
+1. **118 textes au contraste insuffisant** (minimum WCAG 4,5:1). Trois couleurs étaient en cause :
+   - le gris « discret » des en-têtes de tableaux, sources et fils d'Ariane (3,2:1) passe à 4,9:1 en clair et 5,8:1 en sombre ;
+   - les titres de groupes du menu (3,1:1) passent à 5,2:1 ;
+   - le texte blanc des boutons bleus en sombre (3,3:1) devient foncé : 6,0:1.
+2. **Étoiles des avis** : l'or sur fond blanc (2,3:1) passe à un or foncé lisible. Les étoiles vides sont marquées décoratives, la note étant donnée en toutes lettres. Dans les boutiques, les étoiles prennent la couleur du texte du thème.
+3. **Bandeau de saison** : le sous-texte prend la couleur du texte du thème.
+4. **QR code de vitrine sans texte alternatif** : ajouté, avec l'adresse de la boutique.
+5. **Fond cliquable du panier** : marqué décoratif, la fermeture se faisant par le bouton « Fermer ».
+6. **Page d'accueil** : même correction du gris discret.
+
+Contrôles sans défaut : focus clavier visible sur les 25 premiers éléments de chaque écran, aucun champ sans étiquette, aucun bouton sans nom, langue et titre présents.
+
+Faux positifs de l'outil corrigés au passage : étiquettes dans un bloc « Réglages » replié, couleurs au format `color(srgb …)`.
+
+Résultat final de l'audit : aucun problème. Tests : 26.

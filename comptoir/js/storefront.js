@@ -123,7 +123,7 @@ function renduSection(s, etat, mode) {
     case 'avis': {
       // Avis vérifiés réels s’il y en a ; sinon les textes saisis dans l’éditeur.
       const reels = (etat.avisRecents || []).slice(0, 4);
-      const etoiles = n => '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
+      const etoiles = n => '★★★★★'.slice(0, n) + `<span aria-hidden="true" class="sf-etoiles-vides">${'☆☆☆☆☆'.slice(0, 5 - n)}</span>`;
       if (reels.length) return `<section class="sf-avis"><h2 class="sf-avis-titre">${esc(p.titre || 'Ce qu’en disent nos clients')}</h2>${reels.map(a => `
         <figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${etoiles(a.note)}</div><blockquote>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom)}${a.ville ? ', ' + esc(a.ville) : ''} · achat vérifié</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}
         <p class="sf-methode">Avis vérifiés : seuls les clients ayant reçu leur commande peuvent noter, via un lien personnel envoyé par e-mail. Tous les avis sont publiés, positifs comme négatifs.</p></section>`;
@@ -170,7 +170,7 @@ function renduFiche(etat, p, qte = 1) {
         <button class="sf-btn" data-sf="ajouter" data-id="${esc(p.id)}" ${epuise ? 'disabled' : ''}>${epuise ? 'Épuisé' : 'Ajouter au panier'}</button>
       </div>
       ${reassurance.length ? `<ul class="sf-fiche-plus">${reassurance.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${avis.length ? `<div class="sf-fiche-avis"><h3>Avis sur ce produit</h3>${avis.map(a => `<figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${'★★★★★'.slice(0, a.note)}${'☆☆☆☆☆'.slice(0, 5 - a.note)}</div><blockquote>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom || '')}${a.ville ? ', ' + esc(a.ville) : ''}</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}</div>` : ''}
+      ${avis.length ? `<div class="sf-fiche-avis"><h3>Avis sur ce produit</h3>${avis.map(a => `<figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${'★★★★★'.slice(0, a.note)}<span aria-hidden="true" class="sf-etoiles-vides">${'☆☆☆☆☆'.slice(0, 5 - a.note)}</span></div><blockquote>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom || '')}${a.ville ? ', ' + esc(a.ville) : ''}</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}</div>` : ''}
     </div>
   </div>`;
 }

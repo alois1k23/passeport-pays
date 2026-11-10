@@ -109,7 +109,7 @@ function blocAvis() {
         <p class="sous">Les mots positifs sont de bons angles pour vos accroches ; les critiques indiquent quoi corriger (photo, délai, fournisseur).</p></div>
     </div>
     <div class="table-wrap"><table class="table"><thead><tr><th>Note</th><th>Avis</th><th>Produit</th><th>Réponse publique</th></tr></thead><tbody>
-      ${avis.slice(0, 12).map(a => `<tr><td class="etoiles-cel"><span class="etoiles" aria-label="${a.note} sur 5">${'★'.repeat(a.note)}<span class="etoiles-vides">${'★'.repeat(5 - a.note)}</span></span></td><td>${esc(a.texte)}<div class="sous">${esc(a.prenom)}, ${esc(a.ville)} · ${dateCourte(a.date)}</div></td><td class="sous">${esc((etat.produits.find(p => p.id === a.produitId) || { nom: '—' }).nom)}</td>
+      ${avis.slice(0, 12).map(a => `<tr><td class="etoiles-cel"><span class="etoiles" aria-label="${a.note} sur 5">${'★'.repeat(a.note)}<span class="etoiles-vides" aria-hidden="true">${'★'.repeat(5 - a.note)}</span></span></td><td>${esc(a.texte)}<div class="sous">${esc(a.prenom)}, ${esc(a.ville)} · ${dateCourte(a.date)}</div></td><td class="sous">${esc((etat.produits.find(p => p.id === a.produitId) || { nom: '—' }).nom)}</td>
         <td><textarea class="reponse-avis" rows="2" data-avis="${esc(a.id)}" placeholder="Répondre publiquement" aria-label="Réponse à l’avis de ${esc(a.prenom)}">${esc(a.reponse || "")}</textarea></td></tr>`).join('') || '<tr><td colspan="4" class="vide">Pas encore d’avis. Ils arriveront avec la demande d’avis envoyée après livraison.</td></tr>'}
     </tbody></table></div>
   </section>`;

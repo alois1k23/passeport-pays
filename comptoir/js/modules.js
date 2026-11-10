@@ -458,4 +458,6 @@ function dessinerQR() {
   z.innerHTML = '';
   if (typeof QRCode === 'undefined') { z.innerHTML = '<p class="sous">QR indisponible hors ligne</p>'; return; }
   new QRCode(z, { text: z.dataset.url, width: 132, height: 132, colorDark: '#151821', colorLight: '#FFFFFF', correctLevel: QRCode.CorrectLevel.M });
+  // Texte alternatif de l'image générée (lecteurs d'écran) ; le canvas de secours est masqué pour eux.
+  setTimeout(() => { z.querySelectorAll('img').forEach(i => i.setAttribute('alt', `QR code vers ${z.dataset.url}`)); z.querySelectorAll('canvas').forEach(c => c.setAttribute('aria-hidden', 'true')); z.setAttribute('role', 'img'); z.setAttribute('aria-label', `QR code vers ${z.dataset.url}`); }, 0);
 }

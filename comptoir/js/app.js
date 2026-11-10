@@ -761,7 +761,7 @@ function vueBoutique() {
   <div class="boutique-live">${renduBoutique(etat, { mode: 'live', panier: ui.panier, fiche: ui.fiche })}</div>
   ${etat.cookies ? '' : `<div class="cookies" role="region" aria-label="Cookies"><p>${esc(etat.boutique.nom)} utilise des cookies de mesure d’audience pour améliorer le site. Vous pouvez les accepter ou les refuser.</p><div class="rangee"><button class="btn petit fantome" data-action="cookies" data-choix="refus">Refuser</button><button class="btn petit fantome" data-action="cookies" data-choix="accord">Accepter</button></div></div>`}
   <div class="tiroir ${ui.panierOuvert ? 'ouvert' : ''}" aria-hidden="${!ui.panierOuvert}">
-    <div class="tiroir-fond" data-action="fermer-panier"></div>
+    <div class="tiroir-fond" data-action="fermer-panier" aria-hidden="true"></div>
     <aside class="tiroir-corps" style="${varsTheme(etat.boutique.theme)}">
       <div class="carte-tete"><h2>Panier</h2><button class="icone" data-action="fermer-panier">Fermer</button></div>
       ${ui.confirmation ? `<div class="confirm"><h3>Merci pour votre commande</h3><p>Commande <b class="mono">#${ui.confirmation}</b> confirmée.</p><a class="sf-btn" href="#commandes" data-action="voir-commande" data-num="${ui.confirmation}">Voir la commande dans l’admin</a></div>` :
