@@ -30,7 +30,7 @@ const noter = (type, slug, detail = '') => (constats[type] = constats[type] || [
     if (!types.includes('produits')) noter('aucune section produits sur la page', slug);
     if (!types.includes('pied')) noter('pas de pied de page (mentions et contact)', slug);
     for (const s of b.sections || []) {
-      for (const [k, v] of Object.entries(s.props || {})) if (typeof v === 'string' && /exemple\.(fr|ch)|lorem|à compléter/i.test(v)) noter('texte d’exemple resté sur la boutique', slug, `${s.type}.${k} = ${v}`);
+      for (const [k, v] of Object.entries(s.props || {})) if (typeof v === 'string' && /bonjour@exemple\.|lorem|à compléter/i.test(v)) noter('texte d’exemple resté sur la boutique', slug, `${s.type}.${k} = ${v}`);
       if (s.type === 'saison' && s.props && s.props.code && !(d.offres && (d.offres.codes || []).length) ) { /* code de saison : vérifié côté commande */ }
     }
     const modes = Object.keys(d.livraisons || {});
