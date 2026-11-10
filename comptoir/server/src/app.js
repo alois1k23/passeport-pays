@@ -547,7 +547,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\nVotre commande vous attend en boutique : ${config.magasin.adresse || ''}${config.magasin.horaires ? `\nHoraires : ${config.magasin.horaires}` : ''}.\nPrésentez ce numéro de commande : ${c.numero}.\n\nVotre commande : ${lienCommande(ctx.boutique, c.id)}\n\n${config.boutique.nom}`);
     return { commande: c };
   });
+  // Idempotence de la caisse : une même clé de ticket n'enregistre qu'une vente (double clic, renvoi après coupure).
+  const ticketsVus = new Map();
   r.post('/api/admin/caisse', exigerMarchand, ctx => {
+    const cleTicket = typeof ctx.corps.cle === 'string' ? `${ctx.boutique.id}:${ctx.corps.cle.slice(0, 60)}` : null;
+    if (cleTicket && ticketsVus.has(cleTicket)) return ticketsVus.get(cleTicket);
+    for (const [k, v] of ticketsVus) if (Date.now() - v.le > 3600000) ticketsVus.delete(k);
+    const reponse = encaisserCaisse(ctx);
+    if (cleTicket) ticketsVus.set(cleTicket, { ...reponse, le: Date.now() });
+    return reponse;
+  });
+  function encaisserCaisse(ctx) {
     const produits = listerProduits(ctx.boutique.id);
     const lignes = prix.construireLignes(produits, ctx.corps.lignes);
     if (lignes.some(l => l.type === 'drop')) throw erreur(400, 'La caisse n’accepte que les produits en stock.', 'caisse_drop');
@@ -563,7 +573,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       ajusterStock(ctx.boutique.id, lignes, -1);
       return { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config) } };
     });
-  });
+  }
   /* ---------- Réseaux sociaux ---------- */
   const publicationDeBoutique = (boutiqueId, id) => {
     const row = db.prepare('SELECT * FROM publications WHERE id = ? AND boutique_id = ?').get(id, boutiqueId);

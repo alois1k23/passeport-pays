@@ -17,6 +17,8 @@ async function api(methode, chemin, corps) {
   // Abonnement échu pendant la session : retour à l'écran de paiement.
   if (rep.status === 402 && SERVEUR.connecte && !chemin.startsWith('/api/abonnement')) { location.reload(); }
   if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; throw e; }
+  // Le serveur répond de nouveau : une modification restée en échec part tout de suite.
+  if (typeof ENREGISTREMENT !== 'undefined' && ENREGISTREMENT.echecs && !ENREGISTREMENT.enCours && chemin !== '/api/admin/config') setTimeout(envoyerConfig, 0);
   return json;
 }
 
@@ -42,11 +44,19 @@ async function initServeur() {
 
 /* Enregistrement différé de la configuration. Avant tout rechargement depuis le serveur, la modification en
    attente est envoyée d’abord : sinon le rechargement l’écraserait (réglage perdu sans prévenir). */
-const ENREGISTREMENT = { minuterie: null, enCours: null };
+const ENREGISTREMENT = { minuterie: null, enCours: null, echecs: 0 };
+const ACTIONS_EN_COURS = new Set();
 function envoyerConfig() {
   clearTimeout(ENREGISTREMENT.minuterie); ENREGISTREMENT.minuterie = null;
   const envoi = api('PUT', '/api/admin/config', { config: configActuelle() })
-    .catch(e => toast(`Non enregistré : ${e.message}`))
+    .then(() => { if (ENREGISTREMENT.echecs) toast('Connexion rétablie : vos modifications sont enregistrées.'); ENREGISTREMENT.echecs = 0; })
+    .catch(e => {
+      // Échec (serveur ou réseau coupé) : on réessaie tout seul, de plus en plus espacé, et dès le retour du réseau.
+      ENREGISTREMENT.echecs++;
+      const delai = [5000, 15000, 30000][Math.min(ENREGISTREMENT.echecs - 1, 2)];
+      toast(`Non enregistré (${e.statut ? e.message : 'connexion perdue'}). Nouvel essai dans ${delai / 1000} s, ne fermez pas la page.`);
+      if (!ENREGISTREMENT.minuterie && (!e.statut || e.statut >= 500)) ENREGISTREMENT.minuterie = setTimeout(envoyerConfig, delai);
+    })
     .finally(() => { if (ENREGISTREMENT.enCours === envoi) ENREGISTREMENT.enCours = null; });
   ENREGISTREMENT.enCours = envoi;
   return envoi;
@@ -268,6 +278,10 @@ function installerModeConnecte() {
     if (!el) return;
     const { action, id } = el.dataset;
     const bloquer = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+    // Une action qui écrit ne peut pas partir deux fois en même temps (double clic, réseau lent).
+    const verrou = ['statut', 'supprimer-produit', 'importer-produit', 'encaisser', 'as-creer'].includes(action) ? `${action}:${id || ''}` : null;
+    if (verrou && ACTIONS_EN_COURS.has(verrou)) { bloquer(); return; }
+    if (verrou) ACTIONS_EN_COURS.add(verrou);
     try {
       if (action === 'statut') {
         bloquer(); el.disabled = true;
@@ -283,8 +297,10 @@ function installerModeConnecte() {
         await rafraichir('Produit ajouté à votre boutique.');
       } else if (action === 'encaisser') {
         bloquer();
-        const r = await api('POST', '/api/admin/caisse', { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte })), moyen: el.dataset.moyen });
-        ui.caisse = []; await rafraichir(`Vente de ${r.total} encaissée. Facture ${r.facture}.`);
+        // Clé unique du ticket : le serveur n'enregistre jamais deux fois la même vente.
+        ui.cleTicket = ui.cleTicket || `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        const r = await api('POST', '/api/admin/caisse', { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte })), moyen: el.dataset.moyen, cle: ui.cleTicket });
+        ui.caisse = []; ui.cleTicket = null; await rafraichir(`Vente de ${r.total} encaissée. Facture ${r.facture}.`);
       } else if (action === 'as-creer') {
         bloquer();
         await recreerBoutique();
@@ -292,19 +308,25 @@ function installerModeConnecte() {
         bloquer();
       }
     } catch (err) { el.disabled = false; toast(err.message); }
+    finally { if (verrou) ACTIONS_EN_COURS.delete(verrou); }
   }, true);
 
-  // Fiche produit : création ou mise à jour en base.
+  // Fiche produit : création ou mise à jour en base (une seule fois, même en cas de double clic).
   document.addEventListener('submit', async e => {
     if (e.target.dataset.form !== 'produit') return;
     e.preventDefault(); e.stopImmediatePropagation();
+    if (ACTIONS_EN_COURS.has('produit')) return;
+    ACTIONS_EN_COURS.add('produit');
+    const bouton = e.target.querySelector('button.btn:not(.fantome)');
+    if (bouton) bouton.disabled = true;
     const d = new FormData(e.target);
     const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false };
     try {
       if (etat.produits.find(x => x.id === p.id)) await api('PUT', `/api/admin/produits/${encodeURIComponent(p.id)}`, { produit: p });
       else await api('POST', '/api/admin/produits', { produit: p });
       ui.produitEdite = null; await rafraichir(`« ${p.nom} » enregistré.`);
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(err.message); if (bouton) bouton.disabled = false; }
+    finally { ACTIONS_EN_COURS.delete('produit'); }
   }, true);
 
   // Notes internes : enregistrées en base quelques instants après la frappe.
@@ -376,3 +398,7 @@ async function demarrer() {
   await initServeur();
   surHash();
 }
+
+// Retour du réseau : on renvoie tout de suite ce qui attend ; quitter la page avec une modification non enregistrée est signalé.
+addEventListener('online', () => { if (ENREGISTREMENT.echecs || ENREGISTREMENT.minuterie) envoyerConfig(); });
+addEventListener('beforeunload', e => { if (SERVEUR.connecte && (ENREGISTREMENT.echecs || ENREGISTREMENT.minuterie || ENREGISTREMENT.enCours)) { e.preventDefault(); e.returnValue = ''; } });

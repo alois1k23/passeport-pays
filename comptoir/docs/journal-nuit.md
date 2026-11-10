@@ -153,3 +153,28 @@ Chaque type d'e-mail a été déclenché sur un serveur de test et relu.
 Vérifié : e-mails toujours en texte brut, sans HTML ; balises saisies inoffensives.
 
 Tests : 32, dont 3 nouveaux (désinscription et pied légal, Brevo, Postmark).
+
+### Cycle 7 — Pannes, réseau lent et doubles clics
+
+Outil ajouté : `outils/simulation/pannes.js` : 1,5 s de latence sur chaque appel, doubles clics sur les boutons sensibles, puis serveur injoignable pendant l'utilisation et retour du serveur.
+
+Sans problème dès le départ :
+- inscription en double clic : un seul compte, pas de faux message « compte existe déjà » ;
+- paiement de l'abonnement ;
+- import du catalogue (déjà dédoublonné par le serveur) ;
+- « Payer » en boutique (bouton désactivé pendant l'envoi) ;
+- message d'erreur quand une action échoue hors ligne.
+
+**Défauts trouvés et corrigés**
+
+1. **Double clic sur « Encaisser » : la vente était enregistrée deux fois** (caisse, stock et comptabilité faussés).
+   - Interface : verrou sur les actions qui écrivent (encaisser, importer, changer un statut, supprimer, recréer).
+   - Serveur : chaque ticket porte une clé unique, et la même clé ne crée qu'une vente, même envoyée deux fois en parallèle (testé).
+2. **Double clic sur « Enregistrer » un produit : le produit était créé deux fois.** Formulaire verrouillé pendant l'envoi.
+3. **Modification perdue pendant une coupure.** L'échec était signalé, puis plus rien n'était tenté. Désormais :
+   - nouvel essai automatique après 5 s, 15 s, puis 30 s ;
+   - renvoi immédiat dès que le serveur répond de nouveau (n'importe quelle requête réussie) ou que le réseau revient ;
+   - message « Connexion rétablie : vos modifications sont enregistrées » ;
+   - avertissement du navigateur si l'on ferme la page avec une modification en attente.
+
+Résultat final de l'outil : aucun problème. Tests : 33.

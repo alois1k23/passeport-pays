@@ -604,3 +604,15 @@ test('e-mails : identité de la boutique en pied, lien de désinscription sur le
   const etat = (await c('GET', '/api/admin/etat')).json;
   assert.equal(etat.abonnes, 0, 'retiré des abonnés');
 });
+
+test('caisse : une même clé de ticket n’enregistre qu’une seule vente', async () => {
+  const c = client();
+  await c('POST', '/api/auth/inscription', { email: 'caisse2@exemple.ch', motDePasse: 'un mot de passe solide', config: config('Caisse Double'), produits: [{ nom: 'Vase', prix: 40, stock: 10, type: 'stock' }] });
+  const pid = (await c('GET', '/api/admin/etat')).json.produits[0].id;
+  const corps = { lignes: [{ produitId: pid, qte: 1 }], moyen: 'especes', cle: 't_double_1' };
+  const [a, b] = await Promise.all([c('POST', '/api/admin/caisse', corps), c('POST', '/api/admin/caisse', corps)]);
+  assert.equal(a.json.facture, b.json.facture);
+  const e = (await c('GET', '/api/admin/etat')).json;
+  assert.equal(e.commandes.filter(x => x.canal === 'magasin').length, 1);
+  assert.equal(e.produits[0].stock, 9);
+});
