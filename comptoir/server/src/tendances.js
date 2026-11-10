@@ -55,6 +55,7 @@ function creerCollecte({ db, env = {}, catalogue, fetchImpl = fetch, journal = c
       if (a.boutiques.size < minBoutiques) continue;       // confidentialité
       ecrire(`ventes|${k}`, { n7: a.n7, n28: a.n28, boutiques: a.boutiques.size }, maintenant); n++;
     }
+    meta.ventesLe = maintenant;
     meta.sources.ventes = { actif: true, majLe: maintenant, detail: `${n} produit${n > 1 ? 's' : ''} vendus dans au moins ${minBoutiques} boutiques sur 28 jours` };
   }
 
@@ -120,7 +121,13 @@ function creerCollecte({ db, env = {}, catalogue, fetchImpl = fetch, journal = c
     return { majLe: meta.derniere, sources: meta.sources, ...out };
   }
 
-  return { rafraichir, signaux, collecterVentes };
+  /* Ventes Comptoir : calcul local et peu coûteux, refait s'il date de plus de ageMax (15 min par défaut). */
+  function actualiserVentes(ageMax = 15 * 60000, maintenant = Date.now()) {
+    if (!meta.ventesLe || maintenant - meta.ventesLe > ageMax) collecterVentes(maintenant);
+    if (!meta.derniere) meta.derniere = maintenant;
+  }
+
+  return { rafraichir, signaux, collecterVentes, actualiserVentes };
 }
 
 module.exports = { creerCollecte };

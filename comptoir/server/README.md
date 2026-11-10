@@ -58,7 +58,7 @@ Ouvrez `http://localhost:3000`, créez un compte, puis ouvrez votre boutique pub
 | **Google Trends** | Via l'API SerpApi (`SERPAPI_KEY`), par pays des boutiques ; rotation de `TENDANCES_REQUETES_MAX` produits par passage, les plus anciennement mis à jour d'abord. |
 | **Fichier** | `TENDANCES_FICHIER` : export JSON d'un outil d'analyse ou relevés de meilleures ventes. Les pages des places de marché (Amazon, Galaxus, AliExpress…) ne sont pas aspirées : leurs conditions d'utilisation l'interdisent. |
 
-Rafraîchissement : au démarrage puis toutes les 6 heures (`TENDANCES_INTERVALLE_MS`). Catalogue de démonstration : 148 produits sur 9 niches, généré par `outils/catalogue/generer.py` (une seule source pour `server/data/catalogue-demo.json` et `js/catalogue.js`).
+Rafraîchissement : Google Trends et fichier au démarrage puis toutes les 6 heures (`TENDANCES_INTERVALLE_MS`) ; ventes Comptoir toutes les 15 minutes et à la consultation si elles datent de plus de 15 minutes (`TENDANCES_VENTES_INTERVALLE_MS`, `TENDANCES_VENTES_AGE_MS`). Catalogue de démonstration : 148 produits sur 9 niches, généré par `outils/catalogue/generer.py` (une seule source pour `server/data/catalogue-demo.json` et `js/catalogue.js`).
 
 ## Brancher les vrais services
 

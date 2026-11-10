@@ -810,6 +810,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* ---------- Produits stars : signaux de demande pour le pays de la boutique ---------- */
   r.get('/api/admin/tendances', exigerMarchand, async ctx => {
     if (!collecte.signaux('ch').majLe) await collecte.rafraichir();
+    else collecte.actualiserVentes(Number(env.TENDANCES_VENTES_AGE_MS || 15 * 60000));
     return collecte.signaux(lireConfig(ctx.boutique).boutique.pays || 'ch');
   });
 
@@ -918,6 +919,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   gerer.publierEcheances = publierEcheances;
   gerer.automatisationsEcheances = automatisationsEcheances;
   gerer.rafraichirTendances = () => collecte.rafraichir();
+  gerer.actualiserVentesTendances = () => collecte.actualiserVentes(0);
   gerer.envoyerEmails = () => courriel.envoyerFile(db, serviceEmail, { journal });
   return gerer;
 }

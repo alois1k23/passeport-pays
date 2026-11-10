@@ -16,7 +16,7 @@ before(async () => {
   serveur = http.createServer();
   await new Promise(ok => serveur.listen(0, '127.0.0.1', ok));
   base = `http://127.0.0.1:${serveur.address().port}`;
-  serveur.on('request', creerApp({ db, env: { DEMO_DELAI_EXPEDITION_MS: '0', LIMITE_ESSAIS: '1000' }, urlPublique: base, journal: silencieux }));
+  serveur.on('request', creerApp({ db, env: { DEMO_DELAI_EXPEDITION_MS: '0', LIMITE_ESSAIS: '1000', TENDANCES_VENTES_AGE_MS: '0' }, urlPublique: base, journal: silencieux }));
 });
 after(() => serveur.close());
 
@@ -518,7 +518,9 @@ test('produits stars : produits préparés à l’inscription, ventes agrégées
     return c;
   };
   const a = await vendre('Stars A', 'stars-a@exemple.ch', ['f03', 'f07']);
+  assert.equal((await a('GET', '/api/admin/tendances')).statut, 200);   // première collecte, avant la seconde boutique
   await vendre('Stars B', 'stars-b@exemple.ch', ['f03']);
+  // Les ventes sont recalculées à la consultation (âge maximal réglé à 0 ms pour le test)
   const t = await a('GET', '/api/admin/tendances');
   assert.equal(t.statut, 200);
   assert.ok(t.json.majLe > 0);

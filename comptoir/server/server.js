@@ -24,6 +24,8 @@ setInterval(() => gerer.envoyerEmails().catch(e => console.error('[e-mail]', e.m
 const tendances = () => gerer.rafraichirTendances().catch(e => console.error('[tendances]', e.message));
 setTimeout(tendances, 5000).unref();
 setInterval(tendances, Number(env.TENDANCES_INTERVALLE_MS || 6 * 3600000)).unref();
+// Ventes observées sur Comptoir : calcul local, toutes les 15 minutes.
+setInterval(() => { try { gerer.actualiserVentesTendances(); } catch (e) { console.error('[tendances]', e.message); } }, Number(env.TENDANCES_VENTES_INTERVALLE_MS || 15 * 60000)).unref();
 
 http.createServer(gerer).listen(port, () => {
   console.log(`Comptoir écoute sur ${urlPublique}`);
