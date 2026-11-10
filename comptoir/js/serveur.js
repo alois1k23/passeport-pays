@@ -128,7 +128,7 @@ function installerConnexion() {
         const theme = pays === 'ch' ? 'leman' : 'craie';
         const config = {
           boutique: { nom, secteur: d.secteur, slogan: '', theme: { ...THEMES[theme], id: theme }, sections: sectionsParDefaut(nom, d.secteur, pays), domaine: null, publiee: true, pays, modele: d.modele, langues: ['fr'] },
-          entreprise: { raison: nom, forme: pays === 'ch' ? 'Raison individuelle' : 'Micro-entreprise', siret: '', tvaIntra: '', adresse: '', email: d.email, regime: pays === 'ch' ? 'ch-non' : 'franchise', mediateur: '' },
+          entreprise: { raison: nom, forme: pays === 'ch' ? 'Raison individuelle' : pays === 'be' ? 'Personne physique' : 'Micro-entreprise', siret: '', tvaIntra: '', adresse: '', email: d.email, regime: pays === 'ch' ? 'ch-non' : 'franchise', mediateur: '' },
           magasin: { actif: false, adresse: '', horaires: '', clickCollect: false, googleSync: false },
           reglages: { autoTransmission: true, cpa: 8 }
         };

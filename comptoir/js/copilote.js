@@ -33,19 +33,24 @@ function tempsFortsAnnee(an, pays = (typeof etat !== 'undefined' && etat ? etat.
   const thanksgiving = nieme(an, 10, 4, 4);
   // Soldes : 2e mercredi de janvier (1er s'il tombe après le 12), dernier mercredi de juin (avant-dernier s'il tombe après le 28)
   const s2 = nieme(an, 0, 3, 2), soldesHiver = s2.getDate() > 12 ? nieme(an, 0, 3, 1) : s2;
-  const se = nieme(an, 5, 3, -1), soldesEte = se.getDate() > 28 ? ajouterJours(se, -7) : se;
+  const se = nieme(an, 5, 3, -1);
+  let soldesEte = se.getDate() > 28 ? ajouterJours(se, -7) : se, soldesH = soldesHiver, fdp = nieme(an, 5, 0, 3);
+  // Belgique : soldes le 3 janvier et le 1er juillet, fête des mères et des pères le 2e dimanche de mai et de juin, Saint-Nicolas.
+  const be = pays === 'be';
+  if (be) { soldesH = new Date(an, 0, 3); soldesEte = new Date(an, 6, 1); fdm = nieme(an, 4, 0, 2); fdp = nieme(an, 5, 0, 2); }
   return [
-    { id: 'soldes-hiver', nom: 'Soldes d’hiver', kw: 'soldes', date: soldesHiver, duree: 28, remise: 30, cadeau: false, angle: 'Dernières pièces de la saison à prix doux' },
+    { id: 'soldes-hiver', nom: 'Soldes d’hiver', kw: 'soldes', date: soldesH, duree: 28, remise: 30, cadeau: false, angle: 'Dernières pièces de la saison à prix doux' },
     { id: 'saint-valentin', nom: 'Saint-Valentin', kw: 'saint-valentin', date: new Date(an, 1, 14), duree: 10, remise: 10, cadeau: true, angle: 'Le cadeau à offrir à deux' },
     { id: 'paques', nom: 'Pâques', kw: 'paques', date: p, duree: 10, remise: 10, cadeau: true, angle: 'Petites attentions de printemps' },
     { id: 'fete-des-meres', nom: 'Fête des mères', kw: 'fete-des-meres', date: fdm, duree: 14, remise: 10, cadeau: true, angle: 'Pour celle qui a tout, un cadeau fait main' },
-    { id: 'fete-des-peres', nom: 'Fête des pères', kw: 'fete-des-peres', date: nieme(an, 5, 0, 3), duree: 12, remise: 10, cadeau: true, angle: 'Le cadeau qu’il n’achèterait pas lui-même' },
+    { id: 'fete-des-peres', nom: 'Fête des pères', kw: 'fete-des-peres', date: fdp, duree: 12, remise: 10, cadeau: true, angle: 'Le cadeau qu’il n’achèterait pas lui-même' },
     { id: 'soldes-ete', nom: 'Soldes d’été', kw: 'soldes', date: soldesEte, duree: 28, remise: 30, cadeau: false, angle: 'Faites de la place pour la rentrée' },
     { id: 'rentree', nom: 'Rentrée', kw: 'rentree', date: new Date(an, 8, 1), duree: 14, remise: 10, cadeau: false, angle: 'Nouvelle saison, nouvelles envies' },
     { id: 'halloween', nom: 'Halloween', kw: 'halloween', date: new Date(an, 9, 31), duree: 10, remise: 10, cadeau: false, angle: 'Soirées d’automne' },
     { id: 'black-friday', nom: 'Black Friday', kw: 'black-friday', date: ajouterJours(thanksgiving, 1), duree: 4, remise: 20, cadeau: false, angle: 'Notre seule grosse remise de l’année' },
+    ...(be ? [{ id: 'saint-nicolas', nom: 'Saint-Nicolas', kw: 'saint-nicolas', date: new Date(an, 11, 6), duree: 14, remise: 0, cadeau: true, angle: 'Les petits cadeaux du 6 décembre' }] : []),
     { id: 'noel', nom: 'Noël', kw: 'noel', date: new Date(an, 11, 25), duree: 24, remise: 0, cadeau: true, angle: 'Des cadeaux qui ont une histoire' }
-  ].map(e => ({ ...e, cle: `${e.id}-${an}`, debut: ajouterJours(e.date, -e.duree), annee: an }));
+  ].sort((x, y) => x.date - y.date).map(e => ({ ...e, cle: `${e.id}-${an}`, debut: ajouterJours(e.date, -e.duree), annee: an }));
 }
 
 /* Suisse : pas de dates légales de soldes, fêtes des mères et des pères plus tôt, 1er Août, Singles Day très suivi. */

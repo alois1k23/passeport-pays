@@ -264,6 +264,7 @@ function vueTableau() {
           item(aExpedier.length, `commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier`, 'commandes', { alerte: aExpedier.length > 0, filtre: 'payee' }),
           item(attente, `paiement${attente > 1 ? 's' : ''} en attente`, 'commandes', { alerte: attente > 0, filtre: 'attente' }),
           ...stockBas.map(p => item(p.stock, `Stock bas : ${esc(p.nom)}`, 'produits', { alerte: true })),
+          ...etat.produits.filter(p => p.actif !== false && typeof margeProduit === 'function' && margeProduit(p).nette < 0).slice(0, 3).map(p => item('!', `Vendu à perte : ${esc(p.nom)} (${euros(margeProduit(p).nette)} par vente)`, 'produits', { alerte: true })),
           nFour ? item(nFour, `commande${nFour > 1 ? 's' : ''} chez le fournisseur (suivi automatique)`, 'commandes', { filtre: 'fournisseur' }) : '',
           retraits ? item(retraits, `retrait${retraits > 1 ? 's' : ''} en magasin en cours`, 'magasin', { alerte: true }) : '',
           etat.boutique.domaine ? '' : item(null, 'Choisir un domaine personnalisé', 'domaines', { alerte: true }),

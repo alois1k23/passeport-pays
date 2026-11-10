@@ -37,7 +37,8 @@ const arrondi = n => Math.round(n * 100) / 100;
 
 function tauxTva(config) {
   const r = config.entreprise && config.entreprise.regime;
-  return r === 'ch-assujetti' ? 0.081 : r === 'normal' ? 0.2 : 0;
+  const pays = config.boutique && config.boutique.pays;
+  return r === 'ch-assujetti' ? 0.081 : r === 'normal' ? (pays === 'be' ? 0.21 : 0.2) : 0;
 }
 
 /* Construit les lignes d'une commande à partir des produits en base. */

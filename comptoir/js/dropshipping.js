@@ -34,7 +34,28 @@ const CATALOGUE = [
   ['f15', 'Brosse soufflante', 'beaute', 'Cheveux', 24, 6, 'UE', 4, 6, 89, 74, 72, 4.5, 'BeautyLab Barcelona (démo)'],
   ['f16', 'Rouleau quartz rose', 'beaute', 'Visage', 4, 3.5, 'CN', 10, 20, 25, 40, 95, 4.0, 'Guangzhou Beauty (démo)'],
   ['f17', 'Pistolet de massage compact', 'sport', 'Matériel', 22, 6, 'UE', 3, 6, 89, 66, 76, 4.5, 'FitStock Berlin (démo)'],
-  ['f18', 'Tapis de yoga en liège', 'sport', 'Matériel', 28, 7, 'CH', 2, 3, 79, 55, 40, 4.8, 'Fournisseur Lémanique (démo)']
+  ['f18', 'Tapis de yoga en liège', 'sport', 'Matériel', 28, 7, 'CH', 2, 3, 79, 55, 40, 4.8, 'Fournisseur Lémanique (démo)'],
+  ['f19', 'Vase en céramique ondulé', 'deco', 'Vases', 11, 6, 'UE', 4, 7, 45, 66, 48, 4.6, 'Casa Lisboa (démo)'],
+  ['f20', 'Miroir rond en rotin', 'deco', 'Miroirs', 16, 8, 'UE', 5, 8, 69, 62, 55, 4.5, 'Casa Lisboa (démo)'],
+  ['f21', 'Cadre photo en chêne', 'deco', 'Cadres', 7, 4.5, 'CH', 2, 3, 32, 48, 38, 4.7, 'Atelier Jura Bois (démo)'],
+  ['f22', 'Guirlande lumineuse en papier', 'deco', 'Luminaires', 5, 4, 'CN', 10, 18, 24, 58, 86, 4.1, 'Yiwu Decor (démo)'],
+  ['f23', 'Écharpe en laine mérinos', 'mode', 'Accessoires', 17, 5, 'UE', 4, 7, 59, 70, 52, 4.6, 'Lana Biella (démo)'],
+  ['f24', 'Sac banane en toile recyclée', 'mode', 'Sacs', 9, 4.5, 'UE', 4, 6, 39, 74, 64, 4.4, 'ReWear Amsterdam (démo)'],
+  ['f25', 'Chaussettes en coton bio (lot de 3)', 'mode', 'Chaussettes', 6, 3.5, 'CH', 2, 3, 29, 52, 44, 4.8, 'Tricot Romand (démo)'],
+  ['f26', 'Casquette brodée', 'mode', 'Accessoires', 4, 3.5, 'CN', 10, 20, 25, 60, 90, 3.9, 'Guangzhou Apparel (démo)'],
+  ['f27', 'Coffret de thés en vrac', 'epicerie', 'Thés', 12, 5, 'CH', 1, 3, 42, 64, 40, 4.8, 'Herboristerie du Valais (démo)'],
+  ['f28', 'Miel de montagne suisse', 'epicerie', 'Miels', 9, 5, 'CH', 1, 3, 28, 55, 35, 4.9, 'Rucher des Alpes (démo)'],
+  ['f29', 'Coffret d’épices du monde', 'epicerie', 'Épices', 10, 5, 'UE', 4, 7, 39, 61, 50, 4.6, 'Spezie Milano (démo)'],
+  ['f30', 'Huile d’olive vierge extra (50 cl)', 'epicerie', 'Huiles', 11, 6, 'UE', 4, 7, 35, 58, 62, 4.7, 'Spezie Milano (démo)'],
+  ['f31', 'Bague fine en argent 925', 'bijoux', 'Bagues', 8, 3.5, 'UE', 4, 6, 49, 72, 70, 4.5, 'Argento Firenze (démo)'],
+  ['f32', 'Collier perle d’eau douce', 'bijoux', 'Colliers', 10, 3.5, 'UE', 4, 6, 59, 66, 64, 4.6, 'Argento Firenze (démo)'],
+  ['f33', 'Boucles d’oreilles créoles dorées', 'bijoux', 'Boucles', 3, 3, 'CN', 10, 18, 29, 70, 92, 4.0, 'Yiwu Jewelry (démo)'],
+  ['f34', 'Bracelet jonc gravé', 'bijoux', 'Bracelets', 9, 3.5, 'CH', 2, 3, 45, 54, 42, 4.8, 'Atelier Genevois (démo)'],
+  ['f35', 'Gourde isotherme 750 ml', 'sport', 'Hydratation', 9, 5, 'UE', 3, 6, 35, 63, 70, 4.6, 'FitStock Berlin (démo)'],
+  ['f36', 'Bandes de résistance (lot de 5)', 'sport', 'Matériel', 6, 4, 'CN', 10, 18, 29, 58, 88, 4.1, 'Ningbo Sport (démo)'],
+  ['f37', 'Griffoir en carton pour chat', 'animaux', 'Jouets', 6, 5, 'CH', 2, 3, 29, 52, 40, 4.7, 'Fournisseur Lémanique (démo)'],
+  ['f38', 'Lampe de bureau sans fil', 'tech', 'Éclairage', 15, 5, 'UE', 4, 6, 59, 64, 58, 4.5, 'TechHub Rotterdam (démo)'],
+  ['f39', 'Sérum à la vitamine C', 'beaute', 'Visage', 7, 3.5, 'CH', 2, 3, 39, 68, 66, 4.6, 'Laboratoire Léman (démo)']
 ].map(([id, nom, niche, categorie, cout, portF, entrepot, dmin, dmax, prix, tendance, concurrence, note, fournisseur]) =>
   ({ id, nom, niche, categorie, cout, portF, entrepot, delai: [dmin, dmax], prix, tendance, concurrence, note, fournisseur }));
 
@@ -45,7 +66,7 @@ function reglages() {
 function estSuisse() { return etat.boutique.pays === 'ch'; }
 function tauxTvaVente() {
   const r = etat.entreprise.regime;
-  return r === 'ch-assujetti' ? TVA_CH : r === 'normal' ? 0.2 : 0;
+  return r === 'ch-assujetti' ? TVA_CH : r === 'normal' ? droitPays().tva : 0;
 }
 
 /* Marge nette par vente. Toutes les valeurs sont dans la devise de la boutique (estimations). */

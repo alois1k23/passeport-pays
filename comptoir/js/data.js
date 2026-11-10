@@ -383,3 +383,14 @@ const SOURCES = [
   ['Prix barrés', 'Ordonnance suisse sur l’indication des prix (OIP) et directive européenne Omnibus : prix de référence pratiqué pendant 30 jours.'],
   ['Limites', 'Ce sont des règles par défaut, pas des garanties de résultat. Aucun revenu n’est promis : ajustez les seuils à votre marché.']
 ];
+
+/* Règles légales et fiscales par pays de l'entreprise (hors Suisse, gérée à part). */
+const DROIT_PAYS = {
+  fr: { id: 'SIRET', idCourt: 'SIRET', idExemple: '123 456 789 00012', tva: 0.2, tvaTexte: '20 %', franchise: 'TVA non applicable, art. 293 B du CGI', franchiseNom: 'Franchise en base', formes: ['Micro-entreprise', 'EI', 'EURL', 'SASU', 'SARL', 'SAS'], tvaExemple: 'FR12345678901', recouvrement: true },
+  be: { id: 'Numéro d’entreprise (BCE)', idCourt: 'BCE', idExemple: '0123.456.789', tva: 0.21, tvaTexte: '21 %', franchise: 'Régime de la franchise des petites entreprises : TVA non applicable', franchiseNom: 'Franchise des petites entreprises', formes: ['Personne physique', 'SRL', 'SA', 'SC'], tvaExemple: 'BE0123456789', recouvrement: false }
+};
+function droitPays(pays) {
+  let p = pays;
+  if (!p) { try { p = etat.boutique.pays; } catch { p = 'fr'; } }
+  return DROIT_PAYS[p] || DROIT_PAYS.fr;
+}
