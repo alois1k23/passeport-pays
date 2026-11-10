@@ -191,3 +191,12 @@ Parcours regardé capture par capture : accueil, fiche produit, panier, formulai
 4. **Bouton vide sous le titre** quand le bandeau principal n'a pas de texte de bouton ; même chose pour une annonce ou un texte « À propos » vides. Ces éléments ne s'affichent plus (dans l'éditeur, une annonce vide le signale).
 
 Tests : 33.
+
+### Cycle 9 — Administration sur téléphone
+
+Captures sur 360 px : liste et fiche des commandes, vue d'ensemble, produits stars, caisse, éditeur. Aucune erreur ni défilement horizontal.
+
+**Défauts trouvés et corrigés**
+
+1. **Fiche de commande hors de l'écran** : en ouvrant une commande plus bas dans la liste, la fiche s'affichait au-dessus, hors de vue, et rien ne semblait se passer. La page défile maintenant jusqu'à la fiche (vérifié sur la 13e commande).
+2. **Produits stars** : les trois encadrés des sources occupaient un écran entier avant le premier produit ; ils deviennent une rangée compacte sur téléphone.

@@ -1293,3 +1293,8 @@ html, body { overflow-x: clip; }
 @media (hover: none) and (pointer: coarse), (max-width: 760px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), select, textarea { font-size: 16px !important; }
 }
+@media (max-width: 760px) {
+  .st-sources { display: flex; overflow-x: auto; gap: 6px; scrollbar-width: none; }
+  .st-source { flex: 0 0 auto; max-width: 240px; padding: 8px 10px; }
+  .st-source .sous { display: none; }
+}

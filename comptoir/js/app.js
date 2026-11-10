@@ -920,7 +920,10 @@ document.addEventListener('click', e => {
   switch (action) {
     case 'cocher': e.stopPropagation(); break;
     case 'cocher-page': break;
-    case 'ouvrir-commande': if (e.target.closest('.col-case')) break; ui.commande = id; if (ui.route !== 'commandes') location.hash = 'commandes'; else rendre(); break;
+    case 'ouvrir-commande': if (e.target.closest('.col-case')) break; ui.commande = id; if (ui.route !== 'commandes') location.hash = 'commandes'; else rendre();
+      // Sur téléphone, la fiche s'affiche au-dessus de la liste : on la ramène à l'écran.
+      requestAnimationFrame(() => { const f = document.querySelector('[data-action="fermer-commande"]'); if (f && matchMedia('(max-width: 900px)').matches) f.closest('section, .carte, aside').scrollIntoView({ block: 'start', behavior: 'smooth' }); });
+      break;
     case 'fermer-commande': ui.commande = null; rendre(); break;
     case 'filtre': ui.filtre = el.dataset.filtre; ui.pageCmd = 1; rendre(); break;
     case 'vue-ed-mobile': ui.vueEdMobile = el.dataset.id; rendre(); break;
