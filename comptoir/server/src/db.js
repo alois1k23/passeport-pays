@@ -94,6 +94,23 @@ CREATE TABLE IF NOT EXISTS publications (
 );
 CREATE INDEX IF NOT EXISTS publications_echeance ON publications(statut, date);
 
+CREATE TABLE IF NOT EXISTS evenements (
+  boutique_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  session TEXT NOT NULL,              -- identifiant aléatoire d'onglet, sans cookie ni adresse IP
+  produit_id TEXT,
+  valeur TEXT,
+  date INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS evenements_boutique ON evenements(boutique_id, date);
+CREATE INDEX IF NOT EXISTS evenements_session ON evenements(boutique_id, session);
+
+CREATE TABLE IF NOT EXISTS reinitialisations (
+  jeton_hash TEXT PRIMARY KEY,
+  marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE,
+  expire_le INTEGER NOT NULL
+);
+
 -- Faux fournisseur de démonstration (représente une API externe).
 CREATE TABLE IF NOT EXISTS demo_fournisseur_commandes (
   ref TEXT PRIMARY KEY,

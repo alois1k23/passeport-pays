@@ -50,8 +50,9 @@ function construireLignes(produits, demandes) {
     const qte = Number(d.qte);
     if (!Number.isInteger(qte) || qte < 1 || qte > 20) throw erreur(400, 'Quantité invalide.', 'quantite_invalide');
     if (p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');
-    const ex = lignes.find(l => l.produitId === p.id);
-    if (ex) ex.qte += qte; else lignes.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null });
+    const offre = typeof d.offre === 'string' ? d.offre.slice(0, 20) : undefined;
+    const ex = !offre && lignes.find(l => l.produitId === p.id && !l.offre);
+    if (ex) ex.qte += qte; else lignes.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null, ...(offre ? { offre } : {}) });
   }
   return lignes;
 }

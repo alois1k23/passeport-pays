@@ -49,13 +49,13 @@ function supprimerSession(db, cookies) {
 
 /* Limite les essais de connexion : 10 par adresse IP et par quart d'heure. */
 const essais = new Map();
-function limiterConnexion(ip) {
+function limiterConnexion(ip, max = 10) {
   const maintenant = Date.now();
   const e = essais.get(ip) || { n: 0, depuis: maintenant };
   if (maintenant - e.depuis > 15 * 60 * 1000) { e.n = 0; e.depuis = maintenant; }
   e.n++;
   essais.set(ip, e);
-  if (e.n > 10) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
+  if (e.n > max) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
 }
 
 module.exports = { hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, nouvelId, sha256, COOKIE };

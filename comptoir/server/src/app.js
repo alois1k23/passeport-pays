@@ -2,6 +2,8 @@
 // transmission aux fournisseurs, e-mails, pages publiques.
 'use strict';
 const crypto = require('node:crypto');
+const dns = require('node:dns').promises;
+const fs = require('node:fs');
 const path = require('node:path');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
@@ -12,6 +14,8 @@ const fournisseurs = require('./fournisseurs');
 const social = require('./social');
 const relances = require('./relances');
 const Remises = require('../../js/remises.js');
+const PrixBarres = require('../../js/prix-barres.js');
+const courriel = require('./courriel');
 
 const RACINE_FRONT = path.resolve(__dirname, '..', '..');
 const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|accueil\.html|css\/[\w.-]+\.css|js\/[\w.-]+\.js|img\/[\w.-]+\.(jpg|png|svg))$/;
@@ -29,9 +33,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const secretsDemo = { cleApiDemo: crypto.randomBytes(24).toString('hex'), secretWebhookDemo: crypto.randomBytes(24).toString('hex') };
   fournisseurs.installerDemo(db, urlPublique, secretsDemo);
   relances.creerTables(db);
+  courriel.creerTables(db);
+  const serviceEmail = courriel.prestataire(env, fetchImpl);
+  const hotePrincipal = new URL(urlPublique).hostname.toLowerCase();
 
   /* ---------- Accès aux données ---------- */
   const lireConfig = b => JSON.parse(b.config);
+  /* Adresse publique d’une boutique : son domaine personnalisé s’il est actif, sinon /s/<slug>. */
+  const domaineDe = b => { const d = lireConfig(b).boutique.domaine; return d && d.actif && d.domaine ? String(d.domaine).toLowerCase() : null; };
+  const urlBoutique = b => domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}`;
   const boutiqueDuMarchand = marchandId => {
     const b = db.prepare('SELECT * FROM boutiques WHERE marchand_id = ? ORDER BY cree_le LIMIT 1').get(marchandId);
     if (!b) throw erreur(404, 'Aucune boutique pour ce compte.', 'sans_boutique');
@@ -112,7 +122,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       }))
     };
   }
-  function nettoyerProduit(p) {
+  function nettoyerProduit(p, historiqueAvant = []) {
     const type = p.type === 'drop' ? 'drop' : 'stock';
     const propre = {
       nom: valider.texte(p.nom, 'Le nom du produit', { max: 120 }),
@@ -130,6 +140,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (!IMAGE.test(p.image) || p.image.length > 400000) throw erreur(400, 'Image invalide : JPEG, PNG ou WebP de moins de 300 Ko.', 'image_invalide');
       propre.image = p.image;
     }
+    if (p.prixReference !== undefined && p.prixReference !== null && p.prixReference !== '' && Number(p.prixReference) > 0) propre.prixReference = valider.nombre(p.prixReference, 'Le prix barré', { min: 0, max: 100000 });
+    // Historique des prix tenu par le serveur seul (sert à vérifier les prix barrés) : le navigateur ne peut pas le modifier.
+    propre.historiquePrix = PrixBarres.noterPrix(historiqueAvant, propre.prix);
     if (type === 'drop') Object.assign(propre, { portF: Number(p.portF) || 0, entrepot: ['CH', 'UE', 'CN'].includes(p.entrepot) ? p.entrepot : 'UE', delai: Array.isArray(p.delai) ? p.delai.slice(0, 2).map(Number) : [3, 7], fournisseur: String(p.fournisseur || '').slice(0, 80), source: String(p.source || '').slice(0, 40), codeFournisseur: p.codeFournisseur || 'demo' });
     return propre;
   }
@@ -166,9 +179,22 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!lignesDrop.length || c.refFournisseur) return c;
     const f = db.prepare('SELECT * FROM fournisseurs WHERE code = ?').get(lignesDrop[0].codeFournisseur || 'demo');
     if (!f) throw erreur(500, 'Fournisseur non configuré.', 'fournisseur_absent');
+    // Routage : le même produit existe-t-il dans un entrepôt plus proche du client ? (Suisse > UE > Chine)
+    const pays = lireConfig(boutique).boutique.pays;
+    const rang = e => (pays === 'ch' ? { CH: 0, UE: 1, CN: 2 } : { UE: 0, CH: 1, CN: 2 })[e] ?? 3;
+    let catalogue = [];
+    try { catalogue = await fournisseurs.client(f, fetchImpl).catalogue(); } catch { /* sans catalogue : source d’origine */ }
+    const routes = [];
+    const sources = lignesDrop.map(l => {
+      const actuel = catalogue.find(x => x.id === l.source);
+      if (!actuel) return l.source;
+      const meilleur = catalogue.filter(x => x.nom === actuel.nom).sort((a, b) => rang(a.entrepot) - rang(b.entrepot) || a.delai[1] - b.delai[1])[0];
+      if (meilleur && meilleur.id !== actuel.id && rang(meilleur.entrepot) < rang(actuel.entrepot)) { routes.push(`${l.nom} : entrepôt ${actuel.entrepot} → ${meilleur.entrepot}`); return meilleur.id; }
+      return l.source;
+    });
     const rep = await fournisseurs.client(f, fetchImpl).passerCommande({
       referenceMarchand: `${boutique.slug}-${c.numero}`,
-      lignes: lignesDrop.map(l => ({ produitId: l.source, qte: l.qte })),
+      lignes: lignesDrop.map((l, i) => ({ produitId: sources[i], qte: l.qte })),
       livraison: { nom: c.client.nom, adresse: c.client.adresse || '', npa: c.client.npa || '', ville: c.client.ville, pays: lireConfig(boutique).boutique.pays.toUpperCase() }
     });
     const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
@@ -176,6 +202,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     frais.codeFournisseur = f.code;
     if (estDrop(frais)) frais.statut = 'fournisseur';
     historique(frais, `${auto ? 'Transmise automatiquement' : 'Transmise'} à ${f.nom} (${rep.ref})`);
+    if (routes.length) historique(frais, `Routée vers l’entrepôt le plus proche du client : ${routes.join(' ; ')}`);
     enregistrerCommande(frais);
     return frais;
   }
@@ -191,6 +218,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       c.statut = 'payee';
       c.facture = prochaineFacture(row.boutique_id, Date.now());
       if (c.relances) { c.recuperee = true; c.historique.push({ date: Date.now(), texte: 'Paiement récupéré après relance' }); }
+      if (c.parent) {
+        const pr = db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.parent);
+        if (pr) { const parent = lireCommande(pr); parent.complements = [...(parent.complements || []), c.id]; historique(parent, `Complément n° ${c.numero} ajouté après l’achat : à expédier dans le même colis`); enregistrerCommande(parent); }
+      }
       historique(c, `Paiement ${p.fournisseur === 'stripe' ? 'en ligne' : 'simulé'} accepté (${formatMontant(p.montant_centimes / 100, lireConfig(db.prepare('SELECT config FROM boutiques WHERE id = ?').get(row.boutique_id)))})`);
       enregistrerCommande(c);
       ajusterStock(row.boutique_id, c.lignes, -1);
@@ -223,7 +254,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom };
   });
   r.post('/api/auth/inscription', ctx => {
-    auth.limiterConnexion(ctx.ip);
+    auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const email = valider.email(ctx.corps.email);
     const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
     const config = nettoyerConfig(ctx.corps.config);
@@ -240,13 +271,65 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { statut: 201, corps: { ok: true, slug } };
   });
   r.post('/api/auth/connexion', ctx => {
-    auth.limiterConnexion(ctx.ip);
+    auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const email = valider.email(ctx.corps.email);
     const m = db.prepare('SELECT * FROM marchands WHERE email = ?').get(email);
     if (!m || !auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants');
     ctx.entetes['Set-Cookie'] = auth.cookieSession(auth.creerSession(db, m.id), securise);
     return { ok: true };
   });
+  /* Mot de passe oublié : lien valable 1 heure, réponse identique que le compte existe ou non. */
+  r.post('/api/auth/oubli', ctx => {
+    auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
+    const email = valider.email(ctx.corps.email);
+    const m = db.prepare('SELECT id FROM marchands WHERE email = ?').get(email);
+    if (m) {
+      const jeton = crypto.randomBytes(32).toString('base64url');
+      db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le) VALUES (?, ?, ?)').run(auth.sha256(jeton), m.id, Date.now() + 3600 * 1000);
+      envoyerEmail(null, email, 'Réinitialiser votre mot de passe Comptoir', `Bonjour,\n\nPour choisir un nouveau mot de passe, ouvrez ce lien (valable 1 heure) :\n${urlPublique}/app?reinitialiser=${jeton}\n\nSi vous n’avez rien demandé, ignorez cet e-mail : votre mot de passe actuel reste valable.`);
+    }
+    return { ok: true };
+  });
+  r.post('/api/auth/reinitialiser', ctx => {
+    auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
+    const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
+    const ligne = db.prepare('SELECT * FROM reinitialisations WHERE jeton_hash = ?').get(auth.sha256(String(ctx.corps.jeton || '')));
+    if (!ligne || ligne.expire_le < Date.now()) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau.', 'lien_expire');
+    transaction(db, () => {
+      db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(auth.hacherMotDePasse(mdp), ligne.marchand_id);
+      db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
+      db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(ligne.marchand_id);
+    });
+    ctx.entetes['Set-Cookie'] = auth.cookieSession(auth.creerSession(db, ligne.marchand_id), securise);
+    return { ok: true };
+  });
+
+  /* Domaine personnalisé : actif quand le DNS pointe vers Comptoir (enregistrement CNAME ou même adresse IP). */
+  r.post('/api/admin/domaine/verifier', exigerMarchand, async ctx => {
+    const config = lireConfig(ctx.boutique);
+    const d = config.boutique.domaine;
+    if (!d || !d.domaine) throw erreur(400, 'Choisissez d’abord un domaine.', 'sans_domaine');
+    const domaine = String(d.domaine).toLowerCase();
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domaine)) throw erreur(400, 'Nom de domaine invalide.', 'domaine_invalide');
+    let ok = env.DOMAINES_SANS_VERIFICATION === '1';
+    if (!ok) {
+      try {
+        const cname = await dns.resolveCname(domaine).catch(() => []);
+        if (cname.map(x => x.toLowerCase()).includes(hotePrincipal)) ok = true;
+        else {
+          const [a, b] = await Promise.all([dns.resolve4(domaine).catch(() => []), dns.resolve4(hotePrincipal).catch(() => [])]);
+          ok = a.length > 0 && a.some(ip => b.includes(ip));
+        }
+      } catch { ok = false; }
+    }
+    if (!ok) throw erreur(409, `Le DNS de ${domaine} ne pointe pas encore vers ${hotePrincipal}. Ajoutez un enregistrement CNAME vers ${hotePrincipal} chez votre registrar ; la propagation peut prendre quelques heures.`, 'dns_absent');
+    const pris = db.prepare("SELECT id FROM boutiques WHERE id <> ? AND lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(ctx.boutique.id, domaine);
+    if (pris) throw erreur(409, 'Ce domaine est déjà utilisé par une autre boutique.', 'domaine_pris');
+    config.boutique.domaine = { ...d, domaine, actif: true, verifieLe: Date.now() };
+    db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(config), ctx.boutique.id);
+    return { ok: true, url: `https://${domaine}/` };
+  });
+
   r.post('/api/auth/deconnexion', ctx => {
     auth.supprimerSession(db, ctx.cookies);
     ctx.entetes['Set-Cookie'] = auth.cookieSession(null, securise);
@@ -261,7 +344,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const abonnes = db.prepare('SELECT COUNT(*) AS n FROM abonnes WHERE boutique_id = ?').get(ctx.boutique.id).n;
     const envois = Object.fromEntries(db.prepare("SELECT substr(cle, 1, instr(cle, ':') - 1) AS type, COUNT(*) AS n FROM envois_auto WHERE boutique_id = ? GROUP BY type").all(ctx.boutique.id).map(x => [x.type, x.n]));
     const avis = db.prepare('SELECT id, commande_id AS commandeId, produit_id AS produitId, note, texte, prenom, ville, cree_le AS date, reponse FROM avis WHERE boutique_id = ? ORDER BY cree_le DESC LIMIT 300').all(ctx.boutique.id);
-    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
+    // Audience : sessions distinctes par jour et par étape (365 derniers jours)
+    const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
+    const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
+    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
   });
   r.put('/api/admin/config', exigerMarchand, ctx => {
     const config = nettoyerConfig(ctx.corps.config);
@@ -289,7 +375,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const avant = JSON.parse(ancien.donnees);
     // Les données fournisseur ne se modifient pas depuis l'interface.
     const fusion = { ...ctx.corps.produit, type: avant.type, source: avant.source, fournisseur: avant.fournisseur, entrepot: avant.entrepot, delai: avant.delai, portF: avant.portF, codeFournisseur: avant.codeFournisseur };
-    db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(nettoyerProduit(fusion)), ctx.params.id);
+    db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id);
     return { ok: true };
   });
   r.delete('/api/admin/produits/:id', exigerMarchand, ctx => {
@@ -415,7 +501,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = boutiqueParSlug(ctx.params.slug);
     const config = lireConfig(b);
     const notes = statsAvis(b.id);
-    const produits = listerProduits(b.id).filter(p => p.actif).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, ...p }) => ({ ...p, avis: notes[p.id] || null }));
+    const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
+    const produits = listerProduits(b.id).filter(p => p.actif).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
+      const pb = PrixBarres.verifier({ prix: p.prix, prixReference, historiquePrix }, regime);
+      return { ...p, avis: notes[p.id] || null, ...(pb.ok ? { prixReference } : {}) };
+    });
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
     return {
       boutique: config.boutique,
@@ -424,7 +514,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       produits, avisRecents,
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: Remises.offresDe(config).seuilPort,
-      offres: (({ paliersActifs, paliers, suggestions, barrePort }) => ({ paliersActifs, paliers, suggestions, barrePort }))(Remises.offresDe(config)),
+      offres: (({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles }) => ({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles: regles.filter(r => r.actif && r.type === 'panier') }))(Remises.offresDe(config)),
       newsletter: relances.nettoyer(config.automatisations).bienvenue,
       paiement: paiement.nom
     };
@@ -465,7 +555,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(p.id, c.id, paiement.nom, Math.round(total * 100), devise, 'cree', now);
       return { commande: { ...c, jeton }, pmt: p };
     });
-    const retour = `${urlPublique}/s/${b.slug}?commande=${commande.id}&jeton=${commande.jeton}`;
+    const retour = `${urlBoutique(b)}?commande=${commande.id}&jeton=${commande.jeton}`;
     const session = await paiement.creerSession({ paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { commandeId: commande.id, numero: commande.numero, jeton: commande.jeton, total, paiementUrl: session.url } };
@@ -506,6 +596,58 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { ok: true };
   });
 
+  /* Offre après l’achat : un complément à prix réduit, livré dans le même colis (2 heures après le paiement au plus). */
+  const DELAI_COMPLEMENT = 2 * 3600 * 1000;
+  function offreApres(b, c) {
+    if (!['payee', 'fournisseur', 'preparation'].includes(c.statut) || c.parent || (c.complements || []).length) return null;
+    const paye = (c.historique || []).find(h => /^Paiement/.test(h.texte));
+    if (!paye || Date.now() - paye.date > DELAI_COMPLEMENT) return null;
+    const config = lireConfig(b);
+    const r = Remises.regleApplicable(config, c.lignes, 'apres');
+    if (!r) return null;
+    const p = listerProduits(b.id).find(x => x.id === r.alors && x.actif && (x.type === 'drop' || x.stock > 0));
+    return p ? { regle: r.id, produitId: p.id, nom: p.nom, prix: p.prix, prixOffre: prix.arrondi(p.prix * (1 - r.remise / 100)), remise: r.remise, teinte: p.teinte, image: p.image || null } : null;
+  }
+  const verifierJeton = (row, jeton) => row && String(jeton || '').length === row.jeton_client.length && crypto.timingSafeEqual(Buffer.from(String(jeton)), Buffer.from(row.jeton_client));
+  r.post('/api/public/:slug/commandes/:id/complement', async ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
+    if (!verifierJeton(row, ctx.corps.jeton)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    const parent = lireCommande(row);
+    const o = offreApres(b, parent);
+    if (!o || o.regle !== ctx.corps.regle) throw erreur(409, 'Cette offre n’est plus disponible.', 'offre_expiree');
+    const config = lireConfig(b);
+    const p = listerProduits(b.id).find(x => x.id === o.produitId);
+    const devise = config.boutique.devise || 'EUR';
+    const { commande, pmt } = transaction(db, () => {
+      const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
+      const now = Date.now();
+      const lignes = [{ produitId: p.id, nom: p.nom, prix: o.prixOffre, prixInitial: p.prix, qte: 1, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null, codeFournisseur: p.codeFournisseur, offre: o.regle, apres: true }];
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client: parent.client, lignes, sousTotal: o.prixOffre, remise: 0, port: 0, total: o.prixOffre, livraison: parent.livraison, canal: 'web', suivi: '', note: '', parent: parent.id, historique: [{ date: now, texte: `Complément à la commande n° ${parent.numero} (offre −${o.remise} %, même colis)` }] };
+      const jeton = auth.nouvelId();
+      const { id, numero: n, date, statut, ...donnees } = c;
+      db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
+      const pp = { id: auth.nouvelId('pay_'), commande_id: c.id };
+      db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(pp.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', now);
+      return { commande: { ...c, jeton }, pmt: pp };
+    });
+    const retour = `${urlBoutique(b)}?commande=${commande.id}&jeton=${commande.jeton}`;
+    const session = await paiement.creerSession({ paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${urlBoutique(b)}?commande=${parent.id}&jeton=${row.jeton_client}` });
+    db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
+    return { statut: 201, corps: { paiementUrl: session.url } };
+  });
+
+  /* Mesure d’audience sans cookie : identifiant de session aléatoire (onglet), aucune adresse IP enregistrée. */
+  const TYPES_EVENEMENTS = ['vue', 'produit', 'panier', 'livraison', 'paiement', 'offre_vue'];
+  r.post('/api/public/:slug/evenement', ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    const type = String(ctx.corps.type || ''), session = String(ctx.corps.session || '').replace(/[^\w-]/g, '').slice(0, 40);
+    if (!TYPES_EVENEMENTS.includes(type) || session.length < 8) throw erreur(400, 'Événement invalide.', 'invalide');
+    const n = db.prepare('SELECT COUNT(*) AS n FROM evenements WHERE boutique_id = ? AND session = ?').get(b.id, session).n;
+    if (n < 300) db.prepare('INSERT INTO evenements (boutique_id, type, session, produit_id, valeur, date) VALUES (?, ?, ?, ?, ?, ?)').run(b.id, type, session, String(ctx.corps.produitId || '').slice(0, 40) || null, String(ctx.corps.valeur || '').slice(0, 40) || null, Date.now());
+    return { ok: true };
+  });
+
   r.post('/api/public/:slug/code', ctx => {
     const b = boutiqueParSlug(ctx.params.slug);
     const saisi = String(ctx.corps.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -517,7 +659,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = boutiqueParSlug(ctx.params.slug);
     const email = valider.email(ctx.corps.email);
     db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(b.id, email, Date.now());
-    relances.emailBienvenue({ db, boutique: b, config: lireConfig(b), email, urlPublique, envoyerEmail });
+    relances.emailBienvenue({ db, boutique: b, config: lireConfig(b), email, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail });
     return { ok: true };
   });
   r.post('/api/public/:slug/commandes/:id/reprendre', async ctx => {
@@ -530,7 +672,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const devise = lireConfig(b).boutique.devise || 'EUR';
     const pmt = { id: auth.nouvelId('pay_'), commande_id: c.id };
     db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(pmt.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', Date.now());
-    const retour = `${urlPublique}/s/${b.slug}?commande=${c.id}&jeton=${row.jeton_client}`;
+    const retour = `${urlBoutique(b)}?commande=${c.id}&jeton=${row.jeton_client}`;
     const session = await paiement.creerSession({ paiement: pmt, commande: c, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { paiementUrl: session.url };
@@ -541,7 +683,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     let n = 0;
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {
       const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));
-      n += relances.executer({ db, boutique: b, config: lireConfig(b), commandes, maintenant, urlPublique, envoyerEmail, formatMontant,
+      n += relances.executer({ db, boutique: b, config: lireConfig(b), commandes, maintenant, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail, formatMontant,
         enregistrerCommande: c => { const { jeton, ...reste } = c; enregistrerCommande(reste); } });
     }
     return n;
@@ -553,7 +695,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const jeton = String(ctx.query.get('jeton') || '');
     if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     const c = lireCommande(row);
-    return { numero: c.numero, statut: c.statut, total: c.total, suivi: c.suivi || null, lignes: c.lignes.map(l => ({ nom: l.nom, qte: l.qte, prix: l.prix })) };
+    return { numero: c.numero, statut: c.statut, total: c.total, suivi: c.suivi || null, lignes: c.lignes.map(l => ({ nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c) };
   });
 
   /* ---------- Webhooks ---------- */
@@ -601,12 +743,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/paiement-simule/:id/confirmer', async ctx => {
     const { p, row } = chargerPaiementSimule(ctx.params.id);
     await paiementConfirme(p.id, p.id);
-    return { redirection: `/s/${row.slug}?commande=${row.id}&jeton=${row.jeton_client}` };
+    return { redirection: `${urlBoutique(row)}?commande=${row.id}&jeton=${row.jeton_client}` };
   });
   r.post('/paiement-simule/:id/annuler', ctx => {
     const { p, row } = chargerPaiementSimule(ctx.params.id);
     if (p.statut === 'cree') db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(p.id);
-    return { redirection: `/s/${row.slug}?commande=${row.id}&jeton=${row.jeton_client}&annule=1` };
+    return { redirection: `${urlBoutique(row)}?commande=${row.id}&jeton=${row.jeton_client}&annule=1` };
   });
 
   /* ---------- Faux fournisseur de démonstration ---------- */
@@ -638,6 +780,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const url = new URL(req.url, 'http://local');
     const chemin = url.pathname;
     try {
+      // Domaine personnalisé : la boutique est servie à la racine de son propre domaine.
+      const hote = String(req.headers.host || '').split(':')[0].toLowerCase();
+      if (hote && hote !== hotePrincipal && req.method === 'GET' && (chemin === '/' || chemin === '/index.html')) {
+        const b = db.prepare("SELECT slug FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote);
+        if (b) {
+          const html = fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace('<head>', `<head>\n<meta name="comptoir-slug" content="${escHtml(b.slug)}">`);
+          return envoyerHtml(res, 200, html);
+        }
+      }
       const route = r.trouver(req.method, chemin);
       if (!route) {
         if (req.method === 'GET') {
@@ -673,6 +824,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
   gerer.publierEcheances = publierEcheances;
   gerer.automatisationsEcheances = automatisationsEcheances;
+  gerer.envoyerEmails = () => courriel.envoyerFile(db, serviceEmail, { journal });
   return gerer;
 }
 

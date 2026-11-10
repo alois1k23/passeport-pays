@@ -17,7 +17,11 @@ setInterval(() => gerer.publierEcheances().catch(e => console.error('[social]', 
 // E-mails automatiques (relances de paiement, avis, reconquête), toutes les 5 minutes.
 setInterval(() => { try { gerer.automatisationsEcheances(); } catch (e) { console.error('[relances]', e.message); } }, Number(env.AUTO_INTERVALLE_MS || 300000)).unref();
 
+// File d'e-mails : envoi réel si BREVO_API_KEY ou POSTMARK_TOKEN et EMAIL_EXPEDITEUR sont définis.
+setInterval(() => gerer.envoyerEmails().catch(e => console.error('[e-mail]', e.message)), Number(env.EMAIL_INTERVALLE_MS || 30000)).unref();
+
 http.createServer(gerer).listen(port, () => {
   console.log(`Comptoir écoute sur ${urlPublique}`);
   console.log(`Paiements : ${env.STRIPE_SECRET_KEY ? 'Stripe (TWINT + cartes)' : 'simulation (aucune clé Stripe)'}`);
+  console.log(`E-mails : ${env.BREVO_API_KEY ? 'Brevo' : env.POSTMARK_TOKEN ? 'Postmark' : 'file d’attente seulement (aucune clé d’envoi)'}`);
 });

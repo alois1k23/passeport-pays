@@ -42,7 +42,8 @@ function reserver(db, boutiqueId, cle, maintenant) {
 }
 
 /* Exécute les automatisations d'une boutique. Renvoie le nombre d'e-mails envoyés. */
-function executer({ db, boutique, config, commandes, maintenant = Date.now(), urlPublique, envoyerEmail, enregistrerCommande, formatMontant }) {
+function executer({ db, boutique, config, commandes, maintenant = Date.now(), urlPublique, urlBoutique, envoyerEmail, enregistrerCommande, formatMontant }) {
+  const base = urlBoutique || `${base}`;
   const a = nettoyer(config.automatisations);
   const nom = config.boutique.nom;
   let n = 0;
@@ -54,7 +55,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       a.paiement.etapes.forEach((e, i) => {
         if (maintenant - c.date < e.heures * HEURE) return;
         if ((c.relances || 0) > i || !reserver(db, boutique.id, `paiement:${c.id}:${i}`, maintenant)) return;
-        const lien = `${urlPublique}/s/${boutique.slug}?reprendre=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`;
+        const lien = `${base}?reprendre=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`;
         const derniere = i === a.paiement.etapes.length - 1;
         const offre = derniere && a.paiement.remise && a.paiement.code ? `\n\nPour vous aider à vous décider : -${a.paiement.remise} % avec le code ${a.paiement.code}.` : '';
         envoyerEmail(boutique.id, c.client.email, i === 0 ? `Votre commande chez ${nom} vous attend` : `Votre panier chez ${nom} est encore réservé`,
@@ -76,7 +77,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       if (maintenant - depuis < a.avis.jours * JOUR || maintenant - depuis > 60 * JOUR) continue;
       if (!reserver(db, boutique.id, `avis:${c.id}`, maintenant)) continue;
       envoyerEmail(boutique.id, c.client.email, `Votre avis sur votre commande ${nom}`,
-        `Bonjour ${c.client.nom},\n\nVous avez reçu ${c.lignes.map(l => l.nom).join(', ')}. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir, et nous à nous améliorer. Il prend 30 secondes :\n${urlPublique}/s/${boutique.slug}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}\n\nMerci,\nL’équipe ${nom}`);
+        `Bonjour ${c.client.nom},\n\nVous avez reçu ${c.lignes.map(l => l.nom).join(', ')}. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir, et nous à nous améliorer. Il prend 30 secondes :\n${base}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}\n\nMerci,\nL’équipe ${nom}`);
       c.avisDemande = maintenant;
       enregistrerCommande(c);
       n++;
@@ -95,18 +96,19 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       if (!c.client.consentement) continue; // e-mail marketing : uniquement avec accord explicite
       if (!reserver(db, boutique.id, `reconquete:${email}:${c.id}`, maintenant)) continue;
       envoyerEmail(boutique.id, email, `Ça fait longtemps, ${c.client.nom.split(' ')[0]}`,
-        `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${urlPublique}/s/${boutique.slug}\n\nL’équipe ${nom}\n\nVous recevez cet e-mail car vous avez accepté nos nouvelles. Répondez « STOP » pour ne plus en recevoir.`);
+        `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${base}\n\nL’équipe ${nom}\n\nVous recevez cet e-mail car vous avez accepté nos nouvelles. Répondez « STOP » pour ne plus en recevoir.`);
       n++;
     }
   }
   return n;
 }
 
-function emailBienvenue({ db, boutique, config, email, urlPublique, envoyerEmail }) {
+function emailBienvenue({ db, boutique, config, email, urlPublique, urlBoutique, envoyerEmail }) {
+  const base = urlBoutique || `${base}`;
   const a = nettoyer(config.automatisations);
   if (!a.bienvenue.actif || !reserver(db, boutique.id, `bienvenue:${email}`, Date.now())) return false;
   envoyerEmail(boutique.id, email, `Bienvenue chez ${config.boutique.nom}`,
-    `Bonjour,\n\nMerci de votre inscription.${a.bienvenue.remise && a.bienvenue.code ? ` Voici -${a.bienvenue.remise} % sur votre première commande avec le code ${a.bienvenue.code}.` : ''}\n\n${urlPublique}/s/${boutique.slug}\n\nL’équipe ${config.boutique.nom}`);
+    `Bonjour,\n\nMerci de votre inscription.${a.bienvenue.remise && a.bienvenue.code ? ` Voici -${a.bienvenue.remise} % sur votre première commande avec le code ${a.bienvenue.code}.` : ''}\n\n${base}\n\nL’équipe ${config.boutique.nom}`);
   return true;
 }
 

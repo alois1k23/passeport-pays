@@ -16,6 +16,12 @@
     o.paliers = (Array.isArray(o.paliers) ? o.paliers : [])
       .map(p => ({ qte: Math.max(2, Math.min(20, Math.round(Number(p.qte) || 0))), remise: Math.max(0, Math.min(50, Number(p.remise) || 0)) }))
       .filter(p => p.remise > 0).sort((a, b) => a.qte - b.qte).slice(0, 4);
+    // Offres complémentaires : « si le panier contient X, proposer Y à −N % » (dans le panier ou après l’achat).
+    o.regles = (Array.isArray(o.regles) ? o.regles : []).slice(0, 10).map((r, i) => ({
+      id: String(r.id || 'r' + i).replace(/[^\w-]/g, '').slice(0, 20) || 'r' + i,
+      si: String(r.si || '*').slice(0, 40), alors: String(r.alors || '').slice(0, 40),
+      remise: Math.max(0, Math.min(50, Number(r.remise) || 0)), type: r.type === 'apres' ? 'apres' : 'panier', actif: r.actif !== false
+    })).filter(r => r.alors && r.si !== r.alors);
     o.codes = (Array.isArray(o.codes) ? o.codes : []).slice(0, 50).map(c => ({ code: String(c.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), remise: Math.max(1, Math.min(70, Number(c.remise) || 0)), expire: Number(c.expire) || null })).filter(c => c.code);
     return o;
   }
@@ -37,10 +43,25 @@
     return codes;
   }
 
-  /* lignes : [{ prix, qte }] ; renvoie les lignes remisées et le détail. */
-  function appliquer(lignes, config, code, maintenant) {
+  /* Règle d’offre applicable à un panier (première règle active dont la condition est remplie). */
+  function regleApplicable(config, lignes, type) {
     const o = offresDe(config);
-    const qte = lignes.reduce((a, l) => a + l.qte, 0);
+    const ids = lignes.filter(l => !l.offre).map(l => l.produitId);
+    return o.regles.find(r => r.actif && r.type === type && (r.si === '*' || ids.includes(r.si)) && !lignes.some(l => l.produitId === r.alors)) || null;
+  }
+
+  /* lignes : [{ produitId, prix, qte, offre? }] ; renvoie les lignes remisées et le détail.
+     Une ligne « offre » (ajoutée via une règle) garde son prix spécial et n’entre pas dans les paliers ni les codes. */
+  function appliquer(lignesEntree, config, code, maintenant) {
+    const o = offresDe(config);
+    const normales = lignesEntree.filter(l => !l.offre);
+    const lignes = lignesEntree.map(l => {
+      if (!l.offre) return l;
+      const r = o.regles.find(x => x.id === l.offre && x.actif && x.type === 'panier' && x.alors === l.produitId && (x.si === '*' || normales.some(n => n.produitId === x.si)));
+      return r ? { ...l, qte: 1, prixOffre: arrondi(l.prix * (1 - r.remise / 100)), libelleOffre: `Offre −${r.remise} %` } : { ...l, offre: undefined };
+    });
+    const base = lignes.filter(l => !l.prixOffre);
+    const qte = base.reduce((a, l) => a + l.qte, 0);
     const sousTotal = arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
     const palier = o.paliersActifs ? o.paliers.filter(p => qte >= p.qte).pop() : null;
     const saisi = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -48,8 +69,10 @@
     let taux = 0, motif = null;
     if (palier) { taux = palier.remise; motif = { type: 'palier', libelle: `${palier.remise} % dès ${palier.qte} articles` }; }
     if (trouve && trouve.remise > taux) { taux = trouve.remise; motif = { type: 'code', libelle: `Code ${trouve.code} (−${trouve.remise} %)`, code: trouve.code }; }
-    const remisees = lignes.map(l => ({ ...l, prixInitial: l.prix, prix: taux ? arrondi(l.prix * (1 - taux / 100)) : l.prix }));
+    const remisees = lignes.map(l => l.prixOffre ? { ...l, prixInitial: l.prix, prix: l.prixOffre } : { ...l, prixInitial: l.prix, prix: taux ? arrondi(l.prix * (1 - taux / 100)) : l.prix });
     const apres = arrondi(remisees.reduce((a, l) => a + l.prix * l.qte, 0));
+    if (!motif && lignes.some(l => l.prixOffre)) motif = { type: 'offre', libelle: lignes.find(l => l.prixOffre).libelleOffre };
+    else if (motif && lignes.some(l => l.prixOffre)) motif = { ...motif, libelle: motif.libelle + ' + offre complémentaire' };
     const prochain = o.paliersActifs ? o.paliers.find(p => qte < p.qte) : null;
     return {
       lignes: remisees, sousTotal, remise: arrondi(sousTotal - apres), apresRemise: apres, taux, motif,
@@ -58,7 +81,7 @@
     };
   }
 
-  const api = { OFFRES_DEFAUT, offresDe, codesValables, appliquer };
+  const api = { OFFRES_DEFAUT, offresDe, codesValables, appliquer, regleApplicable };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else racine.Remises = api;
 })(typeof window !== 'undefined' ? window : globalThis);

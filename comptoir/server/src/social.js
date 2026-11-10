@@ -41,6 +41,7 @@ function nettoyerPublication(p) {
     produitId: texte(p.produitId, 40), produitNom: texte(p.produitNom, 120),
     accroche: texte(p.accroche, 300), legende: texte(p.legende, 3000),
     hashtags: (Array.isArray(p.hashtags) ? p.hashtags : []).slice(0, 15).map(h => texte(h, 40)),
+    partenariat: p.partenariat ? { avec: texte(p.partenariat.avec, 60) } : null,
     variantes: (Array.isArray(p.variantes) ? p.variantes : []).slice(0, 3).map(v => texte(v, 300)),
     script: Array.isArray(p.script) ? p.script.slice(0, 8).map(s => ({ t: texte(s.t, 20), texte: texte(s.texte, 400) })) : null,
     statut: p.statut === 'programmee' ? 'programmee' : 'brouillon'

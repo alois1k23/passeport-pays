@@ -9,14 +9,14 @@ const { creerApp } = require('../src/app');
 const { verifierSignatureStripe, prestataireStripe } = require('../src/paiements');
 
 let serveur, base, db;
-const silencieux = { log() {}, error() {} };
+const silencieux = { log() {}, error(...a) { if (process.env.DEBUG_TEST) console.error(...a); } };
 
 before(async () => {
   db = ouvrir(':memory:');
   serveur = http.createServer();
   await new Promise(ok => serveur.listen(0, '127.0.0.1', ok));
   base = `http://127.0.0.1:${serveur.address().port}`;
-  serveur.on('request', creerApp({ db, env: { DEMO_DELAI_EXPEDITION_MS: '0' }, urlPublique: base, journal: silencieux }));
+  serveur.on('request', creerApp({ db, env: { DEMO_DELAI_EXPEDITION_MS: '0', LIMITE_ESSAIS: '1000' }, urlPublique: base, journal: silencieux }));
 });
 after(() => serveur.close());
 
@@ -330,4 +330,98 @@ test('avis vérifiés : lien personnel, une fois par produit, publiés avec la n
   const autre = client();
   await autre('POST', '/api/auth/connexion', { email: 'max@exemple.ch', motDePasse: 'autre mot de passe solide' });
   assert.equal((await autre('PATCH', `/api/admin/avis/${av.id}`, { reponse: 'pirate' })).statut, 404);
+});
+
+test('offre dans le panier et complément après l’achat (même colis)', async () => {
+  const e = await marchand('GET', '/api/admin/etat');
+  const coffret = e.json.produits.find(p => p.type === 'stock');
+  const c = config('Lacustre');
+  c.offres = { paliersActifs: false, regles: [{ id: 'bump', si: idDrop, alors: coffret.id, remise: 20, type: 'panier' }, { id: 'apres', si: '*', alors: idDrop, remise: 15, type: 'apres' }] };
+  await marchand('PUT', '/api/admin/config', { config: c });
+  const acheteur = client();
+  // Ligne d’offre valide : 59 − 20 % = 47,20 ; produit principal 54 ; total 101,20 (port offert)
+  const cmd = await acheteur('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: idDrop, qte: 1 }, { produitId: coffret.id, qte: 1, offre: 'bump' }], livraison: 'poste-eco', client: { nom: 'Eva', email: 'eva@exemple.ch', adresse: 'Rue 5', npa: '1006', ville: 'Lausanne' } });
+  assert.equal(cmd.json.total, 101.2, JSON.stringify(cmd.json));
+  // Ligne d’offre sans sa condition : prix normal
+  const sansCond = await acheteur('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: coffret.id, qte: 1, offre: 'bump' }], livraison: 'poste-eco', client: { nom: 'Eva', email: 'eva@exemple.ch', adresse: 'Rue 5', npa: '1006', ville: 'Lausanne' } });
+  assert.equal(sansCond.json.total, 66, 'prix normal 59 + 7 de port (sous le seuil de 60)');
+  // Après paiement : l’offre « après achat » est proposée, une seule fois
+  await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const suivi = await acheteur('GET', `/api/public/${slug}/commandes/${cmd.json.commandeId}?jeton=${cmd.json.jeton}`);
+  // le produit idDrop est déjà dans la commande : la règle « après » vise idDrop, donc pas d’offre
+  assert.equal(suivi.json.offreApres, null);
+  // Commande d’un produit en stock (reste « à préparer »), offre après achat sur le produit en dropshipping
+  const r = db.prepare('SELECT donnees FROM produits WHERE id = ?').get(coffret.id); const dd = JSON.parse(r.donnees); dd.stock = 10;
+  db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(dd), coffret.id);
+  const c2 = config('Lacustre');
+  c2.offres = { regles: [{ id: 'apres', si: '*', alors: idDrop, remise: 15, type: 'apres' }] };
+  await marchand('PUT', '/api/admin/config', { config: c2 });
+  const cmd2 = await acheteur('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: coffret.id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Eva', email: 'eva@exemple.ch', adresse: 'Rue 5', npa: '1006', ville: 'Lausanne' } });
+  await fetch(cmd2.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const s2 = await acheteur('GET', `/api/public/${slug}/commandes/${cmd2.json.commandeId}?jeton=${cmd2.json.jeton}`);
+  assert.equal(s2.json.offreApres.prixOffre, 45.9, '54 − 15 %');
+  const comp = await acheteur('POST', `/api/public/${slug}/commandes/${cmd2.json.commandeId}/complement`, { jeton: cmd2.json.jeton, regle: 'apres' });
+  assert.match(comp.json.paiementUrl, /paiement-simule/);
+  await fetch(comp.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const etat = (await marchand('GET', '/api/admin/etat')).json;
+  const parent = etat.commandes.find(x => x.id === cmd2.json.commandeId);
+  assert.equal(parent.complements.length, 1);
+  const enfant = etat.commandes.find(x => x.id === parent.complements[0]);
+  assert.equal(enfant.port, 0); assert.equal(enfant.total, 45.9); assert.ok(['payee', 'fournisseur', 'expediee'].includes(enfant.statut));
+  assert.equal((await acheteur('POST', `/api/public/${slug}/commandes/${cmd2.json.commandeId}/complement`, { jeton: cmd2.json.jeton, regle: 'apres' })).statut, 409, 'une seule fois');
+});
+
+test('prix barré affiché seulement s’il est licite (historique tenu par le serveur)', async () => {
+  const e = await marchand('GET', '/api/admin/etat');
+  const coffret = e.json.produits.find(p => p.type === 'stock');
+  // Le navigateur ne peut pas fabriquer un historique
+  await marchand('PUT', `/api/admin/produits/${coffret.id}`, { produit: { ...coffret, prix: 49, prixReference: 59, historiquePrix: [{ date: 0, prix: 59 }, { date: Date.now() - 1, prix: 49 }] } });
+  let pub = await client()('GET', `/api/public/${slug}`);
+  assert.equal(pub.json.produits.find(p => p.id === coffret.id).prixReference, undefined, 'refusé : 59 n’a pas été pratiqué 30 jours');
+  assert.equal(pub.json.produits.find(p => p.id === coffret.id).historiquePrix, undefined, 'historique jamais public');
+  // On simule un historique ancien directement en base (59 pendant 60 jours, puis 49)
+  const row = db.prepare('SELECT donnees FROM produits WHERE id = ?').get(coffret.id);
+  const d = JSON.parse(row.donnees);
+  d.historiquePrix = [{ date: Date.now() - 70 * 86400000, prix: 59 }, { date: Date.now() - 5 * 86400000, prix: 49 }];
+  db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(d), coffret.id);
+  pub = await client()('GET', `/api/public/${slug}`);
+  assert.equal(pub.json.produits.find(p => p.id === coffret.id).prixReference, 59);
+});
+
+test('mesure d’audience sans cookie et entonnoir', async () => {
+  const a = client();
+  for (const type of ['vue', 'produit', 'panier', 'livraison']) assert.equal((await a('POST', `/api/public/${slug}/evenement`, { type, session: 'sess-abcdef01' })).statut, 200);
+  await a('POST', `/api/public/${slug}/evenement`, { type: 'vue', session: 'sess-abcdef02' });
+  assert.equal((await a('POST', `/api/public/${slug}/evenement`, { type: 'pirate', session: 'sess-abcdef02' })).statut, 400);
+  const etat = (await marchand('GET', '/api/admin/etat')).json;
+  const parType = t => etat.audience.filter(x => x.type === t).reduce((s, x) => s + x.n, 0);
+  assert.equal(parType('vue'), 2); assert.equal(parType('livraison'), 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('evenements') WHERE name LIKE '%ip%'").get().n, 0, 'aucune colonne IP');
+});
+
+test('mot de passe oublié, e-mails envoyés par le service, domaine personnalisé', async () => {
+  const anonyme = client();
+  assert.equal((await anonyme('POST', '/api/auth/oubli', { email: 'inconnu@exemple.ch' })).statut, 200, 'même réponse si le compte n’existe pas');
+  await anonyme('POST', '/api/auth/oubli', { email: 'lea@exemple.ch' });
+  const mail = db.prepare("SELECT corps FROM emails WHERE destinataire = 'lea@exemple.ch' ORDER BY id DESC LIMIT 1").get();
+  const jeton = /reinitialiser=([\w-]+)/.exec(mail.corps)[1];
+  assert.equal((await anonyme('POST', '/api/auth/reinitialiser', { jeton, motDePasse: 'court' })).statut, 400);
+  assert.equal((await anonyme('POST', '/api/auth/reinitialiser', { jeton, motDePasse: 'nouveau mot de passe solide' })).statut, 200);
+  assert.equal((await anonyme('POST', '/api/auth/reinitialiser', { jeton, motDePasse: 'nouveau mot de passe solide' })).statut, 400, 'lien à usage unique');
+  assert.equal((await marchand('GET', '/api/admin/etat')).statut, 401, 'anciennes sessions fermées');
+  assert.equal((await marchand('POST', '/api/auth/connexion', { email: 'lea@exemple.ch', motDePasse: 'nouveau mot de passe solide' })).statut, 200);
+
+  // Envoi par Brevo (faux service)
+  const courriel = require('../src/courriel');
+  const envoyes = [];
+  const p = courriel.prestataire({ BREVO_API_KEY: 'k', EMAIL_EXPEDITEUR: 'Comptoir <ne-pas-repondre@exemple.ch>' }, async (url, o) => { envoyes.push(JSON.parse(o.body)); return { ok: true }; });
+  const n = await courriel.envoyerFile(db, p, { lot: 500, journal: { error() {} } });
+  assert.ok(n > 0 && envoyes[0].sender.email === 'ne-pas-repondre@exemple.ch');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM emails WHERE envoye = 0').get().n, 0);
+
+  // Domaine : refusé tant que le DNS ne pointe pas vers Comptoir
+  const c = config('Lacustre');
+  c.boutique.domaine = { domaine: 'lacustre-test.invalid' };
+  await marchand('PUT', '/api/admin/config', { config: c });
+  assert.equal((await marchand('POST', '/api/admin/domaine/verifier')).statut, 409);
 });
