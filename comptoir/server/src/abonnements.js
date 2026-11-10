@@ -140,7 +140,7 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
     if (ev.type === 'checkout.session.completed' && o.mode === 'subscription') {
       const a = db.prepare('SELECT * FROM abonnements WHERE session_ref = ? OR marchand_id = ?').get(o.id, o.client_reference_id || '');
       if (a) maj(a.marchand_id, { statut: 'actif', periode_fin: Date.now() + PERIODE, ref_externe: o.subscription || null, client_externe: o.customer || null, session_ref: null, fin_demandee: 0 });
-      return true;
+      return a ? { marchandId: a.marchand_id, evenement: 'active' } : true;
     }
     const sub = o.subscription || (ev.type.startsWith('customer.subscription') ? o.id : null);
     const a = sub && db.prepare('SELECT * FROM abonnements WHERE ref_externe = ?').get(sub);
@@ -148,9 +148,9 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
     if (ev.type === 'invoice.paid') {
       const fin = o.lines && o.lines.data && o.lines.data[0] && o.lines.data[0].period ? o.lines.data[0].period.end * 1000 : Date.now() + PERIODE;
       maj(a.marchand_id, { statut: 'actif', periode_fin: fin });
-    } else if (ev.type === 'invoice.payment_failed') maj(a.marchand_id, { statut: 'impaye' });
-    else if (ev.type === 'customer.subscription.deleted') maj(a.marchand_id, { statut: 'resilie' });
-    else if (ev.type === 'customer.subscription.updated') maj(a.marchand_id, { fin_demandee: o.cancel_at_period_end ? 1 : 0 });
+    } else if (ev.type === 'invoice.payment_failed') { maj(a.marchand_id, { statut: 'impaye' }); return { marchandId: a.marchand_id, evenement: 'impaye' }; }
+    else if (ev.type === 'customer.subscription.deleted') { maj(a.marchand_id, { statut: 'resilie' }); return { marchandId: a.marchand_id, evenement: 'termine' }; }
+    else if (ev.type === 'customer.subscription.updated') { maj(a.marchand_id, { fin_demandee: o.cancel_at_period_end ? 1 : 0 }); if (o.cancel_at_period_end) return { marchandId: a.marchand_id, evenement: 'resiliation' }; }
     return true;
   }
 

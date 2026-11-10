@@ -498,6 +498,12 @@ test('abonnement : rien n’est accessible avant le paiement, puis seulement sa 
   assert.equal(apres.json.formule, 'pro');
   assert.equal(apres.json.finDemandee, true);
   assert.equal(apres.json.actif, true);
+  // E-mails de Comptoir au marchand : activation puis résiliation (la file est globale, filtrée par destinataire)
+  const sujets = db.prepare('SELECT sujet, corps FROM emails WHERE destinataire = ? ORDER BY id').all('nouveau@exemple.ch');
+  const activation = sujets.find(m => /est en ligne/.test(m.sujet));
+  assert.ok(activation, 'e-mail d’activation envoyé');
+  assert.match(activation.corps, /CHF 29\.– par mois/);
+  assert.ok(sujets.some(m => /Résiliation enregistrée/.test(m.sujet)));
   // Isolation : ce marchand ne voit que sa boutique, jamais celle de Lacustre
   assert.ok(!e.json.produits.some(p => p.nom === 'Coffret Léman'));
   assert.equal(e.json.serveur.slug, r.json.slug);
@@ -570,4 +576,31 @@ test('référencement : page et fiches rendues par le serveur, plan du site, bou
   const r2 = await n('POST', '/api/auth/inscription', { email: 'seo2@exemple.ch', motDePasse: 'un mot de passe solide', config: config('Pas Payée'), produits: [{ nom: 'Tasse', prix: 20, stock: 3, type: 'stock' }] }, { sansPaiement: true });
   assert.match(await (await fetch(`${base}/s/${r2.json.slug}`)).text(), /<meta name="robots" content="noindex">/);
   assert.ok(!/\/p\//.test(await (await fetch(`${base}/s/${r2.json.slug}/sitemap.xml`)).text()));
+});
+
+test('e-mails : identité de la boutique en pied, lien de désinscription sur les e-mails commerciaux', async () => {
+  const c = client();
+  const r = await c('POST', '/api/auth/inscription', { email: 'mails@exemple.ch', motDePasse: 'un mot de passe solide', config: { ...config('Courriels'), entreprise: { raison: 'Courriels Sàrl', adresse: 'Rue du Lac 3, 1003 Lausanne', email: 'contact@courriels.ch', regime: 'ch-non' } }, produits: [{ nom: 'Savon', prix: 12, stock: 9, type: 'stock' }] });
+  const pid = (await c('GET', '/api/admin/etat')).json.produits[0].id;
+  const a = client();
+  assert.equal((await a('POST', `/api/public/${r.json.slug}/newsletter`, { email: 'lecteur@exemple.ch', consentement: true })).statut, 200);
+  const cmd = await a('POST', `/api/public/${r.json.slug}/commandes`, { lignes: [{ produitId: pid, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Léa', email: 'lecteur@exemple.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
+  await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const mails = (await c('GET', '/api/admin/emails')).json;
+  if (process.env.AFFICHER_EMAILS) for (const m of mails) console.log(`\n=== ${m.sujet} → ${m.destinataire}\n${m.corps}`);
+  const bienvenue = mails.find(m => /Bienvenue/.test(m.sujet));
+  const confirmation = mails.find(m => /confirmée/.test(m.sujet));
+  assert.ok(bienvenue && confirmation);
+  for (const m of [bienvenue, confirmation]) assert.match(m.corps, /Courriels Sàrl · Rue du Lac 3, 1003 Lausanne · Contact : contact@courriels\.ch/);
+  const lien = /(http\S+\/desinscription\?j=\S+)/.exec(bienvenue.corps);
+  assert.ok(lien, 'lien de désinscription dans l’e-mail commercial');
+  assert.ok(!/desinscription/.test(confirmation.corps), 'pas de désinscription sur un e-mail de commande');
+  // Le lien ouvre une page de confirmation ; seul le clic désinscrit (les robots qui ouvrent les liens ne désinscrivent pas)
+  assert.match(await (await fetch(lien[1])).text(), /Me désinscrire/);
+  assert.match(await (await fetch(lien[1].slice(0, lien[1].lastIndexOf('.')) + '.signaturefausse')).text(), /Lien invalide/);
+  const post = await fetch(lien[1], { method: 'POST' });
+  assert.match(await post.text(), /C’est fait/);
+  assert.match(await (await fetch(lien[1])).text(), /déjà désinscrit/);
+  const etat = (await c('GET', '/api/admin/etat')).json;
+  assert.equal(etat.abonnes, 0, 'retiré des abonnés');
 });

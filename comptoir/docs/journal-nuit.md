@@ -124,3 +124,32 @@ Vérifié :
 - nouveau test serveur.
 
 Tests : 29.
+
+### Cycle 6 — E-mails (0 h 35 – 0 h 55)
+
+Chaque type d'e-mail a été déclenché sur un serveur de test et relu.
+
+**Défauts trouvés et corrigés**
+
+1. **Aucune désinscription possible** sur les e-mails commerciaux (bienvenue avec code, reconquête), obligatoire en Suisse (LCD art. 3 al. 1 let. o) comme dans l'UE.
+   - Chaque e-mail commercial porte un lien personnel signé (HMAC) et l'en-tête `List-Unsubscribe` (désinscription en un clic dans Gmail et Outlook).
+   - La page demande une confirmation : les logiciels qui ouvrent les liens tout seuls ne désinscrivent personne.
+   - Une adresse désinscrite ne reçoit plus aucun e-mail commercial de la boutique et sort des abonnés. Une nouvelle inscription volontaire rétablit l'envoi.
+2. **Aucune identité de l'expéditeur dans les e-mails.** Tous les e-mails d'une boutique se terminent par sa raison sociale, son adresse et son contact (Impressum).
+3. **Bug latent dans l'e-mail de bienvenue** : `const base = urlBoutique || \`${base}\`` faisait référence à la variable en cours de définition et plantait sans adresse de boutique.
+4. **Confirmation de commande trop maigre** (un total, rien d'autre). Elle contient maintenant :
+   - le détail des articles, la remise et la livraison ;
+   - le lien personnel de suivi de la commande ;
+   - le contact de la boutique.
+5. **Expédition sans lien de suivi** : lien direct chez le transporteur (La Poste suisse, Colissimo, Chronopost, Mondial Relay) et lien vers la commande. Retrait en magasin : horaires et numéro à présenter.
+6. **« Répondez à cet e-mail » renvoyait vers l'adresse d'envoi de Comptoir** : `Reply-To` vers l'e-mail du marchand, chez Brevo et chez Postmark.
+7. **Le marchand ne recevait aucun e-mail sur son abonnement.** Il est désormais prévenu :
+   - à l'activation, avec le lien de sa boutique et la date de renouvellement ;
+   - quand un paiement échoue (boutique fermée tant que ce n'est pas réglé) ;
+   - à la résiliation, avec la date de fin d'accès ;
+   - à la fin de l'abonnement.
+8. Libellé « click & collect » restant côté serveur remplacé par « Retrait en boutique ».
+
+Vérifié : e-mails toujours en texte brut, sans HTML ; balises saisies inoffensives.
+
+Tests : 32, dont 3 nouveaux (désinscription et pied légal, Brevo, Postmark).

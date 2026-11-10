@@ -9,7 +9,7 @@ const LIVRAISONS = {
     colissimo: { nom: 'Colissimo à domicile', prix: 5.9, transporteur: 'Colissimo' },
     relais: { nom: 'Mondial Relay en point relais', prix: 3.9, transporteur: 'Mondial Relay' },
     chronopost: { nom: 'Chronopost express', prix: 12.9, transporteur: 'Chronopost', jamaisOffert: true },
-    retrait: { nom: 'Retrait en boutique (click & collect)', prix: 0, transporteur: null }
+    retrait: { nom: 'Retrait en boutique', prix: 0, transporteur: null }
   },
   ch: {
     'poste-eco': { nom: 'La Poste Economy', prix: 7, transporteur: 'La Poste' },

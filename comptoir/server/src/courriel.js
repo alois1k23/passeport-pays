@@ -13,11 +13,11 @@ function prestataire(env, fetchImpl = fetch) {
   if (env.BREVO_API_KEY && adresse) {
     return {
       nom: 'brevo',
-      async envoyer({ destinataire, sujet, corps, nomBoutique }) {
+      async envoyer({ destinataire, sujet, corps, nomBoutique, desinscription, repondreA }) {
         const rep = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
           method: 'POST',
           headers: { 'api-key': env.BREVO_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ sender: { email: adresse, name: nomBoutique || nom || undefined }, to: [{ email: destinataire }], subject: sujet, textContent: corps })
+          body: JSON.stringify({ sender: { email: adresse, name: nomBoutique || nom || undefined }, to: [{ email: destinataire }], subject: sujet, textContent: corps, ...(repondreA ? { replyTo: { email: repondreA } } : {}), ...(desinscription ? { headers: { 'List-Unsubscribe': `<${desinscription}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } } : {}) })
         });
         if (!rep.ok) throw new Error(`Brevo ${rep.status}`);
       }
@@ -26,11 +26,11 @@ function prestataire(env, fetchImpl = fetch) {
   if (env.POSTMARK_TOKEN && adresse) {
     return {
       nom: 'postmark',
-      async envoyer({ destinataire, sujet, corps, nomBoutique }) {
+      async envoyer({ destinataire, sujet, corps, nomBoutique, desinscription, repondreA }) {
         const rep = await fetchImpl('https://api.postmarkapp.com/email', {
           method: 'POST',
           headers: { 'X-Postmark-Server-Token': env.POSTMARK_TOKEN, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ From: nomBoutique ? `${nomBoutique.replace(/[<>"]/g, '')} <${adresse}>` : exp, To: destinataire, Subject: sujet, TextBody: corps, MessageStream: 'outbound' })
+          body: JSON.stringify({ From: nomBoutique ? `${nomBoutique.replace(/[<>"]/g, '')} <${adresse}>` : exp, To: destinataire, Subject: sujet, TextBody: corps, MessageStream: 'outbound', ...(repondreA ? { ReplyTo: repondreA } : {}), ...(desinscription ? { Headers: [{ Name: 'List-Unsubscribe', Value: `<${desinscription}>` }, { Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' }] } : {}) })
         });
         if (!rep.ok) throw new Error(`Postmark ${rep.status}`);
       }
@@ -41,7 +41,7 @@ function prestataire(env, fetchImpl = fetch) {
 
 function creerTables(db) {
   // Colonnes ajoutées après coup : tentatives et dernière erreur (ignoré si déjà présentes).
-  for (const sql of ['ALTER TABLE emails ADD COLUMN tentatives INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE emails ADD COLUMN erreur TEXT']) {
+  for (const sql of ['ALTER TABLE emails ADD COLUMN tentatives INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE emails ADD COLUMN erreur TEXT', 'ALTER TABLE emails ADD COLUMN desinscription TEXT']) {
     try { db.exec(sql); } catch { /* colonne déjà là */ }
   }
 }
@@ -53,9 +53,12 @@ async function envoyerFile(db, p, { lot = 20, journal = console } = {}) {
     WHERE e.envoye = 0 AND e.tentatives < 5 ORDER BY e.id LIMIT ?`).all(lot);
   let n = 0;
   for (const e of enAttente) {
-    const nomBoutique = e.config ? JSON.parse(e.config).boutique.nom : 'Comptoir';
+    const conf = e.config ? JSON.parse(e.config) : null;
+    const nomBoutique = conf ? conf.boutique.nom : 'Comptoir';
+    // Les réponses du client vont au marchand, pas à l'adresse d'envoi de Comptoir.
+    const repondreA = conf && conf.entreprise && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(conf.entreprise.email || '') ? conf.entreprise.email : null;
     try {
-      await p.envoyer({ destinataire: e.destinataire, sujet: e.sujet, corps: e.corps, nomBoutique });
+      await p.envoyer({ destinataire: e.destinataire, sujet: e.sujet, corps: e.corps, nomBoutique, desinscription: e.desinscription || null, repondreA });
       db.prepare('UPDATE emails SET envoye = 1, erreur = NULL WHERE id = ?').run(e.id);
       n++;
     } catch (err) {

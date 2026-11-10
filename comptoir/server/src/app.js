@@ -93,9 +93,56 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(d), l.produitId);
     }
   };
-  const envoyerEmail = (boutiqueId, destinataire, sujet, corps) => {
+  /* E-mails : chaque e-mail d'une boutique se termine par son identité (raison sociale, adresse, contact).
+     Les e-mails commerciaux (bienvenue, reconquête) ajoutent un lien de désinscription personnel et l'en-tête
+     List-Unsubscribe ; une adresse désinscrite n'en reçoit plus (LCD art. 3 al. 1 let. o, RGPD). */
+  db.exec(`CREATE TABLE IF NOT EXISTS desinscriptions (boutique_id TEXT NOT NULL, email TEXT NOT NULL COLLATE NOCASE, cree_le INTEGER NOT NULL, PRIMARY KEY (boutique_id, email));
+    CREATE TABLE IF NOT EXISTS cles (nom TEXT PRIMARY KEY, valeur TEXT NOT NULL);`);
+  if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'desinscription'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('desinscription', ?)").run(crypto.randomBytes(32).toString('hex'));
+  const cleDesinscription = db.prepare("SELECT valeur FROM cles WHERE nom = 'desinscription'").get().valeur;
+  const signerDesinscription = (boutiqueId, email) => crypto.createHmac('sha256', cleDesinscription).update(`${boutiqueId}|${String(email).toLowerCase()}`).digest('base64url').slice(0, 32);
+  const jetonDesinscription = (boutiqueId, email) => `${Buffer.from(`${boutiqueId}|${String(email).toLowerCase()}`).toString('base64url')}.${signerDesinscription(boutiqueId, email)}`;
+  const lireJetonDesinscription = j => {
+    const [donnees, sig] = String(j || '').split('.');
+    if (!donnees || !sig) return null;
+    const [boutiqueId, email] = Buffer.from(donnees, 'base64url').toString('utf8').split('|');
+    const attendu = signerDesinscription(boutiqueId, email);
+    return sig.length === attendu.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(attendu)) ? { boutiqueId, email } : null;
+  };
+  const estDesinscrit = (boutiqueId, email) => !!db.prepare('SELECT 1 FROM desinscriptions WHERE boutique_id = ? AND email = ?').get(boutiqueId, email);
+  /* Contenu des e-mails de commande : récapitulatif, lien de suivi personnel, lien du transporteur. */
+  const lienCommande = (b, id) => { const row = db.prepare('SELECT jeton_client FROM commandes WHERE id = ?').get(id); return row ? `${urlBoutique(b)}?commande=${encodeURIComponent(id)}&jeton=${encodeURIComponent(row.jeton_client)}` : urlBoutique(b); };
+  const recapitulatif = (c, config) => [
+    ...c.lignes.map(l => `- ${l.qte} × ${l.nom} : ${formatMontant(l.prix * l.qte, config)}`),
+    ...(c.remise ? [`- Remise${c.motifRemise ? ` (${c.motifRemise})` : ''} : −${formatMontant(c.remise, config)}`] : []),
+    `- Livraison${(prix.modesLivraison(config)[c.livraison] || {}).nom ? ` (${prix.modesLivraison(config)[c.livraison].nom})` : ''} : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
+    `Total payé : ${formatMontant(c.total, config)}`
+  ].join('\n');
+  const lienTransporteur = (transporteur, suivi) => {
+    const n = encodeURIComponent(String(suivi || '').replace(/\s/g, ''));
+    if (/la poste|post/i.test(transporteur || '') && /^99\.|^\d{2}\.\d{2}/.test(suivi || '')) return `https://service.post.ch/ekp-web/ui/entry/shipping/0?formattedParcelCodes=${n}`;
+    if (/colissimo|la poste/i.test(transporteur || '')) return `https://www.laposte.fr/outils/suivre-vos-envois?code=${n}`;
+    if (/chronopost/i.test(transporteur || '')) return `https://www.chronopost.fr/tracking-no-cms/suivi-page?listeNumerosLT=${n}`;
+    if (/mondial/i.test(transporteur || '')) return `https://www.mondialrelay.fr/suivi-de-colis/?NumeroExpedition=${n}`;
+    return null;
+  };
+  const emailExpedition = (b, c, config) => {
+    const lien = lienTransporteur(c.transporteur || (prix.modesLivraison(config)[c.livraison] || {}).transporteur, c.suivi);
+    envoyerEmail(b.id, c.client.email, `Votre commande n° ${c.numero} est en route`,
+      `Bonjour ${c.client.nom},\n\nVotre colis est parti${c.transporteur ? ` avec ${c.transporteur}` : ''}.\nNuméro de suivi : ${c.suivi}${lien ? `\nSuivre le colis : ${lien}` : ''}\n\nVotre commande : ${lienCommande(b, c.id)}\n\nMerci et à bientôt,\n${config.boutique.nom}`);
+  };
+  const envoyerEmail = (boutiqueId, destinataire, sujet, corps, { marketing = false } = {}) => {
     if (!destinataire) return;
-    db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le) VALUES (?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps, Date.now());
+    if (marketing && boutiqueId && estDesinscrit(boutiqueId, destinataire)) return;
+    let pied = '', lien = null;
+    const b = boutiqueId ? db.prepare('SELECT config FROM boutiques WHERE id = ?').get(boutiqueId) : null;
+    if (b) {
+      const conf = JSON.parse(b.config), e = conf.entreprise || {};
+      const identite = [e.raison || conf.boutique.nom, e.adresse, e.email ? `Contact : ${e.email}` : ''].filter(Boolean).join(' · ');
+      if (marketing) lien = `${urlPublique}/desinscription?j=${jetonDesinscription(boutiqueId, destinataire)}`;
+      pied = `\n\n—\n${identite}${lien ? `\nVous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir : ${lien}` : ''}`;
+    }
+    db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
     if (env.LOG_EMAILS) journal.log(`[e-mail] à ${destinataire} : ${sujet}`);
   };
   const formatMontant = (n, config) => {
@@ -260,7 +307,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     });
     const config = lireConfig(res.boutique);
     envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
-      `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}. Total : ${formatMontant(res.c.total, config)}.\nNous vous écrirons dès l'expédition.\n`);
+      `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.`);
     if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop')) {
       try { await transmettreAuFournisseur(res.boutique, res.c, true); } catch (e) {
         const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.id));
@@ -496,8 +543,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     c.statut = cible;
     historique(c, textes[cible] + (cible === 'expediee' ? `, suivi ${c.suivi}` : ''));
     enregistrerCommande(c);
-    if (cible === 'expediee') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est en route`, `Bonjour ${c.client.nom},\n\nVotre colis est parti. Suivi : ${c.suivi}\n`);
-    if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\nVotre commande vous attend en boutique : ${config.magasin.adresse || ''}.\n`);
+    if (cible === 'expediee') emailExpedition(ctx.boutique, c, config);
+    if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\nVotre commande vous attend en boutique : ${config.magasin.adresse || ''}${config.magasin.horaires ? `\nHoraires : ${config.magasin.horaires}` : ''}.\nPrésentez ce numéro de commande : ${c.numero}.\n\nVotre commande : ${lienCommande(ctx.boutique, c.id)}\n\n${config.boutique.nom}`);
     return { commande: c };
   });
   r.post('/api/admin/caisse', exigerMarchand, ctx => {
@@ -737,6 +784,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = boutiqueParSlug(ctx.params.slug);
     const email = valider.email(ctx.corps.email);
     db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(b.id, email, Date.now());
+    db.prepare('DELETE FROM desinscriptions WHERE boutique_id = ? AND email = ?').run(b.id, email);   // nouvelle inscription explicite : nouveau consentement
     relances.emailBienvenue({ db, boutique: b, config: lireConfig(b), email, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail });
     return { ok: true };
   });
@@ -780,7 +828,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/webhooks/stripe', async ctx => {
     if (paiement.nom !== 'stripe' || !paiement.verifierWebhook(ctx.corpsBrut, ctx.req.headers['stripe-signature'])) throw erreur(400, 'Signature invalide.', 'signature');
     const ev = JSON.parse(ctx.corpsBrut);
-    if (abo.evenementStripe(ev)) return { recu: true };
+    const evAbo = abo.evenementStripe(ev);
+    if (evAbo) { if (evAbo.marchandId) emailAbonnement(evAbo.marchandId, evAbo.evenement); return { recu: true }; }
     if (ev.type === 'checkout.session.completed' && ev.data.object.payment_status === 'paid') {
       await paiementConfirme(ev.data.object.metadata.paiement_id, ev.data.object.id);
     }
@@ -799,7 +848,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (estDrop(c)) c.statut = 'expediee';
       historique(c, `Expédiée par le fournisseur (${c.transporteur}), suivi ${c.suivi} envoyé au client`);
       enregistrerCommande(c);
-      envoyerEmail(row.boutique_id, c.client.email, `Votre commande n° ${c.numero} est en route`, `Bonjour ${c.client.nom},\n\nVotre colis est parti avec ${c.transporteur}. Suivi : ${c.suivi}\n`);
+      { const bq = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id); emailExpedition(bq, c, lireConfig(bq)); }
     }
     return { recu: true };
   });
@@ -882,6 +931,25 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { binaire: Buffer.from(m[3], 'base64'), type: m[1] };
   });
 
+  /* ---------- Désinscription des e-mails commerciaux (lien personnel signé, confirmation par un clic) ---------- */
+  const pageSimple = (titre, texte, formulaire = '') => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escHtml(titre)}</title>
+<style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}</style></head><body><main><h1>${escHtml(titre)}</h1><p>${escHtml(texte)}</p>${formulaire}</main></body></html>`;
+  r.get('/desinscription', ctx => {
+    const d = lireJetonDesinscription(ctx.query.get('j'));
+    if (!d) return { html: pageSimple('Lien invalide', 'Ce lien de désinscription est incomplet ou a été modifié.') };
+    const b = db.prepare('SELECT config FROM boutiques WHERE id = ?').get(d.boutiqueId);
+    const nom = b ? JSON.parse(b.config).boutique.nom : 'cette boutique';
+    if (estDesinscrit(d.boutiqueId, d.email)) return { html: pageSimple('Vous êtes déjà désinscrit', `${d.email} ne reçoit plus les nouvelles et offres de ${nom}.`) };
+    return { html: pageSimple(`Ne plus recevoir les e-mails de ${nom}`, `Confirmez pour ${d.email}. Vous recevrez toujours les e-mails liés à vos commandes (confirmation, expédition).`, `<form method="post" action="/desinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Me désinscrire</button></form>`) };
+  });
+  r.post('/desinscription', ctx => {
+    const d = lireJetonDesinscription(ctx.query.get('j'));
+    if (!d) throw erreur(400, 'Lien de désinscription invalide.', 'invalide');
+    db.prepare('INSERT OR IGNORE INTO desinscriptions (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(d.boutiqueId, d.email, Date.now());
+    db.prepare('DELETE FROM abonnes WHERE boutique_id = ? AND email = ?').run(d.boutiqueId, d.email);
+    return { html: pageSimple('C’est fait', `${d.email} ne recevra plus d’e-mails commerciaux de cette boutique.`) };
+  });
+
   /* ---------- Abonnement Comptoir ---------- */
   r.get('/api/abonnement', exigerCompte, ctx => ({ ...abo.etat(ctx.marchand.id), formules: abo.formulesPour(deviseDe(ctx.boutique)), devise: deviseDe(ctx.boutique) }));
   r.post('/api/abonnement/commencer', exigerCompte, async ctx => {
@@ -889,8 +957,26 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return abo.commencer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || ''), devise: deviseDe(ctx.boutique) });
   });
   r.post('/api/abonnement/changer', exigerMarchand, ctx => abo.changer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || '') }));
-  r.post('/api/abonnement/resilier', exigerMarchand, ctx => abo.resilier({ marchand: ctx.marchand }));
+  r.post('/api/abonnement/resilier', exigerMarchand, async ctx => { const r2 = await abo.resilier({ marchand: ctx.marchand }); if (!r2.url) emailAbonnement(ctx.marchand.id, 'resiliation'); return r2; });
   r.post('/api/abonnement/reprendre', exigerMarchand, ctx => abo.reprendre({ marchand: ctx.marchand }));
+  /* E-mails de Comptoir au marchand sur son abonnement (activation, paiement en échec, résiliation, fin). */
+  function emailAbonnement(marchandId, evenement) {
+    const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(marchandId);
+    const b = db.prepare('SELECT * FROM boutiques WHERE marchand_id = ? ORDER BY cree_le LIMIT 1').get(marchandId);
+    if (!m || !b) return;
+    const e = abo.etat(marchandId), noms = { lancement: 'Lancement', croissance: 'Croissance', pro: 'Pro' };
+    const montant = e.prix ? (e.devise === 'CHF' ? `CHF ${e.prix}.–` : `${e.prix} €`) : '';
+    const fin = e.periodeFin ? new Date(e.periodeFin).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+    const nom = lireConfig(b).boutique.nom;
+    const textes = {
+      active: [`Votre boutique ${nom} est en ligne`, `Bonjour,\n\nVotre abonnement Comptoir ${noms[e.formule] || ''} (${montant} par mois) est actif. Votre boutique est ouverte aux clients : ${urlBoutique(b)}\n\nVotre espace : ${urlPublique}/app\nProchain renouvellement : ${fin}. Résiliable à tout moment dans Paramètres > Abonnement.\n\nL’équipe Comptoir`],
+      impaye: [`Paiement de votre abonnement en échec`, `Bonjour,\n\nLe dernier paiement de votre abonnement Comptoir n’est pas passé. Votre boutique ${nom} est fermée aux clients tant que le paiement n’est pas régularisé ; vos données sont conservées.\n\nMettez à jour votre moyen de paiement : ${urlPublique}/app\n\nL’équipe Comptoir`],
+      resiliation: [`Résiliation enregistrée`, `Bonjour,\n\nLa résiliation de votre abonnement Comptoir est enregistrée. Votre boutique ${nom} et votre espace restent ouverts jusqu’au ${fin}. Rien ne sera prélevé ensuite.\n\nVous changez d’avis ? Paramètres > Abonnement > Garder mon abonnement : ${urlPublique}/app\n\nL’équipe Comptoir`],
+      termine: [`Votre abonnement est terminé`, `Bonjour,\n\nVotre abonnement Comptoir est terminé : la boutique ${nom} est fermée aux clients. Vos données sont conservées ; reprenez un abonnement quand vous voulez : ${urlPublique}/app\n\nL’équipe Comptoir`]
+    };
+    const t = textes[evenement];
+    if (t) envoyerEmail(null, m.email, t[0], t[1]);
+  }
   const abonnementSimule = ref => {
     if (abo.prestataire !== 'simulation' || env.NODE_ENV === 'production') throw erreur(404, 'Page introuvable.', 'introuvable');
     const a = abo.parRefSimulation(ref);
@@ -898,7 +984,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return a;
   };
   r.get('/abonnement-simule/:ref', ctx => { const a = abonnementSimule(ctx.params.ref); const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(a.marchand_id); return { html: abonnements.pageAbonnementSimule(a, m.email) }; });
-  r.post('/abonnement-simule/:ref/confirmer', ctx => { abonnementSimule(ctx.params.ref); abo.confirmerSimulation(ctx.params.ref); return { redirection: `${urlPublique}/app?abonnement=ok` }; });
+  r.post('/abonnement-simule/:ref/confirmer', ctx => { abonnementSimule(ctx.params.ref); const m = abo.confirmerSimulation(ctx.params.ref); emailAbonnement(m, 'active'); return { redirection: `${urlPublique}/app?abonnement=ok` }; });
   r.post('/abonnement-simule/:ref/annuler', ctx => { abonnementSimule(ctx.params.ref); return { redirection: `${urlPublique}/app?abonnement=annule` }; });
 
   r.get('/paiement-simule/:id', ctx => { const { p, c, config } = chargerPaiementSimule(ctx.params.id); return { html: pageSimulation(p, c, config) }; });

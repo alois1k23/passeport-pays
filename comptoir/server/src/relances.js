@@ -43,7 +43,7 @@ function reserver(db, boutiqueId, cle, maintenant) {
 
 /* Exécute les automatisations d'une boutique. Renvoie le nombre d'e-mails envoyés. */
 function executer({ db, boutique, config, commandes, maintenant = Date.now(), urlPublique, urlBoutique, envoyerEmail, enregistrerCommande, formatMontant }) {
-  const base = urlBoutique || `${base}`;
+  const base = urlBoutique || urlPublique;
   const a = nettoyer(config.automatisations);
   const nom = config.boutique.nom;
   let n = 0;
@@ -96,7 +96,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       if (!c.client.consentement) continue; // e-mail marketing : uniquement avec accord explicite
       if (!reserver(db, boutique.id, `reconquete:${email}:${c.id}`, maintenant)) continue;
       envoyerEmail(boutique.id, email, `Ça fait longtemps, ${c.client.nom.split(' ')[0]}`,
-        `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${base}\n\nL’équipe ${nom}\n\nVous recevez cet e-mail car vous avez accepté nos nouvelles. Répondez « STOP » pour ne plus en recevoir.`);
+        `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${base}\n\nL’équipe ${nom}\n\nVous recevez cet e-mail car vous avez accepté nos nouvelles. Répondez « STOP » pour ne plus en recevoir.`, { marketing: true });
       n++;
     }
   }
@@ -108,7 +108,7 @@ function emailBienvenue({ db, boutique, config, email, urlPublique, urlBoutique,
   const a = nettoyer(config.automatisations);
   if (!a.bienvenue.actif || !reserver(db, boutique.id, `bienvenue:${email}`, Date.now())) return false;
   envoyerEmail(boutique.id, email, `Bienvenue chez ${config.boutique.nom}`,
-    `Bonjour,\n\nMerci de votre inscription.${a.bienvenue.remise && a.bienvenue.code ? ` Voici -${a.bienvenue.remise} % sur votre première commande avec le code ${a.bienvenue.code}.` : ''}\n\n${base}\n\nL’équipe ${config.boutique.nom}`);
+    `Bonjour,\n\nMerci de votre inscription.${a.bienvenue.remise && a.bienvenue.code ? ` Voici -${a.bienvenue.remise} % sur votre première commande avec le code ${a.bienvenue.code}.` : ''}\n\n${base}\n\nL’équipe ${config.boutique.nom}`, { marketing: true });
   return true;
 }
 
