@@ -818,6 +818,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const row = db.prepare('SELECT c.*, b.slug, b.config FROM commandes c JOIN boutiques b ON b.id = c.boutique_id WHERE c.id = ?').get(p.commande_id);
     return { p, row, c: lireCommande(row), config: JSON.parse(row.config) };
   };
+  /* Signature légère de l'état (pour savoir s'il faut recharger) : quelques octets au lieu de plusieurs Mo. */
+  r.get('/api/admin/signature', exigerMarchand, ctx => {
+    const c = db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(date), 0) AS derniere FROM commandes WHERE boutique_id = ?").get(ctx.boutique.id);
+    const a = db.prepare('SELECT COUNT(*) AS n FROM avis WHERE boutique_id = ?').get(ctx.boutique.id);
+    const statuts = db.prepare('SELECT statut, COUNT(*) AS n FROM commandes WHERE boutique_id = ? GROUP BY statut').all(ctx.boutique.id).map(x => x.statut + x.n).join(',');
+    return { commandes: c.n, derniere: c.derniere, statuts, avis: a.n };
+  });
+
   /* ---------- Produits stars : signaux de demande pour le pays de la boutique ---------- */
   r.get('/api/admin/tendances', exigerMarchand, async ctx => {
     if (!collecte.signaux('ch').majLe) await collecte.rafraichir();

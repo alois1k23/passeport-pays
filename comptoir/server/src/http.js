@@ -3,6 +3,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const zlib = require('node:zlib');
 
 class ErreurHttp extends Error {
   constructor(statut, message, code) { super(message); this.statut = statut; this.code = code || 'erreur'; }
@@ -58,10 +59,18 @@ function lireCookies(req) {
   return out;
 }
 
+/* Compression gzip des réponses texte de plus de 1 Ko quand le navigateur l'accepte (≈ 10 fois moins de données). */
+function compresser(res, corps, entetes) {
+  const accepte = res.req && /\bgzip\b/.test(res.req.headers['accept-encoding'] || '');
+  const tampon = Buffer.isBuffer(corps) ? corps : Buffer.from(corps);
+  if (!accepte || tampon.length < 1024) return { corps: tampon, entetes };
+  return { corps: zlib.gzipSync(tampon, { level: 6 }), entetes: { ...entetes, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } };
+}
+
 function envoyerJson(res, statut, donnees, entetes = {}) {
-  const corps = JSON.stringify(donnees);
-  res.writeHead(statut, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...entetes });
-  res.end(corps);
+  const z = compresser(res, JSON.stringify(donnees), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...entetes });
+  res.writeHead(statut, z.entetes);
+  res.end(z.corps);
 }
 
 function envoyerHtml(res, statut, html) {
@@ -79,8 +88,10 @@ function servirStatique(res, racine, chemin) {
   try {
     if (fs.statSync(fichier).isDirectory()) fichier = path.join(fichier, 'index.html');
     const contenu = fs.readFileSync(fichier);
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(fichier)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-    res.end(contenu);
+    const type = TYPES[path.extname(fichier)] || 'application/octet-stream';
+    const z = /^(text|application\/json)/.test(type) ? compresser(res, contenu, { 'Content-Type': type, 'Cache-Control': 'no-cache' }) : { corps: contenu, entetes: { 'Content-Type': type, 'Cache-Control': 'no-cache' } };
+    res.writeHead(200, z.entetes);
+    res.end(z.corps);
     return true;
   } catch { return false; }
 }

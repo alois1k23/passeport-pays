@@ -334,8 +334,15 @@ function installerModeConnecte() {
   }, true);
 
   // Les nouvelles commandes de la boutique publique apparaissent toutes seules.
+  // Toutes les 15 s, une signature de quelques octets ; l'état complet n'est rechargé que s'il a changé.
+  let signature = null;
   setInterval(async () => {
     if (document.hidden || ui.produitEdite || ['editeur', 'creer'].includes(ui.route)) return;
+    let s;
+    try { s = JSON.stringify(await api('GET', '/api/admin/signature')); } catch { return; }
+    if (signature === null) { signature = s; return; }
+    if (s === signature) return;
+    signature = s;
     const avant = etat.commandes.length;
     const statuts = etat.commandes.map(c => c.statut).join();
     try { await rechargerEtat(); } catch { return; }

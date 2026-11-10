@@ -38,7 +38,7 @@ Outils ajoutés : `outils/simulation/securite-xss.js` (pièges dans tous les cha
 
 Tests : 26 (dont 2 nouveaux : saisies malformées et en-têtes, limite de commandes).
 
-### Cycle 2 — Accessibilité (0 h 20 – 0 h 50)
+### Cycle 2 — Accessibilité (0 h 20 – 0 h 25)
 
 Outil ajouté : `outils/simulation/accessibilite.js` (règles WCAG 2.2 AA : étiquettes, noms des boutons, textes alternatifs, éléments cliquables au clavier, focus visible, langue, titres, contrastes calculés), sur les 20 écrans de l'admin, la fiche produit, l'accueil et l'inscription, en clair et en sombre.
 
@@ -59,3 +59,25 @@ Contrôles sans défaut : focus clavier visible sur les 25 premiers éléments d
 Faux positifs de l'outil corrigés au passage : étiquettes dans un bloc « Réglages » replié, couleurs au format `color(srgb …)`.
 
 Résultat final de l'audit : aucun problème. Tests : 26.
+
+### Cycle 3 — Volume et performance (0 h 25 – 0 h 45)
+
+Outil ajouté : `outils/simulation/volume.js` : une boutique de 500 produits et 10 000 commandes sur 13 mois (2 500 clients, 10 villes, tous les statuts), puis mesures.
+
+| Mesure | Résultat |
+|---|---|
+| Rendu de chaque écran (15 écrans) | 2 à 44 ms (Vue d'ensemble 43 ms, Analyse 38 ms, Commandes 12 ms) |
+| Chargement de l'application | 0,7 s |
+| Recherche dans 10 000 commandes | 52 ms ; export CSV : 30 ms |
+| Mémoire JavaScript | 13 Mo |
+| Boutique publique sur mobile (500 produits) | 0,2 s |
+| Erreurs | aucune |
+
+**Défauts trouvés et corrigés**
+
+1. **6,8 Mo rechargés toutes les 15 secondes.** Pour afficher les nouvelles commandes, l'interface relisait l'état complet en boucle : environ 27 Mo par minute et par onglet ouvert. Une signature légère (`/api/admin/signature`, 0,2 Ko : nombre de commandes, dernière date, répartition des statuts, avis) est maintenant interrogée ; l'état complet n'est relu que si elle change.
+2. **Aucune compression des réponses.** Gzip pour le JSON, le HTML, le CSS et le JavaScript au-delà de 1 Ko. L'état de la grande boutique passe de 6,8 Mo à 872 Ko transférés ; `app.js` : 28 Ko.
+
+À surveiller au-delà de 50 000 commandes : charger les commandes par pages côté serveur plutôt qu'en une fois.
+
+Tests : 26.
