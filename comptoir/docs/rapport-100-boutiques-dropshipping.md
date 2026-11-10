@@ -64,7 +64,7 @@ Date : 10 novembre 2026. Simulation réelle : un script a joué 100 clients qui 
 ## Relancer
 
 ```
-cd comptoir/server && DEMO_DELAI_EXPEDITION_MS=3000 LIMITE_ESSAIS=1000 BASE_DE_DONNEES=/tmp/sim.db npm start
+cd comptoir/server && DEMO_DELAI_EXPEDITION_MS=3000 LIMITE_ESSAIS=1000 LIMITES_FACTEUR=1000 BASE_DE_DONNEES=/tmp/sim.db npm start
 node ../outils/simulation/boutiques-drop.js http://localhost:3000 /tmp/captures 100 > drop.json   # nécessite Playwright
 node ../outils/simulation/resume.js ./drop.json
 node ../outils/simulation/audit-boutiques.js http://localhost:3000 /tmp/sim.db

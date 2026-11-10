@@ -37,9 +37,11 @@ function lireCorps(req, limite = 2 * 1024 * 1024) {
   return new Promise((ok, ko) => {
     const morceaux = [];
     let taille = 0;
+    // Trop volumineux : on répond 413 proprement (au lieu de couper la connexion) et on vide le reste sans le garder.
+    if (Number(req.headers['content-length']) > limite) { req.resume(); ko(erreur(413, 'Requête trop volumineuse.', 'trop_volumineux')); return; }
     req.on('data', c => {
       taille += c.length;
-      if (taille > limite) { ko(erreur(413, 'Requête trop volumineuse.', 'trop_volumineux')); req.destroy(); return; }
+      if (taille > limite) { req.removeAllListeners('data'); req.resume(); ko(erreur(413, 'Requête trop volumineuse.', 'trop_volumineux')); return; }
       morceaux.push(c);
     });
     req.on('end', () => ok(Buffer.concat(morceaux)));

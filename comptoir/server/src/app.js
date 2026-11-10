@@ -38,6 +38,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   courriel.creerTables(db);
   const serviceEmail = courriel.prestataire(env, fetchImpl);
   const hotePrincipal = new URL(urlPublique).hostname.toLowerCase();
+  // Facteur des limites de débit publiques (1 en production ; plus élevé pour les tests et simulations depuis une seule adresse).
+  const facteurLimites = Math.max(1, Number(env.LIMITES_FACTEUR) || 1);
   const abo = abonnements.creerGestion({ db, env, urlPublique, fetchImpl });
   const collecte = tendances.creerCollecte({ db, env, catalogue: fournisseurs.CATALOGUE_DEMO, fetchImpl, journal });
   const deviseDe = b => lireConfig(b).boutique.pays === 'ch' ? 'CHF' : 'EUR';
@@ -110,13 +112,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     b.nom = valider.texte(b.nom, 'Le nom de la boutique', { max: 80 });
     b.pays = ['fr', 'be', 'ch', 'ca'].includes(b.pays) ? b.pays : 'ch';
     b.devise = b.pays === 'ch' ? 'CHF' : b.pays === 'ca' ? 'CAD' : 'EUR';
-    const t = b.theme || {};
+    const objet = x => x && typeof x === 'object' && !Array.isArray(x);
+    // Chaque partie de la configuration doit être un objet : une valeur d'un autre type est remplacée, jamais acceptée telle quelle.
+    for (const k of ['entreprise', 'magasin', 'reglages', 'campagnes', 'automatisations', 'offres', 'social']) if (config[k] !== undefined && !objet(config[k])) config[k] = {};
+    const t = objet(b.theme) ? b.theme : {};
     for (const k of ['bg', 'surface', 'text', 'muted', 'primary', 'onPrimary']) if (!COULEUR.test(t[k] || '')) t[k] = '#333333';
     if (!POLICES.includes(t.font)) t.font = POLICES[4];
     if (!POLICES.includes(t.body)) t.body = POLICES[4];
     t.radius = Math.max(0, Math.min(24, Number(t.radius) || 0));
     b.theme = t;
     if (!Array.isArray(b.sections)) b.sections = [];
+    b.sections = b.sections.filter(objet);
     b.sections = b.sections.slice(0, 40).map(s => ({ id: String(s.id).slice(0, 20), type: String(s.type).slice(0, 20), props: Object.fromEntries(Object.entries(s.props || {}).slice(0, 20).map(([k, v]) => [String(k).slice(0, 20), String(v ?? '').slice(0, 2000)])) }));
     return {
       boutique: b,
@@ -178,7 +184,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return slug;
   }
   function insererProduits(boutiqueId, produits) {
-    (produits || []).slice(0, 200).forEach((p, i) => {
+    (Array.isArray(produits) ? produits : []).filter(p => p && typeof p === 'object').slice(0, 200).forEach((p, i) => {
       db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(auth.nouvelId('p_'), boutiqueId, JSON.stringify(nettoyerProduit(p)), i);
     });
   }
@@ -587,6 +593,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     };
   });
   r.post('/api/public/:slug/commandes', async ctx => {
+    auth.limiter('commande:' + ctx.ip, (Number(env.LIMITE_COMMANDES) || 30) * facteurLimites, 15 * 60000, 'Trop de commandes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueOuverte(ctx.params.slug);
     const config = lireConfig(b);
     const produits = listerProduits(b.id);
@@ -630,6 +637,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Avis vérifiés : seul un client ayant reçu sa commande peut noter, une fois par produit. */
   const statsAvis = boutiqueId => Object.fromEntries(db.prepare('SELECT produit_id, AVG(note) AS m, COUNT(*) AS n FROM avis WHERE boutique_id = ? GROUP BY produit_id').all(boutiqueId).map(x => [x.produit_id, { moyenne: x.m, n: x.n }]));
   r.post('/api/public/:slug/avis', ctx => {
+    auth.limiter('avis:' + ctx.ip, 20 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(String(ctx.corps.commandeId || ''), b.id);
     const jeton = String(ctx.corps.jeton || '');
@@ -707,6 +715,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Mesure d’audience sans cookie : identifiant de session aléatoire (onglet), aucune adresse IP enregistrée. */
   const TYPES_EVENEMENTS = ['vue', 'produit', 'panier', 'livraison', 'paiement', 'offre_vue'];
   r.post('/api/public/:slug/evenement', ctx => {
+    auth.limiter('evenement:' + ctx.ip, 1500 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
     const type = String(ctx.corps.type || ''), session = String(ctx.corps.session || '').replace(/[^\w-]/g, '').slice(0, 40);
     if (!TYPES_EVENEMENTS.includes(type) || session.length < 8) throw erreur(400, 'Événement invalide.', 'invalide');
@@ -716,6 +725,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
 
   r.post('/api/public/:slug/code', ctx => {
+    auth.limiter('code:' + ctx.ip, 40 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
     const saisi = String(ctx.corps.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const c = Remises.codesValables(lireConfig(b)).find(x => x.code === saisi);
@@ -723,6 +733,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { code: c.code, remise: c.remise };
   });
   r.post('/api/public/:slug/newsletter', ctx => {
+    auth.limiter('newsletter:' + ctx.ip, 20 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
     const email = valider.email(ctx.corps.email);
     db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(b.id, email, Date.now());
@@ -871,6 +882,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 
   /* ---------- Gestionnaire HTTP ---------- */
   async function gerer(req, res) {
+    // En-têtes de sécurité sur toutes les réponses : pas de chargement de script étranger (hors cdnjs pour le QR code),
+    // pas d'affichage dans un cadre d'un autre site (clickjacking), pas de devinette du type de fichier.
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(self)');
+    if (securise) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     const url = new URL(req.url, 'http://local');
     const chemin = url.pathname;
     try {

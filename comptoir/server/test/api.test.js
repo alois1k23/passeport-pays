@@ -16,7 +16,7 @@ before(async () => {
   serveur = http.createServer();
   await new Promise(ok => serveur.listen(0, '127.0.0.1', ok));
   base = `http://127.0.0.1:${serveur.address().port}`;
-  serveur.on('request', creerApp({ db, env: { DEMO_DELAI_EXPEDITION_MS: '0', LIMITE_ESSAIS: '1000', TENDANCES_VENTES_AGE_MS: '0' }, urlPublique: base, journal: silencieux }));
+  serveur.on('request', creerApp({ db, env: { DEMO_DELAI_EXPEDITION_MS: '0', LIMITE_ESSAIS: '1000', TENDANCES_VENTES_AGE_MS: '0', LIMITES_FACTEUR: '1000' }, urlPublique: base, journal: silencieux }));
 });
 after(() => serveur.close());
 
@@ -532,4 +532,18 @@ test('produits stars : produits préparés à l’inscription, ventes agrégées
   const sans = client();
   await sans('POST', '/api/auth/inscription', { email: 'stars-c@exemple.ch', motDePasse: 'un mot de passe solide', config: config('Stars C') }, { sansPaiement: true });
   assert.equal((await sans('GET', '/api/admin/tendances')).statut, 402);
+});
+
+test('sécurité : saisies malformées sans erreur serveur, limite de débit sur les commandes publiques', async () => {
+  const c = client();
+  for (const corps of [{ email: 'm1@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Mal formé', theme: 42, sections: 'x' }, entreprise: 'texte', magasin: 7 }, produits: 'x', importer: { a: 1 } },
+    { email: 'm2@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Mal formé 2', sections: [null, 3, { id: 's', type: 'hero', props: null }] } }, produits: [null, 5] }]) {
+    const r = await c('POST', '/api/auth/inscription', corps, { sansPaiement: true });
+    assert.ok(r.statut < 500, `inscription mal formée : ${r.statut}`);
+  }
+  const gros = await fetch(base + '/api/auth/inscription', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'x'.repeat(3e6) });
+  assert.equal(gros.status, 413);
+  const h = await fetch(base + '/');
+  assert.match(h.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.equal(h.headers.get('x-content-type-options'), 'nosniff');
 });

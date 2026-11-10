@@ -39,7 +39,7 @@ async function boutique(b, i) {
   const ctx = await b.newContext({ ...opts, colorScheme: i % 3 === 1 ? 'dark' : 'light', locale: 'fr-CH' });
   const p = await ctx.newPage();
   p.on('pageerror', e => note(qui, 'erreur JavaScript', e.message));
-  p.on('console', m => { if (m.type() === 'error' && !/favicon|ERR_|fonts|qrcode|Failed to load resource/.test(m.text())) note(qui, 'erreur console', m.text()); });
+  p.on('console', m => { if (m.type() === 'error' && !/favicon|ERR_|qrcode|Failed to load resource/.test(m.text())) note(qui, 'erreur console', m.text()); });
   p.on('dialog', d => d.accept());
   const go = async r => { await p.evaluate(r => { location.hash = r; }, r); await p.waitForTimeout(380); };
   const res = { i, nom, niveau, pays, secteur, produits: 0, drop: 0, commande: null };

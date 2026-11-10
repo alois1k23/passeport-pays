@@ -58,4 +58,16 @@ function limiterConnexion(ip, max = 10) {
   if (e.n > max) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
 }
 
-module.exports = { hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, nouvelId, sha256, COOKIE };
+/* Limite de débit générique (mémoire du processus) : max requêtes par fenêtre pour une clé (ex. « commande:<ip> »). */
+const compteurs = new Map();
+function limiter(cle, max, fenetreMs, message) {
+  const maintenant = Date.now();
+  const e = compteurs.get(cle) || { n: 0, depuis: maintenant };
+  if (maintenant - e.depuis > fenetreMs) { e.n = 0; e.depuis = maintenant; }
+  e.n++;
+  compteurs.set(cle, e);
+  if (compteurs.size > 50000) for (const [k, v] of compteurs) if (maintenant - v.depuis > fenetreMs) compteurs.delete(k);
+  if (e.n > max) throw erreur(429, message, 'trop_de_requetes');
+}
+
+module.exports = { limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, nouvelId, sha256, COOKIE };
