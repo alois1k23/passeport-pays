@@ -191,7 +191,7 @@ const TYPES_SECTIONS = {
   avis: { nom: 'Avis clients', champs: [['a1', 'Avis 1', 'textarea'], ['n1', 'Auteur 1', 'text'], ['a2', 'Avis 2', 'textarea'], ['n2', 'Auteur 2', 'text']], defaut: { a1: 'Produit superbe et livraison rapide.', n1: 'Camille, Lyon', a2: 'Je recommande les yeux fermés.', n2: 'Hugo, Nantes' } },
   newsletter: { nom: 'Inscription newsletter', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'text']], defaut: { titre: 'Restons en contact', texte: '-10 % sur votre première commande.' } },
   faq: { nom: 'Questions fréquentes', champs: [['q1', 'Question 1', 'text'], ['r1', 'Réponse 1', 'textarea'], ['q2', 'Question 2', 'text'], ['r2', 'Réponse 2', 'textarea']], defaut: { q1: 'Quels sont les délais de livraison ?', r1: '48 à 72 h en France métropolitaine.', q2: 'Puis-je retourner un produit ?', r2: 'Oui, sous 30 jours, retour gratuit.' } },
-  pied: { nom: 'Pied de page', champs: [['texte', 'Texte', 'text'], ['contact', 'Contact', 'text']], defaut: { texte: 'Fait avec soin.', contact: 'bonjour@exemple.ch' } }
+  pied: { nom: 'Pied de page', champs: [['texte', 'Texte', 'text'], ['contact', 'Contact', 'text']], defaut: { texte: 'Fait avec soin.', contact: '' } }
 };
 
 const STATUTS = {
@@ -257,7 +257,8 @@ function sectionsParDefaut(nom, secteurId, pays = 'fr') {
   return [
     mk('annonce', pays === 'ch' ? { texte: 'Livraison offerte dès CHF 60.– · Paiement TWINT' } : {}),
     mk('hero', { titre: nom, sousTitre: `${s.nom} choisis avec soin, expédiés depuis notre atelier.`, bouton: 'Voir la collection' }),
-    mk('saison', { titre: saison.nom, texte: '-15 % sur une sélection jusqu’à la fin du mois', code: saison.kw.replace(/-/g, '').toUpperCase().slice(0, 12) + '15' }),
+    // Pas de code promo par défaut : il n'existerait pas au paiement. Le copilote en crée un quand le marchand valide une campagne.
+    mk('saison', { titre: saison.nom, texte: 'Découvrez notre sélection du moment.', code: '' }),
     mk('produits', { titre: 'Nos meilleures ventes', nombre: '4' }),
     mk('arguments', pays === 'ch' ? { a1: 'Livraison suivie jusqu’à votre porte', a2: 'Paiement TWINT ou carte', a3: 'Retours gratuits 30 jours' } : {}),
     mk('avis', {}),

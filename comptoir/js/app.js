@@ -268,7 +268,10 @@ function vueTableau() {
           nFour ? item(nFour, `commande${nFour > 1 ? 's' : ''} chez le fournisseur (suivi automatique)`, 'commandes', { filtre: 'fournisseur' }) : '',
           retraits ? item(retraits, `retrait${retraits > 1 ? 's' : ''} en magasin en cours`, 'magasin', { alerte: true }) : '',
           etat.boutique.domaine ? '' : item(null, 'Choisir un domaine personnalisé', 'domaines', { alerte: true }),
-          etat.entreprise.mediateur || estSuisse() ? '' : item(null, 'Indiquer votre médiateur de la consommation (obligatoire)', 'conformite', { alerte: true })
+          etat.entreprise.mediateur || estSuisse() ? '' : item(null, 'Indiquer votre médiateur de la consommation (obligatoire)', 'conformite', { alerte: true }),
+          etat.entreprise.adresse ? '' : item(null, `Indiquer l’adresse de l’entreprise (${estSuisse() ? 'Impressum' : 'mentions légales'}, obligatoire pour vendre en ligne)`, 'conformite', { alerte: true }),
+          (() => { const n = etat.produits.filter(p => p.aVerifier).length; return n ? item(n, `produit${n > 1 ? 's' : ''} d’exemple à vérifier avant la mise en ligne`, 'produits', { alerte: true }) : ''; })(),
+          (() => { const n = etat.produits.filter(p => p.actif !== false && !p.aVerifier && !p.image).length; return n ? item(n, `produit${n > 1 ? 's' : ''} sans photo (une vraie photo rassure et convertit mieux)`, 'produits') : ''; })()
         ];
         return `<ul class="todo">${items.join('')}
         <li>${etat.rdv ? `<a href="#tableau"><span class="todo-n"><i></i></span><span class="todo-t">Session de lancement le <strong>${dateHeure(etat.rdv)}</strong></span></a>` : '<button class="todo-btn" data-action="rdv"><span class="todo-n"><i></i></span><span class="todo-t">Réserver la session de lancement offerte (30 min en visio)</span><span class="todo-fl" aria-hidden="true">›</span></button>'}</li>

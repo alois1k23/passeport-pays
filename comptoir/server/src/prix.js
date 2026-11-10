@@ -47,7 +47,7 @@ function construireLignes(produits, demandes) {
   const lignes = [];
   for (const d of demandes) {
     const p = produits.find(x => x.id === d.produitId);
-    if (!p || !p.actif) throw erreur(400, 'Un produit du panier n’est plus disponible.', 'produit_indisponible');
+    if (!p || !p.actif || p.aVerifier) throw erreur(400, 'Un produit du panier n’est plus disponible.', 'produit_indisponible');
     const qte = Number(d.qte);
     if (!Number.isInteger(qte) || qte < 1 || qte > 20) throw erreur(400, 'Quantité invalide.', 'quantite_invalide');
     if (p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');

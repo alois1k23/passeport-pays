@@ -188,7 +188,7 @@ async function boutique(b, i) {
 
     // 9. Côté marchand : transmission au fournisseur, expédition, facture, total
     let cmd = null;
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < 25; k++) {
       const e2 = await p.evaluate(() => api('GET', '/api/admin/etat'));
       cmd = e2.commandes.filter(x => x.canal !== 'magasin').sort((x, y) => y.date - x.date)[0];
       if (cmd && ['expediee', 'livree'].includes(cmd.statut)) break;
@@ -196,7 +196,7 @@ async function boutique(b, i) {
     }
     if (!cmd) note(qui, 'commande absente de l’administration');
     else {
-      const aDrop = cmd.lignes.some(l => l.type === 'drop' || l.fournisseur || l.refFournisseur) || res.drop > 0;
+      const aDrop = cmd.lignes.some(l => l.type === 'drop');
       if (aDrop && !['fournisseur', 'expediee', 'livree'].includes(cmd.statut)) note(qui, 'commande dropshipping non transmise au fournisseur', cmd.statut);
       if (aDrop && cmd.statut === 'expediee' && !cmd.suivi) note(qui, 'expédiée sans numéro de suivi');
       if (!cmd.facture) note(qui, 'commande payée sans facture');

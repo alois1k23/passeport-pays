@@ -537,13 +537,20 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const config = lireConfig(b);
     const notes = statsAvis(b.id);
     const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
-    const produits = listerProduits(b.id).filter(p => p.actif).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
+    const produits = listerProduits(b.id).filter(p => p.actif && !p.aVerifier).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
       const pb = PrixBarres.verifier({ prix: p.prix, prixReference, historiquePrix }, regime);
       return { ...p, avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };
     });
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
+    // Un code promo affiché dans la bannière doit exister au paiement ; un contact d'exemple est remplacé par l'e-mail de l'entreprise.
+    const codesOk = new Set(Remises.codesValables(config).map(c => c.code.toUpperCase()));
+    const sectionsPubliques = (config.boutique.sections || []).map(s => {
+      if (s.type === 'saison' && s.props && s.props.code && !codesOk.has(String(s.props.code).toUpperCase())) return { ...s, props: { ...s.props, code: '' } };
+      if (s.type === 'pied' && s.props && (!s.props.contact || /@exemple\./i.test(s.props.contact))) return { ...s, props: { ...s.props, contact: config.entreprise.email || '' } };
+      return s;
+    });
     return {
-      boutique: config.boutique,
+      boutique: { ...config.boutique, sections: sectionsPubliques },
       magasin: { clickCollect: !!config.magasin.clickCollect, adresse: config.magasin.adresse || '' },
       entreprise: { raison: config.entreprise.raison, adresse: config.entreprise.adresse, email: config.entreprise.email, forme: config.entreprise.forme, siret: config.entreprise.siret, regime: config.entreprise.regime },
       produits, avisRecents,

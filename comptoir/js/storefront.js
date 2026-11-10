@@ -97,8 +97,12 @@ function renduSection(s, etat, mode) {
         ${p.align === 'centre' || !vedette ? '' : visuelProduit(vedette, true)}
       </section>`;
     }
-    case 'saison':
-      return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${esc(p.texte)}</span></div>${p.code ? `<code>${esc(p.code)}</code>` : ''}</section>`;
+    case 'saison': {
+      // Côté admin, on vérifie que le code existe vraiment (Conversion ou campagne) ; côté public, le serveur a déjà retiré les codes inconnus.
+      const connu = !p.code || typeof etat.campagnes === 'undefined' || typeof Remises === 'undefined' || Remises.codesValables(etat).some(c => c.code === String(p.code).toUpperCase());
+      const code = p.code && connu ? `<code>${esc(p.code)}</code>` : p.code && mode === 'edition' ? `<code class="sf-code-inconnu" title="Ce code n’existe pas : créez-le dans Conversion, sinon il n’est pas affiché aux clients">${esc(p.code)} · inconnu</code>` : '';
+      return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${esc(p.texte)}</span></div>${code}</section>`;
+    }
     case 'produits': {
       const liste = prods.filter(x => !p.categorie || x.categorie === p.categorie).slice(0, Number(p.nombre) || 4);
       return `<section class="sf-produits" id="sf-collection">
@@ -109,7 +113,7 @@ function renduSection(s, etat, mode) {
             <div class="sf-carte-infos"><h3><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${x.prixBarre ? `<s class="sf-barre">${euros(x.prixBarre)}</s> ` : ''}${euros(x.prix)}</span></div>
             ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}<small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}</small>
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
-          </article>`).join('') || '<p class="sf-vide">Aucun produit dans cette catégorie.</p>'}
+          </article>`).join('') || (prods.length ? '<p class="sf-vide">Aucun produit dans cette catégorie.</p>' : '<p class="sf-vide">Nos produits arrivent très bientôt.</p>')}
         </div></section>`;
     }
     case 'arguments':
@@ -132,7 +136,7 @@ function renduSection(s, etat, mode) {
     case 'faq':
       return `<section class="sf-faq"><h2>Questions fréquentes</h2>${[[p.q1, p.r1], [p.q2, p.r2]].filter(q => q[0]).map(([q, r]) => `<details><summary>${esc(q)}</summary><p>${esc(r)}</p></details>`).join('')}</section>`;
     case 'pied':
-      return `<footer class="sf-pied" data-ancre="contact"><strong>${esc(etat.boutique.nom)}</strong><span>${esc(p.texte)}</span><span>${esc(p.contact)}</span>
+      return `<footer class="sf-pied" data-ancre="contact"><strong>${esc(etat.boutique.nom)}</strong><span>${esc(p.texte)}</span><span>${esc(p.contact && !/@exemple\./i.test(p.contact) ? p.contact : (etat.entreprise && etat.entreprise.email) || '')}</span>
         <span class="sf-legal"><button type="button" data-action="doc" data-id="mentions">Mentions légales</button><button type="button" data-action="doc" data-id="cgv">CGV</button></span></footer>`;
     default:
       return '';

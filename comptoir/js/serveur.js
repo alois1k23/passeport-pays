@@ -132,7 +132,11 @@ function installerConnexion() {
           magasin: { actif: false, adresse: '', horaires: '', clickCollect: false, googleSync: false },
           reglages: { autoTransmission: true, cpa: 8 }
         };
-        const propres = d.modele === 'drop' ? [] : produitsDepuisSecteur(d.secteur).slice(0, d.modele === 'mixte' ? 2 : 6).map(({ id, ...p }) => ({ ...p, type: 'stock' }));
+        // Produits d'exemple (modèles « stock » et « mixte ») : masqués et « à vérifier » tant que le marchand n'a pas confirmé
+        // qu'il les possède (prix, stock, photo). Jamais le même nom qu'un produit du catalogue fournisseur.
+        const nomsCatalogue = new Set(CATALOGUE.filter(f => f.niche === d.secteur).map(f => f.nom.toLowerCase()));
+        const propres = d.modele === 'drop' ? [] : produitsDepuisSecteur(d.secteur).filter(p => !nomsCatalogue.has(p.nom.toLowerCase())).slice(0, d.modele === 'mixte' ? 2 : 6)
+          .map(({ id, ...p }) => ({ ...p, description: `${p.nom}. ${p.description} Exemple de fiche : remplacez ce texte, la photo, le prix et le stock par les vôtres.`, type: 'stock', actif: false, aVerifier: true }));
         await api('POST', '/api/auth/inscription', { email: d.email, motDePasse: d.motDePasse, config, produits: propres });
         if (d.modele !== 'stock') {
           etat = { boutique: config.boutique, entreprise: config.entreprise, produits: [], commandes: [], reglages: config.reglages };
