@@ -20,6 +20,11 @@ setInterval(() => { try { gerer.automatisationsEcheances(); } catch (e) { consol
 // File d'e-mails : envoi réel si BREVO_API_KEY ou POSTMARK_TOKEN et EMAIL_EXPEDITEUR sont définis.
 setInterval(() => gerer.envoyerEmails().catch(e => console.error('[e-mail]', e.message)), Number(env.EMAIL_INTERVALLE_MS || 30000)).unref();
 
+// Produits stars : signaux de demande (ventes Comptoir, Google Trends via SerpApi, fichier importé), toutes les 6 heures.
+const tendances = () => gerer.rafraichirTendances().catch(e => console.error('[tendances]', e.message));
+setTimeout(tendances, 5000).unref();
+setInterval(tendances, Number(env.TENDANCES_INTERVALLE_MS || 6 * 3600000)).unref();
+
 http.createServer(gerer).listen(port, () => {
   console.log(`Comptoir écoute sur ${urlPublique}`);
   console.log(`Paiements : ${env.STRIPE_SECRET_KEY ? 'Stripe (TWINT + cartes)' : 'simulation (aucune clé Stripe)'}`);

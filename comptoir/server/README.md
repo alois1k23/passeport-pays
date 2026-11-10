@@ -38,12 +38,34 @@ Ouvrez `http://localhost:3000`, créez un compte, puis ouvrez votre boutique pub
 | **Suppression du compte** | `POST /api/admin/compte/supprimer` avec le mot de passe : efface la boutique, les produits, les commandes, les factures, les clients, les avis, les publications, les e-mails et les mesures, puis ferme la session (testé). L'interface rappelle d'exporter les données avant. |
 | **Session** | `/api/session` et l'état d'administration indiquent le service de paiement, le service d'e-mails et la date de création du compte (page Paramètres). |
 
+## Abonnement et accès (novembre 2026)
+
+| Domaine | Détail |
+|---|---|
+| **Parcours** | Page d'accueil `/` (formules) → `/app?formule=…` : création du compte et de la boutique → choix de la formule et paiement → accès à l'espace. Avant le paiement, toute route d'administration répond 402 et la boutique publique est fermée (404 « pas encore ouverte ») ; le suivi des commandes déjà passées reste accessible. |
+| **Isolation** | Chaque route d'administration ne lit et n'écrit que la boutique du compte connecté (`boutique_id` tiré de la session, jamais de la requête). Testé : un marchand ne voit ni ne modifie les données d'un autre. |
+| **Paiement** | Sans clé : page `/abonnement-simule/<ref>` (refusée en production). Avec `STRIPE_SECRET_KEY` : Checkout en mode abonnement (cartes), portail client Stripe pour changer de carte, de formule ou résilier. Webhooks : `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| **Résiliation** | Effet à la fin du mois payé ; accès conservé jusque-là, puis boutique fermée aux clients, données conservées. Délai de grâce de 3 jours après une échéance non confirmée. |
+| **Routes** | `GET /api/abonnement`, `POST /api/abonnement/commencer` `{ formule }`, `POST /api/abonnement/changer`, `/resilier`, `/reprendre`. |
+
+## Produits stars et tendances
+
+`GET /api/admin/tendances` renvoie, pour le pays de la boutique, les signaux de demande par produit du catalogue ; le classement (`js/tendances.js`, partagé navigateur et serveur) combine saison (profil mensuel par produit), demande, marge nette, concurrence, délai et note.
+
+| Source | Détail |
+|---|---|
+| **Ventes Comptoir** | Commandes payées des 28 derniers jours de toutes les boutiques, agrégées par produit du catalogue. Exposées seulement si au moins `TENDANCES_MIN_BOUTIQUES` boutiques (2) vendent le produit : aucune boutique ne peut déduire les ventes d'une autre (testé). |
+| **Google Trends** | Via l'API SerpApi (`SERPAPI_KEY`), par pays des boutiques ; rotation de `TENDANCES_REQUETES_MAX` produits par passage, les plus anciennement mis à jour d'abord. |
+| **Fichier** | `TENDANCES_FICHIER` : export JSON d'un outil d'analyse ou relevés de meilleures ventes. Les pages des places de marché (Amazon, Galaxus, AliExpress…) ne sont pas aspirées : leurs conditions d'utilisation l'interdisent. |
+
+Rafraîchissement : au démarrage puis toutes les 6 heures (`TENDANCES_INTERVALLE_MS`). Catalogue de démonstration : 148 produits sur 9 niches, généré par `outils/catalogue/generer.py` (une seule source pour `server/data/catalogue-demo.json` et `js/catalogue.js`).
+
 ## Brancher les vrais services
 
 ### Paiement TWINT et cartes (Stripe)
 1. Créez un compte Stripe au nom de l'entreprise suisse et activez TWINT dans les moyens de paiement (CHF uniquement).
 2. Définissez `STRIPE_SECRET_KEY` et `URL_PUBLIQUE`.
-3. Dans Stripe, ajoutez un webhook vers `https://<votre-domaine>/api/webhooks/stripe` pour l'événement `checkout.session.completed`, puis copiez son secret dans `STRIPE_WEBHOOK_SECRET`.
+3. Dans Stripe, ajoutez un webhook vers `https://<votre-domaine>/api/webhooks/stripe` pour les événements `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` et `customer.subscription.deleted` (commandes et abonnements), puis copiez son secret dans `STRIPE_WEBHOOK_SECRET`. Activez le portail client Stripe (changement de carte, de formule, résiliation).
 
 ### Un vrai fournisseur
 Tout fournisseur qui respecte ce contrat (ou un petit adaptateur devant son API) se branche sans changer le reste :

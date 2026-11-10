@@ -8,7 +8,7 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 
 **Version réelle (serveur)** : `cd comptoir && npm start`, puis ouvrir http://localhost:3000. On y crée un compte et une boutique publique (`/s/<nom>`). Les commandes, paiements (TWINT/cartes via Stripe, ou simulation), fournisseurs et factures sont gérés en base. Il faut Node 22.13 ou plus récent ; rien d'autre à installer. Détails dans [`server/README.md`](server/README.md).
 
-**Site public** : avec le serveur, `/` affiche la page d'accueil commerciale (`accueil.html`), `/app` l'application et `/demo` la démo.
+**Site public** : avec le serveur, `/` affiche la page d'accueil commerciale (`accueil.html`) avec les formules. Le client choisit sa formule, crée son compte, paie l'abonnement, puis accède à `/app` : son site, ses modifications, ses commandes et son tableau de bord, uniquement les siens. `/demo` montre une boutique fictive, sans accès à aucun compte.
 
 **Démo sans serveur** : ouvrir `comptoir/index.html` dans un navigateur. Les données restent dans le navigateur (localStorage). Le bouton « Réinitialiser la démo » remet la boutique d'exemple.
 
@@ -24,6 +24,7 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 | **Produits** (`#produits`) | Recherche, filtres (actifs, stock bas, dropshipping, masqués), duplication, prix barré contrôlé (prix pratiqué 30 jours, OIP / Omnibus). |
 | **Clients** (`#clients`) | Segments (meilleurs, fidèles, nouveaux, inactifs, abonnés), recherche, pagination, fiche client avec historique, export CSV. |
 | **Paramètres** (`#parametres`) | Général, apparence (clair, sombre, système), état des paiements (Stripe TWINT et cartes ou simulation), livraison, service d'envoi des e-mails et derniers e-mails, domaine, abonnement, export complet JSON, restauration d'une démo, suppression du compte (mode connecté). |
+| **Produits stars** (`#stars`) | 148 produits classés pour le pays de la boutique et le mois visé (ce mois, le mois prochain, dans 2 mois) : saison propre à chaque produit, ventes observées sur Comptoir, recherches Google (SerpApi), fichier importé, marge nette, concurrence, délai. Raisons affichées, courbe saisonnière, import en un clic. Mis à jour toutes les 6 heures. |
 | **Trouver des produits** (`#sourcing`) | Catalogue de fournisseurs (entrepôts Suisse, Europe, Chine) classé par potentiel : marge nette réelle (TVA, port, TVA d'import et dédouanement, frais de paiement, pub), tendance de saison, concurrence, délai. Import en un clic. |
 | **Analyse** (`#analyse`) | 5 onglets sur 7 jours, 30 jours, 90 jours ou 12 mois, comparés à la période précédente, avec filtre par canal et export CSV. Ventes : chiffres clés et mini-courbes, courbe comparée, carte des heures d'achat, livraison, villes, constats automatiques. Produits : classement, part, évolution, marge, tendance. Clients : nouveaux et revenus, taux de réachat, valeur client, rétention par cohorte, montant des paniers. Marketing : entonnoir, réseaux, tests, temps forts. Rentabilité : cascade du chiffre d'affaires au bénéfice, compte de résultat, seuil de TVA. |
 | **Réseaux sociaux** (`#social`) | Pilote automatique : calendrier de publications Instagram, TikTok, Facebook, Pinterest généré à partir des produits, ventes, marges et temps forts. Pour chaque publication : accroche des 3 premières secondes, légende, hashtags et script vidéo plan par plan. Validation ou publication automatique, statistiques, et le pilote programme davantage ce qui convertit. Lancement intensif TikTok, micro-influenceurs. |
@@ -64,6 +65,9 @@ comptoir/
   js/copilote.js       calendriers commerciaux France et Suisse, génération des campagnes
   js/graphiques.js     graphiques SVG (courbes, cascade, cartes de chaleur, entonnoir, barres)
   js/analyse.js        module Analyse et export CSV
+  js/catalogue.js      catalogue fournisseurs et profils saisonniers (généré par outils/catalogue/generer.py)
+  js/tendances.js      moteur des produits stars (navigateur et serveur)
+  js/stars.js          écran Produits stars
   js/palette.js        palette de commandes (Ctrl+K) et thème clair/sombre
   js/parametres.js     page Paramètres (paiements, e-mails, abonnement, export, suppression du compte)
   accueil.html         page d'accueil commerciale

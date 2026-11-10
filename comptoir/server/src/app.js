@@ -5,6 +5,8 @@ const crypto = require('node:crypto');
 const dns = require('node:dns').promises;
 const fs = require('node:fs');
 const path = require('node:path');
+const abonnements = require('./abonnements');
+const tendances = require('./tendances');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
 const { transaction } = require('./db');
@@ -36,6 +38,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   courriel.creerTables(db);
   const serviceEmail = courriel.prestataire(env, fetchImpl);
   const hotePrincipal = new URL(urlPublique).hostname.toLowerCase();
+  const abo = abonnements.creerGestion({ db, env, urlPublique, fetchImpl });
+  const collecte = tendances.creerCollecte({ db, env, catalogue: fournisseurs.CATALOGUE_DEMO, fetchImpl, journal });
+  const deviseDe = b => lireConfig(b).boutique.pays === 'ch' ? 'CHF' : 'EUR';
 
   /* ---------- Accès aux données ---------- */
   const lireConfig = b => JSON.parse(b.config);
@@ -50,6 +55,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const boutiqueParSlug = slug => {
     const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(slug);
     if (!b) throw erreur(404, 'Boutique introuvable.', 'boutique_introuvable');
+    return b;
+  };
+  /* Vitrine et nouvelles commandes : seulement si l'abonnement du marchand est payé. Le suivi des commandes passées reste accessible. */
+  const boutiqueOuverte = slug => {
+    const b = boutiqueParSlug(slug);
+    if (!abo.etat(b.marchand_id).actif) throw erreur(404, 'Cette boutique n’est pas encore ouverte.', 'boutique_fermee');
     return b;
   };
   const listerProduits = (boutiqueId, avecSupprimes = false) =>
@@ -151,6 +162,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (type === 'drop') Object.assign(propre, { portF: Number(p.portF) || 0, entrepot: ['CH', 'UE', 'CN'].includes(p.entrepot) ? p.entrepot : 'UE', delai: Array.isArray(p.delai) ? p.delai.slice(0, 2).map(Number) : [3, 7], fournisseur: String(p.fournisseur || '').slice(0, 80), source: String(p.source || '').slice(0, 40), codeFournisseur: p.codeFournisseur || 'demo' });
     return propre;
   }
+  /* Ajoute un produit du catalogue fournisseur à une boutique (une seule fois par produit source). */
+  function importerProduit(boutiqueId, src, codeFournisseur) {
+    const deja = listerProduits(boutiqueId).find(p => p.source === src.id);
+    if (deja) return { id: deja.id, deja: true };
+    const id = auth.nouvelId('p_');
+    const produit = nettoyerProduit({ ...src, type: 'drop', actif: true, teinte: (src.id.charCodeAt(2) * 47) % 360, source: src.id, codeFournisseur, description: src.description || `${src.nom}. Expédié par notre partenaire, livré en ${src.delai[0]} à ${src.delai[1]} jours.` });
+    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, (SELECT COALESCE(MAX(ordre), 0) + 1 FROM produits WHERE boutique_id = ?))').run(id, boutiqueId, JSON.stringify(produit), boutiqueId);
+    return { id };
+  }
   function slugUnique(nom) {
     const base = nom.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'boutique';
     let slug = base, i = 2;
@@ -246,17 +266,23 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
 
   /* ---------- Garde d'authentification ---------- */
-  const exigerMarchand = ctx => {
+  // Compte connecté (sans exiger l'abonnement) : paiement de l'abonnement, suppression du compte.
+  const exigerCompte = ctx => {
     ctx.marchand = auth.marchandDepuisRequete(db, ctx.cookies);
     if (!ctx.marchand) throw erreur(401, 'Connectez-vous pour continuer.', 'non_connecte');
     ctx.boutique = boutiqueDuMarchand(ctx.marchand.id);
+  };
+  // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
+  const exigerMarchand = ctx => {
+    exigerCompte(ctx);
+    if (!abo.etat(ctx.marchand.id).actif) throw erreur(402, 'Choisissez une formule et réglez votre abonnement pour accéder à votre boutique.', 'abonnement_requis');
   };
 
   /* ---------- Comptes ---------- */
   r.get('/api/session', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     const b = m && db.prepare('SELECT slug FROM boutiques WHERE marchand_id = ?').get(m.id);
-    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null };
+    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(m.id) : null };
   });
   r.post('/api/auth/inscription', ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
@@ -271,6 +297,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES (?, ?, ?, ?)').run(marchandId, email, auth.hacherMotDePasse(mdp), Date.now());
       db.prepare('INSERT INTO boutiques (id, marchand_id, slug, config, cree_le) VALUES (?, ?, ?, ?, ?)').run(boutiqueId, marchandId, slug, JSON.stringify(config), Date.now());
       insererProduits(boutiqueId, ctx.corps.produits);
+      // Produits fournisseurs choisis à l'inscription (préparés avant même le paiement de l'abonnement).
+      const sources = Array.isArray(ctx.corps.importer) ? ctx.corps.importer.slice(0, 12).map(String) : [];
+      for (const src of fournisseurs.CATALOGUE_DEMO.filter(x => sources.includes(x.id))) importerProduit(boutiqueId, src, 'demo');
     });
     ctx.entetes['Set-Cookie'] = auth.cookieSession(auth.creerSession(db, marchandId), securise);
     return { statut: 201, corps: { ok: true, slug } };
@@ -344,7 +373,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
 
   /* Suppression définitive du compte et de toutes ses données (mot de passe exigé). */
-  r.post('/api/admin/compte/supprimer', exigerMarchand, ctx => {
+  r.post('/api/admin/compte/supprimer', exigerCompte, ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     if (!auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
     transaction(db, () => {
@@ -374,7 +403,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Audience : sessions distinctes par jour et par étape (365 derniers jours)
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
-    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le } };
+    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id)} };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -427,12 +456,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const cat = await fournisseurs.client(f, fetchImpl).catalogue();
     const src = cat.find(x => x.id === ctx.corps.source);
     if (!src) throw erreur(404, 'Produit absent du catalogue fournisseur.', 'catalogue_introuvable');
-    const deja = listerProduits(ctx.boutique.id).find(p => p.source === src.id);
-    if (deja) return { id: deja.id, deja: true };
-    const id = auth.nouvelId('p_');
-    const produit = nettoyerProduit({ ...src, type: 'drop', actif: true, teinte: (src.id.charCodeAt(2) * 47) % 360, source: src.id, codeFournisseur: f.code, description: `${src.nom}. Expédié par notre partenaire, livré en ${src.delai[0]} à ${src.delai[1]} jours.` });
-    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, (SELECT COALESCE(MAX(ordre), 0) + 1 FROM produits WHERE boutique_id = ?))').run(id, ctx.boutique.id, JSON.stringify(produit), ctx.boutique.id);
-    return { statut: 201, corps: { id } };
+    const r2 = importerProduit(ctx.boutique.id, src, f.code);
+    return r2.deja ? r2 : { statut: 201, corps: { id: r2.id } };
   });
   r.patch('/api/admin/commandes/:id', exigerMarchand, ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
@@ -533,7 +558,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 
   /* ---------- Boutique publique ---------- */
   r.get('/api/public/:slug', ctx => {
-    const b = boutiqueParSlug(ctx.params.slug);
+    const b = boutiqueOuverte(ctx.params.slug);
     const config = lireConfig(b);
     const notes = statsAvis(b.id);
     const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
@@ -562,7 +587,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     };
   });
   r.post('/api/public/:slug/commandes', async ctx => {
-    const b = boutiqueParSlug(ctx.params.slug);
+    const b = boutiqueOuverte(ctx.params.slug);
     const config = lireConfig(b);
     const produits = listerProduits(b.id);
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
@@ -744,6 +769,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/webhooks/stripe', async ctx => {
     if (paiement.nom !== 'stripe' || !paiement.verifierWebhook(ctx.corpsBrut, ctx.req.headers['stripe-signature'])) throw erreur(400, 'Signature invalide.', 'signature');
     const ev = JSON.parse(ctx.corpsBrut);
+    if (abo.evenementStripe(ev)) return { recu: true };
     if (ev.type === 'checkout.session.completed' && ev.data.object.payment_status === 'paid') {
       await paiementConfirme(ev.data.object.metadata.paiement_id, ev.data.object.id);
     }
@@ -781,6 +807,31 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const row = db.prepare('SELECT c.*, b.slug, b.config FROM commandes c JOIN boutiques b ON b.id = c.boutique_id WHERE c.id = ?').get(p.commande_id);
     return { p, row, c: lireCommande(row), config: JSON.parse(row.config) };
   };
+  /* ---------- Produits stars : signaux de demande pour le pays de la boutique ---------- */
+  r.get('/api/admin/tendances', exigerMarchand, async ctx => {
+    if (!collecte.signaux('ch').majLe) await collecte.rafraichir();
+    return collecte.signaux(lireConfig(ctx.boutique).boutique.pays || 'ch');
+  });
+
+  /* ---------- Abonnement Comptoir ---------- */
+  r.get('/api/abonnement', exigerCompte, ctx => ({ ...abo.etat(ctx.marchand.id), formules: abo.formulesPour(deviseDe(ctx.boutique)), devise: deviseDe(ctx.boutique) }));
+  r.post('/api/abonnement/commencer', exigerCompte, async ctx => {
+    if (abo.prestataire === 'simulation' && env.NODE_ENV === 'production' && abo.obligatoire) throw erreur(503, 'Le paiement des abonnements n’est pas encore configuré (clé Stripe manquante).', 'paiement_non_configure');
+    return abo.commencer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || ''), devise: deviseDe(ctx.boutique) });
+  });
+  r.post('/api/abonnement/changer', exigerMarchand, ctx => abo.changer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || '') }));
+  r.post('/api/abonnement/resilier', exigerMarchand, ctx => abo.resilier({ marchand: ctx.marchand }));
+  r.post('/api/abonnement/reprendre', exigerMarchand, ctx => abo.reprendre({ marchand: ctx.marchand }));
+  const abonnementSimule = ref => {
+    if (abo.prestataire !== 'simulation' || env.NODE_ENV === 'production') throw erreur(404, 'Page introuvable.', 'introuvable');
+    const a = abo.parRefSimulation(ref);
+    if (!a) throw erreur(404, 'Paiement introuvable ou déjà effectué.', 'introuvable');
+    return a;
+  };
+  r.get('/abonnement-simule/:ref', ctx => { const a = abonnementSimule(ctx.params.ref); const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(a.marchand_id); return { html: abonnements.pageAbonnementSimule(a, m.email) }; });
+  r.post('/abonnement-simule/:ref/confirmer', ctx => { abonnementSimule(ctx.params.ref); abo.confirmerSimulation(ctx.params.ref); return { redirection: `${urlPublique}/app?abonnement=ok` }; });
+  r.post('/abonnement-simule/:ref/annuler', ctx => { abonnementSimule(ctx.params.ref); return { redirection: `${urlPublique}/app?abonnement=annule` }; });
+
   r.get('/paiement-simule/:id', ctx => { const { p, c, config } = chargerPaiementSimule(ctx.params.id); return { html: pageSimulation(p, c, config) }; });
   r.post('/paiement-simule/:id/confirmer', async ctx => {
     const { p, row } = chargerPaiementSimule(ctx.params.id);
@@ -866,6 +917,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
   gerer.publierEcheances = publierEcheances;
   gerer.automatisationsEcheances = automatisationsEcheances;
+  gerer.rafraichirTendances = () => collecte.rafraichir();
   gerer.envoyerEmails = () => courriel.envoyerFile(db, serviceEmail, { journal });
   return gerer;
 }

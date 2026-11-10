@@ -58,6 +58,11 @@ const CATALOGUE = [
   ['f39', 'Sérum à la vitamine C', 'beaute', 'Visage', 7, 3.5, 'CH', 2, 3, 39, 68, 66, 4.6, 'Laboratoire Léman (démo)']
 ].map(([id, nom, niche, categorie, cout, portF, entrepot, dmin, dmax, prix, tendance, concurrence, note, fournisseur]) =>
   ({ id, nom, niche, categorie, cout, portF, entrepot, delai: [dmin, dmax], prix, tendance, concurrence, note, fournisseur }));
+// Catalogue élargi et profils saisonniers (js/catalogue.js, généré par outils/catalogue/generer.py).
+if (typeof CATALOGUE_EXTRA !== 'undefined') {
+  for (const f of CATALOGUE) Object.assign(f, CATALOGUE_EXTRA[f.id] || {});
+  for (const n of CATALOGUE_NOUVEAUX) if (!CATALOGUE.some(f => f.id === n.id)) CATALOGUE.push(n);
+}
 
 function reglages() {
   etat.reglages = etat.reglages || { autoTransmission: true, cpa: 8 };
@@ -93,7 +98,8 @@ function potentielProduit(f) {
   const p = { ...f, type: 'drop' };
   const m = margeProduit(p);
   const mois = new Date().getMonth();
-  const indice = (SECTEURS[f.niche] ? SECTEURS[f.niche].courbe[mois] : 100) / 100;
+  // Saisonnalité propre au produit si elle est connue, sinon celle de sa niche.
+  const indice = (typeof PROFILS_SAISON !== 'undefined' && PROFILS_SAISON[f.profil] ? PROFILS_SAISON[f.profil][mois] : SECTEURS[f.niche] ? SECTEURS[f.niche].courbe[mois] : 100) / 100;
   const sMarge = Math.max(0, Math.min(100, m.taux * 250));
   const sTendance = Math.min(100, f.tendance * indice);
   const sConcurrence = 100 - f.concurrence;

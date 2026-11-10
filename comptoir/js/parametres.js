@@ -48,13 +48,23 @@ function vueParametres() {
       <p class="mono">${esc(d && d.domaine ? d.domaine : (enLigne() ? location.host + '/s/' + SERVEUR.slug : slugifier(b.nom) + '.comptoir.shop'))}</p>
       <div class="rangee"><a class="btn petit" href="#domaines">${d ? 'Gérer le domaine' : 'Choisir un domaine'}</a></div></section>`;
   } else if (s === 'abonnement') {
-    const debut = enLigne() && SERVEUR.creeLe ? SERVEUR.creeLe : Date.now() - 7 * JOUR;
-    const reste = Math.max(0, 30 - Math.floor((Date.now() - debut) / JOUR));
-    corps = `<section class="carte"><div class="carte-tete"><h2>Formule</h2><span class="pill info">Essai gratuit</span></div>
-      <div class="chiffres"><div><span class="sous">Formule</span><strong>Croissance</strong></div><div><span class="sous">Essai</span><strong>${reste} jour${reste > 1 ? 's' : ''} restant${reste > 1 ? 's' : ''}</strong></div><div><span class="sous">Ensuite</span><strong>${b.devise === 'CHF' ? 'CHF 59.– / mois' : '59 € / mois'}</strong></div></div>
-      <div class="piste-lancement"><i style="width:${(30 - reste) / 30 * 100}%"></i></div>
-      <p class="sous">Sans commission sur vos ventes. Le prélèvement de l’abonnement sera branché sur Stripe Billing au lancement commercial ; aucune carte n’est demandée pendant l’essai.</p>
-      <div class="rangee"><a class="btn petit fantome" href="#offre">Comparer les formules</a></div></section>`;
+    const a = enLigne() && SERVEUR.abonnement;
+    if (!a) {
+      corps = `<section class="carte"><div class="carte-tete"><h2>Formule</h2><span class="pill muted">Démo</span></div>
+        <p class="sous">Dans la démo, aucun abonnement n’est nécessaire. Sur Comptoir, vous choisissez une formule et payez avant d’accéder à votre espace : uniquement votre boutique et vos données.</p>
+        <div class="rangee"><a class="btn petit fantome" href="#offre">Comparer les formules</a></div></section>`;
+    } else {
+      const noms = { lancement: 'Lancement', croissance: 'Croissance', pro: 'Pro' };
+      const prixAbo = a.prix ? (a.devise === 'CHF' ? `CHF ${a.prix}.– / mois` : `${a.prix} € / mois`) : '—';
+      const fin = a.periodeFin ? new Date(a.periodeFin).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
+      const pill = a.statut === 'impaye' ? '<span class="pill bad">Paiement en échec</span>' : a.finDemandee ? '<span class="pill warn">Résiliation demandée</span>' : '<span class="pill good">Actif</span>';
+      corps = `<section class="carte"><div class="carte-tete"><h2>Votre abonnement</h2>${pill}</div>
+        <div class="chiffres"><div><span class="sous">Formule</span><strong>${esc(noms[a.formule] || a.formule || '—')}</strong></div><div><span class="sous">Prix</span><strong>${prixAbo}</strong></div><div><span class="sous">${a.finDemandee ? 'Accès jusqu’au' : 'Prochain renouvellement'}</span><strong>${fin}</strong></div></div>
+        <p class="sous">Sans commission sur vos ventes. ${a.prestataire === 'stripe' ? 'Paiement par carte via Stripe ; factures et moyen de paiement dans le portail Stripe.' : 'Mode test : renouvellement simulé, aucun montant débité.'}</p>
+        ${a.finDemandee ? '' : `<div class="rangee">${Object.entries(noms).filter(([k]) => k !== a.formule).map(([k, n]) => `<button class="btn petit fantome" data-action="abo-changer" data-v="${k}">Passer à ${n}</button>`).join('')}<a class="btn petit fantome" href="#offre">Comparer les formules</a></div>`}
+        <div class="rangee">${a.finDemandee ? '<button class="btn petit" data-action="abo-reprendre">Garder mon abonnement</button>' : '<button class="btn petit fantome danger-doux" data-action="abo-resilier">Résilier</button>'}</div>
+        <p class="sous">${a.finDemandee ? `Votre boutique et votre espace restent ouverts jusqu’au ${fin}. Ensuite, la boutique est fermée aux clients ; vos données sont conservées et vous pouvez reprendre à tout moment.` : 'La résiliation prend effet à la fin du mois payé : rien n’est remboursé au prorata, rien n’est prélevé ensuite.'}</p></section>`;
+    }
   } else if (s === 'donnees') {
     corps = `<section class="carte"><div class="carte-tete"><h2>Exporter vos données</h2></div>
       <p class="sous">Vos données vous appartiennent. L’export complet contient la boutique, les produits, les commandes, les clients, les avis et les réglages, au format JSON (lisible par d’autres outils). Les exports CSV des commandes et des clients sont dans leurs pages.</p>
@@ -90,6 +100,15 @@ document.addEventListener('click', async e => {
   if (a === 'section-param') { ui.sectionParam = el.dataset.v; rendre(); }
   else if (a === 'theme-choix') { try { localStorage.setItem('comptoir-theme', el.dataset.v); } catch { /* ignoré */ } appliquerTheme(); rendre(); }
   else if (a === 'export-complet') exporterTout();
+  else if (a === 'abo-changer' || a === 'abo-resilier' || a === 'abo-reprendre') {
+    if (a === 'abo-resilier' && !confirm('Résilier l’abonnement ? Votre boutique reste ouverte jusqu’à la fin du mois payé.')) return;
+    try {
+      const r = await api('POST', `/api/abonnement/${a === 'abo-changer' ? 'changer' : a === 'abo-resilier' ? 'resilier' : 'reprendre'}`, a === 'abo-changer' ? { formule: el.dataset.v } : {});
+      if (r.url) { location.href = r.url; return; }
+      await rechargerEtat(); rendre();
+      toast(a === 'abo-changer' ? 'Formule modifiée.' : a === 'abo-resilier' ? 'Résiliation enregistrée pour la fin du mois payé.' : 'Abonnement conservé.');
+    } catch (err) { toast(err.message); }
+  }
   else if (a === 'sources') { ui.modal = { type: 'html', html: `<h2>Sources et limites</h2><p class="sous">Les règles par défaut de Comptoir s’appuient sur des conseils publics et des textes officiels. Elles restent ajustables.</p><ul class="sources-liste">${SOURCES.map(([t, d]) => `<li><strong>${esc(t)}</strong><span class="sous">${esc(d)}</span></li>`).join('')}</ul>` }; rendreModal(); }
   else if (a === 'voir-emails') {
     try {

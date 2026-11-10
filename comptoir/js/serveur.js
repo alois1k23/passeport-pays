@@ -14,6 +14,8 @@ async function api(methode, chemin, corps) {
   });
   const texte = await rep.text();
   const json = texte ? JSON.parse(texte) : {};
+  // Abonnement échu pendant la session : retour à l'écran de paiement.
+  if (rep.status === 402 && SERVEUR.connecte && !chemin.startsWith('/api/abonnement')) { location.reload(); }
   if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; throw e; }
   return json;
 }
@@ -28,8 +30,14 @@ async function initServeur() {
     if (typeof s.connecte !== 'boolean') return;
   } catch { return; }
   Object.assign(SERVEUR, s, { actif: true });
-  if (SERVEUR.connecte) { await rechargerEtat(); installerModeConnecte(); }
-  else installerConnexion();
+  const params = new URLSearchParams(location.search);
+  const formuleUrl = params.get('formule');
+  if (formuleUrl) { try { sessionStorage.setItem('comptoir-formule', formuleUrl); } catch { /* ignoré */ } }
+  if (SERVEUR.connecte && s.abonnement && !s.abonnement.actif) { installerAbonnement(s.abonnement, params.get('abonnement')); return; }
+  if (SERVEUR.connecte) {
+    await rechargerEtat(); installerModeConnecte();
+    if (params.get('abonnement') === 'ok') { history.replaceState(null, '', location.pathname + '#tableau'); setTimeout(() => toast('Paiement reçu : votre boutique est en ligne. Bienvenue !'), 300); }
+  } else installerConnexion();
 }
 
 /* Enregistrement différé de la configuration. Avant tout rechargement depuis le serveur, la modification en
@@ -56,7 +64,7 @@ async function rechargerEtat() {
   etat = completerEtat(e);
   SERVEUR.slug = e.serveur.slug;
   SERVEUR.paiement = e.serveur.paiement;
-  SERVEUR.emails = e.serveur.emails || null; SERVEUR.creeLe = e.serveur.creeLe || null;
+  SERVEUR.emails = e.serveur.emails || null; SERVEUR.creeLe = e.serveur.creeLe || null; SERVEUR.abonnement = e.serveur.abonnement || null;
 }
 const urlBoutique = () => `${location.origin}/s/${SERVEUR.slug}`;
 const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, offres: etat.offres, lancement: etat.lancement || {}, fournisseursSuivi: etat.fournisseursSuivi || {} });
@@ -66,10 +74,20 @@ async function rafraichir(message) {
   if (message) toast(message);
 }
 
+/* Écrans hors espace marchand (connexion, paiement) : pas de recherche ni de badge « Démo », lien vers l'accueil. */
+function modeHorsEspace() {
+  document.body.classList.add('hors-espace');
+  const fil = document.getElementById('fil');
+  if (fil) { fil.innerHTML = '<a class="marque-retour" href="/">← Comptoir</a>'; }
+}
+
 /* ---------- Connexion et inscription ---------- */
 function installerConnexion() {
+  modeHorsEspace();
   const jetonReinit = new URLSearchParams(location.search).get('reinitialiser');
-  const etatForm = { onglet: jetonReinit ? 'reinit' : 'inscription', erreur: '', envoi: false, info: '' };
+  const etatForm = { onglet: jetonReinit ? 'reinit' : new URLSearchParams(location.search).get('connexion') ? 'connexion' : 'inscription', erreur: '', envoi: false, info: '' };
+  let formuleChoisie = null;
+  try { formuleChoisie = sessionStorage.getItem('comptoir-formule'); } catch { /* ignoré */ }
   document.querySelector('.cote').hidden = true;
   rendre = function () {
     const ins = etatForm.onglet === 'inscription';
@@ -88,6 +106,7 @@ function installerConnexion() {
     $('#vue').innerHTML = `<div class="assistant carte connexion">
       <span class="eyebrow">Comptoir</span>
       <h1>${ins ? 'Créez votre boutique' : 'Connexion'}</h1>
+      ${ins ? `<p class="sous">${formuleChoisie ? `Formule choisie : <b>${esc({ lancement: 'Lancement', croissance: 'Croissance', pro: 'Pro' }[formuleChoisie] || formuleChoisie)}</b>. ` : ''}Étape 1 sur 2 : votre compte et votre boutique. Étape 2 : le paiement de l’abonnement, puis l’accès à votre espace.</p>` : ''}
       <div class="onglets plein"><button class="${ins ? 'actif' : ''}" data-cx="inscription">Créer un compte</button><button class="${ins ? '' : 'actif'}" data-cx="connexion">Se connecter</button></div>
       <form id="form-auth" class="assistant-corps">
         ${ins ? `<label class="champ"><span>Nom de la boutique</span><input id="cx-nom" name="nom" required maxlength="80" placeholder="ex. Lacustre"></label>
@@ -97,7 +116,7 @@ function installerConnexion() {
         <label class="champ"><span>E-mail</span><input id="cx-email" name="email" type="email" required autocomplete="email"></label>
         <label class="champ"><span>Mot de passe${ins ? ' (10 caractères minimum)' : ''}</span><input id="cx-mdp" name="motDePasse" type="password" required minlength="${ins ? 10 : 1}" autocomplete="${ins ? 'new-password' : 'current-password'}"></label>
         ${etatForm.erreur ? `<p class="encart alerte-encart">${esc(etatForm.erreur)}</p>` : ''}
-        <button class="btn" ${etatForm.envoi ? 'disabled' : ''}>${etatForm.envoi ? 'Un instant…' : ins ? 'Créer ma boutique' : 'Se connecter'}</button>
+        <button class="btn" ${etatForm.envoi ? 'disabled' : ''}>${etatForm.envoi ? 'Un instant…' : ins ? 'Continuer vers le choix de la formule' : 'Se connecter'}</button>
       </form>
       ${ins ? '' : '<button class="bouton-lien" data-cx="oubli">Mot de passe oublié ?</button>'}
       ${ins ? '<p class="sous">Votre boutique est créée avec un design, des pages et, en dropshipping, les meilleurs produits du catalogue fournisseurs pour votre niche. Vous pourrez tout modifier.</p>' : ''}
@@ -137,12 +156,14 @@ function installerConnexion() {
         const nomsCatalogue = new Set(CATALOGUE.filter(f => f.niche === d.secteur).map(f => f.nom.toLowerCase()));
         const propres = d.modele === 'drop' ? [] : produitsDepuisSecteur(d.secteur).filter(p => !nomsCatalogue.has(p.nom.toLowerCase())).slice(0, d.modele === 'mixte' ? 2 : 6)
           .map(({ id, ...p }) => ({ ...p, description: `${p.nom}. ${p.description} Exemple de fiche : remplacez ce texte, la photo, le prix et le stock par les vôtres.`, type: 'stock', actif: false, aVerifier: true }));
-        await api('POST', '/api/auth/inscription', { email: d.email, motDePasse: d.motDePasse, config, produits: propres });
+        let importer = [];
         if (d.modele !== 'stock') {
           etat = { boutique: config.boutique, entreprise: config.entreprise, produits: [], commandes: [], reglages: config.reglages };
-          const meilleurs = CATALOGUE.filter(f => f.niche === d.secteur && f.entrepot !== 'CN').map(f => ({ f, s: potentielProduit(f).score })).sort((a, b) => b.s - a.s).slice(0, d.modele === 'mixte' ? 3 : 4);
-          for (const { f } of meilleurs) await api('POST', '/api/admin/produits/import', { source: f.id });
+          // Produits stars de la niche pour le mois en cours (saison, demande de référence, marge, délai) : jamais de Chine au départ.
+          importer = Tendances.classer(CATALOGUE.filter(f => f.niche === d.secteur && f.entrepot !== 'CN'), { mois: new Date().getMonth(), pays, profils: PROFILS_SAISON, marge: f => potentielProduit(f).marge })
+            .slice(0, d.modele === 'mixte' ? 3 : 5).map(x => x.p.id);
         }
+        await api('POST', '/api/auth/inscription', { email: d.email, motDePasse: d.motDePasse, config, produits: propres, importer });
       }
       location.hash = 'tableau';
       location.reload();
@@ -150,6 +171,49 @@ function installerConnexion() {
       etatForm.envoi = false; etatForm.erreur = err.message; rendre();
     }
   }, true);
+}
+
+/* ---------- Avant l'accès : choix de la formule et paiement ---------- */
+function installerAbonnement(etatAbo, retour) {
+  modeHorsEspace();
+  document.querySelector('.cote').hidden = true;
+  const e = { formules: [], devise: 'CHF', choisie: null, envoi: false, erreur: retour === 'annule' ? 'Le paiement a été annulé. Vous pouvez réessayer quand vous voulez.' : '' };
+  try { e.choisie = sessionStorage.getItem('comptoir-formule'); } catch { /* ignoré */ }
+  const prix = (f) => e.devise === 'CHF' ? `CHF ${f.prix}.–` : `${f.prix} €`;
+  rendre = function () {
+    const titre = etatAbo.statut === 'impaye' ? 'Votre dernier paiement n’est pas passé' : etatAbo.statut === 'resilie' ? 'Votre abonnement est terminé' : 'Plus qu’une étape : choisissez votre formule';
+    const texte = etatAbo.statut === 'impaye' ? 'Mettez à jour votre moyen de paiement pour rouvrir votre boutique et votre espace.' : etatAbo.statut === 'resilie' ? 'Vos données sont conservées : reprenez un abonnement pour rouvrir votre boutique.' : 'Votre boutique est prête mais pas encore en ligne. Dès le paiement, vous accédez à votre espace : modifications du site, commandes, tableau de bord. Uniquement votre boutique.';
+    $('#vue').innerHTML = `<div class="abonnement-page">
+      <div class="abonnement-tete"><span class="eyebrow">Comptoir · ${esc(SERVEUR.email || '')}</span><h1>${titre}</h1><p class="sous">${texte}</p></div>
+      ${e.erreur ? `<p class="encart alerte-encart">${esc(e.erreur)}</p>` : ''}
+      <div class="plans">${e.formules.map(f => `<label class="plan choix-plan ${e.choisie === f.id ? 'conseille' : ''}">
+        <input type="radio" name="formule" value="${f.id}" ${e.choisie === f.id ? 'checked' : ''} data-abo="formule">
+        <span class="eyebrow">${f.id === 'croissance' ? 'Le plus choisi' : '&nbsp;'}</span><h2>${esc(f.nom)}</h2><p class="sous">${esc(f.resume)}</p>
+        <div class="prix"><strong>${prix(f)}</strong><span class="sous">par mois</span></div>
+        <ul>${f.inclus.map(x => `<li>${esc(x)}</li>`).join('')}</ul></label>`).join('')}</div>
+      <div class="abonnement-pied">
+        <button class="btn" data-abo="payer" ${!e.choisie || e.envoi ? 'disabled' : ''}>${e.envoi ? 'Redirection vers le paiement…' : e.choisie ? `Payer ${prix(e.formules.find(f => f.id === e.choisie) || { prix: 0 })} et ouvrir ma boutique` : 'Choisissez une formule'}</button>
+        <p class="sous">Sans engagement : résiliable à tout moment dans Paramètres, l’accès reste ouvert jusqu’à la fin du mois payé. 0 % de commission sur vos ventes. ${SERVEUR.paiement === 'stripe' ? 'Paiement sécurisé par carte (Stripe).' : 'Mode test : aucun montant n’est débité.'}</p>
+        <p class="sous"><button class="lien-bouton" data-abo="deconnexion">Se déconnecter</button></p>
+      </div></div>`;
+  };
+  document.addEventListener('change', ev => { if (ev.target.dataset.abo === 'formule') { e.choisie = ev.target.value; try { sessionStorage.setItem('comptoir-formule', e.choisie); } catch { /* ignoré */ } rendre(); } });
+  document.addEventListener('click', async ev => {
+    const b = ev.target.closest('[data-abo]');
+    if (!b || b.tagName === 'INPUT' || b.tagName === 'LABEL') return;
+    if (b.dataset.abo === 'deconnexion') { await api('POST', '/api/auth/deconnexion').catch(() => {}); location.href = '/'; return; }
+    if (b.dataset.abo === 'payer' && e.choisie) {
+      e.envoi = true; e.erreur = ''; rendre();
+      try { const r = await api('POST', '/api/abonnement/commencer', { formule: e.choisie }); location.href = r.url; }
+      catch (err) { e.envoi = false; e.erreur = err.message; rendre(); }
+    }
+  });
+  api('GET', '/api/abonnement').then(r => {
+    e.formules = r.formules; e.devise = r.devise;
+    if (!r.formules.some(f => f.id === e.choisie)) e.choisie = r.formule || 'croissance';
+    rendre();
+  }).catch(err => { e.erreur = err.message; rendre(); });
+  rendre();
 }
 
 /* ---------- Mode connecté : chaque action passe par le serveur ---------- */

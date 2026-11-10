@@ -1236,3 +1236,45 @@ html, body { overflow-x: clip; }
 .confirm-livraison { display: grid; gap: 2px; padding: 12px 14px; border-radius: var(--sf-radius); background: var(--sf-surface); }
 .confirm-livraison b { font-size: .95rem; }
 .confirm-livraison span { color: var(--sf-muted); font-size: .82rem; }
+
+/* ---------- Choix de la formule avant l'accès ---------- */
+.abonnement-page { max-width: 1040px; margin: 0 auto; display: grid; gap: 20px; padding: 8px 0 32px; }
+.abonnement-tete { display: grid; gap: 6px; text-align: center; justify-items: center; }
+.abonnement-tete h1 { font-size: clamp(1.4rem, 3vw, 1.9rem); margin: 0; }
+.abonnement-tete .sous { max-width: 62ch; }
+.choix-plan { cursor: pointer; position: relative; }
+.choix-plan input { position: absolute; opacity: 0; pointer-events: none; }
+.choix-plan:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.choix-plan:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.abonnement-pied { display: grid; gap: 8px; justify-items: center; text-align: center; }
+.abonnement-pied .btn { min-width: 280px; justify-content: center; height: 44px; font-size: .9375rem; }
+.abonnement-pied .sous { max-width: 70ch; }
+@media (max-width: 900px) { .abonnement-page .plans { grid-template-columns: minmax(0, 1fr); } .abonnement-pied .btn { min-width: 0; width: 100%; } }
+.hors-espace .recherche-btn, .hors-espace #mode-badge { display: none !important; }
+.marque-retour { color: var(--ink); text-decoration: none; font-weight: 600; font-size: .875rem; }
+.marque-retour:hover { color: var(--accent); }
+
+/* ---------- Produits stars ---------- */
+.st-sources { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.st-source { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-petit); background: var(--surface); font-size: .8125rem; }
+.st-source .sous { font-size: .75rem; line-height: 1.35; }
+.st-podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.st-top { position: relative; display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 14px; align-content: start; }
+.st-top .sf-visuel { width: 72px; height: 72px; border-radius: 10px; }
+.st-rang { position: absolute; top: -10px; left: -10px; width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: var(--surface); display: grid; place-items: center; font-weight: 700; font-size: .8125rem; }
+.st-corps { display: grid; gap: 8px; min-width: 0; }
+.st-corps h2 { font-size: 1rem; margin: 0; text-wrap: balance; }
+.st-score { display: flex; align-items: baseline; gap: 4px; }
+.st-score b { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
+.st-score span { color: var(--muted); font-size: .8125rem; }
+.st-fl { font-size: .7rem; color: var(--muted); margin-left: 6px; }
+.st-fl.up { color: var(--good); } .st-fl.down { color: var(--bad); }
+.st-raisons { margin: 0; padding-left: 16px; display: grid; gap: 3px; font-size: .78rem; color: var(--muted); }
+.st-pied { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; }
+.st-courbe { display: inline-flex; align-items: flex-end; gap: 2px; height: 22px; width: 84px; }
+.st-courbe i { flex: 1; background: var(--serie-gris); border-radius: 1px; opacity: .55; }
+.st-courbe i.cur { background: var(--serie-1); opacity: 1; }
+.st-pourquoi { max-width: 360px; }
+.st-table td { vertical-align: middle; }
+@media (max-width: 1100px) { .st-podium { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .st-sources { grid-template-columns: minmax(0, 1fr); } }

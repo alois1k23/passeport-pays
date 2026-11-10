@@ -12,7 +12,7 @@ const SECTEURS = ['maison', 'animaux', 'tech', 'deco', 'mode', 'beaute', 'epicer
 const PAYS = ['ch', 'ch', 'ch', 'fr', 'ch', 'be', 'ch', 'ch', 'fr', 'ch'];
 const RACINES = ['Lumen', 'Kibo', 'Atelier', 'Nordlys', 'Zéphyr', 'Café', 'Pixel', 'Brise', 'Alpage', 'Lac', 'Étoile', 'Mosaïque', 'Sauge', 'Cèdre', 'Opale', 'Vélo', 'Pattes', 'Grain', 'Ondine', 'Rivage'];
 const SUFFIXES = ['Shop', 'Maison', '& Co', 'Store', 'Léman', 'Studio', 'Suisse', 'Box', 'Lab', 'Concept'];
-const ROUTES = ['tableau', 'analyse', 'copilote', 'commandes', 'clients', 'magasin', 'produits', 'sourcing', 'tests', 'fournisseurs', 'social', 'conversion', 'domaines', 'editeur', 'conformite', 'boutique', 'parametres', 'offre'];
+const ROUTES = ['stars', 'tableau', 'analyse', 'copilote', 'commandes', 'clients', 'magasin', 'produits', 'sourcing', 'tests', 'fournisseurs', 'social', 'conversion', 'domaines', 'editeur', 'conformite', 'boutique', 'parametres', 'offre'];
 const ECRANS = [['bureau', { viewport: { width: 1440, height: 900 } }], ['portable', { viewport: { width: 1280, height: 760 } }], ['tablette', { viewport: { width: 820, height: 1180 }, hasTouch: true }], ['iPhone', devices['iPhone 13']], ['Android 360', { viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true }]];
 
 async function controler(p, qui, ou) {
@@ -48,6 +48,14 @@ async function boutique(b, i) {
     await p.fill('#cx-nom', nom); await p.selectOption('#cx-secteur', secteur); await p.selectOption('#cx-modele', modele); await p.selectOption('#cx-pays', pays);
     await p.fill('#cx-email', `drop${i}-${Date.now()}@exemple.ch`); await p.fill('#cx-mdp', 'mot de passe solide');
     await p.click('#form-auth button.btn'); await p.waitForTimeout(2600);
+    // Étape 2 : choix de la formule et paiement de l'abonnement (aucun accès avant).
+    if (await p.$('[data-abo="payer"]')) {
+      if ((await p.evaluate(() => fetch('/api/admin/etat').then(r => r.status))) !== 402) note(qui, 'espace accessible avant le paiement');
+      const formule = ['lancement', 'croissance', 'pro'][i % 3];
+      await p.locator(`input[data-abo="formule"][value="${formule}"]`).check({ force: true }); await p.waitForTimeout(200);
+      await p.click('[data-abo="payer"]'); await p.waitForURL(/abonnement-simule/, { timeout: 8000 });
+      await p.click('button:has-text("Payer")'); await p.waitForTimeout(2600);
+    } else note(qui, 'écran de paiement de l’abonnement absent');
     if (!(await p.evaluate(() => typeof SERVEUR !== 'undefined' && SERVEUR.connecte))) { note(qui, 'inscription impossible', await p.evaluate(() => document.body.innerText.slice(0, 200))); await ctx.close(); return res; }
     const devise = await p.evaluate(() => etat.boutique.devise);
     if (devise !== (pays === 'ch' ? 'CHF' : 'EUR')) note(qui, 'devise incohérente', devise);

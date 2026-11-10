@@ -23,7 +23,7 @@ after(() => serveur.close());
 /* Petit client qui garde le cookie de session. */
 function client() {
   let cookie = '';
-  return async (methode, chemin, corps, { brut = false } = {}) => {
+  return async (methode, chemin, corps, { brut = false, sansPaiement = false } = {}) => {
     const rep = await fetch(base + chemin, {
       method: methode, redirect: 'manual',
       headers: { ...(corps ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
@@ -33,7 +33,14 @@ function client() {
     if (sc) cookie = sc.split(';')[0];
     if (brut) return rep;
     const texte = await rep.text();
-    return { statut: rep.status, json: texte ? JSON.parse(texte) : null };
+    const resultat = { statut: rep.status, json: texte ? JSON.parse(texte) : null };
+    // Comme un vrai client : après l'inscription, il paie son abonnement (paiement simulé) avant d'accéder à son espace.
+    if (chemin === '/api/auth/inscription' && rep.status === 201 && !sansPaiement) {
+      const c = await fetch(base + '/api/abonnement/commencer', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify({ formule: 'croissance' }) });
+      const { url } = await c.json();
+      await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
+    }
+    return resultat;
   };
 }
 
@@ -452,4 +459,75 @@ test('suppression du compte : mot de passe exigé, données et boutique effacée
   assert.equal((await c('GET', '/api/admin/etat')).statut, 401);
   assert.equal((await client()('GET', '/api/public/' + r.json.slug)).statut, 404);
   assert.equal((await client()('POST', '/api/auth/connexion', { email: 'depart@exemple.ch', motDePasse: 'un mot de passe solide' })).statut, 401);
+});
+
+test('abonnement : rien n’est accessible avant le paiement, puis seulement sa propre boutique', async () => {
+  const c = client();
+  const r = await c('POST', '/api/auth/inscription', { email: 'nouveau@exemple.ch', motDePasse: 'un mot de passe solide', config: config('Boutique Payante'), produits: [{ nom: 'Tasse', prix: 25, stock: 4, type: 'stock', cout: 8 }] }, { sansPaiement: true });
+  assert.equal(r.statut, 201);
+  const s = await c('GET', '/api/session');
+  assert.equal(s.json.abonnement.actif, false);
+  // Espace marchand et vitrine fermés tant que rien n'est payé
+  assert.equal((await c('GET', '/api/admin/etat')).statut, 402);
+  assert.equal((await c('PUT', '/api/admin/config', { config: config('X') })).statut, 402);
+  assert.equal((await client()('GET', '/api/public/' + r.json.slug)).statut, 404);
+  // Choix de la formule et paiement
+  const formules = await c('GET', '/api/abonnement');
+  assert.equal(formules.json.devise, 'CHF');
+  assert.deepEqual(formules.json.formules.map(f => f.id), ['lancement', 'croissance', 'pro']);
+  assert.equal((await c('POST', '/api/abonnement/commencer', { formule: 'inconnue' })).statut, 400);
+  const debut = await c('POST', '/api/abonnement/commencer', { formule: 'lancement' });
+  assert.match(debut.json.url, /\/abonnement-simule\//);
+  const page = await fetch(debut.json.url);
+  assert.match(await page.text(), /CHF 29/);
+  const conf = await fetch(debut.json.url + '/confirmer', { method: 'POST', redirect: 'manual' });
+  assert.equal(conf.status, 303);
+  assert.match(conf.headers.get('location'), /\/app\?abonnement=ok/);
+  // Le lien de paiement ne sert qu'une fois
+  assert.equal((await fetch(debut.json.url)).status, 404);
+  const e = await c('GET', '/api/admin/etat');
+  assert.equal(e.statut, 200);
+  assert.equal(e.json.serveur.abonnement.formule, 'lancement');
+  assert.equal(e.json.produits.length, 1);
+  assert.equal((await client()('GET', '/api/public/' + r.json.slug)).statut, 200);
+  // Un second paiement est refusé ; changement de formule et résiliation (accès gardé jusqu'à la fin de la période)
+  assert.equal((await c('POST', '/api/abonnement/commencer', { formule: 'pro' })).statut, 409);
+  assert.equal((await c('POST', '/api/abonnement/changer', { formule: 'pro' })).statut, 200);
+  assert.equal((await c('POST', '/api/abonnement/resilier', {})).statut, 200);
+  const apres = await c('GET', '/api/abonnement');
+  assert.equal(apres.json.formule, 'pro');
+  assert.equal(apres.json.finDemandee, true);
+  assert.equal(apres.json.actif, true);
+  // Isolation : ce marchand ne voit que sa boutique, jamais celle de Lacustre
+  assert.ok(!e.json.produits.some(p => p.nom === 'Coffret Léman'));
+  assert.equal(e.json.serveur.slug, r.json.slug);
+});
+
+test('produits stars : produits préparés à l’inscription, ventes agrégées seulement à partir de 2 boutiques', async () => {
+  const vendre = async (nom, email, sources) => {
+    const c = client();
+    const r = await c('POST', '/api/auth/inscription', { email, motDePasse: 'un mot de passe solide', config: config(nom), importer: sources });
+    assert.equal(r.statut, 201);
+    const e = await c('GET', '/api/admin/etat');
+    const prods = e.json.produits.filter(p => p.type === 'drop');
+    assert.deepEqual(prods.map(p => p.source).sort(), sources.slice().sort(), 'produits fournisseurs préparés dès l’inscription');
+    const acheteur = client();
+    const cmd = await acheteur('POST', `/api/public/${r.json.slug}/commandes`, { lignes: prods.map(p => ({ produitId: p.id, qte: 1 })), livraison: 'poste-eco', client: { nom: 'Test', email: 'achat@exemple.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
+    assert.equal(cmd.statut, 201);
+    await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    return c;
+  };
+  const a = await vendre('Stars A', 'stars-a@exemple.ch', ['f03', 'f07']);
+  await vendre('Stars B', 'stars-b@exemple.ch', ['f03']);
+  const t = await a('GET', '/api/admin/tendances');
+  assert.equal(t.statut, 200);
+  assert.ok(t.json.majLe > 0);
+  assert.ok(t.json.ventes.f03.boutiques >= 2, 'vendu par au moins deux boutiques : visible');
+  assert.ok(t.json.ventes.f03.n28 >= 2);
+  assert.equal(t.json.ventes.f07, undefined, 'vendu par une seule boutique : jamais exposé');
+  assert.equal(t.json.sources.trends.actif, false, 'sans clé SerpApi, la source est signalée inactive');
+  // Un marchand sans abonnement n'y a pas accès
+  const sans = client();
+  await sans('POST', '/api/auth/inscription', { email: 'stars-c@exemple.ch', motDePasse: 'un mot de passe solide', config: config('Stars C') }, { sansPaiement: true });
+  assert.equal((await sans('GET', '/api/admin/tendances')).statut, 402);
 });
