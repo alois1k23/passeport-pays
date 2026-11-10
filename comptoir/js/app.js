@@ -299,7 +299,7 @@ function vueTableau() {
 /* ---------- Commandes ---------- */
 function fluxPour(c) {
   if (estDropship(c) && c.canal !== 'magasin') {
-    if (c.statut === 'payee') return [['fournisseur', 'Transmettre au fournisseur'], ['annulee', 'Annuler la commande']];
+    if (c.statut === 'payee') return [['fournisseur', 'Transmettre au fournisseur'], ['remboursee', 'Annuler et rembourser']];
     if (c.statut === 'fournisseur') return [['expediee', 'Simuler l’expédition par le fournisseur']];
   }
   if (c.livraison === 'retrait') {
@@ -311,8 +311,8 @@ function fluxPour(c) {
 }
 const FLUX = {
   attente: [['payee', 'Marquer comme payée'], ['annulee', 'Annuler la commande']],
-  payee: [['preparation', 'Commencer la préparation'], ['annulee', 'Annuler la commande']],
-  preparation: [['expediee', 'Expédier (générer le suivi)']],
+  payee: [['preparation', 'Commencer la préparation'], ['remboursee', 'Annuler et rembourser']],
+  preparation: [['expediee', 'Expédier (générer le suivi)'], ['remboursee', 'Annuler et rembourser']],
   expediee: [['livree', 'Marquer comme livrée']],
   livree: [['remboursee', 'Rembourser']],
   remboursee: [], annulee: []

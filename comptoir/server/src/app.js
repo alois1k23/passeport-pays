@@ -244,7 +244,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const estDrop = c => c.lignes.length > 0 && c.lignes.every(l => l.type === 'drop');
   function transitionsPossibles(c) {
     if (estDrop(c) && c.canal !== 'magasin') {
-      if (c.statut === 'payee') return ['fournisseur', 'annulee'];
+      if (c.statut === 'payee') return ['fournisseur', 'remboursee'];
       if (c.statut === 'fournisseur') return ['expediee'];
     }
     if (c.livraison === 'retrait') {
@@ -252,7 +252,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (c.statut === 'prete') return ['retiree'];
       if (c.statut === 'retiree') return ['remboursee'];
     }
-    return { attente: ['payee', 'annulee'], payee: ['preparation', 'annulee'], preparation: ['expediee'], expediee: ['livree'], livree: ['remboursee'] }[c.statut] || [];
+    return { attente: ['payee', 'annulee'], payee: ['preparation', 'remboursee'], preparation: ['expediee', 'remboursee'], expediee: ['livree'], livree: ['remboursee'] }[c.statut] || [];
   }
 
   /* Transmet au fournisseur les articles en dropshipping d'une commande payée. */
@@ -291,11 +291,23 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 
   /* Appelé une seule fois quand le paiement est confirmé (idempotent). */
   async function paiementConfirme(paiementId, refExterne) {
-    const p = db.prepare('SELECT * FROM paiements WHERE id = ?').get(paiementId);
-    if (!p || p.statut === 'paye') return;
+    const p0 = db.prepare('SELECT * FROM paiements WHERE id = ?').get(paiementId);
+    if (!p0 || p0.statut === 'paye' || p0.statut === 'rembourse' || p0.statut === 'a_rembourser') return;
     const res = transaction(db, () => {
-      db.prepare("UPDATE paiements SET statut = 'paye', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
+      const p = db.prepare('SELECT * FROM paiements WHERE id = ?').get(paiementId);   // relu dans la transaction
+      if (!p || ['paye', 'rembourse', 'a_rembourser'].includes(p.statut)) return null;
       const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(p.commande_id);
+      // Commande déjà payée (autre lien de paiement) ou annulée : l'argent reçu est à rendre, la commande ne change pas.
+      if (row.statut !== 'attente') {
+        db.prepare("UPDATE paiements SET statut = 'a_rembourser', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
+        const c0 = lireCommande(row);
+        historique(c0, `Paiement reçu alors que la commande était « ${row.statut} » : ${formatMontant(p.montant_centimes / 100, lireConfig(db.prepare('SELECT config FROM boutiques WHERE id = ?').get(row.boutique_id)))} à rembourser`);
+        enregistrerCommande(c0);
+        return { aRembourser: { ...p, statut: 'a_rembourser', ref_externe: refExterne || p.ref_externe } };
+      }
+      db.prepare("UPDATE paiements SET statut = 'paye', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
+      // Les autres liens de paiement encore ouverts pour cette commande ne servent plus.
+      db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND id <> ? AND statut = 'cree'").run(p.commande_id, p.id);
       const c = lireCommande(row);
       c.statut = 'payee';
       c.facture = prochaineFacture(row.boutique_id, Date.now());
@@ -305,10 +317,23 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         if (pr) { const parent = lireCommande(pr); parent.complements = [...(parent.complements || []), c.id]; historique(parent, `Complément n° ${c.numero} ajouté après l’achat : à expédier dans le même colis`); enregistrerCommande(parent); }
       }
       historique(c, `Paiement ${p.fournisseur === 'stripe' ? 'en ligne' : 'simulé'} accepté (${formatMontant(p.montant_centimes / 100, lireConfig(db.prepare('SELECT config FROM boutiques WHERE id = ?').get(row.boutique_id)))})`);
+      // Stock : la vente est faite (le client a payé), mais une rupture est signalée au lieu d'être cachée.
+      const prods = listerProduits(row.boutique_id);
+      const manques = c.lignes.filter(l => l.type !== 'drop').map(l => ({ l, p: prods.find(x => x.id === l.produitId) })).filter(x => x.p && x.p.type !== 'drop' && x.p.stock < c.lignes.filter(y => y.produitId === x.l.produitId).reduce((a, y) => a + y.qte, 0));
+      if (manques.length) { c.alerteStock = true; historique(c, `Rupture de stock au paiement : ${[...new Set(manques.map(x => x.p.nom))].join(', ')}. Réapprovisionnez ou remboursez.`); }
       enregistrerCommande(c);
       ajusterStock(row.boutique_id, c.lignes, -1);
       return { c, boutique: db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id) };
     });
+    if (!res) return;
+    if (res.aRembourser) {
+      // Remboursement automatique quand c'est possible (Stripe) ; sinon, il reste signalé au marchand.
+      if (res.aRembourser.fournisseur === 'stripe') {
+        try { await paiement.rembourser({ paiement: res.aRembourser }); db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(res.aRembourser.id); }
+        catch (e) { journal.error('[paiement] remboursement automatique', e.message); }
+      }
+      return;
+    }
     const config = lireConfig(res.boutique);
     envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
       `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.`);
@@ -549,6 +574,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: 'Expédiée', livree: 'Livrée', prete: 'Prête à retirer, client prévenu', retiree: 'Remise au client', remboursee: `Remboursée (${formatMontant(c.total, config)})`, annulee: 'Annulée' };
     if (cible === 'expediee' && !c.suivi) c.suivi = '99.00.' + Math.floor(100000 + Math.random() * 899999) + '.' + Math.floor(1e7 + Math.random() * 9e7);
     if (cible === 'payee' && !c.facture) c.facture = prochaineFacture(ctx.boutique.id, Date.now());
+    if (c.statut === 'attente' && (cible === 'payee' || cible === 'annulee')) {
+      // Paiement reçu hors ligne (virement, espèces) ou commande annulée : les liens de paiement en ligne sont fermés.
+      for (const p of db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id)) {
+        db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(p.id);
+        if (p.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(p).catch(e => journal.error('[paiement] expiration', e.message));
+      }
+      if (cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1);   // vendu : le stock baisse comme pour un paiement en ligne
+    }
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1);
     c.statut = cible;
     historique(c, textes[cible] + (cible === 'expediee' ? `, suivi ${c.suivi}` : ''));
@@ -752,10 +785,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
   const verifierJeton = (row, jeton) => row && String(jeton || '').length === row.jeton_client.length && crypto.timingSafeEqual(Buffer.from(String(jeton)), Buffer.from(row.jeton_client));
   r.post('/api/public/:slug/commandes/:id/complement', async ctx => {
-    const b = boutiqueParSlug(ctx.params.slug);
+    const b = boutiqueOuverte(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
     if (!verifierJeton(row, ctx.corps.jeton)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     const parent = lireCommande(row);
+    const dejaLa = db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut NOT IN ('annulee') AND json_extract(donnees, '$.parent') = ?").get(b.id, parent.id);
+    if (dejaLa) throw erreur(409, 'Le complément a déjà été ajouté à cette commande.', 'complement_existant');
     const o = offreApres(b, parent);
     if (!o || o.regle !== ctx.corps.regle) throw erreur(409, 'Cette offre n’est plus disponible.', 'offre_expiree');
     const config = lireConfig(b);
@@ -809,13 +844,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { ok: true };
   });
   r.post('/api/public/:slug/commandes/:id/reprendre', async ctx => {
-    const b = boutiqueParSlug(ctx.params.slug);
+    const b = boutiqueOuverte(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
     const jeton = String(ctx.corps.jeton || '');
     if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     if (row.statut !== 'attente') throw erreur(409, 'Cette commande est déjà payée ou annulée.', 'deja_traitee');
     const c = lireCommande(row);
     const devise = lireConfig(b).boutique.devise || 'EUR';
+    for (const ancien of db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id)) {
+      db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(ancien.id);
+      if (ancien.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(ancien).catch(e => journal.error('[paiement] expiration', e.message));
+    }
     const pmt = { id: auth.nouvelId('pay_'), commande_id: c.id };
     db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(pmt.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', Date.now());
     const retour = `${urlBoutique(b)}?commande=${c.id}&jeton=${row.jeton_client}`;
@@ -1010,6 +1049,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/paiement-simule/:id', ctx => { const { p, c, config } = chargerPaiementSimule(ctx.params.id); return { html: pageSimulation(p, c, config) }; });
   r.post('/paiement-simule/:id/confirmer', async ctx => {
     const { p, row } = chargerPaiementSimule(ctx.params.id);
+    // Lien fermé (nouveau lien créé, ou commande annulée) : comme une session Stripe expirée, il ne peut plus être payé.
+    if (p.statut === 'annule') return { redirection: `${urlBoutique(row)}?commande=${row.id}&jeton=${row.jeton_client}&annule=1` };
     await paiementConfirme(p.id, p.id);
     return { redirection: `${urlBoutique(row)}?commande=${row.id}&jeton=${row.jeton_client}` };
   });

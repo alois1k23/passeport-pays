@@ -55,9 +55,12 @@
   function appliquer(lignesEntree, config, code, maintenant) {
     const o = offresDe(config);
     const normales = lignesEntree.filter(l => !l.offre);
+    // Une seule ligne au prix de l'offre par règle, et seulement s'il y a un achat normal dans le panier.
+    const reglesUtilisees = new Set();
     const lignes = lignesEntree.map(l => {
       if (!l.offre) return l;
-      const r = o.regles.find(x => x.id === l.offre && x.actif && x.type === 'panier' && x.alors === l.produitId && (x.si === '*' || normales.some(n => n.produitId === x.si)));
+      const r = normales.length && !reglesUtilisees.has(l.offre) && o.regles.find(x => x.id === l.offre && x.actif && x.type === 'panier' && x.alors === l.produitId && (x.si === '*' || normales.some(n => n.produitId === x.si)));
+      if (r) reglesUtilisees.add(r.id);
       return r ? { ...l, qte: 1, prixOffre: arrondi(l.prix * (1 - r.remise / 100)), libelleOffre: `Offre −${r.remise} %` } : { ...l, offre: undefined };
     });
     const base = lignes.filter(l => !l.prixOffre);

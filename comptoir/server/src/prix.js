@@ -46,6 +46,7 @@ function construireLignes(produits, demandes) {
   if (!Array.isArray(demandes) || !demandes.length || demandes.length > 50) throw erreur(400, 'Le panier est vide ou invalide.', 'panier_invalide');
   const lignes = [];
   for (const d of demandes) {
+    if (!d || typeof d !== 'object') throw erreur(400, 'Le panier est vide ou invalide.', 'panier_invalide');
     const p = produits.find(x => x.id === d.produitId);
     if (!p || !p.actif || p.aVerifier) throw erreur(400, 'Un produit du panier n’est plus disponible.', 'produit_indisponible');
     const qte = Number(d.qte);
@@ -54,6 +55,14 @@ function construireLignes(produits, demandes) {
     const offre = typeof d.offre === 'string' ? d.offre.slice(0, 20) : undefined;
     const ex = !offre && lignes.find(l => l.produitId === p.id && !l.offre);
     if (ex) ex.qte += qte; else lignes.push({ produitId: p.id, nom: p.nom, prix: Math.round(p.prix * 100) / 100, qte, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null, ...(offre ? { offre } : {}) });
+  }
+  // Contrôle sur la quantité totale par produit (plusieurs lignes du même produit, offres comprises).
+  const totaux = {};
+  for (const l of lignes) totaux[l.produitId] = (totaux[l.produitId] || 0) + l.qte;
+  for (const [id, qte] of Object.entries(totaux)) {
+    const p = produits.find(x => x.id === id);
+    if (qte > 20) throw erreur(400, 'Quantité invalide.', 'quantite_invalide');
+    if (p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');
   }
   return lignes;
 }

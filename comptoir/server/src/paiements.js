@@ -60,6 +60,10 @@ function prestataireStripe({ cleSecrete, secretWebhook, fetchImpl = fetch }) {
       const s = await appeler('checkout/sessions', params);
       return { url: s.url, refExterne: s.id };
     },
+    async expirer(p) {
+      if (!p.ref_externe || !/^cs_/.test(p.ref_externe)) return;
+      await appeler(`checkout/sessions/${p.ref_externe}/expire`, []);
+    },
     async rembourser({ paiement }) {
       if (!paiement.ref_externe) return { ok: false };
       // ref_externe = session Checkout ; le remboursement passe par le payment_intent.
