@@ -1298,3 +1298,7 @@ html, body { overflow-x: clip; }
   .st-source { flex: 0 0 auto; max-width: 240px; padding: 8px 10px; }
   .st-source .sous { display: none; }
 }
+/* Fonctions non incluses dans la formule */
+#nav a.verrouille { opacity: .6; }
+#nav a .cadenas { font-style: normal; font-size: .7rem; margin-left: auto; opacity: .8; }
+.verrou-formule ul { margin: 0 0 4px; padding-left: 18px; display: grid; gap: 4px; font-size: .875rem; }

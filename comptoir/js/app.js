@@ -149,7 +149,8 @@ function rendre() {
   let groupe = '';
   $('#nav').innerHTML = NAV.map(([id, nom, g]) => {
     const tete = g !== groupe ? `<div class="nav-groupe">${(groupe = g)}</div>` : '';
-    return `${tete}<a href="#${id}" class="${route === id ? 'actif' : ''}" ${route === id ? 'aria-current="page"' : ''}>${icone(id)}<span>${nom}</span>${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider ? `<b class="badge">${aValider}</b>` : ''}</a>`;
+    const verrouille = typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.abonnement && SERVEUR.abonnement.obligatoire && Formules.FONCTIONS[id] && !Formules.permet(SERVEUR.abonnement.formule, id);
+    return `${tete}<a href="#${id}" class="${route === id ? 'actif' : ''}${verrouille ? ' verrouille' : ''}" ${route === id ? 'aria-current="page"' : ''} ${verrouille ? `title="Formule ${Formules.FORMULES[Formules.FONCTIONS[id]].nom}"` : ''}>${icone(id)}<span>${nom}</span>${verrouille ? '<i class="cadenas" aria-label="Non inclus dans votre formule">🔒</i>' : ''}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider ? `<b class="badge">${aValider}</b>` : ''}</a>`;
   }).join('');
   const n = NAV.find(x => x[0] === route);
   const [g, t] = n ? [n[2], n[1]] : (TITRES_HORS_NAV[route] || ['Comptoir', '']);
@@ -164,6 +165,9 @@ function rendre() {
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : (typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? location.host + '/s/' + SERVEUR.slug : slugifier(etat.boutique.nom) + '.comptoir.shop');
   const vues = { stars: vueStars, tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, parametres: vueParametres, fournisseurs: vueFournisseurs, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   $('#vue').innerHTML = (vues[route] || vueTableau)();
+  // Mode connecté : une fonction hors de la formule payée affiche une invitation (le serveur refuse aussi l'accès).
+  const ab = typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.abonnement;
+  if (ab && ab.obligatoire && Formules.FONCTIONS[route] && !Formules.permet(ab.formule, route)) $('#vue').innerHTML = vueFonctionVerrouillee(route, ab);
   apresRendu();
 }
 
@@ -188,6 +192,15 @@ function pagination(total, page, parPage, action) {
   const debut = (page - 1) * parPage;
   return `<div class="pagination"><span class="sous">${debut + 1}–${Math.min(debut + parPage, total)} sur ${total.toLocaleString('fr-FR')}</span>
     <div class="rangee"><button class="btn petit fantome" data-action="${action}" data-d="-1" ${page <= 1 ? 'disabled' : ''}>Précédente</button><span class="sous">Page ${page} / ${pages}</span><button class="btn petit fantome" data-action="${action}" data-d="1" ${page >= pages ? 'disabled' : ''}>Suivante</button></div></div>`;
+}
+
+function vueFonctionVerrouillee(route, ab) {
+  const min = Formules.FONCTIONS[route], f = Formules.FORMULES[min];
+  return `<div class="tete"><div><h1>${esc(Formules.NOMS_FONCTIONS[route])}</h1><p class="sous">Disponible avec la formule ${esc(f.nom)}.</p></div></div>
+  <section class="carte verrou-formule"><div class="carte-tete"><h2>Passer à ${esc(f.nom)} : ${esc(Formules.prixTexte(min, ab.devise))} par mois</h2><span class="pill muted">Votre formule : ${esc(Formules.FORMULES[ab.formule] ? Formules.FORMULES[ab.formule].nom : '—')}</span></div>
+    <ul>${f.inclus.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+    <div class="rangee"><button class="btn" data-action="abo-changer" data-v="${min}">Passer à ${esc(f.nom)}</button><a class="btn fantome" href="#offre">Comparer les formules</a></div>
+    <p class="sous">Changement immédiat, sans frais ; la différence est prise en compte dès le prochain prélèvement.</p></section>`;
 }
 
 function statsPeriode(debut, fin) {

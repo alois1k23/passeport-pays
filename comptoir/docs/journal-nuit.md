@@ -200,3 +200,17 @@ Captures sur 360 px : liste et fiche des commandes, vue d'ensemble, produits sta
 
 1. **Fiche de commande hors de l'écran** : en ouvrant une commande plus bas dans la liste, la fiche s'affichait au-dessus, hors de vue, et rien ne semblait se passer. La page défile maintenant jusqu'à la fiche (vérifié sur la 13e commande).
 2. **Produits stars** : les trois encadrés des sources occupaient un écran entier avant le premier produit ; ils deviennent une rangée compacte sur téléphone.
+
+### Cycle 10 — Formules et promesses commerciales
+
+**Défauts trouvés et corrigés**
+
+1. **Promesses fausses sur les pages de tarifs** : « 3 boutiques, 5 comptes équipe » (un compte n'a qu'une boutique et un utilisateur), « Boutique en FR, DE et IT » (traduction seulement simulée), « Domaine .ch offert la 1re année » (achat de domaine non disponible). Retirées partout. Les formules n'annoncent plus que ce qui existe.
+2. **Trois listes de formules différentes** (page d'accueil, page « Offre et tarifs », écran de paiement). Pour la France et la Belgique, l'application affichait même d'autres formules (Atelier 19 €, Commerce 39 €, Maison 79 €) que celles réellement facturées (29, 59, 119 €). Une seule définition, `js/formules.js`, partagée par le serveur, l'application et la page de tarifs (alignée).
+3. **Aucune différence réelle entre les formules** : un client Lancement avait accès à tout. Désormais :
+   - Réseaux sociaux, Copilote, Tests produits et Conversion sont réservés à Croissance ; Magasin et caisse à Pro.
+   - Le menu affiche un cadenas, l'écran propose de changer de formule en un clic, et le serveur refuse les routes concernées (403).
+   - Vérifié dans le navigateur : passage de Lancement à Croissance, fonctions ouvertes aussitôt. La démo garde tout.
+4. **FAQ de la page d'accueil** : « Pour tester, non » alors que l'accès est payant. Corrigé : la démo est libre, l'ouverture d'une boutique demande une formule.
+
+Tests : 33 (refus 403 des fonctions non incluses ajouté).

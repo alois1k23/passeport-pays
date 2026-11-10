@@ -363,22 +363,16 @@ async function importerPhotos(fichiers) {
 /* ---------- Offre ---------- */
 function vueOffre() {
   const ch = estSuisse();
-  const plans = ch ? [
-    ['Lancement', 29, 'Votre première boutique de dropshipping', ['Boutique complète et éditeur', 'Catalogue fournisseurs CH et UE', 'Transmission automatique des commandes', 'Calcul de marge nette réelle', 'TWINT, cartes, La Poste', '0 % de commission Comptoir']],
-    ['Croissance', 59, 'Dropshipping + vos propres produits', ['Tout Lancement, plus :', 'Copilote de saison (Singles Day, Black Friday, Noël…)', 'Boutique en FR, DE et IT', 'Domaine .ch offert la 1re année', 'Fiches produits par photo illimitées', 'Session de lancement en visio']],
-    ['Pro', 119, 'Plusieurs boutiques, marchés ou magasin', ['Tout Croissance, plus :', 'Caisse et stock unique (pop-up, marchés, magasin)', '3 boutiques', '5 comptes équipe', 'Export pour votre fiduciaire', 'Conseiller dédié à Lausanne']]
-  ] : [
-    ['Atelier', 19, 'Pour démarrer', ['Boutique complète et éditeur', 'Domaine .fr offert la 1re année', 'Copilote de saison', 'Factures et CGV conformes', 'Colissimo et Mondial Relay', '0 % de commission Comptoir']],
-    ['Commerce', 39, 'Boutique physique + en ligne', ['Tout Atelier, plus :', 'Caisse et stock unique', 'Click & collect et QR de vitrine', 'Fiche Google synchronisée', 'Fiches produits par photo illimitées', 'Session de lancement en visio']],
-    ['Maison', 79, 'Plusieurs boutiques ou salariés', ['Tout Commerce, plus :', '3 points de vente', '5 comptes équipe', 'Domaines de campagne illimités', 'Export comptable automatique', 'Conseiller dédié']]
-  ];
+  // Même définition que le serveur et la page de tarifs (js/formules.js).
+  const devise = ch ? 'CHF' : 'EUR';
+  const plans = Formules.ORDRE.map(id => { const f = Formules.FORMULES[id]; return [f.nom, f.prix, f.resume, f.inclus, id]; });
   return `
   <div class="tete"><div><h1>Offre et tarifs</h1><p class="sous">Un prix fixe, tout compris. Pas d’applications payantes à empiler, pas de commission sur vos ventes (hors frais bancaires du paiement).</p></div></div>
   <div class="plans">${plans.map(([nom, prix, pour, inclus], i) => `
     <section class="plan ${i === 1 ? 'conseille' : ''}">
       ${i === 1 ? '<span class="eyebrow">Le plus choisi</span>' : '<span class="eyebrow">&nbsp;</span>'}
       <h2>${nom}</h2><p class="sous">${pour}</p>
-      <div class="prix"><strong>${ch ? 'CHF ' + prix + '.–' : prix + ' €'}</strong><span class="sous">${ch ? 'par mois' : 'HT / mois'}</span></div>
+      <div class="prix"><strong>${devise === 'CHF' ? 'CHF ' + prix + '.–' : prix + ' €'}</strong><span class="sous">${ch ? 'par mois' : 'HT / mois'}</span></div>
       <ul>${inclus.map(x => `<li>${x}</li>`).join('')}</ul>
       <a class="btn ${i === 1 ? '' : 'fantome'}" href="#creer">Essayer 30 jours</a>
     </section>`).join('')}</div>
@@ -387,7 +381,7 @@ function vueOffre() {
     <div class="atouts">
       ${ch ? `<div><strong>Le dropshipping qui tient ses promesses</strong><p class="sous">Fournisseurs en Suisse et en Europe, délais affichés honnêtement, pas de frais de douane surprise pour vos clients.</p></div>
       <div><strong>La vraie marge, avant de vendre</strong><p class="sous">Coût fournisseur, TVA d’import, dédouanement, frais TWINT et carte, publicité : vous savez ce que vous gagnez par vente.</p></div>
-      <div><strong>Fait pour la Suisse</strong><p class="sous">CHF, TWINT, La Poste, boutique en français, allemand et italien, Impressum et nLPD.</p></div>` : ''}
+      <div><strong>Fait pour la Suisse</strong><p class="sous">CHF, TWINT, La Poste (Economy, Priority, PickPost), Impressum et nLPD.</p></div>` : ''}
       <div><strong>Copilote de saison</strong><p class="sous">Chaque temps fort (Black Friday, Noël, fête des mères, soldes) arrive avec une campagne prête, calculée sur vos ventes et votre stock.</p></div>
       ${ch ? '<div><strong>Conforme en Suisse</strong><p class="sous">Factures numérotées, CGV, Impressum, déclaration nLPD, TVA suisse : générés et tenus à jour.</p></div>' : '<div><strong>Conforme en France</strong><p class="sous">Factures numérotées et facture électronique, CGV, mentions légales, RGPD, TVA : générés et tenus à jour.</p></div>'}
       <div><strong>Boutique et magasin réunis</strong><p class="sous">Une caisse, un stock, le retrait en magasin et la fiche Google, sans application supplémentaire.</p></div>

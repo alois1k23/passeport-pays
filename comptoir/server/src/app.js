@@ -6,6 +6,7 @@ const dns = require('node:dns').promises;
 const fs = require('node:fs');
 const path = require('node:path');
 const abonnements = require('./abonnements');
+const Formules = require('../../js/formules.js');
 const tendances = require('./tendances');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
@@ -333,6 +334,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     exigerCompte(ctx);
     if (!abo.etat(ctx.marchand.id).actif) throw erreur(402, 'Choisissez une formule et réglez votre abonnement pour accéder à votre boutique.', 'abonnement_requis');
   };
+  // Fonction réservée à une formule (réseaux sociaux : Croissance ; caisse : Pro). Sans abonnement obligatoire : tout est ouvert.
+  const exigerFonction = fonction => ctx => {
+    exigerMarchand(ctx);
+    const e = abo.etat(ctx.marchand.id);
+    if (e.obligatoire && !Formules.permet(e.formule, fonction)) throw erreur(403, `${Formules.NOMS_FONCTIONS[fonction]} : disponible avec la formule ${Formules.FORMULES[Formules.FONCTIONS[fonction]].nom}. Changez de formule dans Paramètres > Abonnement.`, 'formule_insuffisante');
+  };
 
   /* ---------- Comptes ---------- */
   r.get('/api/session', ctx => {
@@ -552,7 +559,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
   // Idempotence de la caisse : une même clé de ticket n'enregistre qu'une vente (double clic, renvoi après coupure).
   const ticketsVus = new Map();
-  r.post('/api/admin/caisse', exigerMarchand, ctx => {
+  r.post('/api/admin/caisse', exigerFonction('magasin'), ctx => {
     const cleTicket = typeof ctx.corps.cle === 'string' ? `${ctx.boutique.id}:${ctx.corps.cle.slice(0, 60)}` : null;
     if (cleTicket && ticketsVus.has(cleTicket)) return ticketsVus.get(cleTicket);
     for (const [k, v] of ticketsVus) if (Date.now() - v.le > 3600000) ticketsVus.delete(k);
@@ -583,14 +590,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!row) throw erreur(404, 'Publication introuvable.', 'publication_introuvable');
     return social.lire(row);
   };
-  r.post('/api/admin/publications', exigerMarchand, ctx => {
+  r.post('/api/admin/publications', exigerFonction('social'), ctx => {
     const liste = Array.isArray(ctx.corps.publications) ? ctx.corps.publications : [];
     if (!liste.length || liste.length > 80) throw erreur(400, 'Entre 1 et 80 publications à la fois.', 'invalide');
     const propres = liste.map(social.nettoyerPublication);
     transaction(db, () => { for (const p of propres) social.enregistrer(db, ctx.boutique.id, { ...p, id: auth.nouvelId('pub_') }); });
     return { statut: 201, corps: { n: propres.length } };
   });
-  r.put('/api/admin/publications/:id', exigerMarchand, ctx => {
+  r.put('/api/admin/publications/:id', exigerFonction('social'), ctx => {
     const avant = publicationDeBoutique(ctx.boutique.id, ctx.params.id);
     if (avant.statut === 'publiee') throw erreur(409, 'Une publication en ligne ne se modifie plus ici.', 'deja_publiee');
     social.enregistrer(db, ctx.boutique.id, { ...social.nettoyerPublication({ ...avant, ...ctx.corps.publication }), id: avant.id });
@@ -601,7 +608,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     db.prepare('DELETE FROM publications WHERE id = ?').run(ctx.params.id);
     return { ok: true };
   });
-  r.post('/api/admin/publications/:id/publier', exigerMarchand, async ctx => {
+  r.post('/api/admin/publications/:id/publier', exigerFonction('social'), async ctx => {
     const p = publicationDeBoutique(ctx.boutique.id, ctx.params.id);
     const config = lireConfig(ctx.boutique);
     if (!config.social.comptes[p.reseau]) throw erreur(409, 'Connectez d’abord ce réseau.', 'compte_absent');

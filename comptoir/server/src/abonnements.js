@@ -10,11 +10,9 @@ const { erreur } = require('./http');
 const JOUR = 86400000;
 const PERIODE = 30 * JOUR;
 const GRACE = 3 * JOUR;           // délai de grâce après une échéance non payée
-const FORMULES = {
-  lancement: { nom: 'Lancement', prix: 29, resume: 'Votre première boutique de dropshipping', inclus: ['Boutique complète et éditeur', 'Catalogue fournisseurs et produits stars', 'Transmission automatique des commandes', 'Calcul de marge nette réelle', '0 % de commission Comptoir'] },
-  croissance: { nom: 'Croissance', prix: 59, resume: 'Dropshipping et vos propres produits', inclus: ['Tout Lancement', 'Tendances mises à jour en continu', 'Copilote de saison', 'Réseaux sociaux en pilote automatique', 'E-mails automatiques et offres'] },
-  pro: { nom: 'Pro', prix: 119, resume: 'Magasin, marchés et volumes importants', inclus: ['Tout Croissance', 'Caisse et stock unique', 'Export pour votre fiduciaire', 'Assistance prioritaire'] }
-};
+// Définition partagée avec l'application et la page de tarifs (js/formules.js).
+const Formules = require('../../js/formules.js');
+const FORMULES = Formules.FORMULES;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS abonnements (

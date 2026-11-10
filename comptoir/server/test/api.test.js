@@ -36,7 +36,7 @@ function client() {
     const resultat = { statut: rep.status, json: texte ? JSON.parse(texte) : null };
     // Comme un vrai client : après l'inscription, il paie son abonnement (paiement simulé) avant d'accéder à son espace.
     if (chemin === '/api/auth/inscription' && rep.status === 201 && !sansPaiement) {
-      const c = await fetch(base + '/api/abonnement/commencer', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify({ formule: 'croissance' }) });
+      const c = await fetch(base + '/api/abonnement/commencer', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify({ formule: 'pro' }) });
       const { url } = await c.json();
       await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
     }
@@ -492,6 +492,10 @@ test('abonnement : rien n’est accessible avant le paiement, puis seulement sa 
   assert.equal((await client()('GET', '/api/public/' + r.json.slug)).statut, 200);
   // Un second paiement est refusé ; changement de formule et résiliation (accès gardé jusqu'à la fin de la période)
   assert.equal((await c('POST', '/api/abonnement/commencer', { formule: 'pro' })).statut, 409);
+  // Formule Lancement : réseaux sociaux et caisse réservés aux formules supérieures
+  const pidL = e.json.produits[0].id;
+  assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pidL, qte: 1 }], moyen: 'carte' })).statut, 403);
+  assert.equal((await c('POST', '/api/admin/publications', { publications: [{ reseau: 'instagram', format: 'Reel', pilier: 'produit', date: Date.now() + 3600e3, accroche: 'x', legende: 'y', hashtags: [] }] })).statut, 403);
   assert.equal((await c('POST', '/api/abonnement/changer', { formule: 'pro' })).statut, 200);
   assert.equal((await c('POST', '/api/abonnement/resilier', {})).statut, 200);
   const apres = await c('GET', '/api/abonnement');

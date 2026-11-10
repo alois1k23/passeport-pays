@@ -45,7 +45,8 @@ async function boutique(b, i) {
   const res = { i, nom, niveau, pays, secteur, produits: 0, drop: 0, commande: null };
   try {
     // 1. Page d'accueil : le client choisit une formule, puis crée son compte
-    const formule = ['lancement', 'croissance', 'pro'][i % 3];
+    // Les boutiques avancées utilisent réseaux sociaux et caisse : formules Croissance ou Pro.
+    const formule = niveau >= 2 ? ['croissance', 'pro'][i % 2] : ['lancement', 'croissance', 'pro'][i % 3];
     await p.goto(base + '/'); await p.waitForTimeout(400);
     await controler(p, qui, 'page d’accueil');
     const lienFormule = p.locator(`a[href="/app?formule=${formule}"]`);
