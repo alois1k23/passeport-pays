@@ -63,7 +63,7 @@ Chaque boutique peut avoir son domaine. Le plus simple : placer [Caddy](https://
 ```
 {
   on_demand_tls {
-    ask http://localhost:3000/api/session
+    ask http://localhost:3000/api/tls/autoriser
   }
 }
 https:// {
@@ -72,7 +72,7 @@ https:// {
 }
 ```
 
-En production, remplacez `ask` par une route qui ne répond « oui » que pour les domaines actifs : c'est la prochaine étape technique. Sans cela, n'importe quel domaine pointé vers le serveur pourrait demander un certificat.
+La route `/api/tls/autoriser` ne répond « oui » que pour le domaine principal et les domaines vérifiés : un domaine quelconque pointé vers le serveur n'obtient pas de certificat (testé).
 
 ## Mise en ligne
 
@@ -84,7 +84,6 @@ En production, remplacez `ask` par une route qui ne répond « oui » que pour l
 ## Limites actuelles (prochaines étapes)
 
 - Sans domaine personnalisé, les boutiques restent servies sur le domaine de l'admin (`/s/<slug>`). Pour plus de sûreté, servez l'admin et les boutiques sur des domaines différents.
-- Route de validation des certificats à la demande (voir ci-dessus) à ajouter avant d'ouvrir les domaines personnalisés au public.
 - La réservation des domaines (API d'un registrar) et l'API La Poste pour les étiquettes ne sont pas encore branchées.
 - Pas encore de double authentification.
 - Abandons par moyen de paiement : à brancher sur les événements du prestataire de paiement.

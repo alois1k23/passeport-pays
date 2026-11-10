@@ -331,6 +331,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { ok: true, url: `https://${domaine}/` };
   });
 
+  /* Pour Caddy (HTTPS à la demande) : un certificat n’est demandé que pour un domaine vérifié. */
+  r.get('/api/tls/autoriser', ctx => {
+    const d = String(ctx.query.get('domain') || '').toLowerCase();
+    const ok = d === hotePrincipal || !!db.prepare("SELECT 1 FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(d);
+    if (!ok) throw erreur(404, 'Domaine inconnu.', 'domaine_inconnu');
+    return { ok: true };
+  });
+
   r.post('/api/auth/deconnexion', ctx => {
     auth.supprimerSession(db, ctx.cookies);
     ctx.entetes['Set-Cookie'] = auth.cookieSession(null, securise);

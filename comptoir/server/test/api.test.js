@@ -435,4 +435,6 @@ test('mot de passe oublié, e-mails envoyés par le service, domaine personnalis
   const cf = JSON.parse(row.config); cf.boutique.domaine = { domaine: 'lacustre.example', actif: true };
   db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(cf), row.id);
   assert.match(await getHote('lacustre.example'), new RegExp(`name="comptoir-slug" content="${slug}"`));
+  assert.equal((await fetch(`${base}/api/tls/autoriser?domain=lacustre.example`)).status, 200);
+  assert.equal((await fetch(`${base}/api/tls/autoriser?domain=pirate.example`)).status, 404, 'pas de certificat pour un domaine non vérifié');
 });
