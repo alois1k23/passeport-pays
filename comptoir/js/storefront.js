@@ -6,9 +6,17 @@ function esc(t) {
 function devise() {
   return (typeof etat !== 'undefined' && etat && etat.boutique && etat.boutique.devise) || 'EUR';
 }
+/* Montants : usage suisse « CHF 3’026.00 » (apostrophe pour les milliers, point décimal) ;
+   euro au format français « 3 026,00 € ». */
+function montantCHF(n) {
+  const v = Math.round(Math.abs(Number(n) || 0) * 100) / 100;
+  const [e, c] = v.toFixed(2).split('.');
+  return `${Number(n) < -0.004 ? '−' : ''}CHF ${e.replace(/\B(?=(\d{3})+(?!\d))/g, '’')}.${c}`;
+}
 function euros(n) {
   const d = devise();
-  return Number(n).toLocaleString(d === 'CHF' ? 'fr-CH' : 'fr-FR', { style: 'currency', currency: d });
+  if (d === 'CHF') return montantCHF(n);
+  return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: d });
 }
 
 function visuelProduit(p, grand = false) {
@@ -79,8 +87,8 @@ function renduSection(s, etat, mode) {
         <h2>${esc(p.titre)}</h2>
         <div class="sf-grille">${liste.map(x => `
           <article class="sf-carte">
-            ${visuelProduit(x)}
-            <div class="sf-carte-infos"><h3>${esc(x.nom)}</h3><span>${x.prixBarre ? `<s class="sf-barre">${euros(x.prixBarre)}</s> ` : ''}${euros(x.prix)}</span></div>
+            <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>
+            <div class="sf-carte-infos"><h3><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${x.prixBarre ? `<s class="sf-barre">${euros(x.prixBarre)}</s> ` : ''}${euros(x.prix)}</span></div>
             <small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}${x.avis && x.avis.n ? ` · <span class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} (${x.avis.n} avis vérifiés)</span>` : ''}</small>
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
           </article>`).join('') || '<p class="sf-vide">Aucun produit dans cette catégorie.</p>'}
@@ -89,7 +97,7 @@ function renduSection(s, etat, mode) {
     case 'arguments':
       return `<section class="sf-arguments">${[p.a1, p.a2, p.a3].filter(Boolean).map(a => `<div>${esc(a)}</div>`).join('')}</section>`;
     case 'texte':
-      return `<section class="sf-texte"><h2>${esc(p.titre)}</h2><p>${esc(p.texte)}</p></section>`;
+      return `<section class="sf-texte" data-ancre="apropos"><h2>${esc(p.titre)}</h2><p>${esc(p.texte)}</p></section>`;
     case 'avis': {
       // Avis vérifiés réels s’il y en a ; sinon les textes saisis dans l’éditeur.
       const reels = (etat.avisRecents || []).slice(0, 4);
@@ -106,7 +114,7 @@ function renduSection(s, etat, mode) {
     case 'faq':
       return `<section class="sf-faq"><h2>Questions fréquentes</h2>${[[p.q1, p.r1], [p.q2, p.r2]].filter(q => q[0]).map(([q, r]) => `<details><summary>${esc(q)}</summary><p>${esc(r)}</p></details>`).join('')}</section>`;
     case 'pied':
-      return `<footer class="sf-pied"><strong>${esc(etat.boutique.nom)}</strong><span>${esc(p.texte)}</span><span>${esc(p.contact)}</span>
+      return `<footer class="sf-pied" data-ancre="contact"><strong>${esc(etat.boutique.nom)}</strong><span>${esc(p.texte)}</span><span>${esc(p.contact)}</span>
         <span class="sf-legal"><button type="button" data-action="doc" data-id="mentions">Mentions légales</button><button type="button" data-action="doc" data-id="cgv">CGV</button></span></footer>`;
     default:
       return '';
@@ -114,12 +122,43 @@ function renduSection(s, etat, mode) {
 }
 
 /* mode : 'edition' (sections sélectionnables) ou 'live' (boutique avec panier). */
-function renduBoutique(etat, { mode = 'live', selection = null, panier = [] } = {}) {
+/* Fiche produit : grande photo, description, délai, avis du produit, quantité, réassurance. */
+function renduFiche(etat, p, qte = 1) {
+  if (!p) return '';
+  const ch = etat.boutique.pays === 'ch';
+  const avis = (etat.avisRecents || []).filter(a => (a.produitId || a.produit_id) === p.id).slice(0, 3);
+  const args = (etat.boutique.sections.find(s => s.type === 'arguments') || {}).props || {};
+  const reassurance = [args.a1, args.a2, args.a3].filter(Boolean);
+  const epuise = p.type !== 'drop' && p.stock <= 0;
+  const max = p.type === 'drop' ? 10 : Math.max(1, Math.min(10, p.stock));
+  return `<div class="sf-fiche-fond" data-sf="fermer-fiche"></div>
+  <div class="sf-fiche" role="dialog" aria-modal="true" aria-label="${esc(p.nom)}">
+    <button type="button" class="sf-fiche-fermer" data-sf="fermer-fiche" aria-label="Fermer">×</button>
+    <div class="sf-fiche-visuel">${visuelProduit(p)}</div>
+    <div class="sf-fiche-infos">
+      ${p.categorie ? `<small class="sf-fiche-cat">${esc(p.categorie)}</small>` : ''}
+      <h2>${esc(p.nom)}</h2>
+      <p class="sf-fiche-prix">${p.prixBarre ? `<s class="sf-barre">${euros(p.prixBarre)}</s> ` : ''}<strong>${euros(p.prix)}</strong> <small>TTC${ch ? '' : ', TVA incluse'}</small></p>
+      ${p.prixBarre ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
+      ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
+      ${p.description ? `<p class="sf-fiche-desc">${esc(p.description)}</p>` : ''}
+      <p class="sf-fiche-delai">${esc(fenetreLivraison(delaiProduit(p)))}</p>
+      <div class="sf-fiche-achat">
+        <label class="sf-qte"><span>Quantité</span><select data-sf-qte aria-label="Quantité">${Array.from({ length: max }, (_, i) => `<option ${i + 1 === qte ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
+        <button class="sf-btn" data-sf="ajouter" data-id="${esc(p.id)}" ${epuise ? 'disabled' : ''}>${epuise ? 'Épuisé' : 'Ajouter au panier'}</button>
+      </div>
+      ${reassurance.length ? `<ul class="sf-fiche-plus">${reassurance.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${avis.length ? `<div class="sf-fiche-avis"><h3>Avis sur ce produit</h3>${avis.map(a => `<figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${'★★★★★'.slice(0, a.note)}${'☆☆☆☆☆'.slice(0, 5 - a.note)}</div><blockquote>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom || '')}${a.ville ? ', ' + esc(a.ville) : ''}</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fiche = null } = {}) {
   const b = etat.boutique;
   const nbPanier = panier.reduce((a, l) => a + l.qte, 0);
   const entete = `<header class="sf-entete">
       <span class="sf-logo">${esc(b.nom)}</span>
-      <nav><span>Boutique</span><span>À propos</span><span>Contact</span></nav>
+      <nav aria-label="Navigation de la boutique"><button type="button" data-sf="nav" data-v="collection">Boutique</button><button type="button" data-sf="nav" data-v="apropos">À propos</button><button type="button" data-sf="nav" data-v="contact">Contact</button></nav>
       <button class="sf-panier-btn" data-sf="panier" aria-label="Ouvrir le panier">Panier <b>${nbPanier}</b></button>
     </header>`;
   const sections = b.sections.map(s => {
@@ -129,6 +168,7 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [] } = 
       <span class="sf-etiquette">${esc(TYPES_SECTIONS[s.type].nom)}</span>${html}</div>`;
   }).join('');
   // L’annonce reste au-dessus de l’en-tête si elle est en première position.
+  const ficheHtml = fiche && mode !== 'edition' ? renduFiche(etat, etat.produits.find(x => x.id === fiche)) : '';
   const annonceEnTete = b.sections[0]?.type === 'annonce';
   if (annonceEnTete) {
     const [premier, ...reste] = b.sections;
@@ -139,7 +179,13 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [] } = 
       const html = renduSection(s, etat, mode);
       return mode !== 'edition' ? html : `<div class="sf-bloc${selection === s.id ? ' choisi' : ''}" data-section="${s.id}" tabindex="0"><span class="sf-etiquette">${esc(TYPES_SECTIONS[s.type].nom)}</span>${html}</div>`;
     }).join('');
-    return `<div class="sf" style="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}</div>`;
+    return `<div class="sf" style="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}${ficheHtml}</div>`;
   }
-  return `<div class="sf" style="${varsTheme(b.theme)}">${entete}${sections}</div>`;
+  return `<div class="sf" style="${varsTheme(b.theme)}">${entete}${sections}${ficheHtml}</div>`;
+}
+
+/* Navigation de la boutique : défile jusqu’à la collection, au texte de présentation ou au pied de page. */
+function allerSection(racine, cle) {
+  const cible = racine.querySelector(cle === 'collection' ? '#sf-collection' : `[data-ancre="${cle}"]`) || racine.querySelector('[data-ancre="contact"]');
+  cible?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }

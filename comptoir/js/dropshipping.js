@@ -178,7 +178,7 @@ function boutiqueDemoLausanne() {
   const nom = 'Lacustre';
   const depuis = ['f02', 'f03', 'f05', 'f06', 'f07', 'f04'].map(id => CATALOGUE.find(f => f.id === id));
   const produits = depuis.map((f, i) => ({
-    id: 'p' + (i + 1), nom: f.nom, categorie: f.categorie, prix: f.prix, description: `${f.nom}, sélectionné par Lacustre. Expédié depuis notre entrepôt partenaire (${ENTREPOTS[f.entrepot].nom}), livré en ${f.delai[0]} à ${f.delai[1]} jours, retours gratuits 30 jours.`,
+    id: 'p' + (i + 1), nom: f.nom, categorie: f.categorie, prix: f.prix, description: `Sélection Lacustre. Expédié depuis notre entrepôt partenaire (${ENTREPOTS[f.entrepot].nom}), livré en ${f.delai[0]} à ${f.delai[1]} jours, retours gratuits 30 jours.`,
     stock: 999, teinte: (f.id.charCodeAt(2) * 47) % 360, actif: true,
     type: 'drop', cout: f.cout, portF: f.portF, entrepot: f.entrepot, delai: f.delai, fournisseur: f.fournisseur, source: f.id
   }));

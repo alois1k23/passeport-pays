@@ -92,6 +92,7 @@ const ICONES = {
   produits: '<path d="m12 3 8.5 4.5v9L12 21l-8.5-4.5v-9Z"/><path d="m3.5 7.5 8.5 4.5 8.5-4.5M12 12v9"/>',
   sourcing: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   tests: '<path d="M9 3h6M10 3v6l-5.5 9.5A1.5 1.5 0 0 0 5.8 21h12.4a1.5 1.5 0 0 0 1.3-2.5L14 9V3"/><path d="M7.5 15h9"/>',
+  parametres: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
   fournisseurs: '<path d="M3 7h11v10H3z"/><path d="M14 10h4l3 3v4h-7"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/>',
   conversion: '<path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/>',
   social: '<path d="M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1Z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
@@ -123,9 +124,10 @@ const NAV = [
   ['domaines', 'Domaines', 'Croissance'],
   ['editeur', 'Éditeur du site', 'Boutique'],
   ['conformite', 'Conformité', 'Boutique'],
-  ['boutique', 'Voir la boutique', 'Boutique']
+  ['boutique', 'Voir la boutique', 'Boutique'],
+  ['parametres', 'Paramètres', 'Compte']
 ];
-const TITRES_HORS_NAV = { creer: ['Boutique', 'Nouvelle boutique'], offre: ['Comptoir', 'Offre et tarifs'] };
+const TITRES_HORS_NAV = { creer: ['Boutique', 'Nouvelle boutique'], offre: ['Compte', 'Offre et tarifs'] };
 
 /* Thème : système, clair ou sombre (mémorisé dans ce navigateur). */
 function appliquerTheme() {
@@ -156,7 +158,7 @@ function rendre() {
   document.title = `${t || 'Comptoir'} · ${etat.boutique.nom}`;
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : (typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? location.host + '/s/' + SERVEUR.slug : slugifier(etat.boutique.nom) + '.comptoir.shop');
-  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, fournisseurs: vueFournisseurs, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
+  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, parametres: vueParametres, fournisseurs: vueFournisseurs, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   $('#vue').innerHTML = (vues[route] || vueTableau)();
   apresRendu();
 }
@@ -169,6 +171,11 @@ function apresRendu() {
   rendreModal();
 }
 
+/* État vide commun : icône, titre, explication, action. */
+function etatVide(ico, titre, texte, action = '') {
+  return `<div class="vide-etat">${icone(ico, 22)}<strong>${esc(titre)}</strong><span>${esc(texte)}</span>${action}</div>`;
+}
+
 /* ---------- Tableau de bord ---------- */
 function statsPeriode(debut, fin) {
   const cs = etat.commandes.filter(c => c.date >= debut && c.date < fin && compteVentes(c));
@@ -178,10 +185,13 @@ function statsPeriode(debut, fin) {
 
 function vueTableau() {
   const now = Date.now();
-  const cur = statsPeriode(now - 30 * JOUR, now + 1);
-  const benef = (d, f) => etat.commandes.filter(c => c.date >= d && c.date < f).reduce((a, c) => a + beneficeCommande(c), 0);
-  const bCur = benef(now - 30 * JOUR, now + 1), bPrev = benef(now - 60 * JOUR, now - 30 * JOUR);
-  const prev = statsPeriode(now - 60 * JOUR, now - 30 * JOUR);
+  // Même découpage que la page Analyse : 30 jours calendaires se terminant ce soir à minuit.
+  const finJ = new Date(); finJ.setHours(24, 0, 0, 0);
+  const fin = finJ.getTime(), debut = fin - 30 * JOUR;
+  const cur = statsPeriode(debut, fin);
+  const benef = (d, f) => etat.commandes.filter(c => c.date >= d && c.date < f && compteVentes(c)).reduce((a, c) => a + beneficeCommande(c), 0);
+  const bCur = benef(debut, fin), bPrev = benef(debut - 30 * JOUR, debut);
+  const prev = statsPeriode(debut - 30 * JOUR, debut);
   const conv = cur.n / etat.visites30j;
   const aExpedier = etat.commandes.filter(c => c.statut === 'payee' || c.statut === 'preparation');
   const attente = etat.commandes.filter(c => c.statut === 'attente').length;
@@ -221,7 +231,7 @@ function vueTableau() {
     <section class="carte saison-carte">
       <span class="eyebrow">Copilote · prochain temps fort</span>
       <h2>${esc(prochain.nom)}, ${prochain.date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</h2>
-      <p>Dans ${Math.ceil((prochain.date - new Date()) / JOUR)} jours. ${etat.campagnes[prochain.cle] ? 'Votre campagne est programmée.' : `Campagne prête : ${euros(campProchain.caPrevu)} de ventes prévues${campProchain.ruptures.length ? `, ${campProchain.ruptures.length} produit${campProchain.ruptures.length > 1 ? 's' : ''} à réassortir` : ''}.`}</p>
+      <p>${dansJours(prochain.date)}. ${etat.campagnes[prochain.cle] ? 'Votre campagne est programmée.' : `Campagne prête : ${euros(campProchain.caPrevu)} de ventes prévues${campProchain.ruptures.length ? `, ${campProchain.ruptures.length} produit${campProchain.ruptures.length > 1 ? 's' : ''} à réassortir` : ''}.`}</p>
       <div class="jauge"><div style="width:${Math.min(100, indice / 1.8)}%"></div></div>
       <p class="sous">Demande « ${esc(secteur.nom)} » : indice ${indice} (100 = mois moyen)</p>
       <div class="rangee"><a class="btn" href="#copilote">${etat.campagnes[prochain.cle] ? 'Voir la campagne' : 'Relire et valider'}</a><a class="btn fantome" href="#domaines">Domaine de campagne</a></div>
@@ -230,9 +240,9 @@ function vueTableau() {
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Dernières commandes</h2><a href="#commandes" class="lien">Toutes les commandes</a></div>
-      <div class="table-wrap"><table class="table"><tbody>${recentes.map(c => `
-        <tr data-action="ouvrir-commande" data-id="${c.id}" tabindex="0"><td class="mono">#${c.numero}</td><td>${esc(c.client.nom)}</td><td class="num">${euros(c.total)}</td><td>${pill(c.statut)}</td></tr>`).join('')}
-      </tbody></table></div>
+      ${recentes.length ? `<div class="table-wrap"><table class="table"><tbody>${recentes.map(c => `
+        <tr data-action="ouvrir-commande" data-id="${c.id}" tabindex="0"><td class="mono">#${c.numero}</td><td>${esc(c.client.nom)}<div class="sous">${dateCourte(c.date)} · ${esc(c.client.ville || '')}</div></td><td class="num">${euros(c.total)}</td><td>${pill(c.statut)}</td></tr>`).join('')}
+      </tbody></table></div>` : etatVide('commandes', 'Pas encore de commande', 'Partagez le lien de votre boutique ou lancez le pilote des réseaux sociaux pour obtenir vos premières visites.', '<a class="btn petit" href="#social">Préparer mes publications</a>')}
     </section>
     <section class="carte">
       <div class="carte-tete"><h2>À faire</h2></div>
@@ -272,36 +282,110 @@ const FLUX = {
   remboursee: [], annulee: []
 };
 
-function vueCommandes() {
-  const filtres = [['tous', 'Toutes'], ['payee', 'À préparer'], ['preparation', 'En préparation'], ['fournisseur', 'Chez le fournisseur'], ['expediee', 'Expédiées'], ['livree', 'Livrées'], ['attente', 'En attente'], ['remboursee', 'Remboursées']];
+/* Commandes filtrées selon l’onglet, la période, le canal et la recherche. */
+const PAR_PAGE = 50;
+function commandesFiltrees() {
   const q = ui.recherche.trim().toLowerCase();
-  const liste = [...etat.commandes].sort((a, b) => b.date - a.date)
-    .filter(c => ui.filtre === 'tous' || c.statut === ui.filtre)
-    .filter(c => !q || String(c.numero).includes(q) || c.client.nom.toLowerCase().includes(q) || c.client.email.includes(q));
+  const depuis = ui.periodeCmd && ui.periodeCmd !== 'tout' ? Date.now() - Number(ui.periodeCmd) * JOUR : 0;
+  return [...etat.commandes].sort((a, b) => b.date - a.date)
+    .filter(c => ui.filtre === 'tous' || c.statut === ui.filtre || (ui.filtre === 'payee' && c.statut === 'preparation' && false))
+    .filter(c => c.date >= depuis)
+    .filter(c => !ui.canalCmd || ui.canalCmd === 'tous' || c.canal === ui.canalCmd)
+    .filter(c => !q || String(c.numero).includes(q) || c.client.nom.toLowerCase().includes(q) || (c.client.email || '').toLowerCase().includes(q) || (c.client.ville || '').toLowerCase().includes(q));
+}
+
+function vueCommandes() {
+  ui.selection = ui.selection || new Set();
+  const filtres = [['tous', 'Toutes'], ['attente', 'Paiement en attente'], ['payee', 'À préparer'], ['preparation', 'En préparation'], ['fournisseur', 'Chez le fournisseur'], ['prete', 'À retirer'], ['expediee', 'Expédiées'], ['livree', 'Livrées'], ['remboursee', 'Remboursées']];
+  const liste = commandesFiltrees();
+  const pages = Math.max(1, Math.ceil(liste.length / PAR_PAGE));
+  ui.pageCmd = Math.min(ui.pageCmd || 1, pages);
+  const debut = (ui.pageCmd - 1) * PAR_PAGE;
+  const page = liste.slice(debut, debut + PAR_PAGE);
   const ouverte = etat.commandes.find(c => c.id === ui.commande);
+  const sel = [...ui.selection].filter(id => etat.commandes.some(c => c.id === id));
+  const toutCoche = page.length && page.every(c => ui.selection.has(c.id));
+  const ca = liste.filter(compteVentes).reduce((a, c) => a + c.total, 0);
   return `
-  <div class="tete"><div><h1>Commandes</h1><p class="sous">${etat.commandes.length} commandes au total</p></div></div>
-  <div class="filtres">
-    <div class="onglets" role="tablist">${filtres.map(([id, nom]) => {
-      const n = id === 'tous' ? etat.commandes.length : etat.commandes.filter(c => c.statut === id).length;
-      return `<button role="tab" aria-selected="${ui.filtre === id}" class="${ui.filtre === id ? 'actif' : ''}" data-action="filtre" data-filtre="${id}">${nom} <span>${n}</span></button>`;
-    }).join('')}</div>
-    <input id="recherche-commandes" type="search" placeholder="N°, nom ou e-mail" value="${esc(ui.recherche)}" data-champ="recherche">
+  <div class="tete"><div><h1>Commandes</h1><p class="sous">${liste.length.toLocaleString('fr-FR')} commande${liste.length > 1 ? 's' : ''} · ${euros(ca)} encaissés sur la sélection</p></div>
+    <div class="rangee"><button class="btn fantome" data-action="export-commandes">Exporter CSV</button></div></div>
+  <div class="onglets onglets-defilants" role="tablist" aria-label="Statut">${filtres.map(([id, nom]) => {
+    const n = id === 'tous' ? etat.commandes.length : etat.commandes.filter(c => c.statut === id).length;
+    return n || id === 'tous' || ui.filtre === id ? `<button role="tab" aria-selected="${ui.filtre === id}" class="${ui.filtre === id ? 'actif' : ''}" data-action="filtre" data-filtre="${id}">${nom} <span>${n}</span></button>` : '';
+  }).join('')}</div>
+  <div class="barre-filtres">
+    <input id="recherche-commandes" type="search" placeholder="Rechercher un n°, un client, une ville…" value="${esc(ui.recherche)}" data-champ="recherche" aria-label="Rechercher une commande">
+    <select data-cmd="periodeCmd" aria-label="Période">${[['tout', 'Toute la période'], ['1', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['90', '90 derniers jours']].map(([v, n]) => `<option value="${v}" ${(ui.periodeCmd || 'tout') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    <select data-cmd="canalCmd" aria-label="Canal">${[['tous', 'Tous les canaux'], ['web', 'En ligne'], ['magasin', 'En personne']].map(([v, n]) => `<option value="${v}" ${(ui.canalCmd || 'tous') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
   </div>
+  ${sel.length ? `<div class="barre-groupee" role="region" aria-label="Actions groupées"><b>${sel.length} sélectionnée${sel.length > 1 ? 's' : ''}</b>
+    <button class="btn petit fantome" data-action="groupe-statut" data-statut="preparation">Mettre en préparation</button>
+    <button class="btn petit fantome" data-action="groupe-statut" data-statut="expediee">Marquer expédiées</button>
+    <button class="btn petit fantome" data-action="groupe-bons">Bons de préparation</button>
+    <button class="btn petit fantome" data-action="export-commandes" data-selection="1">Exporter</button>
+    <button class="bouton-lien" data-action="groupe-vider">Tout désélectionner</button></div>` : ''}
   <div class="maitre-detail ${ouverte ? 'ouvert' : ''}">
     <section class="carte sans-pad">
-      <div class="table-wrap"><table class="table">
-        <thead><tr><th>N°</th><th>Date</th><th>Client</th><th class="num">Articles</th><th class="num">Total</th><th>Statut</th></tr></thead>
-        <tbody>${liste.map(c => `
+      ${page.length ? `<div class="table-wrap"><table class="table table-commandes table-cartes">
+        <thead><tr><th class="col-case"><input type="checkbox" data-action="cocher-page" ${toutCoche ? 'checked' : ''} aria-label="Sélectionner les commandes de la page"></th><th>N°</th><th>Date</th><th>Client</th><th>Livraison</th><th class="num">Articles</th><th class="num">Total</th><th>Statut</th></tr></thead>
+        <tbody>${page.map(c => `
           <tr data-action="ouvrir-commande" data-id="${c.id}" tabindex="0" class="${c.id === ui.commande ? 'choisi' : ''}">
-            <td class="mono">#${c.numero}</td><td>${dateCourte(c.date)}</td>
-            <td><div>${esc(c.client.nom)}</div><div class="sous">${esc(c.client.ville)}</div></td>
-            <td class="num">${c.lignes.reduce((a, l) => a + l.qte, 0)}</td><td class="num">${euros(c.total)}</td><td>${pill(c.statut)}</td>
-          </tr>`).join('') || '<tr><td colspan="6" class="vide">Aucune commande ne correspond.</td></tr>'}
+            <td class="col-case"><input type="checkbox" data-action="cocher" data-id="${c.id}" ${ui.selection.has(c.id) ? 'checked' : ''} aria-label="Sélectionner la commande ${c.numero}"></td>
+            <td class="mono carte-titre" data-label="N°">#${c.numero}</td><td data-label="Date">${dateCourte(c.date)}<div class="sous">${new Date(c.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div></td>
+            <td data-label="Client"><div>${esc(c.client.nom)}</div><div class="sous">${esc(c.client.ville || '')}</div></td>
+            <td class="sous" data-label="Livraison">${c.canal === 'magasin' ? 'En personne' : esc((TOUTES_LIVRAISONS[c.livraison] || { court: '' }).court)}</td>
+            <td class="num" data-label="Articles">${c.lignes.reduce((a, l) => a + l.qte, 0)}</td><td class="num" data-label="Total">${euros(c.total)}${c.remise ? `<div class="sous">−${euros(c.remise)}</div>` : ''}</td><td data-label="Statut">${pill(c.statut)}</td>
+          </tr>`).join('')}
         </tbody></table></div>
+        <div class="pagination"><span class="sous">${debut + 1}–${Math.min(debut + PAR_PAGE, liste.length)} sur ${liste.length.toLocaleString('fr-FR')}</span>
+          <div class="rangee"><button class="btn petit fantome" data-action="page-cmd" data-d="-1" ${ui.pageCmd <= 1 ? 'disabled' : ''}>Précédente</button><span class="sous">Page ${ui.pageCmd} / ${pages}</span><button class="btn petit fantome" data-action="page-cmd" data-d="1" ${ui.pageCmd >= pages ? 'disabled' : ''}>Suivante</button></div></div>`
+      : etatVide('commandes', ui.recherche || ui.filtre !== 'tous' || (ui.periodeCmd && ui.periodeCmd !== 'tout') ? 'Aucune commande ne correspond' : 'Pas encore de commande', ui.recherche || ui.filtre !== 'tous' ? 'Modifiez la recherche ou les filtres.' : 'Les commandes de votre boutique en ligne et de la caisse apparaîtront ici.')}
     </section>
     ${ouverte ? detailCommande(ouverte) : ''}
   </div>`;
+}
+
+/* Bon de préparation : une page par commande, articles à cocher, adresse. */
+function bonsPreparation(ids) {
+  const cs = ids.map(id => etat.commandes.find(c => c.id === id)).filter(Boolean);
+  const imprimable = typeof SERVEUR !== 'undefined' && SERVEUR.actif;
+  return `<div class="bons">${cs.map(c => `<article class="bon">
+      <header><div><strong>${esc(etat.boutique.nom)}</strong><div class="sous">Bon de préparation</div></div><div class="num"><b class="mono">#${c.numero}</b><div class="sous">${new Date(c.date).toLocaleDateString('fr-FR')}</div></div></header>
+      <div class="bon-adresse"><span class="sous">Livrer à</span><b>${esc(c.client.nom)}</b><span>${esc(c.client.adresse || '')}</span><span>${esc([c.client.npa, c.client.ville].filter(Boolean).join(' '))}</span><span class="sous">${c.canal === 'magasin' ? 'Vente en personne' : esc((TOUTES_LIVRAISONS[c.livraison] || { nom: '' }).nom)}</span></div>
+      <table class="table compacte"><thead><tr><th></th><th>Article</th><th class="num">Qté</th></tr></thead><tbody>${c.lignes.map(l => `<tr><td class="col-case">☐</td><td>${esc(l.nom)}${(etat.produits.find(p => p.id === l.produitId) || {}).type === 'drop' ? ' <span class="sous">(expédié par le fournisseur)</span>' : ''}</td><td class="num">${l.qte}</td></tr>`).join('')}</tbody></table>
+      ${c.note ? `<p class="sous">Note : ${esc(c.note)}</p>` : ''}
+    </article>`).join('')}</div>
+    <div class="rangee">${imprimable ? '<button class="btn" data-action="imprimer">Imprimer</button>' : '<span class="sous">L’impression est disponible dans l’application installée.</span>'}</div>`;
+}
+
+function exporterCommandesCsv(liste) {
+  const champs = ['numero', 'date', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total', 'facture', 'suivi'];
+  const lignes = liste.map(c => [c.numero, new Date(c.date).toISOString(), STATUTS[c.statut] ? STATUTS[c.statut].nom : c.statut, c.client.nom, c.client.email, c.client.ville, c.canal, c.livraison, c.lignes.map(l => `${l.qte}× ${l.nom}`).join(' | '), c.remise || 0, c.port || 0, c.total, c.facture || '', c.suivi || '']
+    .map(v => typeof v === 'number' ? v.toFixed(2) : `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
+  telechargerTexte(`comptoir-commandes-${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + champs.join(';') + '\n' + lignes.join('\n'), 'text/csv;charset=utf-8', `${liste.length} commande${liste.length > 1 ? 's' : ''} exportée${liste.length > 1 ? 's' : ''}.`);
+}
+function telechargerTexte(nom, contenu, type, message) {
+  try {
+    const url = URL.createObjectURL(new Blob([contenu], { type }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: nom });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(message);
+  } catch { toast('Téléchargement impossible dans cet aperçu. Il fonctionne dans l’application installée.'); }
+}
+
+/* Changement de statut groupé : seules les commandes pour qui l’étape est possible changent. */
+async function changerStatutGroupe(ids, statut) {
+  const possibles = ids.map(id => etat.commandes.find(c => c.id === id)).filter(c => c && fluxPour(c).some(([s]) => s === statut));
+  if (!possibles.length) { toast('Aucune des commandes sélectionnées ne peut passer à cette étape.'); return; }
+  if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte) {
+    for (const c of possibles) { try { await api('POST', `/api/admin/commandes/${encodeURIComponent(c.id)}/statut`, { statut }); } catch (e) { toast(e.message); } }
+    await rechargerEtat();
+  } else for (const c of possibles) changerStatut(c.id, statut, { silencieux: true });
+  sauver();
+  ui.selection.clear();
+  toast(`${possibles.length} commande${possibles.length > 1 ? 's' : ''} : ${STATUTS[statut].nom.toLowerCase()}${possibles.length < ids.length ? ` (${ids.length - possibles.length} ignorée${ids.length - possibles.length > 1 ? 's' : ''} : étape impossible)` : ''}.`);
+  rendre();
 }
 
 function detailCommande(c) {
@@ -325,7 +409,7 @@ function detailCommande(c) {
   </aside>`;
 }
 
-function changerStatut(id, statut) {
+function changerStatut(id, statut, { silencieux = false } = {}) {
   const c = etat.commandes.find(x => x.id === id);
   if (!c) return;
   c.statut = statut;
@@ -337,12 +421,28 @@ function changerStatut(id, statut) {
   }
   const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: estDropship(c) ? `Expédiée par le fournisseur, suivi ${c.suivi} transmis au client` : `Expédiée, suivi ${c.suivi}`, livree: 'Livrée', remboursee: `Remboursée (${euros(c.total)}), avoir émis, stock remis`, annulee: 'Annulée, stock remis', prete: 'Prête à retirer, SMS envoyé au client (simulé)', retiree: 'Remise au client en boutique' };
   c.historique.push({ date: Date.now(), texte: textes[statut] });
+  if (silencieux) return;
   sauver();
   toast(`Commande #${c.numero} : ${STATUTS[statut].nom.toLowerCase()}. Le client a reçu un e-mail (simulé).`);
   rendre();
 }
 
 /* ---------- Produits ---------- */
+const FILTRES_PRODUITS = [['tous', 'Tous'], ['ligne', 'En ligne'], ['masque', 'Masqués'], ['drop', 'Dropshipping'], ['stock', 'Mon stock'], ['bas', 'Stock bas']];
+const FILTRES_FN = { tous: () => true, ligne: p => p.actif && !p.aVerifier, masque: p => !p.actif || p.aVerifier, drop: p => p.type === 'drop', stock: p => p.type !== 'drop', bas: p => p.type !== 'drop' && p.stock <= 5 };
+function produitsFiltres() {
+  const q = (ui.rechercheProduit || '').trim().toLowerCase();
+  return etat.produits.filter(FILTRES_FN[ui.filtreProduit || 'tous']).filter(p => !q || p.nom.toLowerCase().includes(q) || (p.categorie || '').toLowerCase().includes(q));
+}
+async function dupliquerProduit(id) {
+  const p = etat.produits.find(x => x.id === id);
+  const { id: _, historiquePrix, ...copie } = { ...p, nom: `${p.nom} (copie)`, actif: false, aVerifier: true };
+  if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte) { await api('POST', '/api/admin/produits', { produit: copie }); await rechargerEtat(); }
+  else { etat.produits.push({ ...copie, id: nouvelId('p'), historiquePrix: [{ date: Date.now(), prix: copie.prix }] }); sauver(); }
+  ui.produitEdite = { ...etat.produits[etat.produits.length - 1] };
+  toast('Produit dupliqué, masqué en attendant votre vérification.');
+  rendre();
+}
 function vueProduits() {
   const p = ui.produitEdite;
   const cats = SECTEURS[etat.boutique.secteur].categories;
@@ -351,18 +451,22 @@ function vueProduits() {
     <div class="rangee"><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
     <input type="file" id="photo-input" accept="image/*" multiple hidden></div>
   <p class="astuce">Ajoutez des produits du <a class="lien" href="#sourcing">catalogue fournisseurs</a> (dropshipping) ou prenez vos propres produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
+  <div class="barre-filtres">
+    <input id="recherche-produits" type="search" placeholder="Rechercher un produit…" value="${esc(ui.rechercheProduit || '')}" data-champ="recherche-produit" aria-label="Rechercher un produit">
+    <div class="segment" role="group" aria-label="Filtrer les produits">${FILTRES_PRODUITS.map(([k, n]) => `<button class="${(ui.filtreProduit || 'tous') === k ? 'actif' : ''}" data-action="filtre-produit" data-v="${k}">${n} <span class="sous">${etat.produits.filter(FILTRES_FN[k]).length}</span></button>`).join('')}</div>
+  </div>
   <div class="maitre-detail ${p ? 'ouvert' : ''}">
-    <section class="carte sans-pad"><div class="table-wrap"><table class="table">
+    <section class="carte sans-pad"><div class="table-wrap"><table class="table table-cartes">
       <thead><tr><th></th><th>Produit</th><th>Approvisionnement</th><th class="num">Prix</th><th class="num">Marge nette</th><th class="num">Stock</th><th>Statut</th></tr></thead>
-      <tbody>${etat.produits.map(x => `
+      <tbody>${produitsFiltres().map(x => `
         <tr data-action="editer-produit" data-id="${x.id}" tabindex="0" class="${p && p.id === x.id ? 'choisi' : ''}">
-          <td class="vignette">${visuelProduit(x)}</td><td>${esc(x.nom)}<div class="sous">${esc(x.categorie)}</div></td>
-          <td>${x.type === 'drop' ? `<span class="pill ${ENTREPOTS[x.entrepot] ? ENTREPOTS[x.entrepot].ton : 'info'}">Dropshipping ${x.entrepot || ''}</span>` : '<span class="pill muted">Mon stock</span>'}</td>
-          <td class="num">${euros(x.prix)}</td>
-          <td class="num ${margeProduit(x).nette < 0 ? 'neg' : ''}">${euros(margeProduit(x).nette)}</td>
-          <td class="num">${x.type === 'drop' ? '<span class="sous">Fournisseur</span>' : x.stock <= 5 ? `<span class="pill ${x.stock <= 0 ? 'bad' : 'warn'}">${x.stock}</span>` : x.stock}</td>
-          <td>${x.aVerifier ? '<span class="pill warn">À vérifier</span>' : x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}</td></tr>`).join('')}
-      </tbody></table></div></section>
+          <td class="vignette">${visuelProduit(x)}</td><td class="carte-titre" data-label="Produit">${esc(x.nom)}<div class="sous">${esc(x.categorie)}</div></td>
+          <td data-label="Approvisionnement">${x.type === 'drop' ? `<span class="pill ${ENTREPOTS[x.entrepot] ? ENTREPOTS[x.entrepot].ton : 'info'}">Dropshipping ${x.entrepot || ''}</span>` : '<span class="pill muted">Mon stock</span>'}</td>
+          <td class="num" data-label="Prix">${euros(x.prix)}</td>
+          <td class="num ${margeProduit(x).nette < 0 ? 'neg' : ''}" data-label="Marge nette">${euros(margeProduit(x).nette)}</td>
+          <td class="num" data-label="Stock">${x.type === 'drop' ? '<span class="sous">Fournisseur</span>' : x.stock <= 5 ? `<span class="pill ${x.stock <= 0 ? 'bad' : 'warn'}">${x.stock}</span>` : x.stock}</td>
+          <td data-label="Statut">${x.aVerifier ? '<span class="pill warn">À vérifier</span>' : x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}</td></tr>`).join('')}
+      </tbody></table></div>${produitsFiltres().length ? '' : etatVide('produits', etat.produits.length ? 'Aucun produit ne correspond' : 'Aucun produit', etat.produits.length ? 'Modifiez la recherche ou le filtre.' : 'Importez un produit du catalogue fournisseurs ou créez le vôtre.', '<a class="btn petit" href="#sourcing">Trouver des produits</a>')}</section>
     ${p ? `<aside class="carte detail"><form data-form="produit">
       <div class="carte-tete"><h2>${etat.produits.find(x => x.id === p.id) ? 'Modifier le produit' : 'Nouveau produit'}</h2><button type="button" class="icone" data-action="fermer-produit">Fermer</button></div>
       ${visuelProduit(p, true)}
@@ -378,30 +482,97 @@ function vueProduits() {
       <div id="verdict-ref">${verdictPrixBarre(p)}</div>
       <label class="champ"><span>Catégorie</span><select id="pf-cat" name="categorie">${[...new Set([p.categorie, ...cats])].map(c => `<option ${c === p.categorie ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="case"><input id="pf-actif" type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Visible dans la boutique</label>
-      <div class="rangee"><button class="btn">Enregistrer</button>${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome danger" data-action="supprimer-produit" data-id="${p.id}">Supprimer</button>` : ''}</div>
+      <div class="rangee"><button class="btn">Enregistrer</button>${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome" data-action="dupliquer-produit" data-id="${p.id}">Dupliquer</button>` : ''}${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome danger" data-action="supprimer-produit" data-id="${p.id}">Supprimer</button>` : ''}</div>
     </form></aside>` : ''}
   </div>`;
 }
 
 /* ---------- Clients ---------- */
-function vueClients() {
-  const parEmail = {};
+/* Clients regroupés par e-mail (ou nom pour les ventes en personne sans e-mail). */
+function listeClients() {
+  const par = {};
   for (const c of etat.commandes) {
-    const k = c.client.email;
-    parEmail[k] = parEmail[k] || { ...c.client, n: 0, total: 0, derniere: 0 };
-    parEmail[k].n++;
-    if (compteVentes(c)) parEmail[k].total += c.total;
-    parEmail[k].derniere = Math.max(parEmail[k].derniere, c.date);
+    if (c.canal === 'magasin' && !c.client.email) continue;
+    const k = (c.client.email || c.client.nom).toLowerCase();
+    const x = par[k] = par[k] || { cle: k, nom: c.client.nom, email: c.client.email, ville: c.client.ville, commandes: [], total: 0, premiere: c.date, derniere: 0, consentement: false };
+    x.commandes.push(c);
+    if (compteVentes(c)) x.total += c.total;
+    x.premiere = Math.min(x.premiere, c.date); x.derniere = Math.max(x.derniere, c.date);
+    if (c.client.consentement) x.consentement = true;
   }
-  const liste = Object.values(parEmail).sort((a, b) => b.total - a.total);
-  const fideles = liste.filter(c => c.n > 1).length;
+  const l = Object.values(par);
+  const seuilTop = [...l].sort((a, b) => b.total - a.total)[Math.max(0, Math.floor(l.length * 0.1) - 1)];
+  for (const x of l) {
+    x.n = x.commandes.filter(compteVentes).length;
+    x.panier = x.n ? x.total / x.n : 0;
+    x.segments = [];
+    if (Date.now() - x.premiere < 30 * JOUR) x.segments.push('nouveaux');
+    if (x.n >= 2) x.segments.push('fideles');
+    if (seuilTop && x.total >= seuilTop.total && x.total > 0) x.segments.push('meilleurs');
+    if (Date.now() - x.derniere > 90 * JOUR) x.segments.push('inactifs');
+    if (x.consentement) x.segments.push('abonnes');
+  }
+  return l;
+}
+const SEGMENTS = [['tous', 'Tous'], ['meilleurs', 'Meilleurs clients'], ['fideles', 'Fidèles'], ['nouveaux', 'Nouveaux (30 j)'], ['inactifs', 'Inactifs (90 j)'], ['abonnes', 'Acceptent les e-mails']];
+
+function vueClients() {
+  const tous = listeClients();
+  const seg = ui.segment || 'tous';
+  const q = (ui.rechercheClient || '').trim().toLowerCase();
+  const liste = tous.filter(c => seg === 'tous' || c.segments.includes(seg))
+    .filter(c => !q || c.nom.toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q) || (c.ville || '').toLowerCase().includes(q))
+    .sort((a, b) => b.total - a.total);
+  const pages = Math.max(1, Math.ceil(liste.length / PAR_PAGE));
+  ui.pageClient = Math.min(ui.pageClient || 1, pages);
+  const debut = (ui.pageClient - 1) * PAR_PAGE;
+  const ouvert = tous.find(c => c.cle === ui.client);
+  const fideles = tous.filter(c => c.n > 1).length;
+  const ca = tous.reduce((a, c) => a + c.total, 0);
   return `
-  <div class="tete"><div><h1>Clients</h1><p class="sous">${liste.length} clients · ${fideles} ont commandé plusieurs fois</p></div></div>
-  <section class="carte sans-pad"><div class="table-wrap"><table class="table">
-    <thead><tr><th>Client</th><th>Ville</th><th class="num">Commandes</th><th class="num">Total dépensé</th><th>Dernière commande</th></tr></thead>
-    <tbody>${liste.map(c => `<tr><td><div>${esc(c.nom)}</div><div class="sous">${esc(c.email)}</div></td><td>${esc(c.ville)}</td>
-      <td class="num">${c.n}</td><td class="num">${euros(c.total)}</td><td>${dateCourte(c.derniere)}</td></tr>`).join('')}</tbody>
-  </table></div></section>`;
+  <div class="tete"><div><h1>Clients</h1><p class="sous">${tous.length.toLocaleString('fr-FR')} clients · ${fideles} ont commandé plusieurs fois · valeur moyenne ${euros(tous.length ? ca / tous.length : 0)}</p></div>
+    <div class="rangee"><button class="btn fantome" data-action="export-clients">Exporter CSV</button></div></div>
+  <div class="onglets onglets-defilants" role="tablist" aria-label="Segments">${SEGMENTS.map(([k, n]) => `<button role="tab" aria-selected="${seg === k}" class="${seg === k ? 'actif' : ''}" data-action="segment" data-v="${k}">${n} <span>${k === 'tous' ? tous.length : tous.filter(c => c.segments.includes(k)).length}</span></button>`).join('')}</div>
+  <div class="barre-filtres"><input id="recherche-clients" type="search" placeholder="Rechercher un nom, un e-mail, une ville…" value="${esc(ui.rechercheClient || '')}" data-champ="recherche-client" aria-label="Rechercher un client"></div>
+  <div class="maitre-detail ${ouvert ? 'ouvert' : ''}">
+    <section class="carte sans-pad">
+      ${liste.length ? `<div class="table-wrap"><table class="table table-cartes">
+        <thead><tr><th>Client</th><th>Ville</th><th class="num">Commandes</th><th class="num">Total dépensé</th><th class="num">Panier moyen</th><th>Dernière commande</th></tr></thead>
+        <tbody>${liste.slice(debut, debut + PAR_PAGE).map(c => `<tr data-action="ouvrir-client" data-id="${esc(c.cle)}" tabindex="0" class="${c.cle === ui.client ? 'choisi' : ''}">
+          <td data-label="Client"><div>${esc(c.nom)}${c.segments.includes('meilleurs') ? ' <span class="tag">Top 10 %</span>' : ''}</div><div class="sous">${esc(c.email || 'Sans e-mail')}</div></td>
+          <td data-label="Ville">${esc(c.ville || '—')}</td><td data-label="Commandes" class="num">${c.n}</td><td data-label="Total" class="num">${euros(c.total)}</td><td data-label="Panier moyen" class="num">${euros(c.panier)}</td>
+          <td data-label="Dernière">${dateCourte(c.derniere)}${c.segments.includes('inactifs') ? '<div class="sous">inactif</div>' : ''}</td></tr>`).join('')}</tbody>
+      </table></div>
+      ${pages > 1 ? `<div class="pagination"><span class="sous">${debut + 1}–${Math.min(debut + PAR_PAGE, liste.length)} sur ${liste.length}</span><div class="rangee"><button class="btn petit fantome" data-action="page-client" data-d="-1" ${ui.pageClient <= 1 ? 'disabled' : ''}>Précédente</button><span class="sous">Page ${ui.pageClient} / ${pages}</span><button class="btn petit fantome" data-action="page-client" data-d="1" ${ui.pageClient >= pages ? 'disabled' : ''}>Suivante</button></div></div>` : ''}`
+      : etatVide('clients', tous.length ? 'Aucun client ne correspond' : 'Pas encore de client', tous.length ? 'Modifiez la recherche ou le segment.' : 'Vos clients apparaîtront ici dès la première commande.')}
+    </section>
+    ${ouvert ? ficheClient(ouvert) : ''}
+  </div>`;
+}
+
+function ficheClient(c) {
+  const segs = { meilleurs: 'Meilleur client', fideles: 'Fidèle', nouveaux: 'Nouveau', inactifs: 'Inactif', abonnes: 'Accepte les e-mails' };
+  const delai = c.n > 1 ? (c.derniere - c.premiere) / JOUR / (c.n - 1) : null;
+  return `<aside class="carte detail" aria-label="Fiche client ${esc(c.nom)}">
+    <div class="carte-tete"><h2>${esc(c.nom)}</h2><button class="icone" data-action="fermer-client">Fermer</button></div>
+    <div class="rangee">${c.segments.map(s => `<span class="pill ${s === 'inactifs' ? 'muted' : s === 'meilleurs' ? 'good' : 'info'}">${segs[s]}</span>`).join('') || '<span class="sous">Aucun segment</span>'}</div>
+    <div class="bloc"><h3>Contact</h3><p>${c.email ? `<span class="mono">${esc(c.email)}</span> <button class="bouton-lien" data-action="copier" data-texte="${esc(c.email)}">Copier</button>` : 'Pas d’e-mail (vente en personne)'}<br><span class="sous">${esc(c.ville || '')}</span></p>
+      <p class="sous">${c.consentement ? 'A accepté les e-mails marketing.' : 'N’a pas accepté les e-mails marketing : seuls les e-mails liés à ses commandes lui sont envoyés.'}</p></div>
+    <div class="chiffres">
+      <div><span class="sous">Total dépensé</span><strong>${euros(c.total)}</strong></div>
+      <div><span class="sous">Commandes</span><strong>${c.n}</strong></div>
+      <div><span class="sous">Panier moyen</span><strong>${euros(c.panier)}</strong></div>
+    </div>
+    <p class="sous">Client depuis le ${new Date(c.premiere).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}${delai ? ` · une commande tous les ${Math.round(delai)} jours en moyenne` : ''}.</p>
+    <div class="bloc"><h3>Commandes</h3><table class="table compacte"><tbody>${[...c.commandes].sort((a, b) => b.date - a.date).map(o => `<tr data-action="ouvrir-commande" data-id="${o.id}" tabindex="0"><td class="mono">#${o.numero}</td><td class="sous">${dateCourte(o.date)}</td><td class="num">${euros(o.total)}</td><td>${pill(o.statut)}</td></tr>`).join('')}</tbody></table></div>
+  </aside>`;
+}
+
+function exporterClientsCsv() {
+  const l = listeClients();
+  const lignes = l.map(c => [c.nom, c.email || '', c.ville || '', c.n, c.total, c.panier, new Date(c.premiere).toISOString().slice(0, 10), new Date(c.derniere).toISOString().slice(0, 10), c.consentement ? 'oui' : 'non']
+    .map(v => typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : `"${String(v).replace(/"/g, '""')}"`).join(';'));
+  telechargerTexte(`comptoir-clients-${new Date().toISOString().slice(0, 10)}.csv`, '﻿nom;email;ville;commandes;total;panier_moyen;premiere_commande;derniere_commande;accepte_emails\n' + lignes.join('\n'), 'text/csv;charset=utf-8', `${l.length} clients exportés.`);
 }
 
 /* ---------- Éditeur ---------- */
@@ -560,7 +731,7 @@ function vueBoutique() {
   const port = total ? fraisPort(ui.livraison, total) : 0;
   return `
   <div class="bandeau-client"><span>Vous voyez <b class="mono">${esc(etat.boutique.domaine ? etat.boutique.domaine.domaine : slugifier(etat.boutique.nom) + '.comptoir.shop')}</b> comme un client. Passez une commande : elle apparaîtra dans l’admin.</span><a href="#tableau" class="btn petit">Retour à l’admin</a></div>
-  <div class="boutique-live">${renduBoutique(etat, { mode: 'live', panier: ui.panier })}</div>
+  <div class="boutique-live">${renduBoutique(etat, { mode: 'live', panier: ui.panier, fiche: ui.fiche })}</div>
   ${etat.cookies ? '' : `<div class="cookies" role="region" aria-label="Cookies"><p>${esc(etat.boutique.nom)} utilise des cookies de mesure d’audience pour améliorer le site. Vous pouvez les accepter ou les refuser.</p><div class="rangee"><button class="btn petit fantome" data-action="cookies" data-choix="refus">Refuser</button><button class="btn petit fantome" data-action="cookies" data-choix="accord">Accepter</button></div></div>`}
   <div class="tiroir ${ui.panierOuvert ? 'ouvert' : ''}" aria-hidden="${!ui.panierOuvert}">
     <div class="tiroir-fond" data-action="fermer-panier"></div>
@@ -583,7 +754,7 @@ function vueBoutique() {
           <label class="champ"><span>E-mail</span><input id="pay-email" name="email" type="email" required value="${ch ? 'alex.morel@exemple.ch' : 'alex.morel@exemple.fr'}"></label>
           <label class="champ"><span>Ville</span><input id="pay-ville" name="ville" required value="${ch ? 'Lausanne' : 'Bordeaux'}"></label>
           <button class="sf-btn plein">Payer ${euros(total + port)} (simulation)</button>
-          <p class="mini">${ch ? 'TWINT, carte ou PostFinance. Prix en CHF, aucun frais de douane à la livraison.' : 'Carte, paiement en 3 fois ou Wero.'} En validant, vous acceptez les <button type="button" class="bouton-lien" data-action="doc" data-id="cgv">CGV</button>. ${ch ? 'Retour gratuit sous 30 jours.' : 'Rétractation sous 14 jours.'}</p>
+          <p class="mini">${ch ? 'TWINT ou carte. Prix en CHF, aucun frais de douane à la livraison.' : 'Carte, paiement en 3 fois ou Wero.'} En validant, vous acceptez les <button type="button" class="bouton-lien" data-action="doc" data-id="cgv">CGV</button>. ${ch ? 'Retour gratuit sous 30 jours.' : 'Rétractation sous 14 jours.'}</p>
         </form>` : '<p>Votre panier est vide.</p>'}
     </aside>
   </div>`;
@@ -695,8 +866,14 @@ document.addEventListener('click', e => {
       const p = etat.produits.find(x => x.id === sf.dataset.id);
       const l = ui.panier.find(x => x.produitId === p.id);
       if (l) l.qte = Math.min(p.stock, l.qte + 1); else ui.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1 });
-      ui.confirmation = null; ui.panierOuvert = true; rendre();
+      const q = Math.max(1, Number(document.querySelector('[data-sf-qte]')?.value) || 1);
+      if (l) l.qte = Math.min(p.type === 'drop' ? 99 : p.stock, l.qte + q - 1);
+      else ui.panier[ui.panier.length - 1].qte = Math.min(p.type === 'drop' ? 99 : Math.max(1, p.stock), q);
+      ui.fiche = null; ui.confirmation = null; ui.panierOuvert = true; rendre();
     } else if (a === 'panier') { ui.panierOuvert = true; rendre(); }
+    else if (a === 'fiche') { ui.fiche = sf.dataset.id; rendre(); }
+    else if (a === 'fermer-fiche') { ui.fiche = null; rendre(); }
+    else if (a === 'nav') allerSection(document, sf.dataset.v);
     else if (a === 'defiler') { document.getElementById('sf-collection')?.scrollIntoView({ behavior: 'smooth' }); }
     return;
   }
@@ -706,9 +883,26 @@ document.addEventListener('click', e => {
   const s = id && etat.boutique.sections.find(x => x.id === id);
   const idx = s ? etat.boutique.sections.indexOf(s) : -1;
   switch (action) {
-    case 'ouvrir-commande': ui.commande = id; if (ui.route !== 'commandes') location.hash = 'commandes'; else rendre(); break;
+    case 'cocher': e.stopPropagation(); break;
+    case 'cocher-page': break;
+    case 'ouvrir-commande': if (e.target.closest('.col-case')) break; ui.commande = id; if (ui.route !== 'commandes') location.hash = 'commandes'; else rendre(); break;
     case 'fermer-commande': ui.commande = null; rendre(); break;
-    case 'filtre': ui.filtre = el.dataset.filtre; rendre(); break;
+    case 'filtre': ui.filtre = el.dataset.filtre; ui.pageCmd = 1; rendre(); break;
+    case 'page-cmd': ui.pageCmd = (ui.pageCmd || 1) + Number(el.dataset.d); rendre(); document.querySelector('.table-commandes')?.scrollIntoView({ block: 'start' }); break;
+    case 'export-commandes': exporterCommandesCsv(el.dataset.selection ? commandesFiltrees().filter(c => ui.selection.has(c.id)) : commandesFiltrees()); break;
+    case 'groupe-statut': changerStatutGroupe([...ui.selection], el.dataset.statut); break;
+    case 'groupe-bons': ui.modal = { type: 'html', html: `<h2>Bons de préparation</h2>${bonsPreparation([...ui.selection])}` }; rendreModal(); break;
+    case 'bon-un': ui.modal = { type: 'html', html: `<h2>Bon de préparation</h2>${bonsPreparation([id])}` }; rendreModal(); break;
+    case 'groupe-vider': ui.selection.clear(); rendre(); break;
+    case 'filtre-produit': ui.filtreProduit = el.dataset.v; rendre(); break;
+    case 'dupliquer-produit': dupliquerProduit(id).catch(err => toast(err.message)); break;
+    case 'segment': ui.segment = el.dataset.v; ui.pageClient = 1; rendre(); break;
+    case 'page-client': ui.pageClient = (ui.pageClient || 1) + Number(el.dataset.d); rendre(); break;
+    case 'ouvrir-client': ui.client = id; rendre(); break;
+    case 'fermer-client': ui.client = null; rendre(); break;
+    case 'export-clients': exporterClientsCsv(); break;
+    case 'copier': try { navigator.clipboard.writeText(el.dataset.texte).then(() => toast('Copié.'), () => toast(el.dataset.texte)); } catch { toast(el.dataset.texte); } break;
+    case 'imprimer': window.print(); break;
     case 'filtre-lien': ui.filtre = el.dataset.filtre; break;
     case 'statut': changerStatut(id, el.dataset.statut); break;
     case 'nouveau-produit': ui.produitEdite = { id: nouvelId('p'), nom: '', description: '', prix: 20, stock: 10, categorie: SECTEURS[etat.boutique.secteur].categories[0], teinte: Math.floor(Math.random() * 360), actif: true }; rendre(); break;
@@ -779,8 +973,12 @@ document.addEventListener('input', e => {
   } else if (t.dataset.boutique) {
     etat.boutique[t.dataset.boutique] = t.value; modifie(); rendreApercu();
     if (t.dataset.boutique === 'nom') $('#nom-boutique').textContent = t.value;
+  } else if (t.dataset.champ === 'recherche-produit') {
+    ui.rechercheProduit = t.value; rendre(); const r = $('#recherche-produits'); r.focus(); r.setSelectionRange(r.value.length, r.value.length);
+  } else if (t.dataset.champ === 'recherche-client') {
+    ui.rechercheClient = t.value; ui.pageClient = 1; rendre(); const r = $('#recherche-clients'); r.focus(); r.setSelectionRange(r.value.length, r.value.length);
   } else if (t.dataset.champ === 'recherche') {
-    ui.recherche = t.value; rendre(); const r = $('#recherche-commandes'); r.focus(); r.setSelectionRange(r.value.length, r.value.length);
+    ui.recherche = t.value; ui.pageCmd = 1; rendre(); const r = $('#recherche-commandes'); r.focus(); r.setSelectionRange(r.value.length, r.value.length);
   } else if (t.dataset.champ === 'note') {
     const c = etat.commandes.find(x => x.id === t.dataset.id); c.note = t.value; sauver();
   } else if (t.dataset.assistant && t.type !== 'radio' && t.type !== 'checkbox') {
@@ -790,6 +988,14 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset && t.dataset.action === 'cocher') { ui.selection = ui.selection || new Set(); t.checked ? ui.selection.add(t.dataset.id) : ui.selection.delete(t.dataset.id); rendre(); return; }
+  if (t.dataset && t.dataset.action === 'cocher-page') {
+    ui.selection = ui.selection || new Set();
+    const debut = ((ui.pageCmd || 1) - 1) * PAR_PAGE;
+    commandesFiltrees().slice(debut, debut + PAR_PAGE).forEach(c => t.checked ? ui.selection.add(c.id) : ui.selection.delete(c.id));
+    rendre(); return;
+  }
+  if (t.dataset && t.dataset.cmd) { ui[t.dataset.cmd] = t.value; ui.pageCmd = 1; rendre(); return; }
   if (t.dataset && t.dataset.offreDemo && t.checked) {
     const p = etat.produits.find(x => x.id === t.dataset.id);
     ui.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1, offre: t.dataset.offreDemo });

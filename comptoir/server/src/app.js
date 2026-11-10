@@ -85,7 +85,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le) VALUES (?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps, Date.now());
     if (env.LOG_EMAILS) journal.log(`[e-mail] à ${destinataire} : ${sujet}`);
   };
-  const formatMontant = (n, config) => Number(n).toLocaleString(config.boutique.devise === 'CHF' ? 'fr-CH' : 'fr-FR', { style: 'currency', currency: config.boutique.devise || 'EUR' });
+  const formatMontant = (n, config) => {
+    if ((config.boutique.devise || 'EUR') !== 'CHF') return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: config.boutique.devise || 'EUR' });
+    const [e, c] = (Math.round(Math.abs(n) * 100) / 100).toFixed(2).split('.');
+    return `${n < 0 ? '−' : ''}CHF ${e.replace(/\B(?=(\d{3})+(?!\d))/g, '’')}.${c}`;
+  };
 
   /* ---------- Validation de la configuration envoyée par l'éditeur ---------- */
   function nettoyerConfig(config) {
@@ -252,7 +256,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/api/session', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     const b = m && db.prepare('SELECT slug FROM boutiques WHERE marchand_id = ?').get(m.id);
-    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom };
+    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null };
   });
   r.post('/api/auth/inscription', ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
@@ -339,6 +343,20 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { ok: true };
   });
 
+  /* Suppression définitive du compte et de toutes ses données (mot de passe exigé). */
+  r.post('/api/admin/compte/supprimer', exigerMarchand, ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    if (!auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    transaction(db, () => {
+      for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
+        for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
+      }
+      db.prepare('DELETE FROM marchands WHERE id = ?').run(m.id); // boutiques, produits, commandes, sessions : suppression en cascade
+    });
+    ctx.entetes['Set-Cookie'] = auth.cookieSession(null, securise);
+    return { ok: true };
+  });
+
   r.post('/api/auth/deconnexion', ctx => {
     auth.supprimerSession(db, ctx.cookies);
     ctx.entetes['Set-Cookie'] = auth.cookieSession(null, securise);
@@ -356,7 +374,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Audience : sessions distinctes par jour et par étape (365 derniers jours)
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
-    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
+    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le } };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {

@@ -6,6 +6,7 @@
 <!-- contenu-artifact:debut -->
 <title>Comptoir</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230D1016%27/%3E%3Cpath d=%27M8 13h16l-1.7 10.6a1.5 1.5 0 0 1-1.5 1.3H11.2a1.5 1.5 0 0 1-1.5-1.3L8 13Zm4 0v-2a4 4 0 0 1 8 0v2%27 fill=%27none%27 stroke=%27%23fff%27 stroke-width=%272.2%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=DM+Serif+Display&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600&family=Syne:wght@600;700&display=swap">
@@ -18,7 +19,6 @@
     <div class="boutique-actuelle"><span class="pastille" aria-hidden="true"></span><div><strong id="nom-boutique"></strong><span class="mono" id="domaine-actuel"></span></div></div>
     <nav id="nav" aria-label="Navigation principale"></nav>
     <div class="cote-pied">
-      <a class="lien" href="#offre">Offre et tarifs</a>
       <a class="btn" href="#creer">Nouvelle boutique</a>
       <button class="btn fantome" data-action="reset">Réinitialiser la démo</button>
     </div>
@@ -30,7 +30,7 @@
       <span class="mode-badge" id="mode-badge">Démo</span>
       <button class="icone-btn" data-action="theme" id="theme-btn" aria-label="Changer de thème"></button>
     </header>
-    <main id="vue"></main>
+    <main id="vue"><div class="chargement" role="status"><span class="spinner" aria-hidden="true"></span>Chargement de votre boutique…</div></main>
   </div>
 </div>
 <div id="toast" role="status" hidden></div>
@@ -53,6 +53,7 @@
 <script src="js/conversion.js"></script>
 <script src="js/lancement.js"></script>
 <script src="js/fournisseurs.js"></script>
+<script src="js/parametres.js"></script>
 <script src="js/serveur.js"></script>
 <script src="js/app.js"></script>
 <!-- contenu-artifact:fin -->

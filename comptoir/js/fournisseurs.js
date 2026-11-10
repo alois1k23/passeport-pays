@@ -75,7 +75,7 @@ function vueFournisseurs() {
       <li>Visez des fournisseurs très bien notés et qui répondent en moins de 24 heures (créateurs interrogés par Oberlo).</li>
       <li>Quand un produit se vend bien, passez-le en stock propre : meilleure marge et délai plus court (Sebastian Ghiorghiu, Lucas Bivert).</li>
     </ul>
-    <p class="sous">Sources et limites : METHODE.md et docs/recherche/.</p></section>`;
+    <p class="sous"><button class="lien-bouton" data-action="sources">Sources</button></p></section>`;
 }
 
 document.addEventListener('change', e => {

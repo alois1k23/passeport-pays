@@ -156,7 +156,7 @@ function ongletProduits(t, tp, d0, f0, d1, f1) {
   <div class="grille-2">
     <section class="carte"><div class="carte-tete"><h2>Catégories</h2><span class="sous">chiffre d’affaires</span></div>${barresH(Object.entries(parCat).map(([nom, v]) => ({ nom, v })).sort((x, y) => y.v - x.v), { format: fmtArgent })}</section>
     <section class="carte"><div class="carte-tete"><h2>Approvisionnement</h2><span class="sous">chiffre d’affaires</span></div>${barresH(Object.entries(parType).map(([nom, v]) => ({ nom, v })), { format: fmtArgent })}
-      <p class="sous">Quand un produit en dropshipping se vend bien, passez-le en stock propre pour améliorer la marge et le délai (conseil de Sebastian Ghiorghiu, voir METHODE.md).</p></section>
+      <p class="sous">Quand un produit en dropshipping se vend bien, passez-le en stock propre pour améliorer la marge et le délai (conseil de Sebastian Ghiorghiu). <button class="lien-bouton" data-action="sources">Sources</button></p></section>
   </div>`;
 }
 

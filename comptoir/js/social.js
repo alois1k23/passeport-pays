@@ -169,10 +169,10 @@ function genererPlanning(jours = 14) {
       const modeles = ACCROCHES[pilier];
       const iAccroche = Math.floor(hacheTexte(graine + 'a') * modeles.length);
       const accroche = modeles[iAccroche](contexte);
-      // Variantes à tester : autres accroches du même type + une accroche « problème » (4 à 5 vidéos × 3 accroches, voir METHODE.md)
+      // Variantes à tester : autres accroches du même type + une accroche « problème » (4 à 5 vidéos × 3 accroches)
       const variantes = [...modeles.filter((_, k) => k !== iAccroche).map(f => f(contexte)), ...(pilier !== 'probleme' ? [ACCROCHES.probleme[0](contexte)] : [])].filter((v, k, arr) => v !== accroche && arr.indexOf(v) === k).slice(0, 2);
       nouvelles.push({
-        id: nouvelId('pub'), reseau, format, pilier, date: jour.getTime(), produitId: p.id, produitNom: p.nom,
+        id: (() => { const d = 'pub' + Math.round(jour.getTime() / 60000).toString(36) + reseau.slice(0, 2) + i; return (etat.publications || []).some(x => x.id === d) || nouvelles.some(x => x.id === d) ? nouvelId('pub') : d; })(), reseau, format, pilier, date: jour.getTime(), produitId: p.id, produitNom: p.nom,
         accroche, legende: legende(pilier, contexte, accroche, r.ton), hashtags: hashtags({ ...p, evtKw: contexte.evtKw }, reseau),
         script: ['Vidéo', 'Reel'].includes(format) ? scriptVideo(pilier, contexte, accroche) : null, variantes,
         statut: r.validation ? 'brouillon' : 'programmee', stats: null

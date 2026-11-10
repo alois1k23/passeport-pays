@@ -79,7 +79,7 @@ function vueMagasin() {
   const totalCaisse = ui.caisse.reduce((a, l) => a + l.prix * l.qte, 0);
   const visibles = etat.produits.filter(p => p.actif && p.stock > 0).length;
   return `
-  <div class="tete"><div><h1>Magasin</h1><p class="sous">Boutique physique et site partagent le même stock. ${ventesMag.length} ventes en boutique sur 30 jours (${euros(ventesMag.reduce((a, c) => a + c.total, 0))}).</p></div></div>
+  <div class="tete"><div><h1>Magasin et caisse</h1><p class="sous">Boutique physique et site partagent le même stock. ${ventesMag.length} ventes en boutique sur 30 jours (${euros(ventesMag.reduce((a, c) => a + c.total, 0))}).</p></div></div>
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Caisse</h2><span class="sous">Encaissez une vente au comptoir : le stock du site est mis à jour</span></div>
@@ -220,7 +220,7 @@ function texteCGV() {
     const drops = etat.produits.filter(p => p.type === 'drop' && p.delai);
     return `<h2>Conditions générales de vente</h2>
     <p><strong>1. Objet.</strong> Ventes conclues sur le site de ${esc(b.nom)}, exploité par ${esc(e.raison)}, ${esc(e.adresse || '[adresse]')}.</p>
-    <p><strong>2. Prix et paiement.</strong> Prix en francs suisses (CHF), TVA comprise${e.regime === 'ch-assujetti' ? ' (8,1 %)' : ' (entreprise non assujettie à la TVA)'}. Paiement par TWINT, carte ou PostFinance. Aucun frais de douane n’est facturé à la livraison.</p>
+    <p><strong>2. Prix et paiement.</strong> Prix en francs suisses (CHF), TVA comprise${e.regime === 'ch-assujetti' ? ' (8,1 %)' : ' (entreprise non assujettie à la TVA)'}. Paiement par TWINT ou carte. Aucun frais de douane n’est facturé à la livraison.</p>
     <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}`).join(' ; ')}. Offerte dès ${euros(seuilPort())} (hors Priority). ${drops.length ? `Certains articles sont expédiés directement par nos partenaires depuis la Suisse ou l’Europe : le délai indiqué sur chaque fiche produit (de ${Math.min(...drops.map(p => p.delai[0]))} à ${Math.max(...drops.map(p => p.delai[1]))} jours) s’applique.` : ''}</p>
     <p><strong>4. Retours.</strong> Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. ${esc(b.nom)} accepte toutefois les retours sous 30 jours, frais de retour offerts.</p>
     <p><strong>5. Garantie.</strong> Garantie de 2 ans pour les défauts (art. 197 ss CO).</p>
@@ -239,7 +239,14 @@ function texteCGV() {
 function rendreModal() {
   const zone = $('#modal');
   const m = ui.modal;
-  if (!m) { zone.hidden = true; zone.innerHTML = ''; return; }
+  if (!m) {
+    const etaitOuverte = !zone.hidden;
+    zone.hidden = true; zone.innerHTML = '';
+    // Rendre le focus à l’élément qui a ouvert la fenêtre
+    if (etaitOuverte && rendreModal.retour && document.contains(rendreModal.retour)) rendreModal.retour.focus();
+    return;
+  }
+  if (zone.hidden) rendreModal.retour = document.activeElement;
   let corps = '';
   if (m.type === 'facture') {
     const c = etat.commandes.find(x => x.id === m.id);
@@ -282,8 +289,10 @@ function rendreModal() {
       <p>30 minutes en visio avec un conseiller Comptoir : on configure ensemble votre boutique, vos livraisons et votre première campagne.</p>
       <div class="creneaux">${creneaux.map(c => `<button class="btn fantome" data-action="reserver-rdv" data-t="${c.getTime()}">${c.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} · ${c.getHours()} h</button>`).join('')}</div>`;
   }
-  zone.innerHTML = `<div class="modal-fond" data-action="fermer-modal"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-action="fermer-modal">Fermer</button>${corps}</div>`;
+  zone.innerHTML = `<div class="modal-fond" data-action="fermer-modal"></div><div class="modal-corps" role="dialog" aria-modal="true" tabindex="-1"><button class="icone modal-x" data-action="fermer-modal">Fermer</button>${corps}</div>`;
   zone.hidden = false;
+  const cible = zone.querySelector('.modal-corps input:not([disabled]), .modal-corps textarea:not([disabled]), .modal-corps .btn') || zone.querySelector('.modal-corps');
+  cible.focus({ preventScroll: true });
 }
 
 /* ---------- Ajout de produits par photo ---------- */
@@ -358,7 +367,7 @@ function vueOffre() {
     ['Maison', 79, 'Plusieurs boutiques ou salariés', ['Tout Commerce, plus :', '3 points de vente', '5 comptes équipe', 'Domaines de campagne illimités', 'Export comptable automatique', 'Conseiller dédié']]
   ];
   return `
-  <div class="tete"><div><h1>L’offre Comptoir</h1><p class="sous">Un prix fixe, tout compris. Pas d’applications payantes à empiler, pas de commission sur vos ventes (hors frais bancaires du paiement).</p></div></div>
+  <div class="tete"><div><h1>Offre et tarifs</h1><p class="sous">Un prix fixe, tout compris. Pas d’applications payantes à empiler, pas de commission sur vos ventes (hors frais bancaires du paiement).</p></div></div>
   <div class="plans">${plans.map(([nom, prix, pour, inclus], i) => `
     <section class="plan ${i === 1 ? 'conseille' : ''}">
       ${i === 1 ? '<span class="eyebrow">Le plus choisi</span>' : '<span class="eyebrow">&nbsp;</span>'}
@@ -374,8 +383,8 @@ function vueOffre() {
       <div><strong>La vraie marge, avant de vendre</strong><p class="sous">Coût fournisseur, TVA d’import, dédouanement, frais TWINT et carte, publicité : vous savez ce que vous gagnez par vente.</p></div>
       <div><strong>Fait pour la Suisse</strong><p class="sous">CHF, TWINT, La Poste, boutique en français, allemand et italien, Impressum et nLPD.</p></div>` : ''}
       <div><strong>Copilote de saison</strong><p class="sous">Chaque temps fort (Black Friday, Noël, fête des mères, soldes) arrive avec une campagne prête, calculée sur vos ventes et votre stock.</p></div>
-      <div><strong>Conforme en France</strong><p class="sous">Factures numérotées et facture électronique, CGV, mentions légales, RGPD, TVA : générés et tenus à jour.</p></div>
-      <div><strong>Boutique et magasin réunis</strong><p class="sous">Une caisse, un stock, le click & collect et la fiche Google, sans application supplémentaire.</p></div>
+      ${ch ? '<div><strong>Conforme en Suisse</strong><p class="sous">Factures numérotées, CGV, Impressum, déclaration nLPD, TVA suisse : générés et tenus à jour.</p></div>' : '<div><strong>Conforme en France</strong><p class="sous">Factures numérotées et facture électronique, CGV, mentions légales, RGPD, TVA : générés et tenus à jour.</p></div>'}
+      <div><strong>Boutique et magasin réunis</strong><p class="sous">Une caisse, un stock, le retrait en magasin et la fiche Google, sans application supplémentaire.</p></div>
       <div><strong>Un humain au démarrage</strong><p class="sous">30 minutes en visio pour lancer la boutique avec vous. En français.</p></div>
     </div>
   </section>`;
@@ -427,7 +436,17 @@ document.addEventListener('change', e => {
   else if (t.dataset.magasin) { etat.magasin[t.dataset.magasin] = t.type === 'checkbox' ? t.checked : t.value; sauver(); if (t.type === 'checkbox') rendre(); }
   else if (t.dataset.entreprise) { etat.entreprise[t.dataset.entreprise] = t.value; sauver(); rendre(); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.modal) { ui.modal = null; rendreModal(); } });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && ui.modal) { ui.modal = null; rendreModal(); return; }
+  // Le focus reste dans la fenêtre ouverte (Tab et Maj+Tab)
+  if (e.key === 'Tab' && ui.modal) {
+    const f = [...document.querySelectorAll('#modal .modal-corps button, #modal .modal-corps input, #modal .modal-corps textarea, #modal .modal-corps select, #modal .modal-corps a[href]')].filter(x => !x.disabled && x.offsetParent);
+    if (!f.length) return;
+    const [premier, dernier] = [f[0], f[f.length - 1]];
+    if (e.shiftKey && document.activeElement === premier) { e.preventDefault(); dernier.focus(); }
+    else if (!e.shiftKey && document.activeElement === dernier) { e.preventDefault(); premier.focus(); }
+  }
+});
 
 function dessinerQR() {
   const z = document.getElementById('qr');

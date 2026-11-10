@@ -19,12 +19,13 @@ function pasLisible(max, cible = 4) {
 }
 function compact(v) {
   const a = Math.abs(v);
-  if (a >= 1e6) return (v / 1e6).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M';
-  if (a >= 1e3) return (v / 1e3).toLocaleString('fr-FR', { maximumFractionDigits: a >= 1e4 ? 0 : 1 }) + ' k';
-  return Math.round(v).toLocaleString('fr-FR');
+  const loc = devise() === 'CHF' ? 'de-CH' : 'fr-FR';
+  if (a >= 1e6) return (v / 1e6).toLocaleString(loc, { maximumFractionDigits: 1 }) + ' M';
+  if (a >= 1e3) return (v / 1e3).toLocaleString(loc, { maximumFractionDigits: a >= 1e4 ? 0 : 1 }) + ' k';
+  return Math.round(v).toLocaleString(loc);
 }
 const fmtArgent = v => euros(v);
-const fmtArgentCompact = v => compact(v) + (devise() === 'CHF' ? ' CHF' : ' €');
+const fmtArgentCompact = v => (devise() === 'CHF' ? 'CHF ' : '') + compact(v) + (devise() === 'CHF' ? '' : ' €');
 const fmtPct = v => (Math.round(v * 1000) / 10).toLocaleString('fr-FR') + ' %';
 
 function legendeGraph(items) {

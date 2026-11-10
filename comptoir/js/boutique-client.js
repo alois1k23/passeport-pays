@@ -18,7 +18,7 @@ function mesurer(type, extra = {}) {
 const CLE_PANIER = `comptoir-panier-${slug}`;
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
-const vue = { panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '' };
+const vue = { fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '' };
 
 function lirePanier() { try { return JSON.parse(localStorage.getItem(CLE_PANIER)) || []; } catch { return []; } }
 function garderPanier() { try { localStorage.setItem(CLE_PANIER, JSON.stringify(vue.panier)); } catch { /* ignoré */ } }
@@ -29,6 +29,7 @@ async function demarrer() {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}`);
     if (!rep.ok) throw new Error((await rep.json()).erreur || 'Boutique introuvable.');
     donnees = await rep.json();
+    if (location.hash.startsWith('#produit-')) vue.fiche = decodeURIComponent(location.hash.slice(9));
   } catch (e) {
     $('#app').innerHTML = `<div class="page-erreur"><h1>Boutique introuvable</h1><p>${esc(e.message)}</p></div>`;
     return;
@@ -87,7 +88,7 @@ function rendre() {
   try { cookies = localStorage.getItem('comptoir-cookies'); } catch { /* ignoré */ }
 
   $('#app').innerHTML = `
-    ${renduBoutique(etat, { mode: 'live', panier: vue.panier })}
+    ${renduBoutique(etat, { mode: 'live', panier: vue.panier, fiche: vue.fiche })}
     ${cookies ? '' : `<div class="cookies" role="region" aria-label="Cookies"><p>${esc(donnees.boutique.nom)} utilise uniquement des cookies nécessaires au panier. Aucune mesure d’audience n’est activée sans votre accord.</p><div class="rangee"><button class="btn petit fantome" data-c="cookies" data-v="refus">Refuser</button><button class="btn petit fantome" data-c="cookies" data-v="accord">Accepter</button></div></div>`}
     <div class="tiroir ${vue.ouvert ? 'ouvert' : ''}" aria-hidden="${!vue.ouvert}">
       <div class="tiroir-fond" data-c="fermer"></div>
@@ -189,9 +190,14 @@ document.addEventListener('click', e => {
       const p = donnees.produits.find(x => x.id === sf.dataset.id);
       const l = vue.panier.find(x => x.produitId === p.id && !x.offre);
       mesurer('panier', { produitId: p.id });
-      if (l) l.qte = Math.min(p.type === 'drop' ? 20 : p.stock, l.qte + 1); else vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1 });
-      garderPanier(); vue.message = null; vue.ouvert = true; rendre();
+      const q = Math.max(1, Number(document.querySelector('[data-sf-qte]')?.value) || 1);
+      const max = p.type === 'drop' ? 20 : p.stock;
+      if (l) l.qte = Math.min(max, l.qte + q); else vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(max, q) });
+      garderPanier(); vue.fiche = null; vue.message = null; vue.ouvert = true; rendre();
     } else if (sf.dataset.sf === 'panier') { vue.ouvert = true; rendre(); }
+    else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.replaceState(null, '', '#produit-' + encodeURIComponent(sf.dataset.id)); rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
+    else if (sf.dataset.sf === 'fermer-fiche') { vue.fiche = null; history.replaceState(null, '', location.pathname + location.search); rendre(); }
+    else if (sf.dataset.sf === 'nav') allerSection(document, sf.dataset.v);
     else if (sf.dataset.sf === 'defiler') document.getElementById('sf-collection')?.scrollIntoView({ behavior: 'smooth' });
     return;
   }
@@ -303,3 +309,5 @@ async function envoyerAvis(form) {
 }
 
 demarrer();
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && vue.fiche) { vue.fiche = null; rendre(); } });

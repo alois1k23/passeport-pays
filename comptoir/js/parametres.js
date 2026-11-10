@@ -1,0 +1,124 @@
+/* Comptoir — paramètres : tout ce qui configure la boutique et le compte, au même endroit. */
+
+const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['sensible', 'Zone sensible']];
+
+function enLigne() { return typeof SERVEUR !== 'undefined' && SERVEUR.connecte; }
+
+function vueParametres() {
+  const s = ui.sectionParam || 'general';
+  const b = etat.boutique, e = etat.entreprise || {};
+  const statut = (ok, oui, non) => `<span class="pill ${ok ? 'good' : 'warn'}">${ok ? oui : non}</span>`;
+  let corps = '';
+  if (s === 'general') corps = `
+    <section class="carte"><div class="carte-tete"><h2>Boutique</h2></div>
+      <div class="deux"><label class="champ"><span>Nom de la boutique</span><input id="pa-nom" value="${esc(b.nom)}" data-boutique="nom"></label>
+      <label class="champ"><span>Slogan</span><input id="pa-slogan" value="${esc(b.slogan || '')}" data-boutique="slogan" placeholder="Une phrase qui résume votre boutique"></label></div>
+      <div class="deux"><label class="champ"><span>E-mail de contact (affiché aux clients)</span><input id="pa-email" type="email" value="${esc(e.email || '')}" data-entreprise="email"></label>
+      <div class="champ"><span>Pays et devise</span><p class="valeur">${b.pays === 'ch' ? 'Suisse · CHF' : b.pays === 'fr' ? 'France · EUR' : esc(b.pays) + ' · ' + esc(b.devise)}</p></div></div>
+      <p class="sous">Les informations légales (raison sociale, IDE, TVA) se règlent dans <a class="lien" href="#conformite">Conformité</a>. Les langues et le design, dans l’<a class="lien" href="#editeur">éditeur du site</a>.</p></section>`;
+  else if (s === 'apparence') {
+    let t = 'auto'; try { t = localStorage.getItem('comptoir-theme') || 'auto'; } catch { /* ignoré */ }
+    corps = `<section class="carte"><div class="carte-tete"><h2>Thème de l’interface</h2><span class="sous">sur cet appareil</span></div>
+      <div class="choix-theme">${[['auto', 'Comme le système', 'auto'], ['light', 'Clair', 'soleil'], ['dark', 'Sombre', 'lune']].map(([k, n, ic]) => `<button class="${t === k ? 'actif' : ''}" data-action="theme-choix" data-v="${k}">${icone(ic, 18)}<span>${n}</span></button>`).join('')}</div>
+      <p class="sous">Raccourci : la recherche s’ouvre avec <kbd>Ctrl</kbd> <kbd>K</kbd> (ou <kbd>⌘</kbd> <kbd>K</kbd> sur Mac).</p></section>`;
+  } else if (s === 'paiements') {
+    const stripe = enLigne() && SERVEUR.paiement === 'stripe';
+    corps = `<section class="carte"><div class="carte-tete"><h2>Encaissement</h2>${statut(stripe, 'Stripe actif', enLigne() ? 'Paiement simulé' : 'Démo')}</div>
+      <div class="liste-reglages">
+        <div><strong>TWINT</strong><span class="sous">Paiement mobile le plus utilisé en Suisse, uniquement en CHF.</span>${statut(stripe && b.devise === 'CHF', 'Proposé', 'Inactif')}</div>
+        <div><strong>Cartes</strong><span class="sous">Visa, Mastercard et autres cartes acceptées par Stripe.</span>${statut(stripe, 'Proposé', 'Inactif')}</div>
+      </div>
+      <p class="sous">${stripe ? 'Les paiements passent par Stripe Checkout ; les remboursements partent depuis la fiche commande.' : 'Pour encaisser pour de vrai : créez un compte Stripe au nom de l’entreprise, activez TWINT, puis renseignez les clés sur le serveur (guide : server/README.md). En attendant, le paiement est simulé et aucun montant n’est débité.'}</p></section>`;
+  } else if (s === 'livraison') {
+    const modes = Object.values(livraisonsPays(b.pays));
+    corps = `<section class="carte sans-pad"><div class="carte-tete pad"><h2>Modes de livraison</h2><span class="sous">tarifs TTC facturés au client</span></div>
+      <div class="table-wrap"><table class="table"><thead><tr><th>Mode</th><th>Délai (stock propre)</th><th class="num">Prix</th></tr></thead><tbody>
+      ${modes.filter(m => m.transporteur || (etat.magasin && etat.magasin.clickCollect)).map(m => `<tr><td>${esc(m.nom)}</td><td class="sous">${esc(m.delai)}</td><td class="num">${m.prix ? euros(m.prix) : 'Gratuit'}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="pad-x pad-b"><p class="sous">Livraison offerte dès <b>${seuilPort() > 0 ? euros(seuilPort()) : 'jamais'}</b> (hors envoi express) : réglable dans <a class="lien" href="#conversion">Conversion</a>. Commandes passées après 14 h : expédiées le jour ouvrable suivant. Pour les produits en dropshipping, le délai affiché est celui du fournisseur.</p></div></section>`;
+  } else if (s === 'emails') {
+    const service = enLigne() ? SERVEUR.emails : null;
+    corps = `<section class="carte"><div class="carte-tete"><h2>Envoi des e-mails</h2>${statut(!!service, service === 'brevo' ? 'Brevo actif' : service === 'postmark' ? 'Postmark actif' : 'Actif', enLigne() ? 'File d’attente' : 'Démo')}</div>
+      <p class="sous">${service ? 'Les e-mails partent automatiquement : confirmations, expéditions, relances, avis, bienvenue.' : 'Sans service d’envoi, les e-mails sont préparés et gardés en file, mais ne partent pas. Branchez Brevo (hébergé en Europe) ou Postmark sur le serveur pour les envoyer.'}</p>
+      <div class="liste-reglages">${['Confirmation de commande', 'Colis expédié, avec suivi', 'Commande prête à retirer', 'Relance de paiement abandonné', 'Bienvenue (newsletter)', 'Demande d’avis', 'Reconquête des inactifs'].map((n, i) => `<div><strong>${n}</strong><span class="sous">${i < 3 ? 'Toujours envoyé (e-mail de service)' : 'Réglable dans Conversion'}</span></div>`).join('')}</div>
+      ${enLigne() ? '<div class="rangee"><button class="btn petit fantome" data-action="voir-emails">Voir les derniers e-mails</button></div>' : ''}</section>`;
+  } else if (s === 'domaine') {
+    const d = b.domaine;
+    corps = `<section class="carte"><div class="carte-tete"><h2>Adresse de la boutique</h2>${d && d.actif ? statut(true, 'Domaine actif', '') : d ? statut(false, '', 'DNS à configurer') : '<span class="pill muted">Adresse Comptoir</span>'}</div>
+      <p class="mono">${esc(d && d.domaine ? d.domaine : (enLigne() ? location.host + '/s/' + SERVEUR.slug : slugifier(b.nom) + '.comptoir.shop'))}</p>
+      <div class="rangee"><a class="btn petit" href="#domaines">${d ? 'Gérer le domaine' : 'Choisir un domaine'}</a></div></section>`;
+  } else if (s === 'abonnement') {
+    const debut = enLigne() && SERVEUR.creeLe ? SERVEUR.creeLe : Date.now() - 7 * JOUR;
+    const reste = Math.max(0, 30 - Math.floor((Date.now() - debut) / JOUR));
+    corps = `<section class="carte"><div class="carte-tete"><h2>Formule</h2><span class="pill info">Essai gratuit</span></div>
+      <div class="chiffres"><div><span class="sous">Formule</span><strong>Croissance</strong></div><div><span class="sous">Essai</span><strong>${reste} jour${reste > 1 ? 's' : ''} restant${reste > 1 ? 's' : ''}</strong></div><div><span class="sous">Ensuite</span><strong>${b.devise === 'CHF' ? 'CHF 59.– / mois' : '59 € / mois'}</strong></div></div>
+      <div class="piste-lancement"><i style="width:${(30 - reste) / 30 * 100}%"></i></div>
+      <p class="sous">Sans commission sur vos ventes. Le prélèvement de l’abonnement sera branché sur Stripe Billing au lancement commercial ; aucune carte n’est demandée pendant l’essai.</p>
+      <div class="rangee"><a class="btn petit fantome" href="#offre">Comparer les formules</a></div></section>`;
+  } else if (s === 'donnees') {
+    corps = `<section class="carte"><div class="carte-tete"><h2>Exporter vos données</h2></div>
+      <p class="sous">Vos données vous appartiennent. L’export complet contient la boutique, les produits, les commandes, les clients, les avis et les réglages, au format JSON (lisible par d’autres outils). Les exports CSV des commandes et des clients sont dans leurs pages.</p>
+      <div class="rangee"><button class="btn" data-action="export-complet">Exporter tout (JSON)</button><button class="btn fantome" data-action="export-commandes">Commandes (CSV)</button><button class="btn fantome" data-action="export-clients">Clients (CSV)</button></div></section>
+      ${enLigne() ? '' : `<section class="carte"><div class="carte-tete"><h2>Restaurer une démo</h2></div><p class="sous">Importez un export JSON pour retrouver une boutique de démonstration dans ce navigateur.</p>
+      <label class="btn fantome petit importer">Choisir un fichier<input type="file" id="import-json" accept="application/json" hidden></label></section>`}`;
+  } else if (s === 'sensible') {
+    corps = enLigne()
+      ? `<section class="carte zone-sensible"><div class="carte-tete"><h2>Supprimer le compte</h2></div>
+        <p class="sous">Supprime définitivement la boutique, les produits, les commandes, les factures, les clients et les avis. Exportez vos données avant : vos factures doivent être conservées 10 ans.</p>
+        <form data-form="supprimer-compte" class="rangee"><input type="password" name="motDePasse" placeholder="Votre mot de passe" required autocomplete="current-password" aria-label="Mot de passe"><button class="btn danger">Supprimer définitivement</button></form></section>`
+      : `<section class="carte zone-sensible"><div class="carte-tete"><h2>Réinitialiser la démo</h2></div>
+        <p class="sous">Efface les modifications faites dans ce navigateur et recharge la boutique de démonstration de Lausanne.</p>
+        <div class="rangee"><button class="btn danger" data-action="reset">Réinitialiser la démo</button></div></section>`;
+  }
+  return `
+  <div class="tete"><div><h1>Paramètres</h1><p class="sous">Boutique, paiements, livraison, e-mails, domaine, abonnement et données.</p></div></div>
+  <div class="parametres">
+    <nav class="param-nav" aria-label="Sections des paramètres">${SECTIONS_PARAM.map(([k, n]) => `<button class="${s === k ? 'actif' : ''}" data-action="section-param" data-v="${k}" ${s === k ? 'aria-current="page"' : ''}>${n}</button>`).join('')}</nav>
+    <div class="param-corps">${corps}</div>
+  </div>`;
+}
+
+function exporterTout() {
+  const donnees = { exporteLe: new Date().toISOString(), application: 'Comptoir', ...etat };
+  telechargerTexte(`comptoir-export-${slugifier(etat.boutique.nom)}-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(donnees, null, 2), 'application/json', 'Export complet téléchargé.');
+}
+
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const a = el.dataset.action;
+  if (a === 'section-param') { ui.sectionParam = el.dataset.v; rendre(); }
+  else if (a === 'theme-choix') { try { localStorage.setItem('comptoir-theme', el.dataset.v); } catch { /* ignoré */ } appliquerTheme(); rendre(); }
+  else if (a === 'export-complet') exporterTout();
+  else if (a === 'sources') { ui.modal = { type: 'html', html: `<h2>Sources et limites</h2><p class="sous">Les règles par défaut de Comptoir s’appuient sur des conseils publics et des textes officiels. Elles restent ajustables.</p><ul class="sources-liste">${SOURCES.map(([t, d]) => `<li><strong>${esc(t)}</strong><span class="sous">${esc(d)}</span></li>`).join('')}</ul>` }; rendreModal(); }
+  else if (a === 'voir-emails') {
+    try {
+      const l = await api('GET', '/api/admin/emails');
+      ui.modal = { type: 'html', html: `<h2>Derniers e-mails</h2><div class="table-wrap"><table class="table compacte"><tbody>${l.map(m => `<tr><td>${esc(m.sujet)}<div class="sous">${esc(m.destinataire)}</div></td><td class="sous num">${dateHeure(m.cree_le)}</td></tr>`).join('') || '<tr><td class="vide">Aucun e-mail pour l’instant.</td></tr>'}</tbody></table></div>` };
+      rendreModal();
+    } catch (err) { toast(err.message); }
+  }
+});
+document.addEventListener('change', e => {
+  if (e.target.id !== 'import-json') return;
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!d.boutique || !Array.isArray(d.produits) || !Array.isArray(d.commandes)) throw new Error('Ce fichier n’est pas un export Comptoir.');
+      const { exporteLe, application, ...reste } = d;
+      etat = completerEtat(reste); sauver(); toast('Données restaurées.'); location.hash = 'tableau'; rendre();
+    } catch (err) { toast(err.message || 'Fichier illisible.'); }
+  };
+  r.readAsText(f);
+});
+document.addEventListener('submit', async e => {
+  if (e.target.dataset.form !== 'supprimer-compte') return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  try {
+    await api('POST', '/api/admin/compte/supprimer', { motDePasse: new FormData(e.target).get('motDePasse') });
+    location.href = '/';
+  } catch (err) { toast(err.message); }
+}, true);

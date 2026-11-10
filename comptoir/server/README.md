@@ -35,6 +35,8 @@ Ouvrez `http://localhost:3000`, créez un compte, puis ouvrez votre boutique pub
 | **E-mails** | File envoyée toutes les 30 s par Brevo ou Postmark (`BREVO_API_KEY` ou `POSTMARK_TOKEN` + `EMAIL_EXPEDITEUR`), 5 tentatives par e-mail. |
 | **Mot de passe oublié** | Lien valable 1 heure, à usage unique ; toutes les sessions sont fermées après le changement. Réponse identique que le compte existe ou non. |
 | **Domaines personnalisés** | Le marchand pointe son domaine (CNAME) vers Comptoir, puis clique « Vérifier ». Le serveur contrôle le DNS ; seul ce contrôle peut rendre un domaine « actif ». La boutique est alors servie à la racine du domaine. |
+| **Suppression du compte** | `POST /api/admin/compte/supprimer` avec le mot de passe : efface la boutique, les produits, les commandes, les factures, les clients, les avis, les publications, les e-mails et les mesures, puis ferme la session (testé). L'interface rappelle d'exporter les données avant. |
+| **Session** | `/api/session` et l'état d'administration indiquent le service de paiement, le service d'e-mails et la date de création du compte (page Paramètres). |
 
 ## Brancher les vrais services
 

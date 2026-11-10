@@ -438,3 +438,18 @@ test('mot de passe oublié, e-mails envoyés par le service, domaine personnalis
   assert.equal((await fetch(`${base}/api/tls/autoriser?domain=lacustre.example`)).status, 200);
   assert.equal((await fetch(`${base}/api/tls/autoriser?domain=pirate.example`)).status, 404, 'pas de certificat pour un domaine non vérifié');
 });
+
+test('suppression du compte : mot de passe exigé, données et boutique effacées', async () => {
+  const c = client();
+  const r = await c('POST', '/api/auth/inscription', { email: 'depart@exemple.ch', motDePasse: 'un mot de passe solide', config: config('Boutique Départ'), produits: [{ nom: 'Bol', prix: 30, stock: 2, type: 'stock', cout: 9 }] });
+  assert.equal(r.statut, 201);
+  const s = await c('GET', '/api/session');
+  assert.equal(typeof s.json.emails === 'string' || s.json.emails === null, true);
+  const e = await c('GET', '/api/admin/etat');
+  assert.ok(e.json.serveur.creeLe > 0);
+  assert.equal((await c('POST', '/api/admin/compte/supprimer', { motDePasse: 'mauvais' })).statut, 401);
+  assert.equal((await c('POST', '/api/admin/compte/supprimer', { motDePasse: 'un mot de passe solide' })).statut, 200);
+  assert.equal((await c('GET', '/api/admin/etat')).statut, 401);
+  assert.equal((await client()('GET', '/api/public/' + r.json.slug)).statut, 404);
+  assert.equal((await client()('POST', '/api/auth/connexion', { email: 'depart@exemple.ch', motDePasse: 'un mot de passe solide' })).statut, 401);
+});

@@ -117,7 +117,7 @@ function genererCampagne(etat, evt) {
   const delaiMax = drops.length ? Math.max(...drops.map(x => x.p.delai[1])) : 0;
   const dateLimite = delaiMax && (evt.cadeau || evt.id === 'noel') ? ajouterJours(evt.date, -(delaiMax + 1)) : null;
   const racines = { soldes: 'SOLDES', 'saint-valentin': 'VALENTIN', paques: 'PAQUES', 'fete-des-meres': 'MAMAN', 'fete-des-peres': 'PAPA', rentree: 'RENTREE', halloween: 'HALLOWEEN', 'black-friday': 'BLACKFRIDAY', noel: 'NOEL', 'singles-day': 'SINGLES', '1er-aout': 'AOUT' };
-  const code = evt.remise ? (racines[evt.kw] || evt.kw.replace(/-/g, '').toUpperCase().slice(0, 10)) + evt.remise : '';
+  const code = evt.remise ? (racines[evt.kw] || racines[evt.id] || evt.kw.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 12)) + evt.remise : '';
   const offre = evt.remise ? `-${evt.remise} % avec le code ${code}` : 'Emballage cadeau offert et livraison garantie avant le 24';
   const delaiLong = produits.filter(x => x.p.type === 'drop' && x.p.delai && x.p.delai[1] > 10).map(x => x.p);
   const dateTxt = evt.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });

@@ -125,7 +125,7 @@ function suggererDomaines({ marque, secteurId, motsCles = [], pays = 'fr', mois 
     if (/(.)\1\1/.test(c.nom)) memo -= 15;
     const extFit = { [extPays]: 100, com: 92, shop: 80, store: 70, boutique: 72, co: 55 }[c.ext] ?? 60;
     if (c.ext === extPays) raisons.push(`.${c.ext} inspire confiance aux clients locaux`);
-    if (c.ext === 'shop' || c.ext === 'store') raisons.push(`.${c.ext} annonce une boutique, mais renouvellement à ${EXTENSIONS[c.ext].renouv.toFixed(2).replace('.', ',')} €`);
+    if (c.ext === 'shop' || c.ext === 'store') raisons.push(`.${c.ext} annonce une boutique, mais renouvellement à ${euros(EXTENSIONS[c.ext].renouv)}`);
     if (longueur <= 10) raisons.push('Court et facile à retenir');
 
     // Disponibilité simulée : les noms génériques et les .com courts sont plus souvent pris.

@@ -61,7 +61,7 @@ function semerAvis() {
     const r = hacheTexte(c.id + 'n');
     const note = r < 0.62 ? 5 : r < 0.86 ? 4 : r < 0.94 ? 3 : r < 0.97 ? 2 : 1;
     const textes = AVIS_DEMO[note];
-    etat.avis.push({ id: 'av' + c.id, commandeId: c.id, produitId: l.produitId, note, texte: textes[Math.floor(hacheTexte(c.id + 't') * textes.length)], prenom: c.client.nom.split(' ')[0], ville: c.client.ville, date: c.date + 9 * JOUR, reponse: note <= 2 ? 'Merci pour votre retour, nous vous avons écrit pour organiser l’échange.' : null });
+    etat.avis.push({ id: 'av' + c.id, commandeId: c.id, produitId: l.produitId, note, texte: textes[Math.floor(hacheTexte(c.id + 't') * textes.length)], prenom: c.client.nom.split(' ')[0], ville: c.client.ville, date: Math.min(c.date + 9 * JOUR, Date.now() - JOUR), reponse: note <= 2 ? 'Merci pour votre retour, nous vous avons écrit pour organiser l’échange.' : null });
   }
   etat.avis.sort((a, b) => b.date - a.date);
 }
@@ -70,7 +70,7 @@ function statsAvisProduits() {
   for (const a of etat.avis || []) { const x = s[a.produitId] = s[a.produitId] || { somme: 0, n: 0 }; x.somme += a.note; x.n++; }
   return Object.fromEntries(Object.entries(s).map(([k, v]) => [k, { moyenne: v.somme / v.n, n: v.n }]));
 }
-const MOTS_VIDES = new Set('le la les un une des de du et à au aux en pour par sur avec sans très plus moins que qui est sont a été je j on nous vous il elle ce cet cette mais pas ne bien tout trop un peu comme mon ma mes notre nos votre vos leur leurs dans se s y d l qu n c arrivé fait'.split(' '));
+const MOTS_VIDES = new Set('le la les un une des de du et à au aux en pour par sur avec sans très plus moins que qui est sont a été je j on nous vous il elle ce cet cette mais pas ne bien tout trop un peu comme mon ma mes notre nos votre vos leur leurs dans se s y d l qu n c arrivé fait être pourrait avoir était aussi encore peut'.split(' ').map(m => m.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
 function motsFrequents(textes) {
   // Compté sans accents (« deçu » = « déçu »), affiché avec l’orthographe d’origine.
   const c = {}, forme = {};
@@ -128,7 +128,7 @@ function vueConversion() {
       apercu: `De nouveaux produits sont arrivés depuis votre dernière commande. Pour votre retour : −${a.reconquete.remise} % avec ${a.reconquete.code}.` }
   ];
   return `
-  <div class="tete"><div><h1>Conversion et fidélisation</h1><p class="sous">E-mails automatiques, remises et codes promo. Tout ce qui transforme un visiteur en client, puis un client en client fidèle.</p></div></div>
+  <div class="tete"><div><h1>Conversion et e-mails</h1><p class="sous">E-mails automatiques, remises et codes promo. Tout ce qui transforme un visiteur en client, puis un client en client fidèle.</p></div></div>
   <div class="kpis">
     <div class="kpi tuile"><span>Paiements abandonnés (30 j)</span><div class="tuile-ligne"><strong>${s.abandons}</strong></div><div class="tuile-pied"><span class="sous">commandes créées mais non payées</span></div></div>
     <div class="kpi tuile"><span>Récupérés par relance</span><div class="tuile-ligne"><strong>${s.recup}</strong></div><div class="tuile-pied"><span class="sous">${euros(s.caRecup)} de chiffre d’affaires</span></div></div>

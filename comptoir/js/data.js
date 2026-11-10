@@ -177,14 +177,14 @@ const TYPES_SECTIONS = {
   avis: { nom: 'Avis clients', champs: [['a1', 'Avis 1', 'textarea'], ['n1', 'Auteur 1', 'text'], ['a2', 'Avis 2', 'textarea'], ['n2', 'Auteur 2', 'text']], defaut: { a1: 'Produit superbe et livraison rapide.', n1: 'Camille, Lyon', a2: 'Je recommande les yeux fermés.', n2: 'Hugo, Nantes' } },
   newsletter: { nom: 'Inscription newsletter', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'text']], defaut: { titre: 'Restons en contact', texte: '-10 % sur votre première commande.' } },
   faq: { nom: 'Questions fréquentes', champs: [['q1', 'Question 1', 'text'], ['r1', 'Réponse 1', 'textarea'], ['q2', 'Question 2', 'text'], ['r2', 'Réponse 2', 'textarea']], defaut: { q1: 'Quels sont les délais de livraison ?', r1: '48 à 72 h en France métropolitaine.', q2: 'Puis-je retourner un produit ?', r2: 'Oui, sous 30 jours, retour gratuit.' } },
-  pied: { nom: 'Pied de page', champs: [['texte', 'Texte', 'text'], ['contact', 'Contact', 'text']], defaut: { texte: 'Fait avec soin.', contact: 'bonjour@exemple.fr' } }
+  pied: { nom: 'Pied de page', champs: [['texte', 'Texte', 'text'], ['contact', 'Contact', 'text']], defaut: { texte: 'Fait avec soin.', contact: 'bonjour@exemple.ch' } }
 };
 
 const STATUTS = {
-  attente: { nom: 'Paiement en attente', ton: 'warn' },
-  payee: { nom: 'À préparer', ton: 'info' },
+  attente: { nom: 'Paiement en attente', ton: 'muted' },
+  payee: { nom: 'À préparer', ton: 'warn' },
   preparation: { nom: 'En préparation', ton: 'info' },
-  fournisseur: { nom: 'Chez le fournisseur', ton: 'info' },
+  fournisseur: { nom: 'Chez le fournisseur', ton: 'violet' },
   expediee: { nom: 'Expédiée', ton: 'accent' },
   livree: { nom: 'Livrée', ton: 'good' },
   prete: { nom: 'Prête à retirer', ton: 'accent' },
@@ -243,9 +243,9 @@ function sectionsParDefaut(nom, secteurId, pays = 'fr') {
   return [
     mk('annonce', pays === 'ch' ? { texte: 'Livraison offerte dès CHF 60.– · Paiement TWINT' } : {}),
     mk('hero', { titre: nom, sousTitre: `${s.nom} choisis avec soin, expédiés depuis notre atelier.`, bouton: 'Voir la collection' }),
-    mk('saison', { titre: saison.nom, texte: '-15 % sur une sélection jusqu’à la fin du mois', code: saison.kw.replace(/-/g, '').toUpperCase().slice(0, 10) + '15' }),
+    mk('saison', { titre: saison.nom, texte: '-15 % sur une sélection jusqu’à la fin du mois', code: saison.kw.replace(/-/g, '').toUpperCase().slice(0, 12) + '15' }),
     mk('produits', { titre: 'Nos best-sellers', nombre: '4' }),
-    mk('arguments', pays === 'ch' ? { a1: 'Expédié en Suisse', a2: 'Paiement TWINT ou carte', a3: 'Retours gratuits 30 jours' } : {}),
+    mk('arguments', pays === 'ch' ? { a1: 'Livraison suivie jusqu’à votre porte', a2: 'Paiement TWINT ou carte', a3: 'Retours gratuits 30 jours' } : {}),
     mk('avis', {}),
     mk('newsletter', {}),
     mk('pied', { texte: `© ${new Date().getFullYear()} ${nom}` })
@@ -356,3 +356,16 @@ function numeroFactureSuivant(e, date) {
   e.compteurFacture = (e.compteurFacture || 0) + 1;
   return `FA-${new Date(date).getFullYear()}-${String(e.compteurFacture).padStart(4, '0')}`;
 }
+
+function dansJours(date) {
+  const n = Math.ceil((new Date(date) - new Date()) / JOUR);
+  return n <= 0 ? 'Aujourd’hui' : n === 1 ? 'Demain' : `Dans ${n} jours`;
+}
+const SOURCES = [
+  ['Sélection produit', 'Critères de marge, prix et délai issus des conseils publics de Yomi Denzel, Kamil Sattar, Minea et des guides Shopify.'],
+  ['Tests publicitaires', 'Phase d’apprentissage Meta (environ 50 conversions), budget de test et seuil de coupe : documentation Meta Ads et conseils de Jordan Welch.'],
+  ['Contenu organique', '3 à 5 vidéos courtes par jour pendant 30 jours, plusieurs accroches par vidéo : Kamil Sattar et études TikTok.'],
+  ['Stock propre', 'Passer un gagnant en stock pour gagner en marge et en délai : Sebastian Ghiorghiu, Lucas Biver.'],
+  ['Prix barrés', 'Ordonnance suisse sur l’indication des prix (OIP) et directive européenne Omnibus : prix de référence pratiqué pendant 30 jours.'],
+  ['Limites', 'Ce sont des règles par défaut, pas des garanties de résultat. Aucun revenu n’est promis : ajustez les seuils à votre marché.']
+];

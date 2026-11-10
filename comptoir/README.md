@@ -20,18 +20,20 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 | **Éditeur du site** (`#editeur`) | Aperçu en direct ordinateur / mobile. Clic sur une section pour la modifier ; ajout, suppression et réordonnancement de 10 types de sections ; couleurs, police, arrondis ; nom et secteur. Bouton « Publier ». |
 | **Domaines** (`#domaines`) | Suggestions notées selon la demande du marché, ce que les clients achètent (90 jours de ventes), la saison (Black Friday, Noël, fête des mères…) et la qualité du nom. Domaine principal + domaine de campagne saisonnier. On peut simuler un autre mois. |
 | **Tableau de bord** (`#tableau`) | CA, commandes, panier moyen, conversion sur 30 jours, CA par jour, conseil de saison, tâches (commandes à expédier, stock bas…). |
-| **Commandes** (`#commandes`) | Filtres par statut, recherche, fiche commande, flux de statuts (en attente → à préparer → en préparation → expédiée → livrée → remboursée / annulée), numéro de suivi, historique, note interne. |
-| **Produits / Clients** | Ajout et modification de produits (prix, stock, catégorie, visibilité), liste des clients avec total dépensé. |
+| **Commandes** (`#commandes`) | Onglets par statut avec compteurs, recherche, filtres par période et par canal, pagination (50 par page), sélection multiple et actions groupées (changement de statut, bons de préparation imprimables, export CSV), fiche commande, flux de statuts (en attente → à préparer → en préparation → expédiée → livrée → remboursée / annulée), numéro de suivi, historique, note interne. |
+| **Produits** (`#produits`) | Recherche, filtres (actifs, stock bas, dropshipping, masqués), duplication, prix barré contrôlé (prix pratiqué 30 jours, OIP / Omnibus). |
+| **Clients** (`#clients`) | Segments (meilleurs, fidèles, nouveaux, inactifs, abonnés), recherche, pagination, fiche client avec historique, export CSV. |
+| **Paramètres** (`#parametres`) | Général, apparence (clair, sombre, système), état des paiements (Stripe TWINT et cartes ou simulation), livraison, service d'envoi des e-mails et derniers e-mails, domaine, abonnement, export complet JSON, restauration d'une démo, suppression du compte (mode connecté). |
 | **Trouver des produits** (`#sourcing`) | Catalogue de fournisseurs (entrepôts Suisse, Europe, Chine) classé par potentiel : marge nette réelle (TVA, port, TVA d'import et dédouanement, frais de paiement, pub), tendance de saison, concurrence, délai. Import en un clic. |
 | **Analyse** (`#analyse`) | 5 onglets sur 7 jours, 30 jours, 90 jours ou 12 mois, comparés à la période précédente, avec filtre par canal et export CSV. Ventes : chiffres clés et mini-courbes, courbe comparée, carte des heures d'achat, livraison, villes, constats automatiques. Produits : classement, part, évolution, marge, tendance. Clients : nouveaux et revenus, taux de réachat, valeur client, rétention par cohorte, montant des paniers. Marketing : entonnoir, réseaux, tests, temps forts. Rentabilité : cascade du chiffre d'affaires au bénéfice, compte de résultat, seuil de TVA. |
 | **Réseaux sociaux** (`#social`) | Pilote automatique : calendrier de publications Instagram, TikTok, Facebook, Pinterest généré à partir des produits, ventes, marges et temps forts. Pour chaque publication : accroche des 3 premières secondes, légende, hashtags et script vidéo plan par plan. Validation ou publication automatique, statistiques, et le pilote programme davantage ce qui convertit. Lancement intensif TikTok, micro-influenceurs. |
 | **Fournisseurs** (`#fournisseurs`) | Fiche par fournisseur : note, entrepôts, délai annoncé et délai mesuré, commandes transmises, remboursements. Liste de contrôle (échantillon au prix normal, réponse en moins de 24 h, délai tenu, dédouanement prépayé). Signale les entrepôts plus proches ; le serveur y route les commandes. |
 | **Tests produits** (`#tests`) | Plans de test (publicités Meta, publicités TikTok, TikTok organique), saisie des résultats du jour, verdict automatique : couper, attendre, garder ou augmenter le budget, selon la marge brute. Objectif de 3 à 5 produits testés par semaine. |
 | **Copilote de saison** (`#copilote`) | Les vraies dates des prochains temps forts (Black Friday, Noël, soldes, fête des mères…). Pour chacun, une campagne prête calculée sur les ventes : produits à pousser, prévision et alertes de stock, bannière, code promo, e-mail, post Instagram, domaine et planning. Validation en un clic. Bilan du dernier temps fort. |
-| **Magasin** (`#magasin`) | Caisse au comptoir avec stock unique site + boutique, retraits click & collect, QR code de vitrine, fiche Google synchronisée (simulée). |
+| **Magasin et caisse** (`#magasin`) | Caisse au comptoir avec stock unique site + boutique, retraits en magasin, QR code de vitrine, fiche Google synchronisée (simulée). |
 | **Conformité** (`#conformite`) | Fiche entreprise, factures numérotées en continu (TVA 20 % ou franchise en base), CGV et mentions légales générées, points de contrôle (médiateur, RGPD, facture électronique). |
 | **Offre** (`#offre`) | Formules et tarifs, ce qui distingue Comptoir. |
-| **Voir la boutique** (`#boutique`) | La boutique côté client : bandeau cookies, panier, choix Colissimo / Mondial Relay / Chronopost / retrait en boutique, paiement simulé. La commande et sa facture arrivent dans l'admin. |
+| **Voir la boutique** (`#boutique`) | La boutique côté client : navigation (collection, à propos, contact), fiche produit (description, délai de livraison en jours ouvrables suisses, avis du produit, quantité, réassurance), bandeau cookies, panier, choix Colissimo / Mondial Relay / Chronopost / retrait en boutique, paiement simulé. La commande et sa facture arrivent dans l'admin. |
 
 Dropshipping : transmission automatique des commandes au fournisseur, statut « chez le fournisseur », bénéfice par commande et sur 30 jours, marge nette et seuil de rentabilité publicitaire (ROAS) sur chaque fiche, délais affichés au client, date limite de commande avant Noël.
 
@@ -39,7 +41,7 @@ Suisse : CHF, TWINT, La Poste (Economy, Priority, PickPost), Impressum, protecti
 
 Autres fonctions : ajout de produits **par photo** (fiches créées automatiquement), rédaction de description, étiquettes d'envoi, session d'accompagnement à réserver.
 
-La stratégie (cible, différenciation, prix, conquête, feuille de route) est dans [`STRATEGIE.md`](STRATEGIE.md). Les règles de la méthode de lancement (grille produit gagnant, tests, réseaux sociaux), leurs sources et leurs limites sont dans [`METHODE.md`](METHODE.md).
+La stratégie (cible, différenciation, prix, conquête, feuille de route) est dans [`STRATEGIE.md`](STRATEGIE.md). Les règles de la méthode de lancement (grille produit gagnant, tests, réseaux sociaux), leurs sources et leurs limites sont dans [`METHODE.md`](METHODE.md) ; l'application les résume dans une fenêtre « Sources ».
 
 ## Moteur de domaines (`js/domains.js`)
 
@@ -63,6 +65,7 @@ comptoir/
   js/graphiques.js     graphiques SVG (courbes, cascade, cartes de chaleur, entonnoir, barres)
   js/analyse.js        module Analyse et export CSV
   js/palette.js        palette de commandes (Ctrl+K) et thème clair/sombre
+  js/parametres.js     page Paramètres (paiements, e-mails, abonnement, export, suppression du compte)
   accueil.html         page d'accueil commerciale
   js/social.js         pilote automatique des réseaux sociaux
   js/methode.js        grille produit gagnant, tests produits, micro-influenceurs

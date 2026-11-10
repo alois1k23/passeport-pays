@@ -124,7 +124,7 @@ function vueTests() {
   const mb0 = pChoisi ? contributionProduit(pChoisi) : 0;
   const canal0 = CANAUX_TEST[t0.canal];
   return `
-  <div class="tete"><div><h1>Tests produits</h1><p class="sous">Testez vite, coupez ce qui ne rapporte pas, augmentez ce qui marche. Les verdicts suivent des règles sourcées, détaillées dans METHODE.md.</p></div>
+  <div class="tete"><div><h1>Tests produits</h1><p class="sous">Testez vite, coupez ce qui ne rapporte pas, augmentez ce qui marche. Les verdicts suivent des règles sourcées. <button class="lien-bouton" data-action="sources">Sources</button></p></div>
     <div class="objectif"><strong>${semaine}</strong><span>test${semaine > 1 ? 's' : ''} lancé${semaine > 1 ? 's' : ''} cette semaine<br><span class="sous">3 à 5 produits par semaine (Minea)</span></span></div></div>
   <div class="grille-2">
     <section class="carte">
