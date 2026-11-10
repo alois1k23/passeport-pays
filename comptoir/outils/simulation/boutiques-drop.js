@@ -6,6 +6,7 @@ const base = process.argv[2] || 'http://localhost:3000';
 const dossier = process.argv[3] || require('node:os').tmpdir();
 const N = Number(process.argv[4] || 100);
 const anomalies = [], bilan = [];
+const AUTRES = [];   // produits et commandes d'autres marchands, pour les tests d'isolation
 const note = (qui, quoi, detail = '') => anomalies.push({ qui, quoi, detail: String(detail).slice(0, 260) });
 const NIVEAUX = ['simple', 'standard', 'avancée', 'très complexe'];
 const SECTEURS = ['maison', 'animaux', 'tech', 'deco', 'mode', 'beaute', 'epicerie', 'sport', 'bijoux'];
@@ -43,18 +44,40 @@ async function boutique(b, i) {
   const go = async r => { await p.evaluate(r => { location.hash = r; }, r); await p.waitForTimeout(380); };
   const res = { i, nom, niveau, pays, secteur, produits: 0, drop: 0, commande: null };
   try {
-    // 1. Inscription par le formulaire
-    await p.goto(base + '/app'); await p.waitForTimeout(600);
+    // 1. Page d'accueil : le client choisit une formule, puis crée son compte
+    const formule = ['lancement', 'croissance', 'pro'][i % 3];
+    await p.goto(base + '/'); await p.waitForTimeout(400);
+    await controler(p, qui, 'page d’accueil');
+    const lienFormule = p.locator(`a[href="/app?formule=${formule}"]`);
+    if (await lienFormule.count()) { await lienFormule.first().click(); await p.waitForURL(/\/app/, { timeout: 8000 }); await p.waitForTimeout(700); }
+    else { note(qui, `formule « ${formule} » absente de la page d’accueil`); await p.goto(base + '/app?formule=' + formule); await p.waitForTimeout(700); }
+    if (!(await p.evaluate(f => document.body.innerText.includes({ lancement: 'Lancement', croissance: 'Croissance', pro: 'Pro' }[f]), formule))) note(qui, 'formule choisie non rappelée à l’inscription');
     await p.fill('#cx-nom', nom); await p.selectOption('#cx-secteur', secteur); await p.selectOption('#cx-modele', modele); await p.selectOption('#cx-pays', pays);
     await p.fill('#cx-email', `drop${i}-${Date.now()}@exemple.ch`); await p.fill('#cx-mdp', 'mot de passe solide');
     await p.click('#form-auth button.btn'); await p.waitForTimeout(2600);
     // Étape 2 : choix de la formule et paiement de l'abonnement (aucun accès avant).
     if (await p.$('[data-abo="payer"]')) {
+      await controler(p, qui, 'choix de la formule');
       if ((await p.evaluate(() => fetch('/api/admin/etat').then(r => r.status))) !== 402) note(qui, 'espace accessible avant le paiement');
-      const formule = ['lancement', 'croissance', 'pro'][i % 3];
+      const slugAvant = await p.evaluate(() => SERVEUR.slug);
+      if ((await p.evaluate(sl => fetch('/api/public/' + sl).then(r => r.status), slugAvant)) !== 404) note(qui, 'boutique visible par les clients avant le paiement');
+      const coche = await p.evaluate(() => document.querySelector('input[data-abo="formule"]:checked')?.value);
+      if (coche !== formule) note(qui, 'formule de la page d’accueil non présélectionnée', `${coche} au lieu de ${formule}`);
+      if (await p.$('#mode-badge:visible')) note(qui, 'badge « Démo » visible pendant le paiement');
+      if (i % 10 === 7) {   // abandon, puis retour et paiement
+        await p.click('[data-abo="payer"]'); await p.waitForURL(/abonnement-simule/, { timeout: 8000 });
+        await p.click('button:has-text("Annuler")'); await p.waitForTimeout(1500);
+        if (!(await p.evaluate(() => /annulé/i.test(document.body.innerText)))) note(qui, 'message d’annulation du paiement absent');
+        if ((await p.evaluate(() => fetch('/api/admin/etat').then(r => r.status))) !== 402) note(qui, 'espace accessible après un paiement annulé');
+        res.abandon = true;
+      }
       await p.locator(`input[data-abo="formule"][value="${formule}"]`).check({ force: true }); await p.waitForTimeout(200);
       await p.click('[data-abo="payer"]'); await p.waitForURL(/abonnement-simule/, { timeout: 8000 });
+      const montant = await p.evaluate(() => document.querySelector('.m')?.innerText || '');
+      const attendu = { lancement: 29, croissance: 59, pro: 119 }[formule];
+      if (!montant.includes(String(attendu)) || !montant.includes(pays === 'ch' ? 'CHF' : '€')) note(qui, 'montant de l’abonnement incorrect', `${montant} pour ${formule} (${pays})`);
       await p.click('button:has-text("Payer")'); await p.waitForTimeout(2600);
+      res.formule = formule;
     } else note(qui, 'écran de paiement de l’abonnement absent');
     if (!(await p.evaluate(() => typeof SERVEUR !== 'undefined' && SERVEUR.connecte))) { note(qui, 'inscription impossible', await p.evaluate(() => document.body.innerText.slice(0, 200))); await ctx.close(); return res; }
     const devise = await p.evaluate(() => etat.boutique.devise);
@@ -139,6 +162,27 @@ async function boutique(b, i) {
       await p.fill('#en-email', `contact${i}@exemple.ch`); await p.press('#en-email', 'Tab'); await p.waitForTimeout(800);
     });
 
+    // 6 bis. Produits stars : classement cohérent pour la niche et le pays
+    await etape(qui, 'produits stars', async () => {
+      await go('stars'); await p.waitForTimeout(600);
+      const st = await p.evaluate(() => ({ n: document.querySelectorAll('.st-top').length + document.querySelectorAll('.st-table tbody tr').length, scores: [...document.querySelectorAll('.st-score b, .st-table td[data-label="Score"] b')].map(x => Number(x.innerText)), raisons: document.querySelectorAll('.st-raisons li').length, sources: document.querySelectorAll('.st-source').length, niche: ui.stars && ui.stars.niche }));
+      if (st.n < 5) note(qui, 'moins de 5 produits stars pour la niche', JSON.stringify(st));
+      if (st.scores.some(x => !(x >= 0 && x <= 100))) note(qui, 'score de produit star hors de 0–100', st.scores.join(','));
+      if (st.scores.some((x, k) => k > 3 && x > st.scores[k - 1])) note(qui, 'produits stars mal triés', st.scores.slice(0, 12).join(','));
+      if (!st.raisons) note(qui, 'produits stars sans explication');
+      if (st.niche !== secteur) note(qui, 'Produits stars : la niche de la boutique n’est pas présélectionnée', st.niche);
+      if (niveau < 3 && pays === 'ch' && (await p.evaluate(() => [...document.querySelectorAll('.st-top .sous, .st-table .carte-titre .sous')].length)) && (await p.evaluate(() => ui.stars.entrepots.includes('CN')))) note(qui, 'Chine cochée par défaut pour une boutique suisse');
+      const imp = await p.$('.st-top [data-action="importer-produit"], .st-table [data-action="importer-produit"]');
+      if (imp) { const avant = await p.evaluate(() => etat.produits.length); await imp.click(); await p.waitForTimeout(900); const apres = await p.evaluate(() => etat.produits.length); if (apres !== avant + 1) note(qui, 'import depuis Produits stars sans effet', `${avant} → ${apres}`); }
+    });
+    await etape(qui, 'abonnement dans Paramètres', async () => {
+      await go('parametres'); await p.click('[data-action="section-param"][data-v="abonnement"]'); await p.waitForTimeout(300);
+      const t = await p.evaluate(() => document.querySelector('.param-corps')?.innerText || '');
+      const nomF = { lancement: 'Lancement', croissance: 'Croissance', pro: 'Pro' }[res.formule];
+      if (res.formule && !t.includes(nomF)) note(qui, 'formule payée absente de Paramètres', t.slice(0, 120));
+      if (!/Actif/.test(t)) note(qui, 'abonnement non affiché comme actif', t.slice(0, 120));
+    });
+
     // 7. Tour complet de l'administration
     for (const r of ROUTES) { await go(r); await controler(p, qui, r); }
     await attendre(900);   // laisse partir l'enregistrement différé
@@ -215,6 +259,27 @@ async function boutique(b, i) {
       await controler(p, qui, 'fiche commande');
       res.statut = cmd.statut;
     }
+    // 10. Isolation : tentatives sur la boutique et les commandes d'un autre marchand
+    if (AUTRES.length) {
+      const autre = AUTRES[i % AUTRES.length];
+      const tentatives = await p.evaluate(async a => {
+        const st = async (m, u, corps) => (await fetch(u, { method: m, headers: { 'Content-Type': 'application/json' }, body: corps ? JSON.stringify(corps) : undefined })).status;
+        return [await st('PUT', '/api/admin/produits/' + a.produit, { produit: { nom: 'Piraté', prix: 1 } }), await st('DELETE', '/api/admin/produits/' + a.produit), await st('POST', '/api/admin/commandes/' + a.commande + '/statut', { statut: 'annulee' }), await st('PATCH', '/api/admin/commandes/' + a.commande, { note: 'piraté' })];
+      }, autre);
+      if (tentatives.some(x => x < 400)) note(qui, 'modification possible chez un autre marchand', JSON.stringify(tentatives));
+      const e3 = await p.evaluate(() => api('GET', '/api/admin/etat'));
+      if (e3.produits.some(x => x.id === autre.produit) || e3.commandes.some(x => x.id === autre.commande)) note(qui, 'données d’un autre marchand visibles');
+    }
+    if (cmd) { const prod = (await p.evaluate(() => api('GET', '/api/admin/etat'))).produits.find(x => x.actif !== false); if (prod) AUTRES.push({ produit: prod.id, commande: cmd.id, qui }); }
+    // 11. Résiliation pour 1 boutique sur 8 : l'accès reste ouvert jusqu'à la fin du mois payé
+    if (i % 8 === 5) await etape(qui, 'résiliation', async () => {
+      await go('parametres'); await p.click('[data-action="section-param"][data-v="abonnement"]'); await p.waitForTimeout(300);
+      await p.click('[data-action="abo-resilier"]'); await p.waitForTimeout(1000);
+      const a = await p.evaluate(() => api('GET', '/api/abonnement'));
+      if (!a.finDemandee || !a.actif) note(qui, 'résiliation mal enregistrée', JSON.stringify(a));
+      if ((await p.evaluate(() => fetch('/api/admin/etat').then(r => r.status))) !== 200) note(qui, 'accès coupé avant la fin du mois payé');
+      res.resiliee = true;
+    });
     await ctx.close();
     bilan.push(res);
     return { ...res, slug };
