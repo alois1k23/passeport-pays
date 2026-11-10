@@ -97,3 +97,30 @@ Résultat : 0 écart au centime sur toutes les commandes créées, aucun montant
 Vérifié identique dans les deux calculs : seuil de livraison offerte, modes jamais offerts, remise la plus avantageuse entre palier et code, offres complémentaires.
 
 Tests : 28.
+
+### Cycle 5 — Boutique publique : référencement et partage (0 h 27 – 0 h 40)
+
+**Défaut trouvé et corrigé**
+
+Un moteur de recherche ou un aperçu de lien (WhatsApp, Instagram, Facebook) ne voyait qu'une page vide titrée « Boutique » : le contenu n'était produit que par le JavaScript, et les fiches produits n'avaient pas d'adresse propre (`#produit-…`). Les boutiques étaient donc presque invisibles sur Google et sans aperçu au partage.
+
+Le serveur génère désormais, pour la boutique et pour chaque produit :
+- le titre, la description, l'adresse de référence et la langue du pays ;
+- les balises de partage (titre, description, image du produit servie en fichier, prix et devise) ;
+- les données structurées schema.org (`OnlineStore`, et `Product` avec prix, devise et disponibilité) ;
+- une version lisible sans JavaScript (liste des produits avec liens) ;
+- un plan du site (`/s/<boutique>/sitemap.xml`, ou `/sitemap.xml` sur un domaine personnalisé) et un `robots.txt`.
+
+Les fiches ont une vraie adresse, `/s/<boutique>/p/<produit>` (ou `/p/<produit>` sur un domaine personnalisé) :
+- le titre de l'onglet suit le produit ouvert ;
+- le bouton retour du navigateur ferme la fiche, le bouton suivant la rouvre ;
+- l'adresse ouvre la fiche directement.
+
+Les anciens liens `#produit-` restent reconnus. Une boutique non payée, ou un produit inexistant, est marqué « ne pas indexer ».
+
+Vérifié :
+- sur iPhone : ouverture d'une fiche, rechargement, retour arrière, retour avant, Échap, panier, sans aucune erreur ;
+- les pièges XSS ne s'exécutent pas non plus dans les balises générées (noms échappés) ;
+- nouveau test serveur.
+
+Tests : 29.

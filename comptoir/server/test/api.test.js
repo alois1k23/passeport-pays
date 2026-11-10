@@ -547,3 +547,27 @@ test('sécurité : saisies malformées sans erreur serveur, limite de débit sur
   assert.match(h.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal(h.headers.get('x-content-type-options'), 'nosniff');
 });
+
+test('référencement : page et fiches rendues par le serveur, plan du site, boutique non payée non indexée', async () => {
+  const c = client();
+  const r = await c('POST', '/api/auth/inscription', { email: 'seo@exemple.ch', motDePasse: 'un mot de passe solide', config: { ...config('Lumière <Seo> & Co'), boutique: { ...config('x').boutique, nom: 'Lumière <Seo> & Co', slogan: 'Bougies du Léman' } }, produits: [{ nom: 'Bougie « Lac »', prix: 32, stock: 5, type: 'stock', cout: 9, description: 'Cire de colza, mèche en coton.' }] });
+  const e = await c('GET', '/api/admin/etat');
+  const pid = e.json.produits[0].id;
+  const page = await (await fetch(`${base}/s/${r.json.slug}`)).text();
+  assert.match(page, /<title>Lumière &lt;Seo&gt; &amp; Co · Bougies du Léman<\/title>/);
+  assert.match(page, /<meta property="og:title"/);
+  assert.match(page, /application\/ld\+json/);
+  assert.ok(!/<Seo>/.test(page), 'nom échappé');
+  const fiche = await (await fetch(`${base}/s/${r.json.slug}/p/${pid}`)).text();
+  assert.match(fiche, /<title>Bougie « Lac » · /);
+  assert.match(fiche, /"@type":"Product"/);
+  assert.match(fiche, /"price":"32.00","priceCurrency":"CHF"/);
+  assert.match(fiche, /comptoir-produit/);
+  const plan = await (await fetch(`${base}/s/${r.json.slug}/sitemap.xml`)).text();
+  assert.match(plan, new RegExp(`/s/${r.json.slug}/p/${pid}`));
+  // Boutique d'un compte non payé : pas d'indexation, plan du site vide
+  const n = client();
+  const r2 = await n('POST', '/api/auth/inscription', { email: 'seo2@exemple.ch', motDePasse: 'un mot de passe solide', config: config('Pas Payée'), produits: [{ nom: 'Tasse', prix: 20, stock: 3, type: 'stock' }] }, { sansPaiement: true });
+  assert.match(await (await fetch(`${base}/s/${r2.json.slug}`)).text(), /<meta name="robots" content="noindex">/);
+  assert.ok(!/\/p\//.test(await (await fetch(`${base}/s/${r2.json.slug}/sitemap.xml`)).text()));
+});

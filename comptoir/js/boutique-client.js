@@ -4,7 +4,9 @@
 
 // Sur un domaine personnalisé, le serveur indique la boutique dans une balise meta ; sinon /s/<slug>.
 const slug = (document.querySelector('meta[name="comptoir-slug"]') || {}).content || location.pathname.split('/').filter(Boolean)[1];
-const racineBoutique = document.querySelector('meta[name="comptoir-slug"]') ? '/' : location.pathname;
+// Racine de la boutique (« /s/<slug>/ » ou « / » sur un domaine personnalisé), donnée par le serveur.
+const racineBoutique = (document.querySelector('meta[name="comptoir-racine"]') || {}).content || location.pathname.replace(/\/p\/[^/]+\/?$/, '/');
+const urlFiche = id => racineBoutique.replace(/\/?$/, '/') + 'p/' + encodeURIComponent(id);
 
 /* Mesure d’audience sans cookie : identifiant aléatoire propre à l’onglet (perdu à sa fermeture), aucune donnée personnelle. */
 const sessionMesure = (() => { try { let s = sessionStorage.getItem('comptoir-session'); if (!s) { s = 's' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); sessionStorage.setItem('comptoir-session', s); } return s; } catch { return 's' + Math.random().toString(36).slice(2, 14); } })();
@@ -29,13 +31,15 @@ async function demarrer() {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}`);
     if (!rep.ok) throw new Error((await rep.json()).erreur || 'Boutique introuvable.');
     donnees = await rep.json();
-    if (location.hash.startsWith('#produit-')) vue.fiche = decodeURIComponent(location.hash.slice(9));
+    const produitPage = (document.querySelector('meta[name="comptoir-produit"]') || {}).content;
+    if (produitPage) vue.fiche = produitPage;
+    else if (location.hash.startsWith('#produit-')) vue.fiche = decodeURIComponent(location.hash.slice(9));   // anciens liens
   } catch (e) {
     $('#app').innerHTML = `<div class="page-erreur"><h1>Boutique introuvable</h1><p>${esc(e.message)}</p></div>`;
     return;
   }
   etat = { boutique: donnees.boutique, produits: donnees.produits, entreprise: donnees.entreprise, magasin: donnees.magasin, avisRecents: donnees.avisRecents || [] };
-  document.title = donnees.boutique.nom;
+  if (!vue.fiche) document.title = donnees.boutique.nom;
   document.body.style.background = donnees.boutique.theme.bg;
   // Le panier ne garde que les produits encore en vente, au prix actuel.
   vue.panier = vue.panier.map(l => { const p = donnees.produits.find(x => x.id === l.produitId); return p && { produitId: p.id, nom: p.nom, prix: p.prix, qte: l.qte }; }).filter(Boolean);
@@ -232,8 +236,8 @@ document.addEventListener('click', e => {
       if (l) l.qte = Math.min(max, l.qte + q); else vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(max, q) });
       garderPanier(); vue.fiche = null; vue.message = null; vue.ouvert = true; rendre();
     } else if (sf.dataset.sf === 'panier') { vue.ouvert = true; rendre(); }
-    else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.replaceState(null, '', '#produit-' + encodeURIComponent(sf.dataset.id)); rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
-    else if (sf.dataset.sf === 'fermer-fiche') { vue.fiche = null; history.replaceState(null, '', location.pathname + location.search); rendre(); }
+    else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
+    else if (sf.dataset.sf === 'fermer-fiche') { vue.fiche = null; history.pushState(null, '', racineBoutique); document.title = donnees.boutique.nom; rendre(); }
     else if (sf.dataset.sf === 'nav') allerSection(document, sf.dataset.v);
     else if (sf.dataset.sf === 'defiler') document.getElementById('sf-collection')?.scrollIntoView({ behavior: 'smooth' });
     return;
@@ -347,4 +351,12 @@ async function envoyerAvis(form) {
 
 demarrer();
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && vue.fiche) { vue.fiche = null; rendre(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && vue.fiche) { vue.fiche = null; history.pushState(null, '', racineBoutique); document.title = donnees.boutique.nom; rendre(); } });
+
+// Retour arrière du navigateur : ouvre ou ferme la fiche produit selon l'adresse.
+addEventListener('popstate', () => {
+  const m = /\/p\/([^/]+)\/?$/.exec(location.pathname);
+  vue.fiche = m ? decodeURIComponent(m[1]) : null;
+  document.title = vue.fiche && donnees ? `${(donnees.produits.find(x => x.id === vue.fiche) || {}).nom || ''} · ${donnees.boutique.nom}` : (donnees ? donnees.boutique.nom : document.title);
+  rendre();
+});

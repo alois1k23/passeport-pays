@@ -833,6 +833,55 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return collecte.signaux(lireConfig(ctx.boutique).boutique.pays || 'ch');
   });
 
+  /* ---------- Boutique publique : page rendue par le serveur pour les moteurs de recherche et le partage ---------- */
+  function pageBoutique(b, { racine, produitId = null }) {
+    const config = lireConfig(b);
+    const ouverte = abo.etat(b.marchand_id).actif;
+    const produits = listerProduits(b.id).filter(p => p.actif && !p.aVerifier);
+    const p = produitId ? produits.find(x => x.id === produitId) : null;
+    const nom = config.boutique.nom;
+    const hero = (config.boutique.sections || []).find(s => s.type === 'hero');
+    const devise = config.boutique.devise || 'EUR';
+    const base = racine.replace(/\/$/, '');
+    const urlProduit = x => `${base}/p/${encodeURIComponent(x.id)}`;
+    const court = t => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 158);
+    const titre = p ? `${p.nom} · ${nom}` : config.boutique.slogan ? `${nom} · ${config.boutique.slogan}` : nom;
+    const description = court(p ? (p.description || `${p.nom}, ${formatMontant(p.prix, config)}`) : (config.boutique.slogan || (hero && hero.props && (hero.props.sousTitre || hero.props.texte)) || `Boutique en ligne ${nom} : ${produits.slice(0, 4).map(x => x.nom).join(', ')}`));
+    const image = p && p.image ? `${urlPublique}/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : null;
+    const canonique = p ? urlProduit(p) : base + '/';
+    const ld = p ? { '@context': 'https://schema.org', '@type': 'Product', name: p.nom, description: court(p.description), ...(image ? { image } : {}), url: canonique, brand: { '@type': 'Brand', name: nom },
+      offers: { '@type': 'Offer', price: Number(p.prix).toFixed(2), priceCurrency: devise, availability: p.type === 'drop' || p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique } }
+      : { '@context': 'https://schema.org', '@type': 'OnlineStore', name: nom, url: canonique, description, ...(config.entreprise && config.entreprise.email ? { email: config.entreprise.email } : {}) };
+    const tete = [
+      `<meta name="comptoir-slug" content="${escHtml(b.slug)}">`, `<meta name="comptoir-racine" content="${escHtml(new URL(base + '/').pathname)}">`,
+      ...(p ? [`<meta name="comptoir-produit" content="${escHtml(p.id)}">`] : []),
+      `<title>${escHtml(titre)}</title>`, `<meta name="description" content="${escHtml(description)}">`, `<link rel="canonical" href="${escHtml(canonique)}">`,
+      ...(ouverte && !(produitId && !p) ? [] : ['<meta name="robots" content="noindex">']),
+      `<meta property="og:type" content="${p ? 'product' : 'website'}">`, `<meta property="og:site_name" content="${escHtml(nom)}">`, `<meta property="og:title" content="${escHtml(p ? p.nom : nom)}">`,
+      `<meta property="og:description" content="${escHtml(description)}">`, `<meta property="og:url" content="${escHtml(canonique)}">`, `<meta property="og:locale" content="fr_${config.boutique.pays === 'ch' ? 'CH' : config.boutique.pays === 'be' ? 'BE' : 'FR'}">`,
+      ...(image ? [`<meta property="og:image" content="${escHtml(image)}">`, '<meta name="twitter:card" content="summary_large_image">'] : ['<meta name="twitter:card" content="summary">']),
+      ...(p ? [`<meta property="product:price:amount" content="${Number(p.prix).toFixed(2)}">`, `<meta property="product:price:currency" content="${devise}">`] : []),
+      `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`
+    ].join('\n');
+    // Contenu lisible sans JavaScript (robots, aperçus) ; remplacé par la boutique interactive au chargement.
+    const sansJs = `<noscript><main class="page-erreur"><h1>${escHtml(p ? p.nom : nom)}</h1>${p ? `<p>${escHtml(court(p.description))}</p><p><strong>${escHtml(formatMontant(p.prix, config))}</strong></p>` : `<p>${escHtml(description)}</p><ul>${produits.slice(0, 60).map(x => `<li><a href="${escHtml(urlProduit(x))}">${escHtml(x.nom)}</a> · ${escHtml(formatMontant(x.prix, config))}</li>`).join('')}</ul>`}<p>Activez JavaScript pour commander.</p></main></noscript>`;
+    return fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace(/<title>[^<]*<\/title>/, '').replace('<head>', `<head>\n${tete}`).replace('<div id="app"></div>', `<div id="app"></div>${sansJs}`);
+  }
+  function planDuSite(b, racine) {
+    const base = racine.replace(/\/$/, '');
+    const produits = abo.etat(b.marchand_id).actif ? listerProduits(b.id).filter(p => p.actif && !p.aVerifier) : [];
+    const urls = [`${base}/`, ...produits.map(p => `${base}/p/${encodeURIComponent(p.id)}`)];
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u => `  <url><loc>${escHtml(u)}</loc></url>`).join('\n')}\n</urlset>\n`;
+  }
+  // Image d'un produit en fichier (pour l'aperçu de partage : og:image doit être une adresse, pas une image intégrée).
+  r.get('/api/public/:slug/image/:id', ctx => {
+    const b = boutiqueOuverte(ctx.params.slug);
+    const p = listerProduits(b.id).find(x => x.id === ctx.params.id && x.actif && x.image);
+    const m = p && /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(p.image);
+    if (!m) throw erreur(404, 'Image introuvable.', 'introuvable');
+    return { binaire: Buffer.from(m[3], 'base64'), type: m[1] };
+  });
+
   /* ---------- Abonnement Comptoir ---------- */
   r.get('/api/abonnement', exigerCompte, ctx => ({ ...abo.etat(ctx.marchand.id), formules: abo.formulesPour(deviseDe(ctx.boutique)), devise: deviseDe(ctx.boutique) }));
   r.post('/api/abonnement/commencer', exigerCompte, async ctx => {
@@ -903,11 +952,13 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     try {
       // Domaine personnalisé : la boutique est servie à la racine de son propre domaine.
       const hote = String(req.headers.host || '').split(':')[0].toLowerCase();
-      if (hote && hote !== hotePrincipal && req.method === 'GET' && (chemin === '/' || chemin === '/index.html')) {
-        const b = db.prepare("SELECT slug FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote);
+      if (hote && hote !== hotePrincipal && req.method === 'GET' && (chemin === '/' || chemin === '/index.html' || /^\/p\/[\w-]+$/.test(chemin) || chemin === '/sitemap.xml' || chemin === '/robots.txt')) {
+        const b = db.prepare("SELECT * FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote);
         if (b) {
-          const html = fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace('<head>', `<head>\n<meta name="comptoir-slug" content="${escHtml(b.slug)}">`);
-          return envoyerHtml(res, 200, html);
+          const racine = `https://${hote}/`;
+          if (chemin === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, racine)); }
+          if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${racine}sitemap.xml\n`); }
+          return envoyerHtml(res, 200, pageBoutique(b, { racine, produitId: chemin.startsWith('/p/') ? decodeURIComponent(chemin.slice(3)) : null }));
         }
       }
       const route = r.trouver(req.method, chemin);
@@ -915,7 +966,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         if (req.method === 'GET') {
           if (chemin === '/' && servirStatique(res, RACINE_FRONT, 'accueil.html')) return;
           if ((chemin === '/app' || chemin === '/demo') && servirStatique(res, RACINE_FRONT, 'index.html')) return;
-          if (/^\/s\/[\w-]+$/.test(chemin) && servirStatique(res, RACINE_FRONT, 'boutique.html')) return;
+          const mBoutique = /^\/s\/([\w-]+)(?:\/p\/([\w-]+))?\/?$/.exec(chemin);
+          if (mBoutique) {
+            const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mBoutique[1]);
+            if (b) return envoyerHtml(res, 200, pageBoutique(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, produitId: mBoutique[2] || null }));
+          }
+          const mPlan = /^\/s\/([\w-]+)\/sitemap\.xml$/.exec(chemin);
+          if (mPlan) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mPlan[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, `${urlPublique}/s/${b.slug}/`)); } }
+          if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('User-agent: *\nAllow: /\nAllow: /s/\nDisallow: /app\nDisallow: /demo\nDisallow: /api/\nDisallow: /paiement-simule/\nDisallow: /abonnement-simule/\n'); }
           if (FICHIERS_PUBLICS.test(chemin) && servirStatique(res, RACINE_FRONT, chemin.slice(1))) return;
         }
         throw erreur(404, 'Page introuvable.', 'introuvable');
@@ -932,6 +990,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       }
       let resultat;
       for (const g of route.gestionnaires) resultat = await g(ctx);
+      if (resultat && resultat.binaire) { res.writeHead(200, { 'Content-Type': resultat.type, 'Cache-Control': 'public, max-age=3600', ...ctx.entetes }); res.end(resultat.binaire); return; }
       if (resultat && resultat.redirection) { res.writeHead(303, { Location: resultat.redirection, ...ctx.entetes }); res.end(); return; }
       if (resultat && resultat.html) return envoyerHtml(res, 200, resultat.html);
       if (resultat && resultat.statut && 'corps' in resultat) return envoyerJson(res, resultat.statut, resultat.corps, ctx.entetes);
