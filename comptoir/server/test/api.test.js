@@ -84,7 +84,7 @@ test('nettoie un thème malveillant (injection dans les couleurs)', async () => 
   c.boutique.theme.font = 'url(javascript:alert(1))';
   await marchand('PUT', '/api/admin/config', { config: c });
   const pub = await client()('GET', `/api/public/${slug}`);
-  assert.equal(pub.json.boutique.theme.bg, '#333333');
+  assert.equal(pub.json.boutique.theme.bg, '#EEF3F4', 'couleur invalide remplacée par le thème lisible par défaut');
   assert.notEqual(pub.json.boutique.theme.font, 'url(javascript:alert(1))');
   await marchand('PUT', '/api/admin/config', { config: config('Lacustre') });
 });

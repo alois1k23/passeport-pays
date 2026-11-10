@@ -163,7 +163,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Chaque partie de la configuration doit être un objet : une valeur d'un autre type est remplacée, jamais acceptée telle quelle.
     for (const k of ['entreprise', 'magasin', 'reglages', 'campagnes', 'automatisations', 'offres', 'social']) if (config[k] !== undefined && !objet(config[k])) config[k] = {};
     const t = objet(b.theme) ? b.theme : {};
-    for (const k of ['bg', 'surface', 'text', 'muted', 'primary', 'onPrimary']) if (!COULEUR.test(t[k] || '')) t[k] = '#333333';
+    // Couleur absente ou invalide : celle du thème Léman (lisible), jamais un gris unique qui rendrait le texte invisible.
+    const THEME_DEFAUT = { bg: '#EEF3F4', surface: '#FFFFFF', text: '#14242B', muted: '#566A72', primary: '#1D5C70', onPrimary: '#FFFFFF' };
+    const complet = ['bg', 'surface', 'text', 'muted', 'primary', 'onPrimary'].every(k => COULEUR.test(t[k] || ''));
+    for (const k of Object.keys(THEME_DEFAUT)) if (!complet || !COULEUR.test(t[k] || '')) t[k] = THEME_DEFAUT[k];
     if (!POLICES.includes(t.font)) t.font = POLICES[4];
     if (!POLICES.includes(t.body)) t.body = POLICES[4];
     t.radius = Math.max(0, Math.min(24, Number(t.radius) || 0));

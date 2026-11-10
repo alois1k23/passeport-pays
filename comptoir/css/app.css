@@ -1282,3 +1282,14 @@ html, body { overflow-x: clip; }
 .etoiles { color: #9A5F0C; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .etoiles { color: #E0A21B; } }
 :root[data-theme="dark"] .etoiles { color: #E0A21B; }
+/* Panier sur très petits écrans (320 px) : la grille ne déborde jamais. */
+.tiroir-corps { box-sizing: border-box; grid-template-columns: minmax(0, 1fr); }
+.tiroir-corps > * { min-width: 0; }
+.tiroir-corps .code-promo { display: flex; gap: 8px; }
+.tiroir-corps .code-promo input { flex: 1 1 auto; min-width: 0; }
+.tiroir-corps .modes-livraison label { min-width: 0; }
+.tiroir-corps .modes-livraison span { min-width: 0; overflow-wrap: anywhere; }
+/* iPhone : un champ de moins de 16 px fait zoomer la page à chaque saisie. 16 px sur les écrans tactiles. */
+@media (hover: none) and (pointer: coarse), (max-width: 760px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), select, textarea { font-size: 16px !important; }
+}

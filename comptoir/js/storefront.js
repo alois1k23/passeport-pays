@@ -85,14 +85,14 @@ function renduSection(s, etat, mode) {
   const prods = etat.produits.filter(x => x.actif);
   switch (s.type) {
     case 'annonce':
-      return `<div class="sf-annonce">${esc(p.texte)}</div>`;
+      return p.texte ? `<div class="sf-annonce">${esc(p.texte)}</div>` : (mode === 'edition' ? '<div class="sf-annonce">Annonce vide : écrivez votre message</div>' : '');
     case 'hero': {
       const vedette = prods[0];
       return `<section class="sf-hero ${p.align === 'centre' ? 'centre' : ''}">
         <div class="sf-hero-texte">
           <h1>${esc(p.titre)}</h1>
-          <p>${esc(p.sousTitre)}</p>
-          <button class="sf-btn" data-sf="defiler">${esc(p.bouton)}</button>
+          ${p.sousTitre ? `<p>${esc(p.sousTitre)}</p>` : ''}
+          ${p.bouton ? `<button class="sf-btn" data-sf="defiler">${esc(p.bouton)}</button>` : ''}
         </div>
         ${p.align === 'centre' || !vedette ? '' : visuelProduit(vedette, true)}
       </section>`;
@@ -119,7 +119,8 @@ function renduSection(s, etat, mode) {
     case 'arguments':
       return `<section class="sf-arguments">${[p.a1, p.a2, p.a3].filter(Boolean).map(a => `<div>${esc(a)}</div>`).join('')}</section>`;
     case 'texte':
-      return `<section class="sf-texte" data-ancre="apropos"><h2>${esc(p.titre)}</h2><p>${esc(p.texte)}</p></section>`;
+      if (!p.titre && !p.texte && mode !== 'edition') return '';
+      return `<section class="sf-texte" data-ancre="apropos">${p.titre ? `<h2>${esc(p.titre)}</h2>` : ''}${p.texte ? `<p>${esc(p.texte)}</p>` : ''}</section>`;
     case 'avis': {
       // Avis vérifiés réels s’il y en a ; sinon les textes saisis dans l’éditeur.
       const reels = (etat.avisRecents || []).slice(0, 4);
