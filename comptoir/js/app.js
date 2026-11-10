@@ -151,7 +151,8 @@ function rendre() {
   }).join('');
   const n = NAV.find(x => x[0] === route);
   const [g, t] = n ? [n[2], n[1]] : (TITRES_HORS_NAV[route] || ['Comptoir', '']);
-  requestAnimationFrame(() => { if (matchMedia('(max-width: 760px)').matches) document.querySelector('#nav a.actif')?.scrollIntoView({ inline: 'center', block: 'nearest' }); });
+  // Menu horizontal (tablette, mobile) : l’onglet actif est ramené au centre, sans faire défiler la page.
+  requestAnimationFrame(() => { const nav = document.getElementById('nav'), a = nav && nav.querySelector('a.actif'); if (a && nav.scrollWidth > nav.clientWidth) nav.scrollLeft += a.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - a.offsetWidth) / 2; });
   $('#fil').innerHTML = `<i>${esc(etat.boutique.nom)}</i><i>/</i><span>${esc(g)}</span><i>/</i><b>${esc(t)}</b>`;
   const enLigne = typeof SERVEUR !== 'undefined' && SERVEUR.connecte;
   $('#mode-badge').textContent = enLigne ? 'En ligne' : 'Démo';
@@ -868,6 +869,15 @@ function creerBoutique() {
   location.hash = 'editeur';
 }
 
+/* Aperçu de la boutique : redessine sans effacer ce que le visiteur a déjà tapé dans le formulaire de paiement. */
+function rendreEnGardantSaisie() {
+  const f = document.querySelector('[data-form="paiement"]');
+  const v = f ? [...f.elements].filter(e => e.name && e.type !== 'radio' && e.type !== 'submit').map(e => [e.name, e.type === 'checkbox' ? e.checked : e.value]) : [];
+  rendre();
+  const nf = document.querySelector('[data-form="paiement"]');
+  if (nf) for (const [k, val] of v) { const el = nf.elements[k]; if (el && el.type !== 'radio') { if (el.type === 'checkbox') el.checked = val; else el.value = val; } }
+}
+
 /* ---------- Événements ---------- */
 document.addEventListener('click', e => {
   // Clic dans l’aperçu de l’éditeur : sélectionne la section
@@ -1021,14 +1031,14 @@ document.addEventListener('change', e => {
   if (t.dataset && t.dataset.offreDemo && t.checked) {
     const p = etat.produits.find(x => x.id === t.dataset.id);
     ui.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1, offre: t.dataset.offreDemo });
-    rendre(); return;
+    rendreEnGardantSaisie(); return;
   }
   if (t.dataset.champ === 'dom-marque') { ui.dom.marque = t.value; rendre(); }
   else if (t.dataset.champ === 'dom-kw') { ui.dom.motsCles = t.value; rendre(); }
   else if (t.dataset.champ === 'dom-mois') { ui.dom.mois = Number(t.value); rendre(); }
   else if (t.dataset.boutiqueDom === 'pays') { etat.boutique.pays = t.value; sauver(); rendre(); }
   else if (t.dataset.boutique === 'secteur') { rendre(); }
-  else if (t.dataset.livraison !== undefined) { ui.livraison = t.value; rendre(); }
+  else if (t.dataset.livraison !== undefined) { ui.livraison = t.value; rendreEnGardantSaisie(); }
   else if (t.dataset.assistant === 'exemples') ui.assistant.exemples = t.checked;
   else if (t.dataset.assistant === 'domaine') { ui.assistant.domaine = t.value; rendre(); }
   else if (t.dataset.assistant === 'modele') { ui.assistant.modele = t.value; rendre(); }
@@ -1046,7 +1056,7 @@ document.addEventListener('submit', e => {
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);
     ui.produitEdite = null; sauver(); toast(`« ${p.nom} » enregistré.`); rendre();
   } else if (f.dataset.form === 'code-demo') {
-    ui.codePromo = String(new FormData(f).get('code') || '').trim(); rendre();
+    ui.codePromo = String(new FormData(f).get('code') || '').trim(); rendreEnGardantSaisie();
   } else if (f.dataset.form === 'paiement') {
     passerCommande(f);
   } else if (f.dataset.sf === 'newsletter') {

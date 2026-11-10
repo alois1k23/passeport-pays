@@ -1218,3 +1218,21 @@ textarea.reponse-avis { width: 100%; min-width: 200px; resize: vertical; font: i
 .regles select { min-width: 140px; max-width: 180px; }
 .regles .table th, .regles .table td { padding-inline: 8px; }
 .actions-regle { flex-wrap: wrap; justify-content: flex-end; min-width: 120px; }
+@media (max-width: 900px) {
+  .cote { min-width: 0; max-width: 100vw; overflow: hidden; }
+  #nav { min-width: 0; max-width: 100%; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 88%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  #nav::-webkit-scrollbar { display: none; }
+}
+html, body { overflow-x: clip; }
+/* ---------- Boutique : confirmation de commande ---------- */
+.confirm { display: grid; gap: 12px; }
+.confirm-merci { font-family: var(--sf-font); font-size: 1.05rem; color: var(--sf-muted); margin: 0; }
+.confirm h3 { margin: 0; }
+.suivi-etapes { list-style: none; margin: 4px 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; counter-reset: etape; }
+.suivi-etapes li { position: relative; padding-top: 14px; font-size: .72rem; color: var(--sf-muted); line-height: 1.25; }
+.suivi-etapes li::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--sf-text) 12%, transparent); }
+.suivi-etapes li.fait { color: var(--sf-text); font-weight: 600; }
+.suivi-etapes li.fait::before { background: var(--sf-primary); }
+.confirm-livraison { display: grid; gap: 2px; padding: 12px 14px; border-radius: var(--sf-radius); background: var(--sf-surface); }
+.confirm-livraison b { font-size: .95rem; }
+.confirm-livraison span { color: var(--sf-muted); font-size: .82rem; }

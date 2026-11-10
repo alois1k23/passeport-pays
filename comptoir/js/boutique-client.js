@@ -18,7 +18,7 @@ function mesurer(type, extra = {}) {
 const CLE_PANIER = `comptoir-panier-${slug}`;
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
-const vue = { fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '' };
+const vue = { saisie: {}, fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '' };
 
 function lirePanier() { try { return JSON.parse(localStorage.getItem(CLE_PANIER)) || []; } catch { return []; } }
 function garderPanier() { try { localStorage.setItem(CLE_PANIER, JSON.stringify(vue.panier)); } catch { /* ignoré */ } }
@@ -49,12 +49,13 @@ async function demarrer() {
 }
 
 /* NPA → localité pour les plages les plus courantes de Suisse romande (la saisie reste libre). */
-const NPA_CH = [[1000, 1018, 'Lausanne'], [1020, 1020, 'Renens'], [1009, 1009, 'Pully'], [1110, 1110, 'Morges'], [1260, 1260, 'Nyon'], [1400, 1400, 'Yverdon-les-Bains'], [1700, 1709, 'Fribourg'], [1800, 1800, 'Vevey'], [1820, 1820, 'Montreux'], [1950, 1951, 'Sion'], [1200, 1209, 'Genève'], [1227, 1227, 'Carouge'], [2000, 2000, 'Neuchâtel'], [2300, 2300, 'La Chaux-de-Fonds'], [2500, 2505, 'Bienne'], [3000, 3030, 'Berne'], [8000, 8099, 'Zurich'], [4000, 4059, 'Bâle']];
+// Principales localités de Suisse (NPA de début et de fin). La plage la plus précise l’emporte : 1009 donne Pully, pas Lausanne.
+const NPA_CH = [[1000, 1018, 'Lausanne'], [1009, 1009, 'Pully'], [1012, 1012, 'Lausanne'], [1020, 1020, 'Renens'], [1023, 1023, 'Crissier'], [1024, 1024, 'Ecublens'], [1030, 1030, 'Bussigny'], [1052, 1052, 'Le Mont-sur-Lausanne'], [1066, 1066, 'Epalinges'], [1070, 1070, 'Puidoux'], [1095, 1095, 'Lutry'], [1110, 1110, 'Morges'], [1131, 1131, 'Tolochenaz'], [1163, 1163, 'Etoy'], [1180, 1180, 'Rolle'], [1196, 1196, 'Gland'], [1200, 1209, 'Genève'], [1212, 1212, 'Grand-Lancy'], [1213, 1213, 'Petit-Lancy'], [1214, 1214, 'Vernier'], [1217, 1217, 'Meyrin'], [1218, 1218, 'Le Grand-Saconnex'], [1219, 1219, 'Le Lignon'], [1220, 1220, 'Les Avanchets'], [1224, 1224, 'Chêne-Bougeries'], [1225, 1225, 'Chêne-Bourg'], [1226, 1226, 'Thônex'], [1227, 1227, 'Carouge'], [1228, 1228, 'Plan-les-Ouates'], [1231, 1231, 'Conches'], [1232, 1232, 'Confignon'], [1233, 1233, 'Bernex'], [1234, 1234, 'Vessy'], [1242, 1242, 'Satigny'], [1245, 1245, 'Collonge-Bellerive'], [1246, 1246, 'Corsier'], [1253, 1253, 'Vandœuvres'], [1255, 1255, 'Veyrier'], [1260, 1260, 'Nyon'], [1290, 1290, 'Versoix'], [1295, 1295, 'Mies'], [1400, 1400, 'Yverdon-les-Bains'], [1450, 1450, 'Sainte-Croix'], [1530, 1530, 'Payerne'], [1580, 1580, 'Avenches'], [1610, 1610, 'Oron-la-Ville'], [1630, 1630, 'Bulle'], [1700, 1709, 'Fribourg'], [1720, 1720, 'Corminbœuf'], [1752, 1752, 'Villars-sur-Glâne'], [1762, 1762, 'Givisiez'], [1800, 1800, 'Vevey'], [1814, 1814, 'La Tour-de-Peilz'], [1815, 1815, 'Clarens'], [1820, 1820, 'Montreux'], [1844, 1844, 'Villeneuve'], [1860, 1860, 'Aigle'], [1870, 1870, 'Monthey'], [1880, 1880, 'Bex'], [1890, 1890, 'Saint-Maurice'], [1920, 1920, 'Martigny'], [1950, 1951, 'Sion'], [1964, 1964, 'Conthey'], [1958, 1958, 'Uvrier'], [3960, 3960, 'Sierre'], [3900, 3900, 'Brigue'], [3920, 3920, 'Zermatt'], [3963, 3963, 'Crans-Montana'], [2000, 2000, 'Neuchâtel'], [2016, 2016, 'Cortaillod'], [2072, 2072, 'Saint-Blaise'], [2300, 2300, 'La Chaux-de-Fonds'], [2400, 2400, 'Le Locle'], [2502, 2505, 'Bienne'], [2500, 2500, 'Bienne'], [2800, 2800, 'Delémont'], [2900, 2900, 'Porrentruy'], [3000, 3030, 'Berne'], [3084, 3084, 'Wabern'], [3097, 3097, 'Liebefeld'], [3400, 3400, 'Berthoud'], [3600, 3600, 'Thoune'], [3800, 3800, 'Interlaken'], [4000, 4059, 'Bâle'], [4102, 4102, 'Binningen'], [4123, 4123, 'Allschwil'], [4410, 4410, 'Liestal'], [4500, 4500, 'Soleure'], [4600, 4600, 'Olten'], [5000, 5000, 'Aarau'], [5400, 5400, 'Baden'], [6000, 6009, 'Lucerne'], [6300, 6300, 'Zoug'], [6340, 6340, 'Baar'], [6500, 6500, 'Bellinzone'], [6600, 6600, 'Locarno'], [6900, 6908, 'Lugano'], [6850, 6850, 'Mendrisio'], [7000, 7000, 'Coire'], [7500, 7500, 'Saint-Moritz'], [7270, 7270, 'Davos'], [8000, 8099, 'Zurich'], [8200, 8200, 'Schaffhouse'], [8302, 8302, 'Kloten'], [8400, 8411, 'Winterthour'], [8500, 8500, 'Frauenfeld'], [8600, 8600, 'Dübendorf'], [8700, 8700, 'Küsnacht'], [8800, 8800, 'Thalwil'], [8840, 8840, 'Einsiedeln'], [8952, 8952, 'Schlieren'], [9000, 9016, 'Saint-Gall'], [9100, 9100, 'Herisau'], [9500, 9500, 'Wil']];
 document.addEventListener('input', e => {
   if (e.target.name !== 'npa' || !donnees || donnees.boutique.pays !== 'ch') return;
   const n = Number(e.target.value);
   const ville = e.target.form && e.target.form.elements.ville;
-  const t = NPA_CH.find(([a, b]) => n >= a && n <= b);
+  const t = NPA_CH.filter(([a, b]) => n >= a && n <= b).sort((x, y) => (x[1] - x[0]) - (y[1] - y[0]))[0];
   if (t && ville && !ville.value) ville.value = t[2];
 });
 
@@ -70,7 +71,32 @@ function calculPanier() {
   return Remises.appliquer(vue.panier, config, vue.code ? vue.code.code : '');
 }
 
+/* Le panier se redessine à chaque changement (livraison, code, quantité) : on garde ce que le client a déjà
+   saisi, l’élément actif et la position de défilement, sinon il devrait tout retaper. */
+const CHAMPS_CLIENT = ['nom', 'email', 'adresse', 'npa', 'ville', 'consentement'];
+function lireSaisie() {
+  const f = document.getElementById('commande');
+  if (f) for (const k of CHAMPS_CLIENT) { const el = f.elements[k]; if (el) vue.saisie[k] = el.type === 'checkbox' ? el.checked : el.value; }
+  const code = document.querySelector('#form-code input');
+  if (code && !vue.code) vue.saisie.code = code.value;
+}
 function rendre() {
+  lireSaisie();
+  const actif = document.activeElement && document.activeElement.name ? { nom: document.activeElement.name, form: document.activeElement.form && document.activeElement.form.id, debut: document.activeElement.selectionStart } : null;
+  const defil = document.querySelector('.tiroir-corps')?.scrollTop || 0;
+  rendreBrut();
+  const f = document.getElementById('commande');
+  if (f) for (const k of CHAMPS_CLIENT) { const el = f.elements[k]; if (el && vue.saisie[k] !== undefined) { if (el.type === 'checkbox') el.checked = !!vue.saisie[k]; else el.value = vue.saisie[k]; } }
+  const code = document.querySelector('#form-code input');
+  if (code && !vue.code && vue.saisie.code) code.value = vue.saisie.code;
+  const corps = document.querySelector('.tiroir-corps');
+  if (corps) corps.scrollTop = defil;
+  if (actif && actif.form) {
+    const el = document.getElementById(actif.form)?.elements[actif.nom];
+    if (el && el.type !== 'radio') { el.focus({ preventScroll: true }); try { if (actif.debut !== null && actif.debut !== undefined) el.setSelectionRange(actif.debut, actif.debut); } catch { /* champ sans sélection */ } }
+  }
+}
+function rendreBrut() {
   const calc = calculPanier();
   const total = calc.apresRemise;
   const port = total ? fraisPortClient(vue.livraison, total) : 0;
@@ -169,10 +195,21 @@ async function suivreCommande(id, jeton, annule) {
       if (!rep.ok) { vue.message = '<p>Commande introuvable.</p>'; break; }
       const c = await rep.json();
       if (c.statut !== 'attente') { vue.panier = []; garderPanier(); }
-      vue.message = `<div class="confirm"><h3>Commande n° ${c.numero}</h3><p>${libelles[c.statut] || ''}</p>
+      // Date de livraison estimée : délai le plus long des articles, ou celui du mode choisi ; retrait : adresse du magasin.
+      const prods = c.lignes.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(Boolean);
+      const drops = prods.filter(p => p.type === 'drop' && p.delai);
+      const delai = drops.length ? [Math.max(...drops.map(p => p.delai[0])), Math.max(...drops.map(p => p.delai[1]))] : c.livraison === 'poste-prio' ? [1, 1] : [2, 3];
+      const mode = donnees.livraisons[c.livraison];
+      const retrait = c.livraison === 'retrait';
+      const pointRetrait = !retrait && mode && /pickpost|relais|point/i.test(c.livraison + ' ' + mode.nom);
+      const etapes = [['Commande reçue', true], ['Préparation', !['attente'].includes(c.statut)], [retrait ? 'Prête à retirer' : 'Expédiée', ['expediee', 'livree', 'prete', 'retiree'].includes(c.statut)], [retrait ? 'Retirée' : 'Livrée', ['livree', 'retiree'].includes(c.statut)]];
+      vue.message = `<div class="confirm"><p class="confirm-merci">${c.prenom ? `Merci ${esc(c.prenom)} !` : 'Merci !'}</p><h3>Commande n° ${c.numero}</h3><p>${libelles[c.statut] || ''}</p>
+        ${['annulee', 'remboursee'].includes(c.statut) ? '' : `<ol class="suivi-etapes">${etapes.map(([n, fait]) => `<li class="${fait ? 'fait' : ''}">${n}</li>`).join('')}</ol>`}
+        ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
-        <div class="totaux"><div class="total"><span>Total payé</span><span>${euros(c.total)}</span></div></div>
-        ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">Un e-mail de confirmation vous a été envoyé.</p></div>
+        <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
+        ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">Un e-mail de confirmation vous a été envoyé, avec le lien pour suivre votre commande.</p>
+        <button class="sf-btn plein" data-c="fermer">Continuer mes achats</button></div>
         ${c.offreApres ? `<div class="offre-apres">${visuelProduit({ nom: c.offreApres.nom, teinte: c.offreApres.teinte, image: c.offreApres.image })}<div><small>Uniquement maintenant</small><strong>${esc(c.offreApres.nom)}</strong><span><s>${euros(c.offreApres.prix)}</s> <b>${euros(c.offreApres.prixOffre)}</b> (−${c.offreApres.remise} %), livré dans le même colis, sans frais de port.</span>
           <button class="sf-btn" data-c="complement" data-commande="${esc(id)}" data-jeton="${esc(jeton)}" data-regle="${esc(c.offreApres.regle)}">Ajouter à ma commande</button><button class="bouton-lien" data-c="refuser-offre">Non merci</button></div></div>` : ''}`;
       if (c.offreApres) mesurer('offre_vue', { valeur: c.offreApres.regle });

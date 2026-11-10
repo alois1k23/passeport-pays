@@ -270,7 +270,7 @@ function vueSocial() {
     <div class="rangee">
       <label class="interrupteur"><input type="checkbox" data-social="auto" ${r.auto ? 'checked' : ''}><span>Pilote automatique ${r.auto ? 'activé' : 'désactivé'}</span></label>
       <button class="btn fantome" data-action="lancement-intensif" title="3 vidéos TikTok par jour pendant 30 jours">Lancement intensif TikTok</button>
-      <button class="btn" data-action="generer-planning">Générer les 2 prochaines semaines</button>
+      <button class="btn" data-action="generer-planning" ${Object.values(s.comptes).some(Boolean) ? '' : 'disabled title="Connectez d’abord un réseau ci-dessous"'}>Générer les 2 prochaines semaines</button>
     </div></div>
 
   <div class="comptes">${Object.entries(RESEAUX).map(([k, n]) => `
@@ -291,7 +291,7 @@ function vueSocial() {
     <section class="carte">
       <div class="carte-tete"><h2>Calendrier</h2><span class="sous">${r.validation ? 'Validation avant publication' : 'Publication directe'}</span></div>
       ${avenir.length ? Object.entries(parJour).map(([j, l]) => `<div class="jour"><h3>${new Date(j).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>${l.map(carte).join('')}</div>`).join('')
-        : '<p class="sous">Aucune publication prévue. Cliquez sur « Générer les 2 prochaines semaines » : le pilote prépare tout, vous relisez.</p>'}
+        : Object.values(s.comptes).some(Boolean) ? '<p class="sous">Aucune publication prévue. Cliquez sur « Générer les 2 prochaines semaines » : le pilote prépare tout, vous relisez.</p>' : '<p class="sous"><b>Première étape : connectez un réseau</b> (Instagram, TikTok, Facebook ou Pinterest) dans la rangée ci-dessus. Le pilote pourra ensuite préparer vos publications.</p>'}
       ${avenir.some(p => p.statut === 'brouillon') ? '<div class="rangee"><button class="btn" data-action="valider-tout">Valider tous les brouillons</button></div>' : ''}
     </section>
     <div class="pile">

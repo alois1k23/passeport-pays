@@ -730,7 +730,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const jeton = String(ctx.query.get('jeton') || '');
     if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     const c = lireCommande(row);
-    return { numero: c.numero, statut: c.statut, total: c.total, suivi: c.suivi || null, lignes: c.lignes.map(l => ({ nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c) };
+    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map(l => ({ produitId: l.produitId, nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c) };
   });
 
   /* ---------- Webhooks ---------- */

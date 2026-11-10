@@ -32,8 +32,27 @@ async function initServeur() {
   else installerConnexion();
 }
 
+/* Enregistrement différé de la configuration. Avant tout rechargement depuis le serveur, la modification en
+   attente est envoyée d’abord : sinon le rechargement l’écraserait (réglage perdu sans prévenir). */
+const ENREGISTREMENT = { minuterie: null, enCours: null };
+function envoyerConfig() {
+  clearTimeout(ENREGISTREMENT.minuterie); ENREGISTREMENT.minuterie = null;
+  const envoi = api('PUT', '/api/admin/config', { config: configActuelle() })
+    .catch(e => toast(`Non enregistré : ${e.message}`))
+    .finally(() => { if (ENREGISTREMENT.enCours === envoi) ENREGISTREMENT.enCours = null; });
+  ENREGISTREMENT.enCours = envoi;
+  return envoi;
+}
+async function viderEnregistrement() {
+  if (ENREGISTREMENT.minuterie) await envoyerConfig();
+  else if (ENREGISTREMENT.enCours) await ENREGISTREMENT.enCours;
+}
+
 async function rechargerEtat() {
+  await viderEnregistrement();
   const e = await api('GET', '/api/admin/etat');
+  // Une modification faite pendant la lecture garde la priorité : on relira au prochain passage.
+  if (ENREGISTREMENT.minuterie || ENREGISTREMENT.enCours) return;
   etat = completerEtat(e);
   SERVEUR.slug = e.serveur.slug;
   SERVEUR.paiement = e.serveur.paiement;
@@ -132,11 +151,12 @@ function installerConnexion() {
 /* ---------- Mode connecté : chaque action passe par le serveur ---------- */
 function installerModeConnecte() {
   // La configuration (design, sections, entreprise, magasin, campagnes…) est envoyée après chaque modification.
-  let minuterie = null;
   sauver = function () {
-    clearTimeout(minuterie);
-    minuterie = setTimeout(() => api('PUT', '/api/admin/config', { config: configActuelle() }).catch(e => toast(`Non enregistré : ${e.message}`)), 600);
+    clearTimeout(ENREGISTREMENT.minuterie);
+    ENREGISTREMENT.minuterie = setTimeout(envoyerConfig, 600);
   };
+  // Fermeture de l’onglet juste après une modification : on l’envoie quand même.
+  addEventListener('pagehide', () => { if (ENREGISTREMENT.minuterie) { clearTimeout(ENREGISTREMENT.minuterie); fetch('/api/admin/config', { method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: configActuelle() }) }); } });
 
   // Pied de la barre latérale : compte, boutique en ligne, déconnexion.
   const pied = document.querySelector('.cote-pied');
