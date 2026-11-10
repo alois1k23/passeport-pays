@@ -846,3 +846,29 @@ li.fait a { color: var(--muted); text-decoration: line-through; text-decoration-
 .prochaines a, .phase a { text-decoration: none; }
 .prochaines a:hover, .phase a:hover { color: var(--accent); }
 .saisie-test .btn { grid-column: 1 / -1; justify-self: start; }
+.offre-panier, .offre-apres { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: center; padding: 12px; border: 1px dashed var(--sf-primary); border-radius: max(var(--sf-radius), 4px); font-size: .86rem; cursor: pointer; background: color-mix(in srgb, var(--sf-primary) 6%, var(--sf-surface)); }
+.offre-panier .sf-visuel, .offre-apres .sf-visuel { border-radius: 6px; }
+.offre-panier .sf-visuel span, .offre-apres .sf-visuel span { font-size: .8rem; }
+.offre-apres { cursor: default; margin-top: 8px; }
+.offre-apres > div { display: grid; gap: 6px; }
+.offre-apres small { color: var(--sf-muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+.sf-barre { color: var(--sf-muted); font-weight: 400; }
+.pad-x { padding-left: 16px; padding-right: 16px; }
+.pad-b { padding-bottom: 14px; padding-top: 4px; }
+.regles .table select { padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--r-petit); background: var(--surface); max-width: 210px; font-size: .78rem; }
+.mini-nombre { width: 56px; padding: 5px 6px; border: 1px solid var(--line); border-radius: var(--r-petit); background: var(--surface); text-align: right; }
+.regles tr.inactif td { opacity: .55; }
+.regles .case { justify-content: flex-end; font-size: .75rem; }
+.regles { grid-column: 1 / -1; order: 3; }
+.abandons { margin-top: 6px; }
+.fiches { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+.controles-f { display: grid; gap: 6px; font-size: .8125rem; }
+.controles-f .case { align-items: flex-start; }
+.chiffres .down { color: var(--bad); }
+@media (max-width: 520px) { .fiches { grid-template-columns: minmax(0, 1fr); } }
+.partenariat { border: 1px solid var(--line); border-radius: var(--r-petit); padding: 10px 12px; display: grid; gap: 8px; margin: 0; }
+.sf-carte { min-width: 0; }
+.sf-carte-infos { flex-wrap: wrap; }
+.sf-delai { overflow-wrap: anywhere; }
+.sf-newsletter form { flex-wrap: wrap; }
+.sf-newsletter form .sf-btn { flex: 1 0 auto; }

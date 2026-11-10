@@ -339,7 +339,7 @@ function completerEtat(e) {
   e.boutique.modele = e.boutique.modele || 'stock';
   e.boutique.langues = e.boutique.langues || ['fr'];
   e.reglages = e.reglages || { autoTransmission: true, cpa: 8 };
-  for (const p of e.produits) p.type = p.type || 'stock';
+  for (const p of e.produits) { p.type = p.type || 'stock'; if (!p.historiquePrix) p.historiquePrix = [{ date: Date.now() - 120 * 86400000, prix: p.prix }]; }
   e.rdv = e.rdv || null;
   e.publications = e.publications || [];
   e.cookies = e.cookies ?? null;

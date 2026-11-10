@@ -39,7 +39,7 @@ async function rechargerEtat() {
   SERVEUR.paiement = e.serveur.paiement;
 }
 const urlBoutique = () => `${location.origin}/s/${SERVEUR.slug}`;
-const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, offres: etat.offres, lancement: etat.lancement || {} });
+const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, offres: etat.offres, lancement: etat.lancement || {}, fournisseursSuivi: etat.fournisseursSuivi || {} });
 async function rafraichir(message) {
   try { await rechargerEtat(); } catch (e) { toast(e.message); }
   rendre();
@@ -48,10 +48,23 @@ async function rafraichir(message) {
 
 /* ---------- Connexion et inscription ---------- */
 function installerConnexion() {
-  const etatForm = { onglet: 'inscription', erreur: '', envoi: false };
+  const jetonReinit = new URLSearchParams(location.search).get('reinitialiser');
+  const etatForm = { onglet: jetonReinit ? 'reinit' : 'inscription', erreur: '', envoi: false, info: '' };
   document.querySelector('.cote').hidden = true;
   rendre = function () {
     const ins = etatForm.onglet === 'inscription';
+    if (etatForm.onglet === 'oubli' || etatForm.onglet === 'reinit') {
+      const oubli = etatForm.onglet === 'oubli';
+      $('#vue').innerHTML = `<div class="assistant carte connexion">
+        <span class="eyebrow">Comptoir</span><h1>${oubli ? 'Mot de passe oublié' : 'Nouveau mot de passe'}</h1>
+        <form id="form-auth" class="assistant-corps">
+          ${oubli ? '<label class="champ"><span>E-mail du compte</span><input name="email" type="email" required autocomplete="email"></label>' : '<label class="champ"><span>Nouveau mot de passe (10 caractères minimum)</span><input name="motDePasse" type="password" required minlength="10" autocomplete="new-password"></label>'}
+          ${etatForm.erreur ? `<p class="encart alerte-encart">${esc(etatForm.erreur)}</p>` : ''}${etatForm.info ? `<p class="encart">${esc(etatForm.info)}</p>` : ''}
+          <button class="btn" ${etatForm.envoi ? 'disabled' : ''}>${oubli ? 'Recevoir un lien' : 'Enregistrer et me connecter'}</button>
+        </form>
+        <button class="bouton-lien" data-cx="connexion">Retour à la connexion</button></div>`;
+      return;
+    }
     $('#vue').innerHTML = `<div class="assistant carte connexion">
       <span class="eyebrow">Comptoir</span>
       <h1>${ins ? 'Créez votre boutique' : 'Connexion'}</h1>
@@ -66,12 +79,13 @@ function installerConnexion() {
         ${etatForm.erreur ? `<p class="encart alerte-encart">${esc(etatForm.erreur)}</p>` : ''}
         <button class="btn" ${etatForm.envoi ? 'disabled' : ''}>${etatForm.envoi ? 'Un instant…' : ins ? 'Créer ma boutique' : 'Se connecter'}</button>
       </form>
+      ${ins ? '' : '<button class="bouton-lien" data-cx="oubli">Mot de passe oublié ?</button>'}
       ${ins ? '<p class="sous">Votre boutique est créée avec un design, des pages et, en dropshipping, les meilleurs produits du catalogue fournisseurs pour votre niche. Vous pourrez tout modifier.</p>' : ''}
     </div>`;
   };
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-cx]');
-    if (b) { etatForm.onglet = b.dataset.cx; etatForm.erreur = ''; rendre(); }
+    if (b) { etatForm.onglet = b.dataset.cx; etatForm.erreur = ''; etatForm.info = ''; rendre(); }
   });
   document.addEventListener('submit', async e => {
     if (e.target.id !== 'form-auth') return;
@@ -79,7 +93,14 @@ function installerConnexion() {
     const d = Object.fromEntries(new FormData(e.target));
     etatForm.envoi = true; etatForm.erreur = ''; rendre();
     try {
-      if (etatForm.onglet === 'connexion') {
+      if (etatForm.onglet === 'oubli') {
+        await api('POST', '/api/auth/oubli', { email: d.email });
+        etatForm.envoi = false; etatForm.info = 'Si un compte existe pour cette adresse, un lien valable 1 heure vient de partir. Pensez à vérifier les indésirables.'; rendre();
+        return;
+      } else if (etatForm.onglet === 'reinit') {
+        await api('POST', '/api/auth/reinitialiser', { jeton: jetonReinit, motDePasse: d.motDePasse });
+        history.replaceState(null, '', location.pathname);
+      } else if (etatForm.onglet === 'connexion') {
         await api('POST', '/api/auth/connexion', { email: d.email, motDePasse: d.motDePasse });
       } else {
         const nom = d.nom.trim();
@@ -129,6 +150,18 @@ function installerModeConnecte() {
     return `<div class="tete"><div><h1>Votre boutique en ligne</h1><p class="sous">Les commandes passées ici arrivent dans Commandes, avec paiement ${SERVEUR.paiement === 'stripe' ? 'réel (TWINT et cartes)' : 'simulé tant qu’aucune clé Stripe n’est configurée'}.</p></div></div>
       <section class="carte"><p class="mono">${esc(urlBoutique())}</p><div class="rangee"><a class="btn" href="${esc(urlBoutique())}" target="_blank" rel="noopener">Ouvrir la boutique</a></div></section>`;
   };
+  // Domaine personnalisé : instructions DNS et vérification.
+  const domainesOrig = vueDomaines;
+  vueDomaines = function () {
+    const d = etat.boutique.domaine;
+    const hote = location.hostname;
+    const carte = d && d.domaine ? `<section class="carte"><div class="carte-tete"><h2>Votre domaine : <span class="mono">${esc(d.domaine)}</span></h2>${d.actif ? '<span class="pill good">Actif</span>' : '<span class="pill warn">En attente du DNS</span>'}</div>
+      ${d.actif ? `<p>Votre boutique répond sur <a class="lien" href="https://${esc(d.domaine)}/" target="_blank" rel="noopener">https://${esc(d.domaine)}/</a>. Les e-mails et les liens de paiement l’utilisent.</p>`
+        : `<ol class="appris"><li>Réservez le domaine chez un registrar (par exemple Infomaniak, Gandi ou OVH).</li><li>Dans sa zone DNS, créez un enregistrement <b>CNAME</b> nommé <span class="mono">www</span> (ou la racine si votre registrar le permet) vers <span class="mono">${esc(hote)}</span>.</li><li>Revenez ici et cliquez sur « Vérifier ». La propagation peut prendre quelques heures.</li></ol>
+          <div class="rangee"><button class="btn" data-srv="verifier-dns">Vérifier le DNS</button></div>`}</section>` : '';
+    return carte + domainesOrig();
+  };
+
   // Pas de démo ni de réinitialisation sur un vrai compte.
   const assistantOrig = vueAssistant;
   vueAssistant = function () { return assistantOrig().replace(/<div class="rangee"><span class="sous">Ou charger une démo :[\s\S]*?<\/div>\s*$/, '').replace('La boutique de démonstration actuelle sera remplacée. Vous pourrez la restaurer avec « Réinitialiser la démo ».', 'Le design et les produits actuels seront remplacés. Vos commandes et factures sont conservées.'); };
@@ -137,6 +170,11 @@ function installerModeConnecte() {
   document.addEventListener('click', async e => {
     const srv = e.target.closest('[data-srv]');
     if (srv && srv.dataset.srv === 'deconnexion') { await api('POST', '/api/auth/deconnexion'); location.reload(); return; }
+    if (srv && srv.dataset.srv === 'verifier-dns') {
+      srv.disabled = true;
+      try { const r = await api('POST', '/api/admin/domaine/verifier'); await rafraichir(`Domaine actif : ${r.url}`); } catch (err) { srv.disabled = false; toast(err.message); }
+      return;
+    }
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const { action, id } = el.dataset;

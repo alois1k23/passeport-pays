@@ -13,7 +13,16 @@ const AUTO_DEFAUT = {
 function etatConversion() {
   etat.automatisations = etat.automatisations || JSON.parse(JSON.stringify(AUTO_DEFAUT));
   for (const k of Object.keys(AUTO_DEFAUT)) etat.automatisations[k] = { ...AUTO_DEFAUT[k], ...(etat.automatisations[k] || {}) };
+  const avaitRegles = etat.offres && Array.isArray(etat.offres.regles);
   etat.offres = { ...Remises.OFFRES_DEFAUT, ...(etat.offres || {}) };
+  if (!avaitRegles) {
+    etat.offres.regles = [];
+    // Démo : deux offres d’exemple (une dans le panier, une après l’achat)
+    if (!connecteServeur() && etat.produits.length >= 5) {
+      const [a, , , d, e] = etat.produits;
+      etat.offres.regles = [{ id: 'r1', si: a.id, alors: e.id, remise: 15, type: 'panier', actif: true }, { id: 'r2', si: '*', alors: d.id, remise: 20, type: 'apres', actif: true }];
+    }
+  }
   return { a: etat.automatisations, o: etat.offres };
 }
 
@@ -63,9 +72,15 @@ function statsAvisProduits() {
 }
 const MOTS_VIDES = new Set('le la les un une des de du et à au aux en pour par sur avec sans très plus moins que qui est sont a été je j on nous vous il elle ce cet cette mais pas ne bien tout trop un peu comme mon ma mes notre nos votre vos leur leurs dans se s y d l qu n c arrivé fait'.split(' '));
 function motsFrequents(textes) {
-  const c = {};
-  for (const t of textes) for (const m of t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[a-z]{4,}/g) || []) if (!MOTS_VIDES.has(m)) c[m] = (c[m] || 0) + 1;
-  return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  // Compté sans accents (« deçu » = « déçu »), affiché avec l’orthographe d’origine.
+  const c = {}, forme = {};
+  const sansAccent = m => m.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const t of textes) for (const m of t.toLowerCase().match(/[a-zà-ÿœæ]{4,}/g) || []) {
+    const k = sansAccent(m);
+    if (MOTS_VIDES.has(k)) continue;
+    c[k] = (c[k] || 0) + 1; forme[k] = forme[k] || m;
+  }
+  return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, n]) => [forme[k], n]);
 }
 function blocAvis() {
   const avis = etat.avis || [];
@@ -141,6 +156,7 @@ function vueConversion() {
       <label class="case"><input type="checkbox" data-offre="barrePort" ${o.barrePort ? 'checked' : ''}> Barre « plus que X pour la livraison offerte » dans le panier</label>
       <label class="case"><input type="checkbox" data-offre="suggestions" ${o.suggestions ? 'checked' : ''}> Suggérer un produit complémentaire dans le panier</label>
     </section>
+    ${blocRegles(o)}
     <section class="carte sans-pad">
       <div class="carte-tete pad"><h2>Codes promo valables</h2><span class="sous">${codes.length} codes</span></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th class="num">Remise</th><th>Origine</th><th></th></tr></thead><tbody>
@@ -166,6 +182,33 @@ function assistantSeuil(o) {
   </div>`;
 }
 
+/* Offres complémentaires : règles « si le panier contient X, proposer Y à −N % », avec taux d’acceptation. */
+function statsRegle(r) {
+  const acceptees = etat.commandes.filter(c => compteVentes(c) && c.lignes.some(l => l.offre === r.id));
+  const reel = connecteServeur();
+  const vues = reel ? (etat.offresVues || {})[r.id] || 0 : Math.round(etat.commandes.filter(c => c.date > Date.now() - 90 * JOUR).length * (r.type === 'apres' ? 0.9 : 0.55));
+  const nAcc = reel ? acceptees.length : Math.round(vues * (0.05 + hacheTexte(r.id) * 0.07));
+  const ca = reel ? acceptees.reduce((a, c) => a + c.lignes.filter(l => l.offre === r.id).reduce((s, l) => s + l.prix * l.qte, 0), 0) : nAcc * ((etat.produits.find(p => p.id === r.alors) || { prix: 0 }).prix * (1 - r.remise / 100));
+  return { vues, acceptees: nAcc, taux: vues ? nAcc / vues : 0, ca };
+}
+function blocRegles(o) {
+  const opts = (sel, avecTout) => `${avecTout ? `<option value="*" ${sel === '*' ? 'selected' : ''}>N’importe quel panier</option>` : ''}${etat.produits.filter(p => p.actif).map(p => `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(p.nom)}</option>`).join('')}`;
+  return `<section class="carte sans-pad regles">
+    <div class="carte-tete pad"><h2>Offres complémentaires</h2><span class="sous">dans le panier ou juste après l’achat (même colis, pendant 2 heures)</span></div>
+    <p class="sous pad-x">Proposez un produit lié, pas n’importe lequel : une offre sans rapport avec l’achat est souvent ignorée. Les taux d’acceptation très élevés cités par certains vendeurs d’applications sont des cas isolés ; une moyenne publiée tourne autour de 5 %.</p>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Si le panier contient</th><th>Proposer</th><th class="num">Remise</th><th>Moment</th><th class="num">Vues</th><th class="num">Acceptées</th><th class="num">Chiffre d’affaires</th><th></th></tr></thead><tbody>
+    ${o.regles.map((r, i) => { const s = statsRegle(r); return `<tr class="${r.actif ? '' : 'inactif'}">
+      <td><select data-regle="${i}.si" aria-label="Condition">${opts(r.si, true)}</select></td>
+      <td><select data-regle="${i}.alors" aria-label="Produit proposé">${opts(r.alors, false)}</select>${r.si === r.alors ? '<div class="sous">Choisissez un autre produit.</div>' : ''}</td>
+      <td class="num"><input type="number" min="0" max="50" value="${r.remise}" data-regle="${i}.remise" class="mini-nombre" aria-label="Remise en %"> %</td>
+      <td><select data-regle="${i}.type" aria-label="Moment"><option value="panier" ${r.type === 'panier' ? 'selected' : ''}>Dans le panier</option><option value="apres" ${r.type === 'apres' ? 'selected' : ''}>Après l’achat</option></select></td>
+      <td class="num">${s.vues}</td><td class="num">${s.acceptees}<div class="sous">${fmtPct(s.taux)}</div></td><td class="num">${euros(s.ca)}</td>
+      <td class="num"><label class="case"><input type="checkbox" data-regle="${i}.actif" ${r.actif ? 'checked' : ''}> Active</label><button class="bouton-lien" data-action="suppr-regle" data-i="${i}">Retirer</button></td></tr>`; }).join('') || '<tr><td colspan="8" class="vide">Aucune offre. Ajoutez-en une : par exemple, une bougie proposée avec le diffuseur.</td></tr>'}
+    </tbody></table></div>
+    <div class="pad-x pad-b"><button class="btn petit fantome" data-action="ajout-regle" ${etat.produits.length < 2 ? 'disabled' : ''}>Ajouter une offre</button>${connecteServeur() ? '' : ' <span class="sous">Démo : vues et acceptations simulées.</span>'}</div>
+  </section>`;
+}
+
 function majChemin(obj, chemin, valeur) {
   const k = chemin.split('.');
   let o = obj;
@@ -180,6 +223,11 @@ document.addEventListener('change', e => {
     const { a } = etatConversion();
     const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Number(t.value) : t.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     majChemin(a, t.dataset.auto, v);
+    sauver(); rendre();
+  } else if (t.dataset.regle) {
+    const { o } = etatConversion();
+    const [i, k] = t.dataset.regle.split('.');
+    o.regles[i][k] = k === 'actif' ? t.checked : k === 'remise' ? Math.max(0, Math.min(50, Number(t.value) || 0)) : t.value;
     sauver(); rendre();
   } else if (t.dataset.seuil !== undefined) {
     etatConversion(); etat.offres.seuilPort = Math.max(0, Number(t.value) || 0); sauver(); rendre();
@@ -212,6 +260,14 @@ document.addEventListener('submit', e => {
   sauver(); toast(`Code ${code} ajouté.`); rendre();
 });
 document.addEventListener('click', e => {
+  if (e.target.closest('[data-action="ajout-regle"]')) {
+    const { o } = etatConversion();
+    const [a, b] = etat.produits.filter(p => p.actif);
+    o.regles = [...o.regles, { id: 'r' + Date.now().toString(36), si: a.id, alors: b.id, remise: 10, type: 'panier', actif: true }].slice(0, 10);
+    sauver(); rendre(); return;
+  }
+  const sr = e.target.closest('[data-action="suppr-regle"]');
+  if (sr) { const { o } = etatConversion(); o.regles = o.regles.filter((_, i) => i !== Number(sr.dataset.i)); sauver(); rendre(); return; }
   const sp = e.target.closest('[data-action="seuil-propose"]');
   if (sp) { etatConversion(); etat.offres.seuilPort = Number(sp.dataset.v); sauver(); toast(`Livraison offerte dès ${euros(Number(sp.dataset.v))}.`); rendre(); return; }
   const el = e.target.closest('[data-action="suppr-code"]');

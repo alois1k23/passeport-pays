@@ -92,6 +92,7 @@ const ICONES = {
   produits: '<path d="m12 3 8.5 4.5v9L12 21l-8.5-4.5v-9Z"/><path d="m3.5 7.5 8.5 4.5 8.5-4.5M12 12v9"/>',
   sourcing: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   tests: '<path d="M9 3h6M10 3v6l-5.5 9.5A1.5 1.5 0 0 0 5.8 21h12.4a1.5 1.5 0 0 0 1.3-2.5L14 9V3"/><path d="M7.5 15h9"/>',
+  fournisseurs: '<path d="M3 7h11v10H3z"/><path d="M14 10h4l3 3v4h-7"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/>',
   conversion: '<path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/>',
   social: '<path d="M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1Z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
   domaines: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
@@ -116,6 +117,7 @@ const NAV = [
   ['produits', 'Produits', 'Catalogue'],
   ['sourcing', 'Trouver des produits', 'Catalogue'],
   ['tests', 'Tests produits', 'Catalogue'],
+  ['fournisseurs', 'Fournisseurs', 'Catalogue'],
   ['social', 'Réseaux sociaux', 'Croissance'],
   ['conversion', 'Conversion et e-mails', 'Croissance'],
   ['domaines', 'Domaines', 'Croissance'],
@@ -154,7 +156,7 @@ function rendre() {
   document.title = `${t || 'Comptoir'} · ${etat.boutique.nom}`;
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : (typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? location.host + '/s/' + SERVEUR.slug : slugifier(etat.boutique.nom) + '.comptoir.shop');
-  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
+  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, fournisseurs: vueFournisseurs, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   $('#vue').innerHTML = (vues[route] || vueTableau)();
   apresRendu();
 }
@@ -372,6 +374,8 @@ function vueProduits() {
       <label class="champ"><span>Coût fournisseur (${devise()})</span><input id="pf-cout" name="cout" type="number" min="0" step="0.01" value="${p.cout}"></label>`
       : `<label class="champ"><span>Coût d’achat unitaire (${devise()})</span><input id="pf-cout" name="cout" type="number" min="0" step="0.01" value="${p.cout ?? ''}" placeholder="Pour calculer votre marge"></label>`}
       ${blocMarge(p)}
+      <label class="champ"><span>Prix barré (facultatif, ${devise()})</span><input id="pf-ref" name="prixReference" type="number" min="0" step="0.01" value="${p.prixReference ?? ''}" placeholder="Prix avant réduction" data-prix-ref></label>
+      <div id="verdict-ref">${verdictPrixBarre(p)}</div>
       <label class="champ"><span>Catégorie</span><select id="pf-cat" name="categorie">${[...new Set([p.categorie, ...cats])].map(c => `<option ${c === p.categorie ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="case"><input id="pf-actif" type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Visible dans la boutique</label>
       <div class="rangee"><button class="btn">Enregistrer</button>${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome danger" data-action="supprimer-produit" data-id="${p.id}">Supprimer</button>` : ''}</div>
@@ -532,12 +536,20 @@ function vueDomaines() {
 }
 
 /* ---------- Boutique en ligne (vue client) ---------- */
+/* Verdict sur le prix barré : affiché seulement s’il respecte la règle suisse (OIP) ou européenne (Omnibus). */
+function verdictPrixBarre(p) {
+  if (!p.prixReference) return '<p class="sous">Laissez vide s’il n’y a pas de réduction. Comptoir n’affiche un prix barré que s’il est licite.</p>';
+  const v = PrixBarres.verifier(p, estSuisse() ? 'ch' : 'ue');
+  return v.ok ? `<p class="encart"><span class="pill good">Affiché</span> ${esc(v.regle)}.</p>` : `<p class="encart alerte-encart"><span class="pill warn">Non affiché</span> ${esc(v.raison)}</p>`;
+}
+
 function vueBoutique() {
   etatConversion();
   if (!etat.avis && !connecteServeur()) semerAvis();
   const notes = statsAvisProduits();
   etat.produits.forEach(p => { p.avis = notes[p.id] || null; });
   etat.avisRecents = (etat.avis || []).filter(a => a.texte).slice(0, 6);
+  etat.produits.forEach(p => { p.prixBarre = p.prixReference && PrixBarres.verifier(p, estSuisse() ? 'ch' : 'ue').ok ? p.prixReference : undefined; });
   const calc = Remises.appliquer(ui.panier, etat, ui.codePromo || '');
   const total = calc.apresRemise;
   const modes = Object.entries(livraisonsPays(etat.boutique.pays)).filter(([k]) => k !== 'retrait' || etat.magasin.clickCollect);
@@ -561,6 +573,7 @@ function vueBoutique() {
           <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         ${etat.offres.barrePort && ui.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuilPort() ? 'Livraison offerte' : `Plus que <b>${euros(seuilPort() - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuilPort() * 100)}%"></i></span></div>` : ''}
         ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
+        ${(() => { const r = ui.panier.length ? Remises.regleApplicable(etat, ui.panier, 'panier') : null; const p = r && etat.produits.find(x => x.id === r.alors); return p ? `<label class="offre-panier">${visuelProduit(p)}<span><input type="checkbox" data-offre-demo="${esc(r.id)}" data-id="${esc(p.id)}"> <strong>Ajouter ${esc(p.nom)}</strong><br><s>${euros(p.prix)}</s> <b>${euros(p.prix * (1 - r.remise / 100))}</b> · −${r.remise} % seulement avec cette commande</span></label>` : ''; })()}
         <form class="code-promo" data-form="code-demo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(ui.codePromo || '')}"><button class="sf-btn sf-btn-ligne">Appliquer</button></form>
         ${calc.codeValide === false ? '<p class="mini">Ce code n’existe pas ou a expiré.</p>' : calc.codeMoinsBon ? '<p class="mini">Code valable, mais la remise par quantité est plus avantageuse (non cumulable).</p>' : ''}
         <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
@@ -748,6 +761,13 @@ document.addEventListener('keydown', e => {
 
 document.addEventListener('input', e => {
   const t = e.target;
+  if (t.dataset.prixRef !== undefined && ui.produitEdite) {
+    const f = t.form;
+    const essai = { ...ui.produitEdite, prix: Number(f.elements.prix.value), prixReference: Number(t.value) || undefined };
+    essai.historiquePrix = PrixBarres.noterPrix(ui.produitEdite.historiquePrix, essai.prix);
+    $('#verdict-ref').innerHTML = verdictPrixBarre(essai);
+    return;
+  }
   if (t.dataset.prop) {
     const s = etat.boutique.sections.find(x => x.id === t.dataset.id);
     s.props[t.dataset.prop] = t.value; modifie(); rendreApercu();
@@ -770,6 +790,11 @@ document.addEventListener('input', e => {
 
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset && t.dataset.offreDemo && t.checked) {
+    const p = etat.produits.find(x => x.id === t.dataset.id);
+    ui.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1, offre: t.dataset.offreDemo });
+    rendre(); return;
+  }
   if (t.dataset.champ === 'dom-marque') { ui.dom.marque = t.value; rendre(); }
   else if (t.dataset.champ === 'dom-kw') { ui.dom.motsCles = t.value; rendre(); }
   else if (t.dataset.champ === 'dom-mois') { ui.dom.mois = Number(t.value); rendre(); }
@@ -787,7 +812,8 @@ document.addEventListener('submit', e => {
   const f = e.target;
   if (f.dataset.form === 'produit') {
     const d = new FormData(f);
-    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false };
+    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined };
+    p.historiquePrix = PrixBarres.noterPrix(ui.produitEdite.historiquePrix, p.prix);
     const i = etat.produits.findIndex(x => x.id === p.id);
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);
     ui.produitEdite = null; sauver(); toast(`« ${p.nom} » enregistré.`); rendre();

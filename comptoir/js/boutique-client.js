@@ -2,7 +2,19 @@
    Charge la boutique depuis l’API, gère le panier et envoie la commande au serveur,
    qui recalcule les prix et redirige vers le paiement (TWINT/carte ou simulation). */
 
-const slug = location.pathname.split('/').filter(Boolean)[1];
+// Sur un domaine personnalisé, le serveur indique la boutique dans une balise meta ; sinon /s/<slug>.
+const slug = (document.querySelector('meta[name="comptoir-slug"]') || {}).content || location.pathname.split('/').filter(Boolean)[1];
+const racineBoutique = document.querySelector('meta[name="comptoir-slug"]') ? '/' : location.pathname;
+
+/* Mesure d’audience sans cookie : identifiant aléatoire propre à l’onglet (perdu à sa fermeture), aucune donnée personnelle. */
+const sessionMesure = (() => { try { let s = sessionStorage.getItem('comptoir-session'); if (!s) { s = 's' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); sessionStorage.setItem('comptoir-session', s); } return s; } catch { return 's' + Math.random().toString(36).slice(2, 14); } })();
+const dejaMesure = new Set();
+function mesurer(type, extra = {}) {
+  const cle = type + (extra.valeur || '');
+  if (dejaMesure.has(cle) && type !== 'panier') return;
+  dejaMesure.add(cle);
+  try { fetch(`/api/public/${encodeURIComponent(slug)}/evenement`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, session: sessionMesure, ...extra }), keepalive: true }).catch(() => {}); } catch { /* ignoré */ }
+}
 const CLE_PANIER = `comptoir-panier-${slug}`;
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
@@ -27,6 +39,7 @@ async function demarrer() {
   // Le panier ne garde que les produits encore en vente, au prix actuel.
   vue.panier = vue.panier.map(l => { const p = donnees.produits.find(x => x.id === l.produitId); return p && { produitId: p.id, nom: p.nom, prix: p.prix, qte: l.qte }; }).filter(Boolean);
   vue.livraison = Object.keys(donnees.livraisons)[0];
+  mesurer('vue');
   const q = new URLSearchParams(location.search);
   if (q.get('reprendre')) { reprendrePaiement(q.get('reprendre'), q.get('jeton')); return; }
   if (q.get('avis')) { formulaireAvis(q.get('avis'), q.get('jeton')); return; }
@@ -61,7 +74,10 @@ function rendre() {
   const total = calc.apresRemise;
   const port = total ? fraisPortClient(vue.livraison, total) : 0;
   const seuil = donnees.seuilPortOffert;
-  const suggestion = donnees.offres.suggestions ? donnees.produits.find(p => !vue.panier.some(l => l.produitId === p.id) && (p.type === 'drop' || p.stock > 0)) : null;
+  const regle = vue.panier.length ? Remises.regleApplicable({ offres: donnees.offres }, vue.panier, 'panier') : null;
+  const produitOffre = regle ? donnees.produits.find(p => p.id === regle.alors && (p.type === 'drop' || p.stock > 0)) : null;
+  if (produitOffre && vue.ouvert) mesurer('offre_vue', { valeur: regle.id });
+  const suggestion = donnees.offres.suggestions && !produitOffre ? donnees.produits.find(p => !vue.panier.some(l => l.produitId === p.id) && (p.type === 'drop' || p.stock > 0)) : null;
   const drops = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.type === 'drop' && p.delai);
   const delai = drops.length ? [Math.max(...drops.map(p => p.delai[0])), Math.max(...drops.map(p => p.delai[1]))] : null;
   const ch = donnees.boutique.pays === 'ch';
@@ -78,11 +94,13 @@ function rendre() {
       <aside class="tiroir-corps" style="${varsTheme(th)}">
         <div class="carte-tete"><h2>${vue.message ? 'Votre commande' : 'Panier'}</h2><button class="icone" data-c="fermer">Fermer</button></div>
         ${vue.message ? vue.message : vue.panier.length ? `
-          <ul class="lignes-panier">${vue.panier.map(l => `<li><span>${esc(l.nom)}</span>
+          <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
+            <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span>${esc(l.nom)}</span>
             <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-d="1" aria-label="Ajouter un">+</button></div>
-            <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
+            <span class="num">${euros(l.prixInitial * l.qte)}</span></li>`).join('')}</ul>
           ${donnees.offres.barrePort && seuil > 0 && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuil * 100)}%"></i></span></div>` : ''}
           ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
+          ${produitOffre ? `<label class="offre-panier">${visuelProduit(produitOffre)}<span><input type="checkbox" data-c="offre" data-regle="${esc(regle.id)}" data-id="${esc(produitOffre.id)}"> <strong>Ajouter ${esc(produitOffre.nom)}</strong><br><s>${euros(produitOffre.prix)}</s> <b>${euros(produitOffre.prix * (1 - regle.remise / 100))}</b> · −${regle.remise} % seulement avec cette commande</span></label>` : ''}
           ${suggestion ? `<div class="suggestion">${visuelProduit(suggestion)}<div><small>Souvent ajouté</small><strong>${esc(suggestion.nom)}</strong><span>${euros(suggestion.prix)}</span></div><button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${esc(suggestion.id)}">Ajouter</button></div>` : ''}
           <form id="form-code" class="code-promo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(vue.code ? vue.code.code : '')}" autocomplete="off"><button class="sf-btn sf-btn-ligne">${vue.code ? 'Changer' : 'Appliquer'}</button></form>
           ${vue.codeMessage ? `<p class="mini">${esc(vue.codeMessage)}</p>` : ''}
@@ -121,11 +139,12 @@ function texteLegal(type) {
 
 async function envoyerCommande(form) {
   const d = new FormData(form);
+  mesurer('paiement');
   vue.envoi = true; rendre();
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, client: { ...Object.fromEntries(d), consentement: d.get('consentement') === 'on' } })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, client: { ...Object.fromEntries(d), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
@@ -141,7 +160,7 @@ async function envoyerCommande(form) {
 
 async function suivreCommande(id, jeton, annule) {
   vue.ouvert = true;
-  if (annule) { vue.message = '<p>Le paiement a été annulé. Votre panier est conservé : vous pouvez réessayer.</p>'; history.replaceState(null, '', location.pathname); vue.message += '<button class="sf-btn" data-c="retour-panier">Revenir au panier</button>'; return; }
+  if (annule) { vue.message = '<p>Le paiement a été annulé. Votre panier est conservé : vous pouvez réessayer.</p>'; history.replaceState(null, '', racineBoutique); vue.message += '<button class="sf-btn" data-c="retour-panier">Revenir au panier</button>'; return; }
   const libelles = { attente: 'Paiement en cours de confirmation…', payee: 'Paiement reçu. Nous préparons votre commande.', fournisseur: 'Paiement reçu. Votre commande est en préparation chez notre partenaire.', preparation: 'Votre commande est en préparation.', expediee: 'Votre colis est en route.', livree: 'Votre colis a été livré.', prete: 'Votre commande vous attend en boutique.', retiree: 'Commande retirée. Merci !', annulee: 'Commande annulée.', remboursee: 'Commande remboursée.' };
   for (let i = 0; i < 20; i++) {
     try {
@@ -152,7 +171,10 @@ async function suivreCommande(id, jeton, annule) {
       vue.message = `<div class="confirm"><h3>Commande n° ${c.numero}</h3><p>${libelles[c.statut] || ''}</p>
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux"><div class="total"><span>Total payé</span><span>${euros(c.total)}</span></div></div>
-        ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">Un e-mail de confirmation vous a été envoyé.</p></div>`;
+        ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">Un e-mail de confirmation vous a été envoyé.</p></div>
+        ${c.offreApres ? `<div class="offre-apres">${visuelProduit({ nom: c.offreApres.nom, teinte: c.offreApres.teinte, image: c.offreApres.image })}<div><small>Uniquement maintenant</small><strong>${esc(c.offreApres.nom)}</strong><span><s>${euros(c.offreApres.prix)}</s> <b>${euros(c.offreApres.prixOffre)}</b> (−${c.offreApres.remise} %), livré dans le même colis, sans frais de port.</span>
+          <button class="sf-btn" data-c="complement" data-commande="${esc(id)}" data-jeton="${esc(jeton)}" data-regle="${esc(c.offreApres.regle)}">Ajouter à ma commande</button><button class="bouton-lien" data-c="refuser-offre">Non merci</button></div></div>` : ''}`;
+      if (c.offreApres) mesurer('offre_vue', { valeur: c.offreApres.regle });
       rendre();
       if (['expediee', 'livree', 'retiree', 'annulee', 'remboursee'].includes(c.statut)) break;
     } catch { break; }
@@ -165,7 +187,8 @@ document.addEventListener('click', e => {
   if (sf) {
     if (sf.dataset.sf === 'ajouter') {
       const p = donnees.produits.find(x => x.id === sf.dataset.id);
-      const l = vue.panier.find(x => x.produitId === p.id);
+      const l = vue.panier.find(x => x.produitId === p.id && !x.offre);
+      mesurer('panier', { produitId: p.id });
       if (l) l.qte = Math.min(p.type === 'drop' ? 20 : p.stock, l.qte + 1); else vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1 });
       garderPanier(); vue.message = null; vue.ouvert = true; rendre();
     } else if (sf.dataset.sf === 'panier') { vue.ouvert = true; rendre(); }
@@ -177,10 +200,11 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-c]');
   if (!el) return;
   const c = el.dataset.c;
-  if (c === 'fermer') { vue.ouvert = false; if (vue.message && !vue.panier.length) vue.message = null; history.replaceState(null, '', location.pathname); rendre(); }
+  if (c === 'fermer') { vue.ouvert = false; if (vue.message && !vue.panier.length) vue.message = null; history.replaceState(null, '', racineBoutique); rendre(); }
+  else if (c === 'retirer-offre') { vue.panier = vue.panier.filter(x => !x.offre); garderPanier(); rendre(); }
   else if (c === 'retour-panier') { vue.message = null; rendre(); }
   else if (c === 'qte') {
-    const l = vue.panier.find(x => x.produitId === el.dataset.id);
+    const l = vue.panier.find(x => x.produitId === el.dataset.id && !x.offre);
     l.qte += Number(el.dataset.d);
     if (l.qte <= 0) vue.panier = vue.panier.filter(x => x !== l);
     garderPanier(); rendre();
@@ -188,7 +212,27 @@ document.addEventListener('click', e => {
   else if (c === 'legal') { vue.legal = el.dataset.v; rendre(); }
   else if (c === 'legal-fermer') { vue.legal = null; rendre(); }
 });
-document.addEventListener('change', e => { if (e.target.dataset.c === 'livraison') { vue.livraison = e.target.value; rendre(); } });
+document.addEventListener('change', e => {
+  if (e.target.dataset.c === 'livraison') { vue.livraison = e.target.value; mesurer('livraison'); rendre(); }
+  else if (e.target.dataset.c === 'offre') {
+    const p = donnees.produits.find(x => x.id === e.target.dataset.id);
+    if (e.target.checked) vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1, offre: e.target.dataset.regle });
+    garderPanier(); rendre();
+  }
+});
+document.addEventListener('focusin', e => { if (e.target.closest && e.target.closest('#commande')) mesurer('livraison'); });
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-c="complement"]');
+  if (b) {
+    b.disabled = true;
+    try {
+      const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(b.dataset.commande)}/complement`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton: b.dataset.jeton, regle: b.dataset.regle }) });
+      const json = await rep.json();
+      if (!rep.ok) throw new Error(json.erreur);
+      location.href = json.paiementUrl;
+    } catch (err) { b.disabled = false; b.insertAdjacentHTML('afterend', `<p class="erreur-form">${esc(err.message || 'Offre indisponible.')}</p>`); }
+  } else if (e.target.closest('[data-c="refuser-offre"]')) { document.querySelector('.offre-apres')?.remove(); }
+});
 document.addEventListener('submit', e => {
   e.preventDefault();
   if (e.target.id === 'commande') envoyerCommande(e.target);
@@ -228,7 +272,7 @@ async function reprendrePaiement(id, jeton) {
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur);
     location.href = json.paiementUrl;
-  } catch (e) { vue.message = `<p>${esc(e.message || 'Impossible de reprendre cette commande.')}</p>`; history.replaceState(null, '', location.pathname); rendre(); }
+  } catch (e) { vue.message = `<p>${esc(e.message || 'Impossible de reprendre cette commande.')}</p>`; history.replaceState(null, '', racineBoutique); rendre(); }
 }
 
 async function formulaireAvis(id, jeton) {
@@ -244,7 +288,7 @@ async function formulaireAvis(id, jeton) {
         <textarea name="texte-${esc(p.produitId)}" rows="3" maxlength="1000" placeholder="Qu’avez-vous aimé ? Qu’est-ce qui pourrait être mieux ?"></textarea></fieldset>`).join('')}
       <button class="sf-btn plein">Publier mon avis</button></form>` : '<p>Vous avez déjà donné votre avis pour cette commande. Merci !</p>';
   } catch (e) { vue.message = `<p>${esc(e.message || 'Lien d’avis invalide.')}</p>`; }
-  history.replaceState(null, '', location.pathname);
+  history.replaceState(null, '', racineBoutique);
   rendre();
 }
 async function envoyerAvis(form) {

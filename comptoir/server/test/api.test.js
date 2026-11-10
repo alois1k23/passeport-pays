@@ -377,7 +377,7 @@ test('prix barré affiché seulement s’il est licite (historique tenu par le s
   // Le navigateur ne peut pas fabriquer un historique
   await marchand('PUT', `/api/admin/produits/${coffret.id}`, { produit: { ...coffret, prix: 49, prixReference: 59, historiquePrix: [{ date: 0, prix: 59 }, { date: Date.now() - 1, prix: 49 }] } });
   let pub = await client()('GET', `/api/public/${slug}`);
-  assert.equal(pub.json.produits.find(p => p.id === coffret.id).prixReference, undefined, 'refusé : 59 n’a pas été pratiqué 30 jours');
+  assert.equal(pub.json.produits.find(p => p.id === coffret.id).prixBarre, undefined, 'refusé : 59 n’a pas été pratiqué 30 jours');
   assert.equal(pub.json.produits.find(p => p.id === coffret.id).historiquePrix, undefined, 'historique jamais public');
   // On simule un historique ancien directement en base (59 pendant 60 jours, puis 49)
   const row = db.prepare('SELECT donnees FROM produits WHERE id = ?').get(coffret.id);
@@ -385,7 +385,7 @@ test('prix barré affiché seulement s’il est licite (historique tenu par le s
   d.historiquePrix = [{ date: Date.now() - 70 * 86400000, prix: 59 }, { date: Date.now() - 5 * 86400000, prix: 49 }];
   db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(d), coffret.id);
   pub = await client()('GET', `/api/public/${slug}`);
-  assert.equal(pub.json.produits.find(p => p.id === coffret.id).prixReference, 59);
+  assert.equal(pub.json.produits.find(p => p.id === coffret.id).prixBarre, 59);
 });
 
 test('mesure d’audience sans cookie et entonnoir', async () => {
@@ -424,4 +424,15 @@ test('mot de passe oublié, e-mails envoyés par le service, domaine personnalis
   c.boutique.domaine = { domaine: 'lacustre-test.invalid' };
   await marchand('PUT', '/api/admin/config', { config: c });
   assert.equal((await marchand('POST', '/api/admin/domaine/verifier')).statut, 409);
+  // Impossible de se déclarer « actif » sans vérification
+  c.boutique.domaine = { domaine: 'pirate.example', actif: true };
+  await marchand('PUT', '/api/admin/config', { config: c });
+  assert.equal((await marchand('GET', '/api/admin/etat')).json.boutique.domaine.actif, false);
+  const getHote = hote => new Promise((ok, ko) => http.get({ host: '127.0.0.1', port: serveur.address().port, path: '/', headers: { Host: hote } }, r => { let t = ''; r.on('data', c => { t += c; }); r.on('end', () => ok(t)); }).on('error', ko));
+  assert.doesNotMatch(await getHote('pirate.example'), /comptoir-slug/, 'domaine non vérifié : pas de boutique servie');
+  // Domaine vérifié (vérification simulée en base) : la boutique est servie à la racine
+  const row = db.prepare('SELECT id, config FROM boutiques WHERE slug = ?').get(slug);
+  const cf = JSON.parse(row.config); cf.boutique.domaine = { domaine: 'lacustre.example', actif: true };
+  db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(cf), row.id);
+  assert.match(await getHote('lacustre.example'), new RegExp(`name="comptoir-slug" content="${slug}"`));
 });

@@ -115,10 +115,14 @@ Chaque point y est classé selon sa fiabilité : première main, praticien, ou r
 - Pas de promesse de revenus. Selon les sources consultées, 90 à 95 % des boutiques de dropshipping échouent, et des formations ont été sanctionnées : la FTC a obtenu en 2025 contre Ecommerce Empire Builders une interdiction à vie et un jugement de 9,79 M$.
 - Pas de réutilisation des vidéos d'autres créateurs dans les publicités, contrairement à ce que conseille Jordan Welch : c'est un risque de violation du droit d'auteur.
 
-### Pistes non encore intégrées
+### Pistes intégrées en novembre 2026
 
-- Vente additionnelle en un clic après le paiement, avec règles « si X alors Y » et taux d'acceptation par offre.
-- Garde-fou sur les prix barrés : historique des prix, prix de référence pratiqué 30 jours (OIP suisse), mode « UE » avec le prix le plus bas des 30 derniers jours.
-- Abandons suivis étape par étape (panier, livraison, paiement) et par moyen de paiement.
-- Choix du fournisseur selon le pays du client (Wholesale Ted), fiche fournisseur avec note et délai de réponse.
-- Mention de partenariat commercial dans les publications de micro-influenceurs, exigée par TikTok pour les outils tiers.
+- **Offre complémentaire** dans le panier et juste après l'achat (même colis, 2 heures), avec règles « si X alors Y » et taux d'acceptation par offre. Ezra Firestone et Sebastian Ghiorghiu recommandent ces offres ; une moyenne publiée tourne autour de 5 % (ReConvert), loin des cas spectaculaires.
+- **Garde-fou sur les prix barrés** : historique des prix tenu par le serveur, règle suisse (OIP : 30 jours consécutifs) et règle européenne (Omnibus : prix le plus bas des 30 derniers jours). Les règles sont simplifiées et à faire valider par un juriste. En cas de doute, le prix barré n'est pas affiché.
+- **Abandons suivis étape par étape** (visite, panier, livraison, paiement), mesurés sans cookie, avec la fuite principale et le conseil Baymard ou La Poste et HWZ correspondant. Les abandons par moyen de paiement sont à brancher sur le prestataire.
+- **Fournisseurs** : fiche par fournisseur, liste de contrôle (échantillon au prix normal selon Wholesale Ted, réponse en moins de 24 h), routage automatique vers l'entrepôt le plus proche du client.
+- **Mention « Publicité · Collaboration commerciale »** ajoutée en tête de légende pour les contenus en partenariat. Elle reste aussi à mettre dans la vidéo, et le réglage « contenu de marque » est à activer sur TikTok.
+
+### Reste à faire hors logiciel
+
+- Faire valider par un juriste suisse : consentement aux e-mails marketing (LCD), règles de prix barrés, CGV et Impressum de Comptoir lui-même.

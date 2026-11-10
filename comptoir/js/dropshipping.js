@@ -182,6 +182,9 @@ function boutiqueDemoLausanne() {
     stock: 999, teinte: (f.id.charCodeAt(2) * 47) % 360, actif: true,
     type: 'drop', cout: f.cout, portF: f.portF, entrepot: f.entrepot, delai: f.delai, fournisseur: f.fournisseur, source: f.id
   }));
+  // Démo : l’humidificateur était à 59 pendant 3 mois, réduit à 54 depuis 3 semaines (prix barré licite).
+  produits[1].prixReference = 59;
+  produits[1].historiquePrix = [{ date: Date.now() - 120 * 86400000, prix: 59 }, { date: Date.now() - 21 * 86400000, prix: 54 }];
   produits.push({ id: 'p7', nom: 'Coffret Léman fait main', categorie: 'Bougies', prix: 59, description: 'Bougie, savon et carte postale du lac, assemblés à Lausanne.', stock: 4, teinte: 195, actif: true, type: 'stock', cout: 21 });
   const now = Date.now(), jour = 86400000;
   const commandes = [];

@@ -228,8 +228,7 @@ function ongletMarketing(t, tp, d0, f0) {
   return `
   <div class="grille-2">
     <section class="carte"><div class="carte-tete"><h2>Entonnoir de conversion</h2><span class="sous">période sélectionnée</span></div>
-      ${entonnoir([{ nom: 'Visites', v: visites, estime: true }, { nom: 'Pages produit vues', v: visites * 0.46, estime: true }, { nom: 'Ajouts au panier', v: visites * 0.072, estime: true }, { nom: 'Paiements commencés', v: Math.max(cur.n, visites * 0.031), estime: true }, { nom: 'Commandes payées', v: cur.n }])}
-      <p class="sous">Les étapes « estimées » le resteront tant que la mesure d’audience n’est pas activée (prochaine étape technique). Seules les commandes sont réelles.</p></section>
+      ${blocEntonnoir(d0, f0, cur, visites)}</section>
     <section class="carte"><div class="carte-tete"><h2>Réseaux sociaux</h2><span class="sous">${pubs.length} publications sur la période</span></div>
       ${barresH(Object.entries(parReseau).map(([k, v]) => ({ nom: RESEAUX[k].nom, v: v.clics, detail: `${compact(v.vues)} vues, ${v.ventes} ventes` })).sort((a, b) => b.v - a.v), { format: v => `${compact(v)} clics` })}
       <h3>Clics pour 1000 vues, par type de contenu</h3>
@@ -277,6 +276,31 @@ function ongletRentabilite(t, tp, d0, f0, d1, f1) {
       ${barresH(parProduit, { format: fmtArgent })}
       ${estSuisse() ? `<h3>Seuil d’assujettissement à la TVA</h3><div class="jauge"><div style="width:${Math.min(100, ca12 / 1000)}%"></div></div><p class="sous">${euros(ca12)} sur 12 mois, soit ${fmtPct(ca12 / 100000)} de CHF 100 000. Comptoir vous prévient à 80 %.</p>` : ''}</section>
   </div>`;
+}
+
+/* Entonnoir : mesure réelle (sessions sans cookie) si disponible, sinon estimation signalée. */
+function audienceReelle(d0, f0) {
+  const a = (etat.audience || []).filter(x => { const t = new Date(x.jour + 'T12:00:00').getTime(); return t >= d0 && t < f0; });
+  if (!a.length) return null;
+  const n = type => a.filter(x => x.type === type).reduce((s, x) => s + x.n, 0);
+  return { vue: n('vue'), panier: n('panier'), livraison: n('livraison'), paiement: n('paiement') };
+}
+function blocEntonnoir(d0, f0, cur, visites) {
+  const r = audienceReelle(d0, f0);
+  const etapes = r
+    ? [{ nom: 'Visites', v: r.vue }, { nom: 'Ajout au panier', v: r.panier }, { nom: 'Saisie de la livraison', v: r.livraison }, { nom: 'Paiement commencé', v: r.paiement }, { nom: 'Commande payée', v: cur.n }]
+    : [{ nom: 'Visites', v: visites, estime: true }, { nom: 'Ajout au panier', v: visites * 0.072, estime: true }, { nom: 'Saisie de la livraison', v: visites * 0.045, estime: true }, { nom: 'Paiement commencé', v: Math.max(cur.n, visites * 0.031), estime: true }, { nom: 'Commande payée', v: cur.n }];
+  const pertes = etapes.slice(1).map((e, i) => ({ de: etapes[i].nom, vers: e.nom, perdus: Math.max(0, etapes[i].v - e.v), taux: etapes[i].v ? 1 - e.v / etapes[i].v : 0 }));
+  const pire = pertes.slice(1).sort((a, b) => b.taux - a.taux)[0];
+  const conseils = {
+    'Saisie de la livraison': 'Beaucoup quittent le panier : affichez plus tôt le coût total et la date de livraison. Les coûts additionnels sont la 1re cause d’abandon (40 %, Baymard).',
+    'Paiement commencé': 'Le formulaire de livraison freine : gardez 7 à 8 champs au plus, pas de compte obligatoire (Baymard). Le NPA remplit déjà la localité.',
+    'Commande payée': 'Des paiements sont abandonnés : la relance automatique en récupère une partie. Vérifiez que TWINT est bien proposé : 70 % des acheteurs suisses abandonnent sans leur moyen de paiement (La Poste et HWZ 2024).'
+  };
+  return `${entonnoir(etapes)}
+    <table class="table compacte abandons"><thead><tr><th>Abandon entre</th><th class="num">Perdus</th><th class="num">Taux</th></tr></thead><tbody>${pertes.map(p => `<tr><td>${esc(p.de)} → ${esc(p.vers)}</td><td class="num">${Math.round(p.perdus).toLocaleString('fr-FR')}</td><td class="num">${fmtPct(p.taux)}</td></tr>`).join('')}</tbody></table>
+    ${pire && conseils[pire.vers] ? `<p class="encart"><b>Fuite principale : ${esc(pire.de.toLowerCase())} → ${esc(pire.vers.toLowerCase())}.</b> ${conseils[pire.vers]}</p>` : ''}
+    <p class="sous">${r ? 'Mesure réelle, sans cookie ni adresse IP : une session par onglet, comptée une fois par jour et par étape.' : 'Estimation : la mesure réelle démarre dès que la boutique est en ligne sur le serveur Comptoir (sans cookie). Seules les commandes sont réelles ici.'} Abandons par moyen de paiement : disponibles quand le prestataire de paiement est branché.</p>`;
 }
 
 /* ---------- Export CSV ---------- */

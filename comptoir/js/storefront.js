@@ -80,7 +80,7 @@ function renduSection(s, etat, mode) {
         <div class="sf-grille">${liste.map(x => `
           <article class="sf-carte">
             ${visuelProduit(x)}
-            <div class="sf-carte-infos"><h3>${esc(x.nom)}</h3><span>${euros(x.prix)}</span></div>
+            <div class="sf-carte-infos"><h3>${esc(x.nom)}</h3><span>${x.prixBarre ? `<s class="sf-barre">${euros(x.prixBarre)}</s> ` : ''}${euros(x.prix)}</span></div>
             <small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}${x.avis && x.avis.n ? ` · <span class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} (${x.avis.n} avis vérifiés)</span>` : ''}</small>
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
           </article>`).join('') || '<p class="sf-vide">Aucun produit dans cette catégorie.</p>'}

@@ -5,7 +5,7 @@ Serveur Node.js **sans aucune dépendance** : HTTP, base SQLite et chiffrement v
 ```bash
 cd comptoir
 npm start          # http://localhost:3000
-npm test           # 11 tests de bout en bout
+npm test           # 19 tests de bout en bout
 ```
 
 Ouvrez `http://localhost:3000`, créez un compte, puis ouvrez votre boutique publique (`/s/<nom-de-la-boutique>`) et passez une commande. Sans clé Stripe, le paiement est simulé et le fournisseur de démonstration expédie au bout de 2 minutes.
@@ -23,6 +23,18 @@ Ouvrez `http://localhost:3000`, créez un compte, puis ouvrez votre boutique pub
 | **Commandes** | Mêmes règles d'étapes que l'interface (une transition interdite est refusée). Factures numérotées sans rupture, stock retiré au paiement et remis en cas d'annulation ou de remboursement, caisse pour les ventes en personne. |
 | **E-mails** | Confirmation, expédition, retrait : placés dans une file (table `emails`, consultable via `/api/admin/emails`). À brancher sur un service d'envoi. |
 | **Sécurité** | L'API n'accepte que du JSON (protection CSRF). Thème, images et textes sont validés avant enregistrement (testé avec une tentative d'injection). Le dossier `server/` et la base ne sont jamais servis (testé). |
+
+## Nouveautés (novembre 2026)
+
+| Domaine | Détail |
+|---|---|
+| **Offres complémentaires** | Règles « si le panier contient X, proposer Y à −N % ». Dans le panier (case à cocher) ou après l'achat : complément livré dans le même colis, sans port, proposé pendant 2 h et une seule fois. Prix recalculés côté serveur ; une offre dont la condition n'est pas remplie repasse au prix normal (testé). |
+| **Prix barrés** | L'historique des prix est tenu par le serveur seul. Un prix barré n'est publié que s'il est licite : règle suisse (prix pratiqué 30 jours consécutifs, OIP) ou européenne (prix le plus bas des 30 jours précédents). Testé, y compris contre un historique falsifié par le navigateur. |
+| **Mesure d'audience** | Sans cookie ni adresse IP : identifiant aléatoire par onglet. Étapes : visite, panier, livraison, paiement, offre vue. L'Analyse affiche l'entonnoir réel et les abandons par étape. |
+| **Routage fournisseur** | Si le même produit existe dans un entrepôt plus proche du client (Suisse, puis UE, puis Chine), la commande y est envoyée et l'historique le note. |
+| **E-mails** | File envoyée toutes les 30 s par Brevo ou Postmark (`BREVO_API_KEY` ou `POSTMARK_TOKEN` + `EMAIL_EXPEDITEUR`), 5 tentatives par e-mail. |
+| **Mot de passe oublié** | Lien valable 1 heure, à usage unique ; toutes les sessions sont fermées après le changement. Réponse identique que le compte existe ou non. |
+| **Domaines personnalisés** | Le marchand pointe son domaine (CNAME) vers Comptoir, puis clique « Vérifier ». Le serveur contrôle le DNS ; seul ce contrôle peut rendre un domaine « actif ». La boutique est alors servie à la racine du domaine. |
 
 ## Brancher les vrais services
 
@@ -45,6 +57,23 @@ POST /api/webhooks/fournisseurs/{code}   en-tête X-Signature = HMAC-SHA256(corp
 
 Ajoutez une ligne dans la table `fournisseurs` (code, nom, url_api, cle_api, secret_webhook). Le fournisseur `demo` sert d'exemple : il est servi par ce même serveur sous `/demo-fournisseur`.
 
+### Domaines des marchands et HTTPS
+Chaque boutique peut avoir son domaine. Le plus simple : placer [Caddy](https://caddyserver.com) devant Comptoir avec le HTTPS « à la demande ». Il obtient un certificat pour chaque domaine dès qu'il est vérifié :
+
+```
+{
+  on_demand_tls {
+    ask http://localhost:3000/api/session
+  }
+}
+https:// {
+  tls { on_demand }
+  reverse_proxy localhost:3000
+}
+```
+
+En production, remplacez `ask` par une route qui ne répond « oui » que pour les domaines actifs : c'est la prochaine étape technique. Sans cela, n'importe quel domaine pointé vers le serveur pourrait demander un certificat.
+
 ## Mise en ligne
 
 - **Docker** : `docker build -t comptoir . && docker run -p 3000:3000 -v comptoir-data:/data --env-file .env comptoir`
@@ -54,7 +83,8 @@ Ajoutez une ligne dans la table `fournisseurs` (code, nom, url_api, cle_api, sec
 
 ## Limites actuelles (prochaines étapes)
 
-- Les boutiques sont servies sur le même domaine que l'admin (`/s/<slug>`). Pour les domaines personnalisés (`.ch`), il faut servir chaque boutique sur son propre domaine : c'est aussi plus sûr.
-- Les e-mails ne sont pas encore envoyés : il faut brancher un service d'envoi (Postmark, Brevo, Infomaniak).
+- Sans domaine personnalisé, les boutiques restent servies sur le domaine de l'admin (`/s/<slug>`). Pour plus de sûreté, servez l'admin et les boutiques sur des domaines différents.
+- Route de validation des certificats à la demande (voir ci-dessus) à ajouter avant d'ouvrir les domaines personnalisés au public.
 - La réservation des domaines (API d'un registrar) et l'API La Poste pour les étiquettes ne sont pas encore branchées.
-- Pas encore de réinitialisation de mot de passe ni de double authentification.
+- Pas encore de double authentification.
+- Abandons par moyen de paiement : à brancher sur les événements du prestataire de paiement.

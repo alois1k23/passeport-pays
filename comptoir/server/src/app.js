@@ -114,6 +114,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       social: social.nettoyerReglages(config.social),
       automatisations: relances.nettoyer(config.automatisations),
       offres: Remises.offresDe(config),
+      fournisseursSuivi: Object.fromEntries(Object.entries(config.fournisseursSuivi || {}).slice(0, 50).map(([k, v]) => [String(k).slice(0, 80), Object.fromEntries(['echantillon', 'reponse', 'delai', 'douane'].map(c => [c, !!(v && v[c])]))])),
       lancement: Object.fromEntries(Object.entries(config.lancement || {}).slice(0, 30).map(([k, v]) => [String(k).slice(0, 20), !!v])),
       tests: (Array.isArray(config.tests) ? config.tests : []).slice(-50).map(t => ({
         id: String(t.id).slice(0, 30), produitId: String(t.produitId).slice(0, 40), canal: ['meta', 'tiktok-ads', 'organique'].includes(t.canal) ? t.canal : 'meta',
@@ -349,13 +350,21 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
   });
+  /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
+  function garderDomaine(config, ancienne) {
+    const d = config.boutique.domaine, a = ancienne.boutique.domaine;
+    if (!d || !d.domaine) { config.boutique.domaine = null; return config; }
+    const meme = a && a.domaine && String(a.domaine).toLowerCase() === String(d.domaine).toLowerCase();
+    config.boutique.domaine = { domaine: String(d.domaine).toLowerCase().slice(0, 100), prix: Number(d.prix) || null, genre: String(d.genre || '').slice(0, 30), date: Number(d.date) || Date.now(), actif: !!(meme && a.actif), verifieLe: meme ? a.verifieLe || null : null };
+    return config;
+  }
   r.put('/api/admin/config', exigerMarchand, ctx => {
-    const config = nettoyerConfig(ctx.corps.config);
+    const config = garderDomaine(nettoyerConfig(ctx.corps.config), lireConfig(ctx.boutique));
     db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(config), ctx.boutique.id);
     return { ok: true };
   });
   r.post('/api/admin/reinitialiser', exigerMarchand, ctx => {
-    const config = nettoyerConfig(ctx.corps.config);
+    const config = garderDomaine(nettoyerConfig(ctx.corps.config), lireConfig(ctx.boutique));
     transaction(db, () => {
       db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(config), ctx.boutique.id);
       db.prepare('UPDATE produits SET supprime = 1 WHERE boutique_id = ?').run(ctx.boutique.id);
@@ -504,7 +513,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
     const produits = listerProduits(b.id).filter(p => p.actif).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
       const pb = PrixBarres.verifier({ prix: p.prix, prixReference, historiquePrix }, regime);
-      return { ...p, avis: notes[p.id] || null, ...(pb.ok ? { prixReference } : {}) };
+      return { ...p, avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };
     });
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
     return {

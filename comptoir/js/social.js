@@ -332,6 +332,9 @@ function modalPublication(p) {
       <label class="champ"><span>Accroche (3 premières secondes)</span><input id="pub-accroche" value="${esc(p.accroche)}" ${p.statut === 'publiee' ? 'disabled' : ''}></label>
       <label class="champ"><span>Légende</span><textarea id="pub-legende" rows="6" ${p.statut === 'publiee' ? 'disabled' : ''}>${esc(p.legende)}</textarea></label>
       <p class="mono sous">${esc(p.hashtags.join(' '))}</p>
+      <fieldset class="partenariat" ${p.statut === 'publiee' ? 'disabled' : ''}><label class="case"><input type="checkbox" id="pub-partenariat" ${p.partenariat ? 'checked' : ''}> Contenu en partenariat (influenceur, créateur payé ou produit offert)</label>
+        <label class="champ"><span>Avec (compte du partenaire)</span><input id="pub-avec" value="${esc(p.partenariat ? p.partenariat.avec : '')}" placeholder="@compte"></label>
+        <p class="sous">La mention « Publicité · Collaboration commerciale » est ajoutée en tête de la légende et doit aussi apparaître dans la vidéo. En France, c’est une obligation légale (loi du 9 juin 2023) ; en Suisse, la Commission pour la loyauté juge insuffisant un hashtag noyé parmi d’autres. Sur TikTok, activez aussi le réglage « contenu de marque ».</p></fieldset>
       ${p.variantes && p.variantes.length ? `<div class="bloc"><h3>Accroches à tester en variantes</h3><ul class="variantes">${p.variantes.map(v => `<li>${esc(v)}</li>`).join('')}</ul><p class="sous">Publiez la même vidéo avec une autre accroche : seules les 3 premières secondes changent. Le pilote compare les résultats.</p></div>` : ''}
       ${p.script ? `<p class="encart">Format : vertical 9:16, message lisible sans le son dans les 3 premières secondes, 15 s ou moins si la vidéo sert aussi de publicité. Gardez le texte hors des 14 % du haut et des 35 % du bas de l’écran (Meta). Une vidéo originale, sans filigrane d’une autre application : Instagram classe les reposts plus bas.</p>` : ''}
       ${p.script ? `<div class="bloc"><h3>Script vidéo</h3><ol class="script">${p.script.map(s => `<li><b class="mono">${s.t}</b><span>${esc(s.texte)}</span></li>`).join('')}</ol></div>` : ''}
@@ -340,6 +343,16 @@ function modalPublication(p) {
         <button class="btn fantome" data-action="publier-pub" data-id="${p.id}">Publier maintenant</button>
         <button class="btn fantome danger" data-action="supprimer-pub" data-id="${p.id}">Supprimer</button></div>`}
     </div></div>`;
+}
+
+/* Champs modifiables de la fenêtre, avec la mention de partenariat placée en tête de la légende. */
+const MENTION = 'Publicité · Collaboration commerciale';
+function champsPublication() {
+  const part = $('#pub-partenariat') && $('#pub-partenariat').checked;
+  const avec = ($('#pub-avec') ? $('#pub-avec').value : '').trim();
+  let legende = $('#pub-legende').value.replace(new RegExp('^' + MENTION + '[^\\n]*\\n+'), '');
+  if (part) legende = `${MENTION}${avec ? ' avec ' + avec : ''}\n\n${legende}`;
+  return { accroche: $('#pub-accroche').value, legende, partenariat: part ? { avec } : null };
 }
 
 /* ---------- Événements ---------- */
@@ -359,11 +372,11 @@ document.addEventListener('click', async e => {
     } else if (action === 'voir-pub') {
       ui.modal = { type: 'html', html: modalPublication(pub) }; rendreModal();
     } else if (action === 'enregistrer-pub') {
-      await socialEnregistrer('maj', { ...pub, accroche: $('#pub-accroche').value, legende: $('#pub-legende').value, statut: 'programmee' });
+      await socialEnregistrer('maj', { ...pub, ...champsPublication(), statut: 'programmee' });
       ui.modal = null; rendreModal(); toast('Publication programmée.'); rendre();
     } else if (action === 'publier-pub') {
       if (!etat.social.comptes[pub.reseau]) { toast(`Connectez d’abord ${RESEAUX[pub.reseau].nom}.`); return; }
-      await socialEnregistrer('maj', { ...pub, accroche: $('#pub-accroche').value, legende: $('#pub-legende').value });
+      await socialEnregistrer('maj', { ...pub, ...champsPublication() });
       await socialEnregistrer('publier', pub);
       ui.modal = null; rendreModal(); toast(`Publié sur ${RESEAUX[pub.reseau].nom}.`); rendre();
     } else if (action === 'supprimer-pub') {
