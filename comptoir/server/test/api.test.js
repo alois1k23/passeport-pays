@@ -151,7 +151,7 @@ test('stock, transitions et caisse pour les produits en stock', async () => {
   assert.equal(npa.statut, 400, 'NPA suisse à 4 chiffres');
 
   const cmd = await acheteur('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: coffret.id, qte: 2 }], livraison: 'poste-prio', client: { nom: 'B', email: 'b@exemple.ch', adresse: 'Rue 2', npa: '1006', ville: 'Lausanne' } });
-  assert.equal(cmd.json.total, 127, '118 + 9 (Priority jamais offert)');
+  assert.equal(cmd.json.total, 121.1, '118 − 5 % (2 articles) = 112,10 + 9 (Priority jamais offert)');
   await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
   let e = await marchand('GET', '/api/admin/etat');
   assert.equal(e.json.produits.find(p => p.id === coffret.id).stock, 1);
@@ -243,4 +243,62 @@ test('réseaux sociaux : brouillon, validation, publication automatique à l’�
   const pub = await marchand('POST', `/api/admin/publications/${brouillon.id}/publier`);
   assert.equal(pub.json.publication.statut, 'publiee');
   assert.equal(e.json.social.comptes.pinterest, false);
+});
+
+
+test('codes promo, newsletter et e-mail de bienvenue', async () => {
+  const c = config('Lacustre');
+  c.offres = { paliersActifs: false, codes: [{ code: 'lancement20', remise: 20 }] };
+  c.automatisations = { bienvenue: { actif: true, remise: 10, code: 'BIENVENUE10' } };
+  await marchand('PUT', '/api/admin/config', { config: c });
+  const acheteur = client();
+  assert.equal((await acheteur('POST', `/api/public/${slug}/code`, { code: 'faux' })).statut, 404);
+  assert.deepEqual((await acheteur('POST', `/api/public/${slug}/code`, { code: 'Lancement20' })).json, { code: 'LANCEMENT20', remise: 20 });
+  const etat = await marchand('GET', '/api/admin/etat');
+  const coffret = etat.json.produits.find(p => p.type === 'stock');
+  const cmd = await acheteur('POST', `/api/public/${slug}/commandes`, { code: 'LANCEMENT20', lignes: [{ produitId: coffret.id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C', email: 'c@exemple.ch', adresse: 'Rue 3', npa: '1004', ville: 'Lausanne' } });
+  assert.equal(cmd.json.total, 54.2, '59 − 20 % = 47,20 + 7 de port (sous 60 après remise)');
+  assert.equal((await acheteur('POST', `/api/public/${slug}/commandes`, { code: 'INCONNU', lignes: [{ produitId: coffret.id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C', email: 'c@exemple.ch', adresse: 'Rue 3', npa: '1004', ville: 'Lausanne' } })).statut, 400);
+  await acheteur('POST', `/api/public/${slug}/newsletter`, { email: 'nouveau@exemple.ch' });
+  await acheteur('POST', `/api/public/${slug}/newsletter`, { email: 'nouveau@exemple.ch' });
+  const mails = (await marchand('GET', '/api/admin/emails')).json.filter(m => m.destinataire === 'nouveau@exemple.ch');
+  assert.equal(mails.length, 1, 'un seul e-mail de bienvenue');
+  assert.match(mails[0].corps, /BIENVENUE10/);
+  assert.equal((await marchand('GET', '/api/admin/etat')).json.abonnes, 1);
+});
+
+test('relance de paiement abandonné, reprise et récupération ; demande d’avis', async () => {
+  const c = config('Lacustre');
+  c.automatisations = { paiement: { actif: true, etapes: [{ heures: 1 }, { heures: 24 }] }, avis: { actif: true, jours: 7 } };
+  await marchand('PUT', '/api/admin/config', { config: c });
+  const etat = await marchand('GET', '/api/admin/etat');
+  const coffret = etat.json.produits.find(p => p.type === 'stock');
+  const acheteur = client();
+  const cmd = await acheteur('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: coffret.id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Dana', email: 'dana@exemple.ch', adresse: 'Rue 4', npa: '1005', ville: 'Lausanne' } });
+  const gerer = serveur.listeners('request')[0];
+  const maintenant = Date.now();
+  assert.equal(gerer.automatisationsEcheances(maintenant + 30 * 60000) >= 0, true);
+  let mails = () => marchand('GET', '/api/admin/emails').then(r => r.json.filter(m => m.destinataire === 'dana@exemple.ch'));
+  assert.equal((await mails()).length, 0, 'pas de relance avant 1 heure');
+  gerer.automatisationsEcheances(maintenant + 2 * 3600000);
+  gerer.automatisationsEcheances(maintenant + 2 * 3600000);
+  assert.equal((await mails()).length, 1, 'une seule relance après 1 heure, même si le planificateur repasse');
+  gerer.automatisationsEcheances(maintenant + 25 * 3600000);
+  const relances = await mails();
+  assert.equal(relances.length, 2);
+  const lien = /reprendre=([^&]+)&jeton=(\S+)/.exec(relances[0].corps);
+  const rep = await acheteur('POST', `/api/public/${slug}/commandes/${decodeURIComponent(lien[1])}/reprendre`, { jeton: decodeURIComponent(lien[2]) });
+  assert.match(rep.json.paiementUrl, /paiement-simule/);
+  await fetch(rep.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  let e = await marchand('GET', '/api/admin/etat');
+  const c2 = e.json.commandes.find(x => x.id === cmd.json.commandeId);
+  assert.equal(c2.statut, 'payee');
+  assert.equal(c2.recuperee, true);
+  assert.equal((await acheteur('POST', `/api/public/${slug}/commandes/${cmd.json.commandeId}/reprendre`, { jeton: cmd.json.jeton })).statut, 409);
+  // Livraison puis demande d'avis 7 jours plus tard
+  for (const s of ['preparation', 'expediee', 'livree']) await marchand('POST', `/api/admin/commandes/${c2.id}/statut`, { statut: s });
+  gerer.automatisationsEcheances(Date.now() + 8 * 86400000);
+  assert.ok((await mails()).some(m => /Votre avis/.test(m.sujet)));
+  e = await marchand('GET', '/api/admin/etat');
+  assert.ok(e.json.envois.paiement >= 2 && e.json.envois.avis >= 1);
 });

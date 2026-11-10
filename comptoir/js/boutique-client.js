@@ -6,7 +6,7 @@ const slug = location.pathname.split('/').filter(Boolean)[1];
 const CLE_PANIER = `comptoir-panier-${slug}`;
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
-const vue = { panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null };
+const vue = { panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '' };
 
 function lirePanier() { try { return JSON.parse(localStorage.getItem(CLE_PANIER)) || []; } catch { return []; } }
 function garderPanier() { try { localStorage.setItem(CLE_PANIER, JSON.stringify(vue.panier)); } catch { /* ignoré */ } }
@@ -28,6 +28,7 @@ async function demarrer() {
   vue.panier = vue.panier.map(l => { const p = donnees.produits.find(x => x.id === l.produitId); return p && { produitId: p.id, nom: p.nom, prix: p.prix, qte: l.qte }; }).filter(Boolean);
   vue.livraison = Object.keys(donnees.livraisons)[0];
   const q = new URLSearchParams(location.search);
+  if (q.get('reprendre')) { reprendrePaiement(q.get('reprendre'), q.get('jeton')); return; }
   if (q.get('commande')) suivreCommande(q.get('commande'), q.get('jeton'), q.get('annule'));
   rendre();
 }
@@ -38,9 +39,18 @@ function fraisPortClient(cle, sousTotal) {
   return !m.jamaisOffert && sousTotal >= donnees.seuilPortOffert ? 0 : m.prix;
 }
 
+/* Remises : même calcul que le serveur (js/remises.js), avec le code validé par l’API. */
+function calculPanier() {
+  const config = { offres: { ...donnees.offres, codes: vue.code ? [vue.code] : [] } };
+  return Remises.appliquer(vue.panier, config, vue.code ? vue.code.code : '');
+}
+
 function rendre() {
-  const total = vue.panier.reduce((a, l) => a + l.prix * l.qte, 0);
+  const calc = calculPanier();
+  const total = calc.apresRemise;
   const port = total ? fraisPortClient(vue.livraison, total) : 0;
+  const seuil = donnees.seuilPortOffert;
+  const suggestion = donnees.offres.suggestions ? donnees.produits.find(p => !vue.panier.some(l => l.produitId === p.id) && (p.type === 'drop' || p.stock > 0)) : null;
   const drops = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.type === 'drop' && p.delai);
   const delai = drops.length ? [Math.max(...drops.map(p => p.delai[0])), Math.max(...drops.map(p => p.delai[1]))] : null;
   const ch = donnees.boutique.pays === 'ch';
@@ -60,10 +70,15 @@ function rendre() {
           <ul class="lignes-panier">${vue.panier.map(l => `<li><span>${esc(l.nom)}</span>
             <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-d="1" aria-label="Ajouter un">+</button></div>
             <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
+          ${donnees.offres.barrePort && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuil * 100)}%"></i></span></div>` : ''}
+          ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
+          ${suggestion ? `<div class="suggestion">${visuelProduit(suggestion)}<div><small>Souvent ajouté</small><strong>${esc(suggestion.nom)}</strong><span>${euros(suggestion.prix)}</span></div><button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${esc(suggestion.id)}">Ajouter</button></div>` : ''}
+          <form id="form-code" class="code-promo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(vue.code ? vue.code.code : '')}" autocomplete="off"><button class="sf-btn sf-btn-ligne">${vue.code ? 'Changer' : 'Appliquer'}</button></form>
+          ${vue.codeMessage ? `<p class="mini">${esc(vue.codeMessage)}</p>` : ''}
           <fieldset class="modes-livraison"><legend>Livraison</legend>${Object.entries(donnees.livraisons).map(([k, m]) => `
             <label class="${vue.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${esc(k)}" data-c="livraison" ${vue.livraison === k ? 'checked' : ''}>
             <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : delai ? `${delai[0]} à ${delai[1]} jours` : ''}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
-          <div class="totaux"><div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
+          <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
           <form id="commande">
             <label class="champ"><span>Nom et prénom</span><input name="nom" required autocomplete="name"></label>
             <label class="champ"><span>E-mail</span><input name="email" type="email" required autocomplete="email"></label>
@@ -98,7 +113,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte })), livraison: vue.livraison, client: Object.fromEntries(d) })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, client: Object.fromEntries(d) })
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
@@ -165,8 +180,42 @@ document.addEventListener('change', e => { if (e.target.dataset.c === 'livraison
 document.addEventListener('submit', e => {
   e.preventDefault();
   if (e.target.id === 'commande') envoyerCommande(e.target);
-  else if (e.target.dataset.sf === 'newsletter') e.target.innerHTML = '<p>Merci, vous êtes inscrit.</p>';
+  else if (e.target.dataset.sf === 'newsletter') inscrireNewsletter(e.target);
+  else if (e.target.id === 'form-code') appliquerCode(e.target.elements.code.value);
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { vue.legal = null; vue.ouvert = false; rendre(); } });
+
+async function appliquerCode(code) {
+  code = String(code || '').trim();
+  if (!code) { vue.code = null; vue.codeMessage = ''; rendre(); return; }
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    const json = await rep.json();
+    if (!rep.ok) throw new Error(json.erreur);
+    vue.code = json;
+    const calc = calculPanier();
+    vue.codeMessage = calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
+  } catch (e) { vue.code = null; vue.codeMessage = e.message || 'Code non reconnu.'; }
+  rendre();
+}
+
+async function inscrireNewsletter(form) {
+  const email = form.querySelector('input[type=email]').value;
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/newsletter`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    if (!rep.ok) throw new Error((await rep.json()).erreur);
+    form.innerHTML = `<p>Merci, vous êtes inscrit.${donnees.newsletter && donnees.newsletter.actif && donnees.newsletter.code ? ` Votre code de bienvenue vous attend par e-mail.` : ''}</p>`;
+  } catch (e) { form.insertAdjacentHTML('beforeend', `<p class="erreur-form">${esc(e.message || 'Inscription impossible.')}</p>`); }
+}
+
+async function reprendrePaiement(id, jeton) {
+  vue.ouvert = true; vue.message = '<p>Reprise de votre commande…</p>'; rendre();
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(id)}/reprendre`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton }) });
+    const json = await rep.json();
+    if (!rep.ok) throw new Error(json.erreur);
+    location.href = json.paiementUrl;
+  } catch (e) { vue.message = `<p>${esc(e.message || 'Impossible de reprendre cette commande.')}</p>`; history.replaceState(null, '', location.pathname); rendre(); }
+}
 
 demarrer();

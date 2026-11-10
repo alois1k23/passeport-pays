@@ -14,6 +14,9 @@ const gerer = creerApp({ db, env, urlPublique });
 // Le pilote des réseaux sociaux publie ce qui est programmé, chaque minute.
 setInterval(() => gerer.publierEcheances().catch(e => console.error('[social]', e.message)), Number(env.SOCIAL_INTERVALLE_MS || 60000)).unref();
 
+// E-mails automatiques (relances de paiement, avis, reconquête), toutes les 5 minutes.
+setInterval(() => { try { gerer.automatisationsEcheances(); } catch (e) { console.error('[relances]', e.message); } }, Number(env.AUTO_INTERVALLE_MS || 300000)).unref();
+
 http.createServer(gerer).listen(port, () => {
   console.log(`Comptoir écoute sur ${urlPublique}`);
   console.log(`Paiements : ${env.STRIPE_SECRET_KEY ? 'Stripe (TWINT + cartes)' : 'simulation (aucune clé Stripe)'}`);

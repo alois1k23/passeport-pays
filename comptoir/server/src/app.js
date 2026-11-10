@@ -10,6 +10,8 @@ const prix = require('./prix');
 const { choisirPrestataire } = require('./paiements');
 const fournisseurs = require('./fournisseurs');
 const social = require('./social');
+const relances = require('./relances');
+const Remises = require('../../js/remises.js');
 
 const RACINE_FRONT = path.resolve(__dirname, '..', '..');
 const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|accueil\.html|css\/[\w.-]+\.css|js\/[\w.-]+\.js|img\/[\w.-]+\.(jpg|png|svg))$/;
@@ -26,6 +28,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const delaiExpeditionDemo = env.DEMO_DELAI_EXPEDITION_MS === undefined ? 120000 : Number(env.DEMO_DELAI_EXPEDITION_MS);
   const secretsDemo = { cleApiDemo: crypto.randomBytes(24).toString('hex'), secretWebhookDemo: crypto.randomBytes(24).toString('hex') };
   fournisseurs.installerDemo(db, urlPublique, secretsDemo);
+  relances.creerTables(db);
 
   /* ---------- Accès aux données ---------- */
   const lireConfig = b => JSON.parse(b.config);
@@ -99,6 +102,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       rdv: config.rdv || null,
       cookies: config.cookies || null,
       social: social.nettoyerReglages(config.social),
+      automatisations: relances.nettoyer(config.automatisations),
+      offres: Remises.offresDe(config),
       tests: (Array.isArray(config.tests) ? config.tests : []).slice(-50).map(t => ({
         id: String(t.id).slice(0, 30), produitId: String(t.produitId).slice(0, 40), canal: ['meta', 'tiktok-ads', 'organique'].includes(t.canal) ? t.canal : 'meta',
         budgetJour: Math.max(0, Number(t.budgetJour) || 0), debut: Number(t.debut) || Date.now(),
@@ -184,6 +189,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const c = lireCommande(row);
       c.statut = 'payee';
       c.facture = prochaineFacture(row.boutique_id, Date.now());
+      if (c.relances) { c.recuperee = true; c.historique.push({ date: Date.now(), texte: 'Paiement récupéré après relance' }); }
       historique(c, `Paiement ${p.fournisseur === 'stripe' ? 'en ligne' : 'simulé'} accepté (${formatMontant(p.montant_centimes / 100, lireConfig(db.prepare('SELECT config FROM boutiques WHERE id = ?').get(row.boutique_id)))})`);
       enregistrerCommande(c);
       ajusterStock(row.boutique_id, c.lignes, -1);
@@ -251,7 +257,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const config = lireConfig(ctx.boutique);
     const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(lireCommande);
     const publications = db.prepare('SELECT * FROM publications WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(social.lire);
-    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
+    const abonnes = db.prepare('SELECT COUNT(*) AS n FROM abonnes WHERE boutique_id = ?').get(ctx.boutique.id).n;
+    const envois = Object.fromEntries(db.prepare("SELECT substr(cle, 1, instr(cle, ':') - 1) AS type, COUNT(*) AS n FROM envois_auto WHERE boutique_id = ? GROUP BY type").all(ctx.boutique.id).map(x => [x.type, x.n]));
+    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom } };
   });
   r.put('/api/admin/config', exigerMarchand, ctx => {
     const config = nettoyerConfig(ctx.corps.config);
@@ -412,6 +420,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       produits,
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: prix.SEUIL_PORT_OFFERT,
+      offres: (({ paliersActifs, paliers, suggestions, barrePort }) => ({ paliersActifs, paliers, suggestions, barrePort }))(Remises.offresDe(config)),
+      newsletter: relances.nettoyer(config.automatisations).bienvenue,
       paiement: paiement.nom
     };
   });
@@ -419,7 +429,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = boutiqueParSlug(ctx.params.slug);
     const config = lireConfig(b);
     const produits = listerProduits(b.id);
-    const lignes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
+    const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
     const modes = prix.modesLivraison(config);
     const mode = modes[ctx.corps.livraison];
     if (!mode) throw erreur(400, 'Mode de livraison indisponible.', 'livraison_invalide');
@@ -432,14 +442,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       ville: valider.texte(cl.ville, 'La ville', { max: 100 })
     };
     if (config.boutique.pays === 'ch' && client.npa && !/^\d{4}$/.test(client.npa)) throw erreur(400, 'Le NPA suisse compte 4 chiffres.', 'npa_invalide');
-    const sousTotal = prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
-    const port = prix.fraisPort(mode, sousTotal);
-    const total = prix.arrondi(sousTotal + port);
+    const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
+    if (ctx.corps.code && calcul.codeValide === false) throw erreur(400, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
+    const lignes = calcul.lignes;
+    const sousTotal = calcul.sousTotal, remise = calcul.remise;
+    const port = prix.fraisPort(mode, calcul.apresRemise);
+    const total = prix.arrondi(calcul.apresRemise + port);
     const devise = config.boutique.devise || 'EUR';
     const { commande, pmt } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
-      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes, sousTotal, port, total, livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' }] };
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes, sousTotal, remise, motifRemise: calcul.motif ? calcul.motif.libelle : null, port, total, livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${calcul.motif.libelle})` : '') }] };
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
@@ -452,6 +465,47 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { commandeId: commande.id, numero: commande.numero, jeton: commande.jeton, total, paiementUrl: session.url } };
   });
+  r.post('/api/public/:slug/code', ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    const saisi = String(ctx.corps.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const c = Remises.codesValables(lireConfig(b)).find(x => x.code === saisi);
+    if (!c) throw erreur(404, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
+    return { code: c.code, remise: c.remise };
+  });
+  r.post('/api/public/:slug/newsletter', ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    const email = valider.email(ctx.corps.email);
+    db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(b.id, email, Date.now());
+    relances.emailBienvenue({ db, boutique: b, config: lireConfig(b), email, urlPublique, envoyerEmail });
+    return { ok: true };
+  });
+  r.post('/api/public/:slug/commandes/:id/reprendre', async ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
+    const jeton = String(ctx.corps.jeton || '');
+    if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    if (row.statut !== 'attente') throw erreur(409, 'Cette commande est déjà payée ou annulée.', 'deja_traitee');
+    const c = lireCommande(row);
+    const devise = lireConfig(b).boutique.devise || 'EUR';
+    const pmt = { id: auth.nouvelId('pay_'), commande_id: c.id };
+    db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(pmt.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', Date.now());
+    const retour = `${urlPublique}/s/${b.slug}?commande=${c.id}&jeton=${row.jeton_client}`;
+    const session = await paiement.creerSession({ paiement: pmt, commande: c, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
+    db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
+    return { paiementUrl: session.url };
+  });
+
+  /* E-mails automatiques de toutes les boutiques (appelé régulièrement). */
+  function automatisationsEcheances(maintenant = Date.now()) {
+    let n = 0;
+    for (const b of db.prepare('SELECT * FROM boutiques').all()) {
+      const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));
+      n += relances.executer({ db, boutique: b, config: lireConfig(b), commandes, maintenant, urlPublique, envoyerEmail, formatMontant,
+        enregistrerCommande: c => { const { jeton, ...reste } = c; enregistrerCommande(reste); } });
+    }
+    return n;
+  }
+
   r.get('/api/public/:slug/commandes/:id', ctx => {
     const b = boutiqueParSlug(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
@@ -577,6 +631,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     }
   }
   gerer.publierEcheances = publierEcheances;
+  gerer.automatisationsEcheances = automatisationsEcheances;
   return gerer;
 }
 

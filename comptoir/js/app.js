@@ -92,6 +92,7 @@ const ICONES = {
   produits: '<path d="m12 3 8.5 4.5v9L12 21l-8.5-4.5v-9Z"/><path d="m3.5 7.5 8.5 4.5 8.5-4.5M12 12v9"/>',
   sourcing: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   tests: '<path d="M9 3h6M10 3v6l-5.5 9.5A1.5 1.5 0 0 0 5.8 21h12.4a1.5 1.5 0 0 0 1.3-2.5L14 9V3"/><path d="M7.5 15h9"/>',
+  conversion: '<path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/>',
   social: '<path d="M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1Z"/><path d="M16 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
   domaines: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   editeur: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/>',
@@ -116,6 +117,7 @@ const NAV = [
   ['sourcing', 'Trouver des produits', 'Catalogue'],
   ['tests', 'Tests produits', 'Catalogue'],
   ['social', 'Réseaux sociaux', 'Croissance'],
+  ['conversion', 'Conversion et e-mails', 'Croissance'],
   ['domaines', 'Domaines', 'Croissance'],
   ['editeur', 'Éditeur du site', 'Boutique'],
   ['conformite', 'Conformité', 'Boutique'],
@@ -152,7 +154,7 @@ function rendre() {
   document.title = `${t || 'Comptoir'} · ${etat.boutique.nom}`;
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : (typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? location.host + '/s/' + SERVEUR.slug : slugifier(etat.boutique.nom) + '.comptoir.shop');
-  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
+  const vues = { tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   $('#vue').innerHTML = (vues[route] || vueTableau)();
   apresRendu();
 }
@@ -530,7 +532,9 @@ function vueDomaines() {
 
 /* ---------- Boutique en ligne (vue client) ---------- */
 function vueBoutique() {
-  const total = ui.panier.reduce((a, l) => a + l.prix * l.qte, 0);
+  etatConversion();
+  const calc = Remises.appliquer(ui.panier, etat, ui.codePromo || '');
+  const total = calc.apresRemise;
   const modes = Object.entries(livraisonsPays(etat.boutique.pays)).filter(([k]) => k !== 'retrait' || etat.magasin.clickCollect);
   if (!modes.find(([k]) => k === ui.livraison)) ui.livraison = modes[0][0];
   const delaisDrop = ui.panier.map(l => etat.produits.find(p => p.id === l.produitId)).filter(p => p && p.type === 'drop' && p.delai);
@@ -550,7 +554,11 @@ function vueBoutique() {
         <ul class="lignes-panier">${ui.panier.map(l => `<li><span>${esc(l.nom)}</span>
           <div class="qte"><button data-action="qte" data-id="${l.produitId}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-action="qte" data-id="${l.produitId}" data-d="1" aria-label="Ajouter un">+</button></div>
           <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
-        <div class="totaux"><div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
+        ${etat.offres.barrePort && ui.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= SEUIL_PORT_OFFERT ? 'Livraison offerte' : `Plus que <b>${euros(SEUIL_PORT_OFFERT - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / SEUIL_PORT_OFFERT * 100)}%"></i></span></div>` : ''}
+        ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
+        <form class="code-promo" data-form="code-demo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(ui.codePromo || '')}"><button class="sf-btn sf-btn-ligne">Appliquer</button></form>
+        ${calc.codeValide === false ? '<p class="mini">Ce code n’existe pas ou a expiré.</p>' : calc.codeMoinsBon ? '<p class="mini">Code valable, mais la remise par quantité est plus avantageuse (non cumulable).</p>' : ''}
+        <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
         <fieldset class="modes-livraison"><legend>Livraison</legend>${modes.map(([k, l]) => `<label class="${ui.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${k}" data-livraison ${ui.livraison === k ? 'checked' : ''}><span>${esc(l.nom)}<small>${k === 'retrait' ? esc(etat.magasin.adresse) + ' · prêt en ' + l.delai : delaiMax ? `${delaiMax[0]} à ${delaiMax[1]} jours (expédié par notre partenaire)` : l.delai}</small></span><b>${fraisPort(k, total) ? euros(fraisPort(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
         <form data-form="paiement">
           <label class="champ"><span>Nom</span><input id="pay-nom" name="nom" required value="Alex Morel"></label>
@@ -565,7 +573,8 @@ function vueBoutique() {
 
 function passerCommande(form) {
   const d = new FormData(form);
-  const sousTotal = ui.panier.reduce((a, l) => a + l.prix * l.qte, 0);
+  const calc = Remises.appliquer(ui.panier, etat, ui.codePromo || '');
+  const sousTotal = calc.apresRemise;
   const port = fraisPort(ui.livraison, sousTotal);
   const numero = Math.max(1000, ...etat.commandes.map(c => c.numero)) + 1;
   const now = Date.now();
@@ -573,7 +582,7 @@ function passerCommande(form) {
     livraison: ui.livraison, canal: 'web', facture: numeroFactureSuivant(etat, now),
     id: 'c' + numero, numero, date: now,
     client: { nom: d.get('nom'), email: d.get('email'), ville: d.get('ville') },
-    lignes: ui.panier.map(l => ({ ...l })), sousTotal, port, total: Math.round((sousTotal + port) * 100) / 100,
+    lignes: calc.lignes.map(({ prixInitial, ...l }) => l), sousTotal, remise: calc.remise, motifRemise: calc.motif ? calc.motif.libelle : null, port, total: Math.round((sousTotal + port) * 100) / 100,
     statut: 'payee', suivi: '', note: '',
     historique: [{ date: now, texte: 'Commande passée en ligne' }, { date: now, texte: `Paiement ${etat.boutique.pays === 'ch' ? 'TWINT' : 'par carte'} accepté (simulé)` }]
   });
@@ -777,6 +786,8 @@ document.addEventListener('submit', e => {
     const i = etat.produits.findIndex(x => x.id === p.id);
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);
     ui.produitEdite = null; sauver(); toast(`« ${p.nom} » enregistré.`); rendre();
+  } else if (f.dataset.form === 'code-demo') {
+    ui.codePromo = String(new FormData(f).get('code') || '').trim(); rendre();
   } else if (f.dataset.form === 'paiement') {
     passerCommande(f);
   } else if (f.dataset.sf === 'newsletter') {
