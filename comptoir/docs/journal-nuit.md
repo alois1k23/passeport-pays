@@ -60,7 +60,7 @@ Faux positifs de l'outil corrigés au passage : étiquettes dans un bloc « Rég
 
 Résultat final de l'audit : aucun problème. Tests : 26.
 
-### Cycle 3 — Volume et performance (0 h 25 – 0 h 45)
+### Cycle 3 — Volume et performance (0 h 23 – 0 h 25)
 
 Outil ajouté : `outils/simulation/volume.js` : une boutique de 500 produits et 10 000 commandes sur 13 mois (2 500 clients, 10 villes, tous les statuts), puis mesures.
 
@@ -81,3 +81,19 @@ Outil ajouté : `outils/simulation/volume.js` : une boutique de 500 produits et 
 À surveiller au-delà de 50 000 commandes : charger les commandes par pages côté serveur plutôt qu'en une fois.
 
 Tests : 26.
+
+### Cycle 4 — Calculs (0 h 25 – 0 h 35)
+
+Nouveau test serveur `server/test/calculs.test.js` : 300 paniers aléatoires reproductibles (prix à 0,05 ou à trois décimales, 1 à 4 produits, quantités 1 à 5, paliers 5 % et 12 %, codes en minuscules ou entourés d'espaces, seuil de port, offre complémentaire) envoyés au vrai serveur et comparés au calcul de l'interface.
+
+Résultat : 0 écart au centime sur toutes les commandes créées, aucun montant à plus de 2 décimales.
+
+**Défauts trouvés et corrigés**
+
+1. **TVA des factures recalculée avec le taux du jour.** Si le marchand changeait de régime (non assujetti puis assujetti), toutes ses anciennes factures changeaient de montant HT et de TVA, alors qu'une facture émise ne doit jamais changer. Le taux est désormais figé dans chaque commande (en ligne, caisse, complément après achat) ; la facture l'utilise. Testé.
+2. **Prix à trois décimales enregistrés tels quels** (12,345 affiché 12.35, mais les lignes de facture gardaient la fraction). Prix et coûts sont arrondis au centime à l'enregistrement, et aussi à la commande pour les produits déjà enregistrés.
+3. **Caisse en Suisse** : le ticket indique le montant à encaisser en espèces, arrondi aux 5 centimes.
+
+Vérifié identique dans les deux calculs : seuil de livraison offerte, modes jamais offerts, remise la plus avantageuse entre palier et code, offres complémentaires.
+
+Tests : 28.

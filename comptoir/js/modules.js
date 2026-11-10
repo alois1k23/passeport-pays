@@ -90,6 +90,7 @@ function vueMagasin() {
         ${ui.caisse.length ? `<table class="table compacte"><tbody>${ui.caisse.map(l => `<tr><td class="num">${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td><td class="num"><button class="icone" data-action="caisse-retire" data-id="${l.produitId}" aria-label="Retirer ${esc(l.nom)}">×</button></td></tr>`).join('')}</tbody></table>`
           : '<p class="sous ticket-vide">Touchez un produit pour l’ajouter au ticket.</p>'}
         <div class="ticket-total"><span>Total TTC</span><strong>${euros(totalCaisse)}</strong></div>
+        ${estSuisse() && ui.caisse.length && Math.round(totalCaisse * 20) / 20 !== Math.round(totalCaisse * 100) / 100 ? `<p class="sous">En espèces : ${euros(Math.round(totalCaisse * 20) / 20)} (arrondi aux 5 centimes).</p>` : ''}
         <div class="rangee">${estSuisse() ? `<button class="btn" data-action="encaisser" data-moyen="twint" ${ui.caisse.length ? '' : 'disabled'}>TWINT</button>` : ''}<button class="btn${estSuisse() ? ' fantome' : ''}" data-action="encaisser" data-moyen="carte" ${ui.caisse.length ? '' : 'disabled'}>Carte</button><button class="btn fantome" data-action="encaisser" data-moyen="especes" ${ui.caisse.length ? '' : 'disabled'}>Espèces</button></div>
       </div>
     </section>
@@ -126,7 +127,7 @@ function encaisser(moyen) {
     id: 'c' + numero, numero, date: now,
     client: { nom: 'Client en boutique', email: '', ville: etat.magasin.adresse.split(',').pop().trim() || '' },
     lignes: ui.caisse.map(l => ({ ...l })), sousTotal: total, port: 0, total: Math.round(total * 100) / 100,
-    statut: 'retiree', livraison: 'retrait', canal: 'magasin', suivi: '', note: '',
+    statut: 'retiree', livraison: 'retrait', canal: 'magasin', suivi: '', note: '', tauxTva: tauxTvaVente(),
     historique: [{ date: now, texte: `Vente encaissée en boutique (${moyen === 'especes' ? 'espèces' : moyen === 'twint' ? 'TWINT' : 'carte'})` }]
   };
   c.facture = numeroFactureSuivant(etat, now);
@@ -140,7 +141,8 @@ function encaisser(moyen) {
 
 /* ---------- Conformité française ---------- */
 function tva(c) {
-  const taux = tauxTvaVente();
+  // Taux figé au moment de la vente : une facture émise ne change pas si le régime de TVA change ensuite.
+  const taux = typeof c.tauxTva === 'number' ? c.tauxTva : tauxTvaVente();
   const franchise = taux === 0;
   const ttc = c.total, ht = franchise ? ttc : Math.round(ttc / (1 + taux) * 100) / 100;
   return { ht, tva: Math.round((ttc - ht) * 100) / 100, ttc, franchise, taux };

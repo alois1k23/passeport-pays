@@ -53,7 +53,7 @@ function construireLignes(produits, demandes) {
     if (p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');
     const offre = typeof d.offre === 'string' ? d.offre.slice(0, 20) : undefined;
     const ex = !offre && lignes.find(l => l.produitId === p.id && !l.offre);
-    if (ex) ex.qte += qte; else lignes.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null, ...(offre ? { offre } : {}) });
+    if (ex) ex.qte += qte; else lignes.push({ produitId: p.id, nom: p.nom, prix: Math.round(p.prix * 100) / 100, qte, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null, ...(offre ? { offre } : {}) });
   }
   return lignes;
 }
