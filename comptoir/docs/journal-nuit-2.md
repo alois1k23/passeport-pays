@@ -66,3 +66,17 @@ En Suisse, le paiement sur facture est très répandu. Comptoir le propose maint
   - La page de facture ne contient aucun script.
 - **Tests :** `qrfacture.test.js` couvre la norme, la commande, la facture protégée par jeton, et le relevé camt.054 (paiement reconnu, inconnu, débit ignoré, import en double). Le parcours a aussi été joué dans un vrai navigateur. 76 tests.
 - **Limite honnête :** je n'ai pas pu faire lire le QR code par une application bancaire ni par un lecteur indépendant (l'outil de décodage téléchargé a été refusé, car c'est du code externe). À faire avec une vraie application bancaire avant d'ouvrir.
+
+## Cycle 3 (00 h 00) : corrections de la revue QR-facture
+
+La revue indépendante a relevé 10 points. Tous sont corrigés :
+- Import du relevé bancaire réécrit : lecture linéaire du fichier (un fichier piégé ne bloque plus le serveur), préfixes d'espace de noms acceptés, camt.053 aussi.
+- Seules les écritures comptabilisées (BOOK), au crédit, non contrepassées et en CHF comptent.
+- Chaque transaction est mémorisée. Un relevé importé deux fois ne double rien, et un vrai second versement est signalé « à rembourser ». Un trop-perçu est signalé aussi.
+- Un paiement reçu par le relevé déclenche désormais tout ce que déclenche un paiement en ligne : facture, stock, alerte de rupture, e-mails au client et au marchand, transmission au fournisseur. Le code est partagé (`marquerPayee` et `apresPaiement`).
+- Adresse : la rue est retrouvée même quand le nom de l'entreprise précède l'adresse. NPA et localité sont exigés avant d'activer la facture QR.
+- La boutique ne propose plus « Carte » quand les paiements en ligne ne sont pas activés.
+- Une facture annulée ou remboursée affiche « Annulée : avoir AV-… » au lieu de « Payée ».
+- QR code limité à la version 25, comme le veut la norme. Montant hors bornes laissé vide.
+- Mise en page plus fidèle à la norme : tailles de police, mention « À détacher », cadre « Payable par » quand l'adresse manque.
+- Limite : le QR code n'a pas été relu par un lecteur indépendant. Le décodeur externe a été refusé par la politique de sécurité de la session. À tester avec une application bancaire avant la mise en production.

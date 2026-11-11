@@ -71,6 +71,37 @@ test('paiement sur facture QR de bout en bout : commande, facture, relevé banca
     const encore = await c('POST', '/api/admin/paiements/camt', { xml });
     assert.deepEqual(encore.j.payees, []); assert.deepEqual(encore.j.deja, [cmd.j.numero], 'relevé importé deux fois : rien de doublé');
     assert.equal((await c('POST', '/api/admin/paiements/camt', { xml: '<html>pas un relevé</html>' })).s, 400);
+    // Relevé réaliste : préfixe d'espace de noms, statuts, contrepassation, devise, double versement, trop-perçu
+    const cmd2 = await c('POST', `/api/public/${ins.j.slug}/commandes`, { lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', moyen: 'facture', client: { nom: 'Ueli Muster', email: 'ueli@exemple.ch', adresse: 'Bahnhofstrasse 1', npa: '8001', ville: 'Zürich' } });
+    const r2 = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(cmd2.j.commandeId).donnees);
+    const ntry = ({ ref, montant, ccy = 'CHF', sens = 'CRDT', sts = 'BOOK', rvsl = false, id }) => `<ns:Ntry><ns:Amt Ccy="${ccy}">${montant}</ns:Amt><ns:CdtDbtInd>${sens}</ns:CdtDbtInd>${rvsl ? '<ns:RvslInd>true</ns:RvslInd>' : ''}<ns:Sts><ns:Cd>${sts}</ns:Cd></ns:Sts><ns:AcctSvcrRef>${id}</ns:AcctSvcrRef><ns:NtryDtls><ns:TxDtls><ns:Amt Ccy="${ccy}">${montant}</ns:Amt><ns:RmtInf><ns:Strd><ns:CdtrRefInf><ns:Ref>${ref}</ns:Ref></ns:CdtrRefInf></ns:Strd></ns:RmtInf></ns:TxDtls></ns:NtryDtls></ns:Ntry>`;
+    const doc = e => `<?xml version="1.0"?><ns:Document xmlns:ns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.08"><ns:BkToCstmrDbtCdtNtfctn><ns:Ntfctn>${e.join('')}</ns:Ntfctn></ns:BkToCstmrDbtCdtNtfctn></ns:Document>`;
+    const tot2 = r2.total.toFixed(2);
+    const imp2 = await c('POST', '/api/admin/paiements/camt', { xml: doc([
+      ntry({ ref: r2.referenceQr, montant: tot2, sts: 'PDNG', id: 'A1' }),            // pas encore comptabilisé
+      ntry({ ref: r2.referenceQr, montant: tot2, sens: 'DBIT', id: 'A2' }),           // débit au niveau de l'écriture
+      ntry({ ref: r2.referenceQr, montant: tot2, rvsl: true, id: 'A3' }),             // contrepassation
+      ntry({ ref: r2.referenceQr, montant: tot2, ccy: 'EUR', id: 'A4' })              // autre devise
+    ]) });
+    assert.equal(imp2.s, 200, JSON.stringify(imp2.j)); assert.deepEqual(imp2.j.payees, []); assert.equal(imp2.j.ignorees, 3); assert.equal(imp2.j.ecarts[0].motif, 'devise');
+    const imp3 = await c('POST', '/api/admin/paiements/camt', { xml: doc([ntry({ ref: r2.referenceQr, montant: (r2.total + 5).toFixed(2), id: 'B1' })]) });
+    assert.deepEqual(imp3.j.payees, [cmd2.j.numero]); assert.equal(imp3.j.ecarts[0].motif, 'trop-percu');
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'ueli@exemple.ch' AND sujet LIKE '%confirmée'").get(), 'confirmation au client comme un paiement en ligne');
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE sujet LIKE ?").get(`Nouvelle commande n° ${cmd2.j.numero} %`), 'marchand prévenu');
+    const imp4 = await c('POST', '/api/admin/paiements/camt', { xml: doc([ntry({ ref: r2.referenceQr, montant: tot2, id: 'C1' })]) });
+    assert.deepEqual(imp4.j.doublons.map(x => x.numero), [cmd2.j.numero], 'second versement réel : signalé à rembourser');
+    assert.deepEqual((await c('POST', '/api/admin/paiements/camt', { xml: doc([ntry({ ref: r2.referenceQr, montant: tot2, id: 'C1' })]) })).j.doublons, [], 'même relevé réimporté : pas de doublon');
+    // Fichier hostile : grand nombre de balises ouvertes, analyse en temps linéaire
+    const t0 = Date.now();
+    await c('POST', '/api/admin/paiements/camt', { xml: doc(['<Ntry><CdtrRefInf><Ref>'.repeat(60000)]) });
+    assert.ok(Date.now() - t0 < 3000, 'analyse rapide d’un fichier piégé');
+    // Facture annulée : plus « Payée »
+    const cmd3 = await c('POST', `/api/public/${ins.j.slug}/commandes`, { lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', moyen: 'facture', client: { nom: 'Anna Muster', email: 'anna@exemple.ch', adresse: 'Rue 2', npa: '1003', ville: 'Lausanne' } });
+    assert.equal((await c('POST', `/api/admin/commandes/${cmd3.j.commandeId}/statut`, { statut: 'annulee' })).s, 200);
+    const html3 = await (await fetch(cmd3.j.factureUrl)).text();
+    assert.match(html3, /Annulée : avoir AV-/); assert.doesNotMatch(html3, /Section paiement/);
+    // Adresse avec nom d'entreprise en tête : la rue est gardée
+    assert.deepEqual(Q.decouperAdresse('Atelier Bleu, Rue du Lac 12, 1003 Lausanne').rue, 'Rue du Lac');
     // Boutique sans IBAN valable : moyen refusé
     db.prepare("UPDATE boutiques SET config = json_set(config, '$.entreprise.iban', 'CH00 1234') WHERE slug = ?").run(ins.j.slug);
     assert.equal((await c('POST', `/api/public/${ins.j.slug}/commandes`, { lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', moyen: 'facture', client: { nom: 'A B', email: 'ab@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } })).s, 400);

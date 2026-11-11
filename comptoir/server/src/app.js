@@ -118,7 +118,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return c.compte;
   }
   /* Paiement sur facture QR (Suisse) : activé par le marchand, IBAN suisse valable, boutique en CHF. */
-  const factureQrPossible = config => !!(config.reglages && config.reglages.factureQr && config.boutique.pays === 'ch' && QrFacture.ibanValide((config.entreprise || {}).iban));
+  const factureQrPossible = config => !!(config.reglages && config.reglages.factureQr && config.boutique.pays === 'ch' && QrFacture.ibanValide((config.entreprise || {}).iban)
+    && QrFacture.adresseComplete({ nom: (config.entreprise || {}).raison || config.boutique.nom, ...QrFacture.decouperAdresse((config.entreprise || {}).adresse, 'CH') }));
   // Référence de paiement unique par commande : QRR avec un QR-IBAN, référence créancier (RF…) sinon.
   function referencePaiement(b, numero, iban) {
     if (QrFacture.estQrIban(iban)) return QrFacture.referenceQrr(`${parseInt(crypto.createHash('sha256').update(b.id).digest('hex').slice(0, 8), 16) % 1e9}`.padStart(9, '0') + String(numero).padStart(8, '0'));
@@ -507,50 +508,27 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
 
   /* Appelé une seule fois quand le paiement est confirmé (idempotent). */
-  async function paiementConfirme(paiementId, refExterne) {
-    const p0 = db.prepare('SELECT * FROM paiements WHERE id = ?').get(paiementId);
-    if (!p0 || p0.statut === 'paye' || p0.statut === 'rembourse' || p0.statut === 'a_rembourser') return;
-    const res = transaction(db, () => {
-      const p = db.prepare('SELECT * FROM paiements WHERE id = ?').get(paiementId);   // relu dans la transaction
-      if (!p || ['paye', 'rembourse', 'a_rembourser'].includes(p.statut)) return null;
-      const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(p.commande_id);
-      // Commande déjà payée (autre lien de paiement) ou annulée : l'argent reçu est à rendre, la commande ne change pas.
-      if (row.statut !== 'attente') {
-        db.prepare("UPDATE paiements SET statut = 'a_rembourser', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
-        const c0 = lireCommande(row);
-        historique(c0, `Paiement reçu alors que la commande était « ${row.statut} » : ${formatMontant(p.montant_centimes / 100, lireConfig(db.prepare('SELECT config FROM boutiques WHERE id = ?').get(row.boutique_id)))} à rembourser`);
-        enregistrerCommande(c0);
-        return { aRembourser: { ...p, statut: 'a_rembourser', ref_externe: refExterne || p.ref_externe } };
-      }
-      db.prepare("UPDATE paiements SET statut = 'paye', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
-      // Les autres liens de paiement encore ouverts pour cette commande ne servent plus.
-      db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND id <> ? AND statut = 'cree'").run(p.commande_id, p.id);
-      const c = lireCommande(row);
-      c.statut = 'payee';
-      c.facture = prochaineFacture(row.boutique_id, Date.now()); c.dateFacture = Date.now();
-      if (c.relances) { c.recuperee = true; c.historique.push({ date: Date.now(), texte: 'Paiement récupéré après relance' }); }
-      if (c.parent) {
-        const pr = db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.parent);
-        if (pr) { const parent = lireCommande(pr); parent.complements = [...(parent.complements || []), c.id]; historique(parent, `Complément n° ${c.numero} ajouté après l’achat : à expédier dans le même colis`); enregistrerCommande(parent); }
-      }
-      historique(c, `Paiement ${p.fournisseur === 'stripe' ? 'en ligne' : 'simulé'} accepté (${formatMontant(p.montant_centimes / 100, lireConfig(db.prepare('SELECT config FROM boutiques WHERE id = ?').get(row.boutique_id)))})`);
-      // Stock : la vente est faite (le client a payé), mais une rupture est signalée au lieu d'être cachée.
-      const prods = listerProduits(row.boutique_id);
-      const manques = c.lignes.filter(l => l.type !== 'drop').map(l => ({ l, p: prods.find(x => x.id === l.produitId) })).filter(x => x.p && x.p.type !== 'drop' && x.p.stock < c.lignes.filter(y => y.produitId === x.l.produitId).reduce((a, y) => a + y.qte, 0));
-      if (manques.length) { c.alerteStock = true; historique(c, `Rupture de stock au paiement : ${[...new Set(manques.map(x => x.p.nom))].join(', ')}. Réapprovisionnez ou remboursez.`); }
-      ajusterStock(row.boutique_id, c.lignes, -1);
-      enregistrerCommande(c);
-      return { c, boutique: db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id) };
-    });
-    if (!res) return;
-    if (res.aRembourser) {
-      // Remboursement automatique quand c'est possible (Stripe) ; sinon, il reste signalé au marchand.
-      if (res.aRembourser.fournisseur === 'stripe') {
-        try { await paiement.rembourser({ paiement: res.aRembourser }); db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(res.aRembourser.id); }
-        catch (e) { journal.error('[paiement] remboursement automatique', e.message); }
-      }
-      return;
+  /* Commande payée (dans une transaction) : facture, complément rattaché, alerte de rupture, stock. */
+  function marquerPayee(row, texte) {
+    const c = lireCommande(row);
+    c.statut = 'payee';
+    if (!c.facture) { c.facture = prochaineFacture(row.boutique_id, Date.now()); c.dateFacture = Date.now(); }   // facture QR : déjà émise
+    if (c.relances) { c.recuperee = true; c.historique.push({ date: Date.now(), texte: 'Paiement récupéré après relance' }); }
+    if (c.parent) {
+      const pr = db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.parent);
+      if (pr) { const parent = lireCommande(pr); parent.complements = [...(parent.complements || []), c.id]; historique(parent, `Complément n° ${c.numero} ajouté après l’achat : à expédier dans le même colis`); enregistrerCommande(parent); }
     }
+    historique(c, texte);
+    // Stock : la vente est faite (le client a payé), mais une rupture est signalée au lieu d'être cachée.
+    const prods = listerProduits(row.boutique_id);
+    const manques = c.lignes.filter(l => l.type !== 'drop').map(l => ({ l, p: prods.find(x => x.id === l.produitId) })).filter(x => x.p && x.p.type !== 'drop' && x.p.stock < c.lignes.filter(y => y.produitId === x.l.produitId).reduce((a, y) => a + y.qte, 0));
+    if (manques.length) { c.alerteStock = true; historique(c, `Rupture de stock au paiement : ${[...new Set(manques.map(x => x.p.nom))].join(', ')}. Réapprovisionnez ou remboursez.`); }
+    ajusterStock(row.boutique_id, c.lignes, -1);
+    enregistrerCommande(c);
+    return { c, boutique: db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id) };
+  }
+  /* Après un paiement (en ligne ou relevé bancaire) : e-mails au client et au marchand, transmission au fournisseur. */
+  async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
     envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
       `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.${infoRetractation(res.boutique, res.c, config)}`);
@@ -578,6 +556,37 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         if (mch) envoyerEmail(null, mch.email, `Action requise : commande n° ${c.numero} non transmise au fournisseur`, `Bonjour,\n\nLa commande n° ${c.numero} a été payée, mais sa transmission automatique au fournisseur a échoué : ${e.message}\n\nTransmettez-la à la main depuis Commandes : ${urlPublique}/app#commandes\n\nTant qu'elle n'est pas transmise, rien n'est expédié au client.`);
       }
     }
+  }
+  async function paiementConfirme(paiementId, refExterne) {
+    const p0 = db.prepare('SELECT * FROM paiements WHERE id = ?').get(paiementId);
+    if (!p0 || p0.statut === 'paye' || p0.statut === 'rembourse' || p0.statut === 'a_rembourser') return;
+    const res = transaction(db, () => {
+      const p = db.prepare('SELECT * FROM paiements WHERE id = ?').get(paiementId);   // relu dans la transaction
+      if (!p || ['paye', 'rembourse', 'a_rembourser'].includes(p.statut)) return null;
+      const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(p.commande_id);
+      // Commande déjà payée (autre lien de paiement) ou annulée : l'argent reçu est à rendre, la commande ne change pas.
+      if (row.statut !== 'attente') {
+        db.prepare("UPDATE paiements SET statut = 'a_rembourser', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
+        const c0 = lireCommande(row);
+        historique(c0, `Paiement reçu alors que la commande était « ${row.statut} » : ${formatMontant(p.montant_centimes / 100, lireConfig(db.prepare('SELECT config FROM boutiques WHERE id = ?').get(row.boutique_id)))} à rembourser`);
+        enregistrerCommande(c0);
+        return { aRembourser: { ...p, statut: 'a_rembourser', ref_externe: refExterne || p.ref_externe } };
+      }
+      db.prepare("UPDATE paiements SET statut = 'paye', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
+      // Les autres liens de paiement encore ouverts pour cette commande ne servent plus.
+      db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND id <> ? AND statut = 'cree'").run(p.commande_id, p.id);
+      return marquerPayee(row, `Paiement ${p.fournisseur === 'stripe' ? 'en ligne' : 'simulé'} accepté (${formatMontant(p.montant_centimes / 100, lireConfig(db.prepare('SELECT config FROM boutiques WHERE id = ?').get(row.boutique_id)))})`);
+    });
+    if (!res) return;
+    if (res.aRembourser) {
+      // Remboursement automatique quand c'est possible (Stripe) ; sinon, il reste signalé au marchand.
+      if (res.aRembourser.fournisseur === 'stripe') {
+        try { await paiement.rembourser({ paiement: res.aRembourser }); db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(res.aRembourser.id); }
+        catch (e) { journal.error('[paiement] remboursement automatique', e.message); }
+      }
+      return;
+    }
+    await apresPaiement(res);
   }
 
   /* Ajoute un cookie à la réponse sans effacer ceux déjà posés (session renouvelée, appareil reconnu…). */
@@ -1242,7 +1251,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       newsletter: relances.nettoyer(config.automatisations).bienvenue,
       paiement: paiement.nom,
       paiementsActifs: paiementsActifs(b) || factureQrPossible(config),
-      factureQr: factureQrPossible(config) ? { echeanceJours: config.reglages.echeanceJours } : null,
+      factureQr: factureQrPossible(config) ? { echeanceJours: config.reglages.echeanceJours, enLigne: paiementsActifs(b) } : null,
       moyens: paiement.nom === 'stripe' ? (moyensDe(b.id) || {}) : null,   // TWINT ou Bancontact : annoncés seulement s'ils sont activés   // sinon la boutique prévient avant que le client remplisse le panier
       hebergeur: env.HEBERGEUR || null   // identité de l'hébergeur (obligatoire dans les mentions légales en France)
     };
@@ -1340,7 +1349,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
 <table><thead><tr><th>Article</th><th class="n">Qté</th><th class="n">Prix</th><th class="n">Total</th></tr></thead><tbody>${lignes}
 ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.remise, config)}</td></tr>` : ''}<tr><td colspan="3">Livraison</td><td class="n">${formatMontant(c.port || 0, config)}</td></tr>
 <tr class="tot"><td colspan="3">Total</td><td class="n">${formatMontant(c.total, config)}</td></tr></tbody></table>
-<p>${config.entreprise.regime === 'ch-non' ? 'Entreprise non assujettie à la TVA.' : 'TVA incluse selon le taux applicable.'} ${c.statut === 'attente' ? 'Merci de payer avec la section paiement ci-dessous (application bancaire : scanner le QR code).' : `<b>Payée.</b>`}</p>
+<p>${config.entreprise.regime === 'ch-non' ? 'Entreprise non assujettie à la TVA.' : 'TVA incluse selon le taux applicable.'} ${c.statut === 'attente' ? 'Merci de payer avec la section paiement ci-dessous (application bancaire : scanner le QR code).' : ['annulee', 'remboursee'].includes(c.statut) ? `<b>${c.statut === 'annulee' ? 'Annulée' : 'Remboursée'}${c.avoir ? ` : avoir ${escHtml(c.avoir.numero)}` : ''}.</b> Ne payez pas cette facture.` : `<b>Payée.</b>`}</p>
 <div class="bas">${c.statut === 'attente' ? QrFacture.sectionPaiement(d) : ''}</div></div></body></html>`;
   }
   r.get('/facture/:slug/:id', ctx => {
@@ -1356,29 +1365,77 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (c.moyen !== 'facture') throw erreur(404, 'Cette commande n’a pas de facture QR.', 'introuvable');
     return { html: pageFactureQr(ctx.boutique, c, lireConfig(ctx.boutique)) };
   });
-  /* Relevé bancaire ISO 20022 camt.054 (avis de crédit) : chaque référence reconnue marque la commande payée. */
-  r.post('/api/admin/paiements/camt', exigerMarchand, ctx => {
-    const xml = String(ctx.corps.xml || '');
-    if (xml.length > 3 * 1024 * 1024 || !/<Document[\s>]/.test(xml) || !/camt\.05[34]/.test(xml)) throw erreur(400, 'Fichier non reconnu : importez un relevé camt.054 (XML) de votre banque.', 'camt_invalide');
-    const config = lireConfig(ctx.boutique), resultat = { payees: [], deja: [], inconnues: [], ecarts: [] };
-    const attente = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND statut IN ('attente', 'annulee')").all(ctx.boutique.id).map(lireCommande).filter(c => c.moyen === 'facture');
-    const parRef = new Map(attente.map(c => [c.referenceQr, c]));
-    const blocs = xml.match(/<TxDtls>[\s\S]*?<\/TxDtls>/g) || [];
-    for (const t of blocs) {
-      if (/<CdtDbtInd>\s*DBIT\s*<\/CdtDbtInd>/.test(t)) continue;   // débit : pas un paiement reçu
-      const ref = ((/<CdtrRefInf>[\s\S]*?<Ref>\s*([^<]+?)\s*<\/Ref>/.exec(t) || [])[1] || '').replace(/\s/g, '').toUpperCase();
-      const montantRecu = Number((/<Amt[^>]*>\s*([\d.]+)\s*<\/Amt>/.exec(t) || [])[1] || 0);
-      if (!ref) continue;
-      const c = parRef.get(ref);
-      if (!c) { const dejaPayee = db.prepare("SELECT numero FROM commandes WHERE boutique_id = ? AND json_extract(donnees, '$.referenceQr') = ?").get(ctx.boutique.id, ref); (dejaPayee ? resultat.deja : resultat.inconnues).push(dejaPayee ? dejaPayee.numero : ref); continue; }
-      if (c.statut === 'annulee' || Math.round(montantRecu * 100) < Math.round(c.total * 100)) { resultat.ecarts.push({ numero: c.numero, recu: montantRecu, du: c.total, annulee: c.statut === 'annulee' }); continue; }
-      c.statut = 'payee';
-      historique(c, `Paiement de la facture QR reçu (${formatMontant(montantRecu, config)}, relevé bancaire importé)`);
-      ajusterStock(ctx.boutique.id, c.lignes, -1);
-      enregistrerCommande(c); parRef.delete(ref);
-      resultat.payees.push(c.numero);
-      envoyerEmail(ctx.boutique.id, c.client.email, `Paiement reçu pour la commande n° ${c.numero}`, `Bonjour ${c.client.nom},\n\nNous avons bien reçu votre paiement de ${formatMontant(montantRecu, config)}. Votre commande est en préparation.\n\n${config.boutique.nom}`);
+  /* Relevé bancaire ISO 20022 camt.054 / camt.053. Analyse linéaire (indexOf, aucune expression régulière sur
+     l'ensemble du fichier), préfixes d'espace de noms tolérés. Une écriture n'est retenue que si elle est
+     comptabilisée (BOOK), au crédit, non contrepassée et en CHF. Chaque transaction est mémorisée : un relevé importé
+     deux fois ne double rien, et un vrai second versement pour la même facture est signalé. */
+  db.exec('CREATE TABLE IF NOT EXISTS camt_ecritures (boutique_id TEXT NOT NULL, cle TEXT NOT NULL, numero INTEGER, le INTEGER NOT NULL, PRIMARY KEY (boutique_id, cle))');
+  function lireCamt(xml) {
+    const sansPrefixe = xml.replace(/<(\/?)[A-Za-z][\w.-]*:/g, '<$1');   // <ns:Ntry> → <Ntry> (linéaire)
+    const blocs = (txt, nom) => { const out = []; const o = `<${nom}`, f = `</${nom}>`; let i = 0;
+      for (;;) { let d = txt.indexOf(o, i); if (d < 0) break; const car = txt[d + o.length]; if (car !== '>' && car !== ' ' && car !== '\t' && car !== '\n' && car !== '\r' && car !== '/') { i = d + o.length; continue; }
+        const e = txt.indexOf(f, d); if (e < 0) break; out.push(txt.slice(txt.indexOf('>', d) + 1, e)); i = e + f.length; }
+      return out; };
+    const premier = (txt, nom) => { const b = blocs(txt, nom); return b.length ? b[0] : null; };
+    const valeur = (txt, nom) => { const v = premier(txt, nom); return v == null ? '' : v.replace(/<[^>]*>/g, '').trim(); };
+    const montantDe = txt => { const d = txt.indexOf('<Amt'); if (d < 0) return null; const fin = txt.indexOf('>', d), e = txt.indexOf('</Amt>', fin);
+      const attrs = txt.slice(d, fin), ccy = (/Ccy="([A-Z]{3})"/.exec(attrs) || [])[1] || ''; const n = Number(txt.slice(fin + 1, e).trim()); return Number.isFinite(n) ? { montant: n, devise: ccy } : null; };
+    const ecritures = [];
+    for (const ntry of blocs(sansPrefixe, 'Ntry')) {
+      const sts = valeur(premier(ntry, 'Sts') || '', 'Cd') || valeur(ntry, 'Sts');
+      const sens = valeur(ntry, 'CdtDbtInd'), contrepasse = valeur(ntry, 'RvslInd') === 'true';
+      const refEcriture = valeur(ntry, 'AcctSvcrRef'), mNtry = montantDe(ntry);
+      const txs = blocs(ntry, 'TxDtls');
+      const lots = txs.length ? txs : [ntry];
+      lots.forEach((t, k) => {
+        const m = txs.length ? (montantDe(t) || (txs.length === 1 ? mNtry : null)) : mNtry;
+        const sensTx = (txs.length && valeur(t, 'CdtDbtInd')) || sens;
+        const ref = valeur(premier(t, 'CdtrRefInf') || '', 'Ref').replace(/\s/g, '').toUpperCase();
+        const refTx = valeur(premier(t, 'Refs') || '', 'AcctSvcrRef') || valeur(premier(t, 'Refs') || '', 'EndToEndId');
+        ecritures.push({ statut: sts, sens: sensTx, contrepasse, ref, montant: m ? m.montant : 0, devise: m ? m.devise : '', cle: (refTx || refEcriture) ? `${refEcriture}|${refTx}|${k}` : null, sansDetail: !txs.length });
+      });
     }
+    return ecritures;
+  }
+  r.post('/api/admin/paiements/camt', exigerMarchand, async ctx => {
+    const xml = String(ctx.corps.xml || '');
+    if (xml.length > 3 * 1024 * 1024 || !/<(?:[\w.-]+:)?Document[\s>]/.test(xml.slice(0, 4096)) || !/camt\.05[34]/.test(xml.slice(0, 4096))) throw erreur(400, 'Fichier non reconnu : importez un relevé camt.054 ou camt.053 (XML) de votre banque.', 'camt_invalide');
+    const config = lireConfig(ctx.boutique), resultat = { payees: [], deja: [], inconnues: [], ecarts: [], doublons: [], ignorees: 0 };
+    const ecritures = lireCamt(xml);
+    if (ecritures.length > 20000) throw erreur(413, 'Relevé trop volumineux : importez-le par période.', 'camt_trop_grand');
+    const aTraiter = [];
+    for (const e of ecritures) {
+      if (e.statut && e.statut !== 'BOOK') { resultat.ignorees++; continue; }        // en attente / informatif : pas encore crédité
+      if (e.sens !== 'CRDT' || e.contrepasse) { resultat.ignorees++; continue; }     // débit ou contrepassation
+      if (!e.ref) { if (e.sansDetail) resultat.ignorees++; continue; }
+      if (e.devise && e.devise !== 'CHF') { resultat.ecarts.push({ reference: e.ref, recu: e.montant, devise: e.devise, motif: 'devise' }); continue; }
+      // Même transaction déjà importée (relevé importé deux fois) : rien à refaire.
+      const cle = e.cle || `${e.ref}|${e.montant.toFixed(2)}`;
+      const vue = db.prepare('SELECT numero FROM camt_ecritures WHERE boutique_id = ? AND cle = ?').get(ctx.boutique.id, cle);
+      if (vue) { if (vue.numero) resultat.deja.push(vue.numero); continue; }
+      const row = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND json_extract(donnees, '$.referenceQr') = ?").get(ctx.boutique.id, e.ref);
+      const noter = numero => db.prepare('INSERT OR IGNORE INTO camt_ecritures (boutique_id, cle, numero, le) VALUES (?, ?, ?, ?)').run(ctx.boutique.id, cle, numero || null, Date.now());
+      if (!row) { resultat.inconnues.push(e.ref); noter(null); continue; }
+      const c = lireCommande(row);
+      if (c.statut !== 'attente') {
+        // Facture déjà réglée (ou annulée) et nouveau versement : à rembourser au client.
+        resultat[c.statut === 'annulee' ? 'ecarts' : 'doublons'].push({ numero: c.numero, recu: e.montant, du: c.total, ...(c.statut === 'annulee' ? { annulee: true } : {}) });
+        noter(c.numero); continue;
+      }
+      if (Math.round(e.montant * 100) < Math.round(c.total * 100)) { resultat.ecarts.push({ numero: c.numero, recu: e.montant, du: c.total, motif: 'insuffisant' }); noter(c.numero); continue; }
+      const res = transaction(db, () => {
+        const frais = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);
+        if (frais.statut !== 'attente') return null;
+        noter(c.numero);
+        return marquerPayee(frais, `Paiement de la facture QR reçu (${formatMontant(e.montant, config)}, relevé bancaire importé)`);
+      });
+      if (!res) continue;
+      resultat.payees.push(c.numero);
+      if (Math.round(e.montant * 100) > Math.round(c.total * 100)) resultat.ecarts.push({ numero: c.numero, recu: e.montant, du: c.total, motif: 'trop-percu' });
+      aTraiter.push(res);
+    }
+    for (const res of aTraiter) await apresPaiement(res);
+    if (resultat.payees.length || resultat.doublons.length) noterActivite(ctx.marchand.id, 'import-camt', `${resultat.payees.length} payée(s)`, ctx);
     return resultat;
   });
   /* ---------- Intégrations : gestion (espace marchand, formule Croissance) ---------- */

@@ -164,8 +164,8 @@ function rendreBrut() {
             <div class="deux"><label class="champ"><span>${ch ? 'NPA' : 'Code postal'}</span><input name="npa" required inputmode="numeric" autocomplete="postal-code" ${ch ? 'pattern="[0-9]{4}" maxlength="4"' : ''}></label>`}
             <label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}
             ${donnees.factureQr ? `<fieldset class="moyens-sf"><legend>Paiement</legend>
-              <label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>
-              <label class="case-sf"><input type="radio" name="moyen" value="facture"> Facture QR, payable sous ${donnees.factureQr.echeanceJours} jours (expédition dès réception du paiement)</label></fieldset>` : ''}
+              ${donnees.factureQr.enLigne === false ? '' : `<label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>`}
+              <label class="case-sf"><input type="radio" name="moyen" value="facture"${donnees.factureQr.enLigne === false ? ' checked' : ''}> Facture QR, payable sous ${donnees.factureQr.echeanceJours} jours (expédition dès réception du paiement)</label></fieldset>` : ''}
             <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
             <p class="erreur-form" id="erreur" hidden></p>
             ${!adresseVendeur() ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
