@@ -85,8 +85,8 @@ comptoir/
 
 ## Pour passer en production
 
-1. ~~Back-end et base de données~~ : **fait**. Voir `server/` (comptes, boutiques, commandes, paiements, fournisseurs, webhooks, 11 tests).
-2. ~~Paiement TWINT et cartes~~ : **fait** via Stripe Checkout. Il reste à ouvrir le compte Stripe et à configurer les clés. Pour encaisser au nom de chaque marchand, il faudra passer à Stripe Connect.
+1. ~~Back-end et base de données~~ : **fait**. Voir `server/` (comptes, boutiques, commandes, paiements, fournisseurs, webhooks, tests de bout en bout).
+2. ~~Paiement TWINT et cartes~~ : **fait** via Stripe Checkout et **Stripe Connect** : chaque marchand encaisse sur son propre compte Stripe, sans commission. Il reste à ouvrir le compte Stripe de la plateforme, activer Connect et configurer les deux webhooks (voir `server/README.md`).
 3. **Domaines** : API d'un registrar (OVH, Gandi ou Namecheap) pour vérifier la disponibilité, réserver et configurer le DNS ; certificats HTTPS automatiques.
 4. **Données de demande** : Google Trends / Keyword Planner, Search Console, historique réel de ventes.
 5. **Hébergement des boutiques** : rendu des pages à partir du JSON des sections (le même que l'éditeur), servi derrière un CDN.
