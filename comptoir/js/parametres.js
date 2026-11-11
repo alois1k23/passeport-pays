@@ -73,7 +73,12 @@ function vueParametres() {
       <label class="btn fantome petit importer">Choisir un fichier<input type="file" id="import-json" accept="application/json" hidden></label></section>`}`;
   } else if (s === 'sensible') {
     corps = enLigne()
-      ? `<section class="carte zone-sensible"><div class="carte-tete"><h2>Supprimer le compte</h2></div>
+      ? `<section class="carte"><div class="carte-tete"><h2>Mot de passe et appareils</h2></div>
+        <form data-form="changer-mdp" class="grille-form"><label class="champ"><span>Mot de passe actuel</span><input type="password" name="actuel" required autocomplete="current-password"></label>
+          <label class="champ"><span>Nouveau mot de passe (10 caractères minimum)</span><input type="password" name="nouveau" required minlength="10" autocomplete="new-password"></label>
+          <div class="rangee"><button class="btn">Changer le mot de passe</button><span class="sous">Les autres appareils connectés sont déconnectés.</span></div></form>
+        <div class="rangee"><button class="btn fantome petit" data-action="deconnecter-autres">Déconnecter les autres appareils</button></div></section>
+      <section class="carte zone-sensible"><div class="carte-tete"><h2>Supprimer le compte</h2></div>
         <p class="sous">Supprime définitivement la boutique, les produits, les commandes, les factures, les clients et les avis. Exportez vos données avant : vos factures doivent être conservées 10 ans.</p>
         <form data-form="supprimer-compte" class="rangee"><input type="password" name="motDePasse" placeholder="Votre mot de passe" required autocomplete="current-password" aria-label="Mot de passe"><button class="btn danger">Supprimer définitivement</button></form></section>`
       : `<section class="carte zone-sensible"><div class="carte-tete"><h2>Réinitialiser la démo</h2></div>
@@ -102,6 +107,10 @@ document.addEventListener('click', async e => {
   else if (a === 'export-complet') exporterTout();
   else if (a === 'abo-changer' || a === 'abo-resilier' || a === 'abo-reprendre') {
     if (a === 'abo-resilier' && !confirm('Résilier l’abonnement ? Votre boutique reste ouverte jusqu’à la fin du mois payé.')) return;
+    if (a === 'abo-changer') {
+      const ab = SERVEUR.abonnement || {}, f = Formules.FORMULES[el.dataset.v];
+      if (f && !confirm(`Passer à ${f.nom} pour ${Formules.prixTexte(el.dataset.v, ab.devise)} par mois ? Le changement est immédiat ; ${ab.prestataire === 'stripe' ? 'la différence pour le mois en cours est calculée au prorata et ajoutée à (ou déduite de) votre prochaine facture.' : 'en mode test, rien n’est débité.'}`)) return;
+    }
     try {
       const r = await api('POST', `/api/abonnement/${a === 'abo-changer' ? 'changer' : a === 'abo-resilier' ? 'resilier' : 'reprendre'}`, a === 'abo-changer' ? { formule: el.dataset.v } : {});
       if (r.url) { location.href = r.url; return; }
@@ -133,6 +142,19 @@ document.addEventListener('change', e => {
   };
   r.readAsText(f);
 });
+document.addEventListener('submit', async e => {
+  if (e.target.dataset.form !== 'changer-mdp') return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const d = new FormData(e.target);
+  try { await api('POST', '/api/admin/compte/mot-de-passe', { actuel: d.get('actuel'), nouveau: d.get('nouveau') }); e.target.reset(); toast('Mot de passe changé. Les autres appareils sont déconnectés.'); }
+  catch (err) { toast(err.message); }
+}, true);
+document.addEventListener('click', async e => {
+  if (!e.target.closest('[data-action="deconnecter-autres"]')) return;
+  e.stopImmediatePropagation();
+  try { const r = await api('POST', '/api/admin/compte/deconnecter-autres', {}); toast(r.n ? `${r.n} autre${r.n > 1 ? 's' : ''} appareil${r.n > 1 ? 's' : ''} déconnecté${r.n > 1 ? 's' : ''}.` : 'Aucun autre appareil n’était connecté.'); }
+  catch (err) { toast(err.message); }
+}, true);
 document.addEventListener('submit', async e => {
   if (e.target.dataset.form !== 'supprimer-compte') return;
   e.preventDefault(); e.stopImmediatePropagation();

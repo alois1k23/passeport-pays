@@ -90,3 +90,28 @@ test('paiement marqué à la main : stock décrémenté et liens en ligne fermé
   await fetch(c.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
   assert.equal(await stock(), avant - 1, 'le lien en ligne ne débite plus rien');
 });
+
+test('abonnement Stripe : changer de formule modifie la souscription (prorata) et les droits tout de suite', async () => {
+  const { ouvrir } = require('../src/db');
+  const { creerGestion } = require('../src/abonnements');
+  const db2 = ouvrir(':memory:');
+  const appels = [];
+  const fauxFetch = async (url, opts) => {
+    appels.push({ url, methode: opts.method, corps: opts.body ? new URLSearchParams(String(opts.body)) : null });
+    if (opts.method === 'GET') return { ok: true, json: async () => ({ id: 'sub_1', items: { data: [{ id: 'si_1', price: { currency: 'chf', product: 'prod_1' } }] } }) };
+    return { ok: true, json: async () => ({ id: 'sub_1' }) };
+  };
+  const g = creerGestion({ db: db2, env: { STRIPE_SECRET_KEY: 'sk_live_x' }, urlPublique: 'https://x', fetchImpl: fauxFetch });
+  db2.prepare("INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES ('m1', 'a@b.ch', 'x', 0)").run();
+  db2.prepare("INSERT INTO abonnements (marchand_id, formule, devise, statut, periode_fin, ref_externe, client_externe, cree_le, maj_le) VALUES ('m1', 'lancement', 'CHF', 'actif', ?, 'sub_1', 'cus_1', 0, 0)").run(Date.now() + 86400000 * 20);
+  await g.changer({ marchand: { id: 'm1' }, formule: 'pro' });
+  const maj = appels.find(a => a.methode === 'POST');
+  assert.equal(maj.url, 'https://api.stripe.com/v1/subscriptions/sub_1');
+  assert.equal(maj.corps.get('items[0][id]'), 'si_1');
+  assert.equal(maj.corps.get('items[0][price_data][unit_amount]'), '11900');
+  assert.equal(maj.corps.get('proration_behavior'), 'create_prorations');
+  assert.equal(g.etat('m1').formule, 'pro');
+  // Changement fait dans le tableau de bord Stripe : le webhook remet les droits à jour
+  g.evenementStripe({ type: 'customer.subscription.updated', data: { object: { id: 'sub_1', metadata: { formule: 'croissance' }, cancel_at_period_end: false } } });
+  assert.equal(g.etat('m1').formule, 'croissance');
+});

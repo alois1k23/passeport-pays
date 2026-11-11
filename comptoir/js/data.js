@@ -173,7 +173,7 @@ const SECTEURS = {
 
 /* Thèmes de boutique (l’apparence de la boutique du marchand, pas de l’admin). */
 const THEMES = {
-  brume: { nom: 'Brume', bg: '#F3F1EC', surface: '#FFFFFF', text: '#23262B', muted: '#6B6F76', primary: '#4F6B5A', onPrimary: '#FFFFFF', font: "'Fraunces', Georgia, serif", body: "'Outfit', system-ui, sans-serif", radius: 4 },
+  brume: { nom: 'Brume', bg: '#F3F1EC', surface: '#FFFFFF', text: '#23262B', muted: '#666A71', primary: '#4F6B5A', onPrimary: '#FFFFFF', font: "'Fraunces', Georgia, serif", body: "'Outfit', system-ui, sans-serif", radius: 4 },
   nocturne: { nom: 'Nocturne', bg: '#111317', surface: '#1B1E24', text: '#F2F0EA', muted: '#9AA0A8', primary: '#E7B75F', onPrimary: '#14161A', font: "'Syne', system-ui, sans-serif", body: "'Outfit', system-ui, sans-serif", radius: 0 },
   craie: { nom: 'Craie', bg: '#FFFFFF', surface: '#F5F6F8', text: '#101318', muted: '#5C6470', primary: '#1F3FD1', onPrimary: '#FFFFFF', font: "'DM Serif Display', Georgia, serif", body: "'IBM Plex Sans', system-ui, sans-serif", radius: 10 },
   leman: { nom: 'Léman', bg: '#EEF3F4', surface: '#FFFFFF', text: '#14242B', muted: '#566A72', primary: '#1D5C70', onPrimary: '#FFFFFF', font: "'Bricolage Grotesque', system-ui, sans-serif", body: "'Outfit', system-ui, sans-serif", radius: 12 },

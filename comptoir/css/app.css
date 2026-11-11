@@ -219,7 +219,8 @@ textarea { resize: vertical; }
 .themes.grands .theme-choix { min-height: 110px; align-content: end; }
 .scene { background: repeating-linear-gradient(45deg, var(--surface-2) 0 10px, var(--bg) 10px 20px); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; display: grid; justify-items: center; min-width: 0; }
 .appareil { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 10px 30px -18px rgba(20, 24, 40, .45); transition: width .25s ease; }
-.appareil.mobile { width: 390px; max-width: 100%; border-radius: 22px; }
+.appareil.mobile { width: min(390px, 100%); max-width: 100%; border-radius: 22px; }
+.appareil, .appareil .sf, .sf-grille > * { min-width: 0; }
 .barre-url { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
 .barre-url span { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
 .barre-url em { font-style: normal; color: var(--muted); margin-left: 8px; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1305,3 +1306,8 @@ html, body { overflow-x: clip; }
 /* Texte lu par les lecteurs d'écran seulement (notes en étoiles de la boutique) */
 .sf-lecteur { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .erreur-avis { color: #B42318; font-weight: 600; }
+/* Aperçu de l'éditeur plus étroit que l'écran : les cartes et la newsletter ne débordent pas du cadre. */
+.sf-carte, .sf-carte-infos > *, .sf-newsletter, .sf-newsletter form { min-width: 0; max-width: 100%; }
+.sf-carte-infos h3 { overflow-wrap: anywhere; }
+.sf-newsletter input { flex: 1 1 140px; }
+.sf-newsletter p { overflow-wrap: anywhere; }

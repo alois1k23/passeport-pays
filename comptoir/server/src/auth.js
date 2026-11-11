@@ -58,6 +58,21 @@ function limiterConnexion(ip, max = 10) {
   if (e.n > max) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
 }
 
+/* Connexion : seuls les ÉCHECS comptent (une connexion réussie ne bloque personne), par adresse et par compte visé. */
+const echecs = new Map();
+function compteEchecs(cle) {
+  const e = echecs.get(cle);
+  if (!e || Date.now() - e.depuis > 15 * 60 * 1000) return 0;
+  return e.n;
+}
+function verifierEchecs(cles, max) {
+  if (cles.some(c => compteEchecs(c) >= max)) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
+}
+function noterEchec(cles) {
+  const maintenant = Date.now();
+  for (const c of cles) { const e = echecs.get(c); if (!e || maintenant - e.depuis > 15 * 60 * 1000) echecs.set(c, { n: 1, depuis: maintenant }); else e.n++; }
+}
+
 /* Limite de débit générique (mémoire du processus) : max requêtes par fenêtre pour une clé (ex. « commande:<ip> »). */
 const compteurs = new Map();
 function limiter(cle, max, fenetreMs, message) {
@@ -70,4 +85,4 @@ function limiter(cle, max, fenetreMs, message) {
   if (e.n > max) throw erreur(429, message, 'trop_de_requetes');
 }
 
-module.exports = { limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, nouvelId, sha256, COOKIE };
+module.exports = { limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, nouvelId, sha256, COOKIE };

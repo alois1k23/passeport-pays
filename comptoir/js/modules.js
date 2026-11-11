@@ -357,8 +357,8 @@ function redigerDescription(nom, cat) {
   const b = etat.boutique;
   const sec = SECTEURS[b.secteur];
   return `${nom} : une pièce de notre collection ${cat.toLowerCase()}, sélectionnée par ${b.nom}. ` +
-    `Pensé pour durer et pour se glisser naturellement chez vous. Expédié sous 48 h, retours gratuits 30 jours. ` +
-    `Idéal en ${sec.kws.find(k => k[0] === 'cadeau') ? 'cadeau' : 'idée cadeau'} pour ${saisonDuMois(new Date().getMonth()).nom.toLowerCase()}.`;
+    // Aucun délai, aucune condition de retour inventés : ils figurent dans les CGV et sur la fiche, d'après les vrais réglages.
+    `Décrivez ici sa matière, ses dimensions et son usage.`;
 }
 function reduireImage(fichier, taille = 480) {
   return new Promise((ok, ko) => {
@@ -379,20 +379,25 @@ function reduireImage(fichier, taille = 480) {
     lecteur.readAsDataURL(fichier);
   });
 }
+function messagePhotos(n, refus) {
+  const ok = n ? `${n} fiche${n > 1 ? 's' : ''} créée${n > 1 ? 's' : ''} depuis vos photos. Vérifiez le prix puis mettez en ligne.` : '';
+  const ko = refus.length ? `${refus.slice(0, 3).join(', ')}${refus.length > 3 ? '…' : ''} : format non lisible. Exportez la photo en JPEG ou PNG (sur iPhone : Réglages > Appareil photo > Formats > Le plus compatible).` : '';
+  return [ok, ko].filter(Boolean).join(' ') || 'Aucune photo importée.';
+}
 async function importerPhotos(fichiers) {
   const liste = [...fichiers].filter(f => f.type.startsWith('image/')).slice(0, 12);
   if (!liste.length) { toast('Choisissez des fichiers image (JPEG, PNG, HEIC converti).'); return; }
-  let n = 0;
+  let n = 0; const refus = [];
   for (const [i, f] of liste.entries()) {
     try {
       const image = await reduireImage(f);
       const fiche = ficheDepuisPhoto(f.name, etat.produits.length + i);
       etat.produits.push({ id: nouvelId('p'), ...fiche, stock: 5, teinte: Math.floor(Math.random() * 360), actif: false, image, aVerifier: true });
       n++;
-    } catch (e) { /* image illisible : ignorée */ }
+    } catch (e) { refus.push(f.name); }   // HEIC ou fichier abîmé : illisible par le navigateur
   }
   sauver();
-  toast(`${n} fiche${n > 1 ? 's' : ''} créée${n > 1 ? 's' : ''} depuis vos photos. Vérifiez le prix puis mettez en ligne.`);
+  toast(messagePhotos(n, refus));
   rendre();
 }
 

@@ -216,6 +216,8 @@ function installerAbonnement(etatAbo, retour) {
         <button class="btn" data-abo="payer" ${!e.choisie || e.envoi ? 'disabled' : ''}>${e.envoi ? 'Redirection vers le paiement…' : e.choisie ? `Payer ${prix(e.formules.find(f => f.id === e.choisie) || { prix: 0 })} et ouvrir ma boutique` : 'Choisissez une formule'}</button>
         <p class="sous">Sans engagement : résiliable à tout moment dans Paramètres, l’accès reste ouvert jusqu’à la fin du mois payé. 0 % de commission sur vos ventes. ${SERVEUR.paiement === 'stripe' ? 'Paiement sécurisé par carte (Stripe).' : 'Mode test : aucun montant n’est débité.'}</p>
         <p class="sous"><button class="lien-bouton" data-abo="deconnexion">Se déconnecter</button></p>
+        <details class="sous"><summary>Supprimer mon compte</summary><p>Le compte, la boutique préparée et ses produits sont supprimés définitivement.</p>
+          <form data-form="supprimer-compte" class="rangee"><input type="password" name="motDePasse" placeholder="Votre mot de passe" required autocomplete="current-password" aria-label="Mot de passe"><button class="btn petit fantome danger-doux">Supprimer définitivement</button></form></details>
       </div></div>`;
   };
   document.addEventListener('change', ev => { if (ev.target.dataset.abo === 'formule') { e.choisie = ev.target.value; try { sessionStorage.setItem('comptoir-formule', e.choisie); } catch { /* ignoré */ } rendre(); const r = document.querySelector(`input[data-abo="formule"][value="${e.choisie}"]`); if (r) r.focus(); } });
@@ -363,15 +365,16 @@ function installerModeConnecte() {
     e.stopImmediatePropagation();
     const fichiers = [...e.target.files].filter(f => f.type.startsWith('image/')).slice(0, 12);
     e.target.value = '';
-    let n = 0;
+    let n = 0; const refus = [];
     for (const [i, f] of fichiers.entries()) {
+      let image;
+      try { image = await reduireImage(f); } catch { refus.push(f.name); continue; }   // HEIC ou fichier illisible
       try {
-        const image = await reduireImage(f);
         await api('POST', '/api/admin/produits', { produit: { ...ficheDepuisPhoto(f.name, etat.produits.length + i), stock: 5, teinte: Math.floor(Math.random() * 360), actif: false, image, aVerifier: true, type: 'stock' } });
         n++;
-      } catch (err) { toast(err.message); }
+      } catch (err) { refus.push(`${f.name} (${err && err.message ? err.message : 'refusée'})`); }
     }
-    await rafraichir(`${n} fiche${n > 1 ? 's' : ''} créée${n > 1 ? 's' : ''} depuis vos photos. Vérifiez le prix puis mettez en ligne.`);
+    await rafraichir(messagePhotos(n, refus));
   }, true);
 
   // Les nouvelles commandes de la boutique publique apparaissent toutes seules.

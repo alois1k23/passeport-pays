@@ -43,7 +43,7 @@ async function demarrer() {
     return;
   }
   etat = { boutique: donnees.boutique, produits: donnees.produits, entreprise: donnees.entreprise, magasin: donnees.magasin, avisRecents: donnees.avisRecents || [] };
-  if (!vue.fiche) document.title = donnees.boutique.nom;
+  if (!vue.fiche) document.title = titreAccueil();
   document.body.style.background = donnees.boutique.theme.bg;
   // Le panier ne garde que les produits encore en vente, au prix actuel.
   vue.panier = vue.panier.map(l => { const p = donnees.produits.find(x => x.id === l.produitId); return p && { produitId: p.id, nom: p.nom, prix: p.prix, qte: l.qte }; }).filter(Boolean);
@@ -392,8 +392,10 @@ demarrer();
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && vue.fiche && !vue.legal) fermerFiche(); });
 /* Fermer la fiche : si on l'a ouverte depuis la boutique, « Retour » du navigateur, sinon l'adresse de la boutique remplace celle du produit. */
+/* Même titre que la page rendue par le serveur (« Nom · Slogan ») : les moteurs et les onglets voient la même chose. */
+function titreAccueil() { const b = donnees.boutique; return b.slogan ? `${b.nom} · ${b.slogan}` : b.nom; }
 function fermerFiche({ rendu = true } = {}) {
-  vue.fiche = null; document.title = donnees.boutique.nom;
+  vue.fiche = null; document.title = titreAccueil();
   if (history.state && history.state.fiche && /\/p\//.test(location.pathname)) { history.back(); return; }   // popstate redessine
   history.replaceState(null, '', racineBoutique);
   if (rendu) rendre();
@@ -403,7 +405,7 @@ function fermerFiche({ rendu = true } = {}) {
 addEventListener('popstate', () => {
   const m = /\/p\/([^/]+)\/?$/.exec(location.pathname);
   vue.fiche = m ? decodeURIComponent(m[1]) : null;
-  document.title = vue.fiche && donnees ? `${(donnees.produits.find(x => x.id === vue.fiche) || {}).nom || ''} · ${donnees.boutique.nom}` : (donnees ? donnees.boutique.nom : document.title);
+  document.title = vue.fiche && donnees ? `${(donnees.produits.find(x => x.id === vue.fiche) || {}).nom || ''} · ${donnees.boutique.nom}` : (donnees ? titreAccueil() : document.title);
   rendre();
 });
 

@@ -171,11 +171,14 @@ function rendre() {
   // Si l'on quitte un champ avec Tab, son « change » redessine la vue avant que le focus n'arrive au champ suivant : on l'y amène.
   const actif = document.activeElement, surCorps = !actif || actif === document.body;
   const idActif = actif && actif.id && actif.closest && actif.closest('#vue') ? actif.id : '';
+  // Sans id : bouton ou bloc retrouvé par ses attributs (Monter/Descendre, sections de l'aperçu).
+  const selActif = !idActif && actif && actif.closest && actif.closest('#vue') ? ['data-action', 'data-id', 'data-section', 'data-v'].filter(k => actif.hasAttribute(k)).map(k => `[${k}="${CSS.escape(actif.getAttribute(k))}"]`).join('') : '';
   const tab = surCorps && dernierTab && Date.now() - dernierTab.t < 300 ? dernierTab : null;
   $('#vue').innerHTML = (vues[route] || vueTableau)();
-  if (idActif || (tab && tab.id)) setTimeout(() => {
+  if (idActif || selActif || (tab && tab.id)) setTimeout(() => {
     if (document.activeElement && document.activeElement !== document.body) return;
-    const el = document.getElementById(idActif || tab.id);
+    if (!idActif && selActif) { const x = $('#vue').querySelector(selActif); if (x) { x.focus({ preventScroll: true }); return; } }
+    const el = document.getElementById(idActif || (tab && tab.id) || '');
     if (!el) return;
     if (idActif) return el.focus({ preventScroll: true });
     const ordre = [...$('#vue').querySelectorAll('a[href], button, input, select, textarea, [tabindex="0"]')].filter(x => !x.disabled && x.offsetParent && x.type !== 'hidden');
@@ -556,6 +559,7 @@ function vueProduits() {
     ${p ? `<aside class="carte detail"><form data-form="produit">
       <div class="carte-tete"><h2>${etat.produits.find(x => x.id === p.id) ? 'Modifier le produit' : 'Nouveau produit'}</h2><button type="button" class="icone" data-action="fermer-produit">Fermer</button></div>
       ${visuelProduit(p, true)}
+      <div class="rangee"><label class="btn petit fantome">${p.image ? 'Changer la photo' : 'Ajouter une photo'}<input id="pf-photo" type="file" accept="image/jpeg,image/png,image/webp" hidden></label>${p.image ? '<button type="button" class="btn petit fantome danger-doux" data-action="retirer-photo">Retirer la photo</button>' : ''}<span class="sous">JPEG, PNG ou WebP, réduite automatiquement.</span></div>
       <label class="champ"><span>Nom</span><input id="pf-nom" name="nom" required value="${esc(p.nom)}"></label>
       <label class="champ"><span>Description <button type="button" class="lien bouton-lien" data-action="rediger">Rédiger pour moi</button></span><textarea id="pf-desc" name="description" rows="4">${esc(p.description)}</textarea></label>
       <div class="deux"><label class="champ"><span>Prix TTC (${devise()})</span><input id="pf-prix" name="prix" type="number" min="0" step="0.01" required value="${p.prix}"></label>
@@ -723,6 +727,7 @@ function vueEditeur() {
         <label class="champ"><span>Texte</span><input id="st-text" type="color" value="${t.text}" data-theme="text"></label>
         <label class="champ"><span>Cartes</span><input id="st-surface" type="color" value="${t.surface}" data-theme="surface"></label>
       </div>
+      ${avisContraste(t)}
       <label class="champ"><span>Police des titres</span><select id="st-font" data-theme="font">${POLICES.map(([v, n]) => `<option value="${esc(v)}" ${t.font === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="champ"><span>Arrondi des angles : <b id="rayon-val">${t.radius}</b> px</span><input id="st-radius" type="range" min="0" max="24" value="${t.radius}" data-theme="radius"></label>`;
   } else {
@@ -972,6 +977,46 @@ function creerBoutique() {
 }
 
 /* Aperçu de la boutique : redessine sans effacer ce que le visiteur a déjà tapé dans le formulaire de paiement. */
+/* Fiche produit : la photo change sans perdre ce qui est déjà tapé dans le formulaire. */
+/* Contraste (WCAG) : texte du bouton calculé selon la couleur principale, gris secondaire dérivé du texte et du fond. */
+function luminance(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return 0;
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255).map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function contraste(a, b) { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); }
+function melange(a, b, t) {
+  const c = h => [0, 2, 4].map(i => parseInt(String(h).replace('#', '').slice(i, i + 2), 16));
+  const [x, y] = [c(a), c(b)];
+  return '#' + x.map((v, i) => Math.round(v * (1 - t) + y[i] * t).toString(16).padStart(2, '0')).join('');
+}
+function ajusterTheme(th) {
+  th.onPrimary = contraste('#ffffff', th.primary) >= contraste('#111111', th.primary) ? '#FFFFFF' : '#111111';
+  // Gris secondaire : le plus clair possible tout en restant lisible (4,5:1) sur le fond.
+  for (const t of [0.42, 0.36, 0.3, 0.24, 0.18, 0.12, 0]) { const m = melange(th.text, th.bg, t); if (contraste(m, th.bg) >= 4.5 || t === 0) { th.muted = m; break; } }
+  return th;
+}
+function avisContraste(th) {
+  const pb = [];
+  if (contraste(th.text, th.bg) < 4.5) pb.push(`texte sur fond (${contraste(th.text, th.bg).toFixed(1).replace('.', ',')}:1)`);
+  if (th.surface && contraste(th.text, th.surface) < 4.5) pb.push('texte sur les cartes');
+  if (contraste(th.onPrimary || '#ffffff', th.primary) < 4.5) pb.push('texte des boutons');
+  return pb.length ? `<p id="avis-contraste" class="encart alerte-encart">Peu lisible : ${pb.join(', ')}. Les visiteurs malvoyants ou en plein soleil auront du mal à lire. Visez un contraste d’au moins 4,5:1.</p>` : '<p id="avis-contraste" hidden></p>';
+}
+function rendreEnGardantProduit() {
+  const f = document.querySelector('[data-form="produit"]');
+  const v = f ? [...f.elements].filter(e => e.name).map(e => [e.name, e.type === 'checkbox' ? e.checked : e.value]) : [];
+  rendre();
+  const nf = document.querySelector('[data-form="produit"]');
+  if (nf) for (const [k, val] of v) { const el = nf.elements[k]; if (el) { if (el.type === 'checkbox') el.checked = val; else el.value = val; } }
+}
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'pf-photo' || !ui.produitEdite) return;
+  const f = e.target.files[0];
+  if (!f) return;
+  try { ui.produitEdite.image = await reduireImage(f, 640); rendreEnGardantProduit(); toast('Photo prête : enregistrez le produit pour la publier.'); }
+  catch { toast(`${f.name} : format non lisible. Exportez la photo en JPEG ou PNG.`); }
+});
 function rendreEnGardantSaisie() {
   const f = document.querySelector('[data-form="paiement"]');
   const v = f ? [...f.elements].filter(e => e.name && e.type !== 'radio' && e.type !== 'submit').map(e => [e.name, e.type === 'checkbox' ? e.checked : e.value]) : [];
@@ -986,7 +1031,10 @@ document.addEventListener('click', e => {
   const bloc = e.target.closest('[data-section]');
   if (bloc && ui.route === 'editeur') {
     e.preventDefault();
-    ui.section = bloc.dataset.section; ui.ongletEditeur = 'sections'; rendre();
+    ui.section = bloc.dataset.section; ui.ongletEditeur = 'sections';
+    // Téléphone : l'aperçu et le panneau ne tiennent pas ensemble ; toucher une section ouvre son panneau.
+    if (window.matchMedia && matchMedia('(max-width: 900px)').matches) ui.vueEdMobile = 'modifier';
+    rendre();
     document.querySelector('.liste-sections li.ouvert')?.scrollIntoView({ block: 'nearest' });
     return;
   }
@@ -1037,6 +1085,7 @@ document.addEventListener('click', e => {
     case 'page-client': ui.pageClient = (ui.pageClient || 1) + Number(el.dataset.d); rendre(); break;
     case 'ouvrir-client': ui.client = id; rendre(); break;
     case 'fermer-client': ui.client = null; rendre(); break;
+    case 'retirer-photo': if (ui.produitEdite) { ui.produitEdite.image = undefined; rendreEnGardantProduit(); } break;
     case 'exporter-client': exporterClient(el.dataset.email); break;
     case 'effacer-client': effacerClient(el.dataset.email); break;
     case 'export-clients': exporterClientsCsv(); break;
@@ -1110,7 +1159,9 @@ document.addEventListener('input', e => {
     const k = t.dataset.theme;
     etat.boutique.theme[k] = k === 'radius' ? Number(t.value) : t.value;
     if (k === 'radius') $('#rayon-val').textContent = t.value;
+    if (['primary', 'bg', 'text', 'surface'].includes(k)) ajusterTheme(etat.boutique.theme);
     modifie(); rendreApercu();
+    const av = document.getElementById('avis-contraste'); if (av) av.outerHTML = avisContraste(etat.boutique.theme);
   } else if (t.dataset.boutique) {
     etat.boutique[t.dataset.boutique] = t.value; modifie(); rendreApercu();
     if (t.dataset.boutique === 'nom') $('#nom-boutique').textContent = t.value;

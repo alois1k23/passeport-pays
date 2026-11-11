@@ -772,3 +772,19 @@ test('effacement : « _ » et « % » dans une adresse ne touchent pas les autre
   const restants = db.prepare('SELECT cle FROM envois_auto WHERE boutique_id = ? ORDER BY cle').all(bid).map(r => r.cle);
   assert.deepEqual(restants, ['bienvenue:a_b@x.ch.fr', 'bienvenue:axb@x.ch', 'reconquete:axb@x.ch:c_1']);
 });
+
+test('compte : changement de mot de passe (ancien exigé), autres appareils déconnectés', async () => {
+  const pc = client(), tel = client();
+  await pc('POST', '/api/auth/inscription', { email: 'mdp@exemple.ch', motDePasse: 'ancien mot de passe 1', config: { boutique: { nom: 'Mdp' } } });
+  assert.equal((await tel('POST', '/api/auth/connexion', { email: 'mdp@exemple.ch', motDePasse: 'ancien mot de passe 1' })).statut, 200);
+  assert.equal((await pc('POST', '/api/admin/compte/mot-de-passe', { actuel: 'faux', nouveau: 'nouveau mot de passe 2' })).statut, 401);
+  assert.equal((await pc('POST', '/api/admin/compte/mot-de-passe', { actuel: 'ancien mot de passe 1', nouveau: 'court' })).statut, 400);
+  assert.equal((await pc('POST', '/api/admin/compte/mot-de-passe', { actuel: 'ancien mot de passe 1', nouveau: 'nouveau mot de passe 2' })).statut, 200);
+  assert.equal((await pc('GET', '/api/session')).json.connecte, true, 'cet appareil reste connecté');
+  assert.equal((await tel('GET', '/api/session')).json.connecte, false, 'le téléphone est déconnecté');
+  const neuf = client();
+  assert.equal((await neuf('POST', '/api/auth/connexion', { email: 'mdp@exemple.ch', motDePasse: 'ancien mot de passe 1' })).statut, 401);
+  assert.equal((await neuf('POST', '/api/auth/connexion', { email: 'mdp@exemple.ch', motDePasse: 'nouveau mot de passe 2' })).statut, 200);
+  assert.equal((await pc('POST', '/api/admin/compte/deconnecter-autres', {})).json.n, 1);
+  assert.equal((await neuf('GET', '/api/session')).json.connecte, false);
+});

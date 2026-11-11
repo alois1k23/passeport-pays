@@ -35,6 +35,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   // (seulement en paiement simulé ou avec une clé Stripe de test).
   const fournisseurDemoVendable = paiement.nom === 'simulation' || /^sk_test_/.test(env.STRIPE_SECRET_KEY || '');
   const socialSimule = paiement.nom === 'simulation' || env.SOCIAL_SIMULATION === '1';   // démo : publication et statistiques simulées
+  /* Adresse du client : derrière un proxy de confiance (Caddy, par défaut sur la même machine), celle qu'il a ajoutée
+     en dernier dans X-Forwarded-For ; sinon l'adresse de la connexion. Sans cela, tout le monde aurait l'adresse du proxy
+     et une seule personne pourrait bloquer la connexion de tous les marchands. */
+  const proxiesConfiance = new Set(String(env.PROXY_DE_CONFIANCE || '127.0.0.1,::1,::ffff:127.0.0.1').split(',').map(x => x.trim()).filter(Boolean));
+  const ipClient = req => {
+    const pair = req.socket.remoteAddress || '';
+    const xff = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim()).filter(Boolean);
+    return proxiesConfiance.has(pair) && xff.length ? xff[xff.length - 1] : pair;
+  };
   const vendable = p => p.actif && !p.aVerifier && (fournisseurDemoVendable || p.codeFournisseur !== 'demo');
   // Délai avant que le faux fournisseur expédie (2 min par défaut ; négatif = jamais, pour tester à la main).
   const delaiExpeditionDemo = env.DEMO_DELAI_EXPEDITION_MS === undefined ? 120000 : Number(env.DEMO_DELAI_EXPEDITION_MS);
@@ -419,10 +428,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { statut: 201, corps: { ok: true, slug } };
   });
   r.post('/api/auth/connexion', ctx => {
-    auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const email = valider.email(ctx.corps.email);
+    const cles = ['ip:' + ctx.ip, 'compte:' + email.toLowerCase()];
+    auth.verifierEchecs(cles, Number(env.LIMITE_ESSAIS) || 10);
     const m = db.prepare('SELECT * FROM marchands WHERE email = ?').get(email);
-    if (!m || !auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants');
+    if (!m || !auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) { auth.noterEchec(cles); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
     ctx.entetes['Set-Cookie'] = auth.cookieSession(auth.creerSession(db, m.id), securise);
     return { ok: true };
   });
@@ -430,6 +440,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/auth/oubli', ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const email = valider.email(ctx.corps.email);
+    auth.limiter('oubli:' + email.toLowerCase(), 3 * facteurLimites, 60 * 60000, 'Un lien vient déjà d’être envoyé à cette adresse. Vérifiez votre boîte de réception, ou réessayez dans une heure.');
     const m = db.prepare('SELECT id FROM marchands WHERE email = ?').get(email);
     if (m) {
       const jeton = crypto.randomBytes(32).toString('base64url');
@@ -516,6 +527,25 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
 
   /* Suppression définitive du compte et de toutes ses données (mot de passe exigé). */
+  /* Mot de passe : l'actuel est exigé ; les autres sessions sont fermées. */
+  r.post('/api/admin/compte/mot-de-passe', exigerCompte, ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    const cles = ['compte:' + String(m.email).toLowerCase()];
+    auth.verifierEchecs(cles, Number(env.LIMITE_ESSAIS) || 10);
+    if (!auth.verifierMotDePasse(String(ctx.corps.actuel || ''), m.mot_de_passe)) { auth.noterEchec(cles); throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants'); }
+    const nouveau = valider.texte(ctx.corps.nouveau, 'Le nouveau mot de passe', { min: 10, max: 200 });
+    const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
+    transaction(db, () => {
+      db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(auth.hacherMotDePasse(nouveau), m.id);
+      db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, actuelle);
+      db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);
+    });
+    return { ok: true };
+  });
+  r.post('/api/admin/compte/deconnecter-autres', exigerCompte, ctx => {
+    const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
+    return { ok: true, n: db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(ctx.marchand.id, actuelle).changes };
+  });
   r.post('/api/admin/compte/supprimer', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     if (!auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
@@ -524,6 +554,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
+      db.prepare('DELETE FROM emails WHERE lower(destinataire) = ?').run(String(m.email).toLowerCase());   // e-mails de compte (réinitialisation, abonnement)
       db.prepare('DELETE FROM marchands WHERE id = ?').run(m.id); // boutiques, produits, commandes, sessions : suppression en cascade
     });
     ctx.entetes['Set-Cookie'] = auth.cookieSession(null, securise);
@@ -1075,6 +1106,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
 
   /* ---------- Boutique publique : page rendue par le serveur pour les moteurs de recherche et le partage ---------- */
+  const produitVisible = (b, id) => abo.etat(b.marchand_id).actif && listerProduits(b.id).some(x => x.id === id && vendable(x));
   function pageBoutique(b, { racine, produitId = null }) {
     const config = lireConfig(b);
     const ouverte = abo.etat(b.marchand_id).actif;
@@ -1096,7 +1128,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const tete = [
       `<meta name="comptoir-slug" content="${escHtml(b.slug)}">`, `<meta name="comptoir-racine" content="${escHtml(new URL(base + '/').pathname)}">`,
       ...(p ? [`<meta name="comptoir-produit" content="${escHtml(p.id)}">`] : []),
-      `<title>${escHtml(titre)}</title>`, `<meta name="description" content="${escHtml(description)}">`, `<link rel="canonical" href="${escHtml(canonique)}">`,
+      `<title>${escHtml(titre)}</title>`, `<meta name="description" content="${escHtml(description)}">`, `<link rel="canonical" href="${escHtml(canonique)}">`, `<link rel="sitemap" type="application/xml" href="${escHtml(base)}/sitemap.xml">`,
       ...(ouverte && !(produitId && !p) ? [] : ['<meta name="robots" content="noindex">']),
       `<meta property="og:type" content="${p ? 'product' : 'website'}">`, `<meta property="og:site_name" content="${escHtml(nom)}">`, `<meta property="og:title" content="${escHtml(p ? p.nom : nom)}">`,
       `<meta property="og:description" content="${escHtml(description)}">`, `<meta property="og:url" content="${escHtml(canonique)}">`, `<meta property="og:locale" content="fr_${config.boutique.pays === 'ch' ? 'CH' : config.boutique.pays === 'be' ? 'BE' : 'FR'}">`,
@@ -1117,7 +1149,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   // Image d'un produit en fichier (pour l'aperçu de partage : og:image doit être une adresse, pas une image intégrée).
   r.get('/api/public/:slug/image/:id', ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
-    const p = listerProduits(b.id).find(x => x.id === ctx.params.id && x.actif && x.image);
+    const p = listerProduits(b.id).find(x => x.id === ctx.params.id && vendable(x) && x.image);
     const m = p && /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(p.image);
     if (!m) throw erreur(404, 'Image introuvable.', 'introuvable');
     return { binaire: Buffer.from(m[3], 'base64'), type: m[1] };
@@ -1289,8 +1321,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         if (b) {
           const racine = `https://${hote}/`;
           if (chemin === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, racine)); }
-          if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${racine}sitemap.xml\n`); }
-          return envoyerHtml(res, 200, pageBoutique(b, { racine, produitId: chemin.startsWith('/p/') ? decodeURIComponent(chemin.slice(3)) : null }));
+          if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(`User-agent: *\nAllow: /\nAllow: /api/public/*/image/\nDisallow: /api/\nSitemap: ${racine}sitemap.xml\n`); }
+          const pid = chemin.startsWith('/p/') ? decodeURIComponent(chemin.slice(3)) : null;
+          return envoyerHtml(res, pid && !produitVisible(b, pid) ? 404 : 200, pageBoutique(b, { racine, produitId: pid }));
         }
       }
       const route = r.trouver(req.method, chemin);
@@ -1301,16 +1334,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
           const mBoutique = /^\/s\/([\w-]+)(?:\/p\/([\w-]+))?\/?$/.exec(chemin);
           if (mBoutique) {
             const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mBoutique[1]);
-            if (b) return envoyerHtml(res, 200, pageBoutique(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, produitId: mBoutique[2] || null }));
+            // Produit absent, masqué ou retiré : vrai 404 (la page reste utilisable : elle montre la boutique).
+            if (b) return envoyerHtml(res, mBoutique[2] && !produitVisible(b, mBoutique[2]) ? 404 : 200, pageBoutique(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, produitId: mBoutique[2] || null }));
           }
           const mPlan = /^\/s\/([\w-]+)\/sitemap\.xml$/.exec(chemin);
           if (mPlan) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mPlan[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, `${urlPublique}/s/${b.slug}/`)); } }
-          if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('User-agent: *\nAllow: /\nAllow: /s/\nDisallow: /app\nDisallow: /demo\nDisallow: /api/\nDisallow: /paiement-simule/\nDisallow: /abonnement-simule/\n'); }
+          if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('User-agent: *\nAllow: /\nAllow: /s/\nDisallow: /app\nDisallow: /demo\nAllow: /api/public/*/image/\nDisallow: /api/\nDisallow: /paiement-simule/\nDisallow: /abonnement-simule/\n'); }
           if (FICHIERS_PUBLICS.test(chemin) && servirStatique(res, RACINE_FRONT, chemin.slice(1))) return;
         }
         throw erreur(404, 'Page introuvable.', 'introuvable');
       }
-      const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: req.socket.remoteAddress, corps: {}, corpsBrut: '' };
+      const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: ipClient(req), corps: {}, corpsBrut: '' };
       if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
         ctx.corpsBrut = (await lireCorps(req)).toString('utf8');
         const type = req.headers['content-type'] || '';

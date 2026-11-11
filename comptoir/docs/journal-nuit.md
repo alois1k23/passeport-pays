@@ -575,3 +575,39 @@ Une relecture indépendante de tout ce qui a été modifié depuis minuit a trou
 14. Canada : devise EUR dans le navigateur contre CAD sur le serveur ; alignée sur CAD.
 
 Tests : 48.
+
+### Cycle 31 — Éditeur, photos, compte marchand et référencement
+
+Une septième relecture a relevé 14 défauts. Tous sont corrigés.
+
+**Graves**
+
+1. **Une seule personne pouvait bloquer la connexion de tous les marchands.** Derrière le proxy (Caddy) prévu pour la mise en ligne, toutes les requêtes arrivaient avec la même adresse, et chaque connexion, même réussie, comptait comme un essai. Désormais :
+   - l'adresse réelle est lue dans l'en-tête ajouté par le proxy de confiance (une adresse forgée par le client est ignorée) ;
+   - seuls les échecs comptent, par adresse et par compte visé ;
+   - les liens « mot de passe oublié » sont limités par adresse e-mail.
+
+   Test ajouté : 12 connexions réussies jamais bloquées, l'attaquant seul bloqué.
+2. **Changer de formule ne changeait rien avec Stripe** : le marchand passé à Pro gardait les droits de Lancement, et celui qui descendait gardait Pro. La souscription Stripe change maintenant de prix (au prorata, sur la prochaine facture), les droits suivent aussitôt, et un changement fait dans le tableau de bord Stripe est repris. Le nouveau prix et la règle du prorata sont annoncés avant la confirmation. Test ajouté.
+
+**Moyens**
+
+3. **Thème personnalisé illisible sans avertissement** (bouton blanc sur jaune à 1,4:1, texte blanc sur blanc). Le texte des boutons et le gris secondaire se recalculent selon les couleurs choisies, et un encart avertit si un contraste reste trop faible. Thème Brume : gris secondaire légèrement assombri (4,47 → 4,81:1).
+4. Aperçu « Mobile » de l'éditeur coupé sur téléphone ; cartes et newsletter qui débordaient du cadre.
+5. Sur téléphone, toucher une section de l'aperçu n'ouvrait pas son panneau.
+6. **Impossible d'ajouter ou de changer la photo d'un produit existant.** La fiche produit propose « Ajouter, changer ou retirer la photo ».
+7. **« Ajouter par photo »** :
+   - la description générée promettait « expédié sous 48 h, retours gratuits 30 jours », publiée telle quelle. Elle n'invente plus rien ;
+   - les photos HEIC illisibles étaient ignorées en silence (« 0 fiche créée »). Elles sont nommées, avec la marche à suivre.
+8. Un compte jamais payé ne pouvait pas être supprimé depuis l'interface, alors que la page de confidentialité le promet : bouton ajouté sur l'écran des formules.
+
+**Mineurs**
+
+9. Changement du mot de passe (l'ancien est exigé) et « Déconnecter les autres appareils » ajoutés dans Paramètres (test ajouté).
+10. E-mails de compte (réinitialisation, abonnement) conservés après la suppression du compte : effacés.
+11. Photos des produits interdites aux robots (aperçus de partage et Google Images sans image) : autorisées.
+12. La photo d'un produit pas encore publié était accessible publiquement.
+13. Produit absent ou retiré : la page répond 404 au lieu de 200 ; le titre de page est le même que celui rendu par le serveur ; le plan du site est signalé.
+14. Éditeur au clavier : le focus revient sur la section ou sur le bouton « Monter/Descendre » après l'action.
+
+Tests : 51 ; démo sans erreur ni débordement ; audit d'accessibilité propre.
