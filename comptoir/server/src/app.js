@@ -142,7 +142,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     ...c.lignes.map(l => `- ${l.qte} × ${l.nom} : ${formatMontant(l.prix * l.qte, config)}`),
     // Les prix des articles sont déjà remisés : la remise est indiquée pour information, pas soustraite une seconde fois.
     ...(c.remise ? [`  (prix après remise${c.motifRemise ? ` : ${c.motifRemise}` : ''}, soit ${formatMontant(c.remise, config)} d’économie)`] : []),
-    `- Livraison${(prix.modesLivraison(config)[c.livraison] || {}).nom ? ` (${prix.modesLivraison(config)[c.livraison].nom})` : ''} : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
+    c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
     `Total payé : ${formatMontant(c.total, config)}`
   ].join('\n');
   const lienTransporteur = (transporteur, suivi) => {
@@ -383,7 +383,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const epuises = res.c.alerteStock ? [] : listerProduits(res.boutique.id).filter(p => vendus[p.id] && p.type !== 'drop' && p.stock <= 0 && p.stock + vendus[p.id] > 0);   // en rupture, l'e-mail de commande le dit déjà
       if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
       if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
-        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
+        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
     }
     if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop')) {
       try { await transmettreAuFournisseur(res.boutique, res.c, true); } catch (e) {

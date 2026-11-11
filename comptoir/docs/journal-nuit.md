@@ -655,3 +655,9 @@ Tests : 53 (e-mail de commande, alerte de stock).
 11. Photo de la fiche produit inaccessible au clavier : vrai bouton, et le focus revient après l'ajout ou le retrait.
 
 Tests : 55.
+
+### Cycle 34 — Retrait en magasin de bout en bout
+
+Parcours complet testé sur le serveur : commande en retrait, paiement, « en préparation », « prête » (e-mail au client avec l'adresse et les horaires du magasin), « remise au client ». Tout fonctionne. Deux textes corrigés :
+- le récapitulatif des e-mails affichait « Livraison (Retrait en boutique (click & collect)) : offerte » ; il affiche maintenant « Retrait en boutique : gratuit » ;
+- l'e-mail au marchand indiquait « Livraison : Lausanne » pour un retrait.
