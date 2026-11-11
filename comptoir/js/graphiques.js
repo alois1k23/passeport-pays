@@ -37,7 +37,9 @@ function courbe({ labels, series, format = compact, formatTip = format, hauteur 
   const L = largeurDispo(fraction), H = hauteur, m = { g: 56, d: 14, h: 12, b: 26 };
   const n = labels.length;
   const max = Math.max(1, ...series.flatMap(s => s.valeurs));
-  const pas = pasLisible(max), haut = Math.ceil(max / pas) * pas;
+  // Aucune valeur : deux graduations (0 et 1) plutôt que « 0, 0, 1, 1, 1 » arrondis.
+  const vide = series.every(s => s.valeurs.every(v => !v));
+  const pas = vide ? 1 : pasLisible(max), haut = Math.ceil(max / pas) * pas;
   const x = i => m.g + (n <= 1 ? 0 : i * (L - m.g - m.d) / (n - 1));
   const y = v => m.h + (H - m.h - m.b) * (1 - v / haut);
   let svg = `<svg viewBox="0 0 ${L} ${H}" class="graph courbe" role="img" aria-label="${esc(series.map(s => s.nom).join(', '))}">`;

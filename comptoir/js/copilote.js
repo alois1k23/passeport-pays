@@ -109,15 +109,17 @@ function genererCampagne(etat, evt) {
   // Pic de demande concentré pendant la campagne : facteur d’intensité selon l’événement
   const intensite = { 'black-friday': 2.6, noel: 1.5, 'fete-des-meres': 1.6, 'saint-valentin': 1.4 }[evt.id] || 1.1;
 
+  // Sans aucune vente sur 30 jours, pas de prévision chiffrée (elle serait inventée) : la campagne reste utilisable.
+  const sansHistorique = !Object.values(v30).some(v => v > 0);
   const produits = etat.produits.filter(p => p.actif).map(p => {
     const parJour = (v30[p.id] || 0) / 30;
-    const prevision = Math.max(1, Math.round(parJour * ratio * intensite * evt.duree));
+    const prevision = sansHistorique ? 0 : Math.max(1, Math.round(parJour * ratio * intensite * evt.duree));
     const estCoffret = /coffret|carte/i.test(p.nom + p.categorie);
     return { p, ventes90: v90[p.id] || 0, prevision, manque: p.type === 'drop' ? 0 : Math.max(0, prevision - p.stock), score: (v90[p.id] || 0) + (evt.cadeau && estCoffret ? 25 : 0) };
   }).sort((a, b) => b.score - a.score);
   const vedettes = produits.slice(0, 3);
   const ruptures = produits.filter(x => x.manque > 0);
-  const caPrevu = produits.reduce((a, x) => a + Math.min(x.prevision, x.p.stock + x.manque) * x.p.prix * (1 - evt.remise / 100), 0);
+  const caPrevu = sansHistorique ? null : produits.reduce((a, x) => a + Math.min(x.prevision, x.p.stock + x.manque) * x.p.prix * (1 - evt.remise / 100), 0);
 
   // Dropshipping : date limite de commande pour que le client reçoive à temps
   const drops = vedettesDrop(produits);

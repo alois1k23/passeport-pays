@@ -30,7 +30,7 @@ function vueCopilote() {
       <div class="carte-tete"><div><span class="eyebrow">Campagne prête · ${esc(camp.dateTxt)}</span><h2 class="titre-campagne">${esc(choisi.nom)}</h2></div>
         ${etatCamp ? `<span class="pill good">Programmée le ${dateCourte(etatCamp.le)}</span>` : ''}</div>
       <div class="chiffres">
-        <div><span class="sous">CA prévu</span><strong>${euros(camp.caPrevu)}</strong></div>
+        <div><span class="sous">CA prévu</span><strong>${camp.caPrevu === null ? '—' : euros(camp.caPrevu)}</strong>${camp.caPrevu === null ? '<span class="sous">dès vos premières ventes</span>' : ''}</div>
         <div><span class="sous">Offre</span><strong>${choisi.remise ? '-' + choisi.remise + ' %' : 'Cadeau'}</strong></div>
         <div><span class="sous">Durée</span><strong>${choisi.duree} j</strong></div>
       </div>

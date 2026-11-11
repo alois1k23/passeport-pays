@@ -270,7 +270,7 @@ function vueSocial() {
       ${p.statut === 'brouillon' ? '<span class="pill warn">À valider</span>' : '<span class="pill info">Programmée</span>'}
     </article>`;
   return `
-  <div class="tete"><div><h1>Réseaux sociaux</h1><p class="sous">Le pilote prépare et publie vos contenus à partir de vos produits, de vos ventes et de la saison. Il apprend de chaque résultat.</p></div>
+  <div class="tete"><div><h1>Réseaux sociaux</h1><p class="sous">${socialManuel() ? 'Le pilote prépare vos contenus (vous les publiez en un copier-coller)' : 'Le pilote prépare et publie vos contenus'} à partir de vos produits, de vos ventes et de la saison. Il apprend de chaque résultat.</p></div>
     <div class="rangee">
       <label class="interrupteur"><input type="checkbox" data-social="auto" ${r.auto ? 'checked' : ''}><span>Pilote automatique ${r.auto ? 'activé' : 'désactivé'}</span></label>
       <button class="btn fantome" data-action="lancement-intensif" title="3 vidéos TikTok par jour pendant 30 jours">Lancement intensif TikTok</button>

@@ -288,7 +288,7 @@ function vueTableau() {
     <section class="carte saison-carte">
       <span class="eyebrow">Copilote · prochain temps fort</span>
       <h2>${esc(prochain.nom)}, ${prochain.date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</h2>
-      <p>${dansJours(prochain.date)}. ${etat.campagnes[prochain.cle] ? 'Votre campagne est programmée.' : `Campagne prête : ${euros(campProchain.caPrevu)} de ventes prévues${campProchain.ruptures.length ? `, ${campProchain.ruptures.length} produit${campProchain.ruptures.length > 1 ? 's' : ''} à réassortir` : ''}.`}</p>
+      <p>${dansJours(prochain.date)}. ${etat.campagnes[prochain.cle] ? 'Votre campagne est programmée.' : `Campagne prête${campProchain.caPrevu === null ? ' (prévision de ventes dès vos premières commandes)' : ` : ${euros(campProchain.caPrevu)} de ventes prévues`}${campProchain.ruptures.length ? `, ${campProchain.ruptures.length} produit${campProchain.ruptures.length > 1 ? 's' : ''} à réassortir` : ''}.`}</p>
       <div class="jauge"><div style="width:${Math.min(100, indice / 1.8)}%"></div></div>
       <p class="sous">Demande « ${esc(secteur.nom)} » : indice ${indice} (100 = mois moyen)</p>
       <div class="rangee"><a class="btn" href="#copilote">${etat.campagnes[prochain.cle] ? 'Voir la campagne' : 'Relire et valider'}</a><a class="btn fantome" href="#domaines">Domaine de campagne</a></div>

@@ -469,3 +469,6 @@ Captures d'une boutique réelle (formule Croissance, Suisse) : Domaines, Réseau
 1. **« Réserver pour CHF 12.99 »** sur les domaines recommandés d'un compte réel, avec le message « réservé, votre boutique y est accessible » : faux, rien n'est réservé. Le bouton devient « Choisir ce nom », qui renvoie aux étapes du registrar et du DNS.
 2. **Boutique sans aucune section** (configuration vide ou abîmée) : page publique entièrement blanche. Elle affiche maintenant au moins ses produits.
 3. Vérifié : la fiche produit indique le pays d'expédition (« Chine ») et l'avertissement d'importation ; pour une entreprise non assujettie, elle n'affiche plus « TTC ».
+4. **Prévision inventée pour une boutique neuve** : « Campagne prête : CHF 166.60 de ventes prévues » sans aucune vente (le calcul comptait au moins une vente par produit). Sans historique, plus de chiffre : « prévision dès vos premières commandes ».
+5. **Graphique vide** : l'axe affichait « 0, 0, 1, 1, 1 ». Deux graduations nettes, 0 et 1.
+6. Réseaux sociaux en publication manuelle : le sous-titre ne dit plus « prépare et publie ».
