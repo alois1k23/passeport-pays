@@ -105,7 +105,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const p = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ?').get(l.produitId, boutiqueId);
       if (!p) continue;
       const d = JSON.parse(p.donnees);
-      d.stock = Math.max(0, (d.stock || 0) + sens * l.qte);
+      // Stock jamais négatif : on note sur la ligne ce qui a vraiment été retiré, et seul ce nombre revient en cas
+      // d'annulation ou de remboursement (sinon une commande vendue en rupture recréerait du stock fantôme).
+      if (sens < 0) { const retire = Math.min(l.qte, Math.max(0, d.stock || 0)); l.retireStock = retire; d.stock = (d.stock || 0) - retire; }
+      else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; d.stock = (d.stock || 0) + remis; l.retireStock = 0; }
       db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(d), l.produitId);
     }
   };
@@ -356,8 +359,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const prods = listerProduits(row.boutique_id);
       const manques = c.lignes.filter(l => l.type !== 'drop').map(l => ({ l, p: prods.find(x => x.id === l.produitId) })).filter(x => x.p && x.p.type !== 'drop' && x.p.stock < c.lignes.filter(y => y.produitId === x.l.produitId).reduce((a, y) => a + y.qte, 0));
       if (manques.length) { c.alerteStock = true; historique(c, `Rupture de stock au paiement : ${[...new Set(manques.map(x => x.p.nom))].join(', ')}. Réapprovisionnez ou remboursez.`); }
-      enregistrerCommande(c);
       ajusterStock(row.boutique_id, c.lignes, -1);
+      enregistrerCommande(c);
       return { c, boutique: db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id) };
     });
     if (!res) return;
@@ -598,7 +601,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Audience : sessions distinctes par jour et par étape (365 derniers jours)
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
-    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id) } };
+    const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
+    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id) } };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -659,6 +663,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (typeof ctx.corps.note === 'string') c.note = ctx.corps.note.slice(0, 2000);
     enregistrerCommande(c);
     return { ok: true };
+  });
+  /* Commande mixte (stock + dropshipping) : la partie fournisseur se transmet à la main sans changer le statut,
+     par exemple quand la transmission automatique a échoué ou est désactivée. */
+  r.post('/api/admin/commandes/:id/transmettre', exigerMarchand, async ctx => {
+    const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
+    if (!['payee', 'preparation'].includes(c.statut)) throw erreur(409, 'Seule une commande payée, pas encore expédiée, peut être transmise.', 'statut');
+    if (!c.lignes.some(l => l.type === 'drop')) throw erreur(409, 'Aucun article de cette commande ne vient d’un fournisseur.', 'sans_fournisseur');
+    if (c.refFournisseur) throw erreur(409, 'La partie fournisseur est déjà transmise.', 'deja_transmise');
+    return { commande: await transmettreAuFournisseur(ctx.boutique, c, false) };
   });
   r.post('/api/admin/commandes/:id/statut', exigerMarchand, async ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);

@@ -23,7 +23,7 @@ function fichesFournisseurs() {
       if (t && x && x.date > t.date) mesures.push((x.date - t.date) / 86400000);
     }
     const annonce = f.delais.length ? [Math.min(...f.delais.map(d => d[0])), Math.max(...f.delais.map(d => d[1]))] : null;
-    return { ...f, entrepots: [...f.entrepots], annonce, commandes: commandes.length, tauxRemb: commandes.length ? remb / commandes.length : 0, expeditionMoy: mesures.length ? mesures.reduce((a, b) => a + b, 0) / mesures.length : null, nMesures: mesures.length };
+    return { ...f, entrepots: [...f.entrepots], annonce, commandes: commandes.filter(c => c.refFournisseur).length, tauxRemb: commandes.length ? remb / commandes.length : 0, expeditionMoy: mesures.length ? mesures.reduce((a, b) => a + b, 0) / mesures.length : null, nMesures: mesures.length };
   }).sort((a, b) => b.commandes - a.commandes);
 }
 

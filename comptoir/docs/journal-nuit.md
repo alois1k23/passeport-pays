@@ -666,3 +666,36 @@ Parcours complet testé sur le serveur : commande en retrait, paiement, « en pr
 
 1. **Les produits au-delà de la vitrine étaient introuvables** : la grille montre 4 à 8 produits, et rien ne menait aux autres (une boutique de 12 produits en cachait 8 aux acheteurs). Un bouton « Voir tous les produits (12) » affiche tout le catalogue, avec un filtre par catégorie. Vérifié sur téléphone : 4, puis 12 produits, 10 catégories, aucun débordement.
 2. **Le bandeau des cookies recouvrait la fin de la page** (et le nouveau bouton) tant que le visiteur n'avait pas répondu : la page garde maintenant un espace sous son contenu.
+
+### Cycle 36 — Commandes, clients et produits : 15 défauts corrigés
+
+Une relecture des modules de gestion quotidienne a relevé 15 défauts.
+
+**Graves**
+
+1. **Activé au clavier, le bouton clair/sombre de l'interface effaçait le thème de la boutique publique** (couleurs vides, rayon 0, enregistré sur le serveur en compte réel). Il partageait son nom d'action avec les tuiles de thème de l'éditeur. Les deux sont séparés, et un thème inconnu est ignoré.
+2. **Stock fantôme** : une commande payée en rupture puis remboursée rendait au stock un article qui n'avait jamais existé. Chaque ligne garde la quantité réellement retirée, et seule celle-ci revient (serveur et démo, test ajouté).
+3. **Remboursement, annulation et suppression de produit en un seul clic**, sans confirmation, alors qu'un remboursement Stripe est irréversible. Une confirmation explicite est demandée.
+4. **Note interne perdue** si l'on cliquait une action pendant la frappe (la relecture de l'état écrasait la note pas encore envoyée). Les notes en attente partent avant toute relecture.
+
+**Moyens**
+
+5. Une commande cochée puis cachée par un changement de filtre restait sélectionnée : elle était modifiée à l'aveugle par une action groupée. La sélection ne garde que les commandes affichées.
+6. L'action groupée annonçait « 1 commande : en préparation » même quand le serveur avait refusé : réussites et refus sont annoncés séparément.
+7. Boutons de statut calculés d'après le produit actuel (supprimé ou modifié) et non d'après la commande, comme le fait le serveur.
+8. **Commande mixte impossible à transmettre à la main au fournisseur**, alors que l'e-mail d'échec le demandait. Un bouton « Transmettre la partie fournisseur » le fait, sans changer le statut (test ajouté).
+9. Un client désinscrit restait dans le segment « acceptent les e-mails » et dans l'export.
+10. Étiquette d'envoi sans rue ni code postal.
+11. Fiche produit en cours de modification remise à zéro par une recherche ou un filtre.
+12. Bon de préparation sans les compléments achetés après coup, « à joindre au même colis » : ils y figurent, et la commande les signale.
+
+**Mineurs**
+
+13. Export des clients :
+    - montants avec point décimal et dates en UTC ;
+    - la liste exportée ignorait le segment et la recherche ;
+    - un nom commençant par « = » devenait une formule dans Excel (corrigé dans tous les exports).
+14. Recherche « #1006 » sans résultat ; palette limitée aux 60 dernières commandes ; « Aujourd'hui » couvrait les 24 dernières heures ; « Commandes à préparer » gardait les anciens filtres.
+15. Clients sans aucune vente valide comptés comme clients ; produits « à vérifier » comptés « en ligne » ; fournisseurs crédités de commandes jamais transmises.
+
+Tests : 57.

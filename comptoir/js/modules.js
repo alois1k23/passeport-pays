@@ -134,7 +134,7 @@ function encaisser(moyen) {
   for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); l.tauxTva = tauxTvaProduit(p); }
   if (moyen === 'especes' && estSuisse()) { c.encaisse = Math.round(c.total * 20) / 20; c.arrondi = Math.round((c.encaisse - c.total) * 100) / 100; }
   etat.commandes.push(c);
-  for (const l of ui.caisse) { const p = etat.produits.find(x => x.id === l.produitId); if (p) p.stock = Math.max(0, p.stock - l.qte); }
+  for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); l.type = p ? p.type : l.type; if (p) { l.retireStock = Math.min(l.qte, Math.max(0, p.stock)); p.stock -= l.retireStock; } }
   ui.caisse = [];
   sauver();
   toast(`Vente de ${euros(total)} encaissée. Ticket ${c.facture}, stock du site mis à jour.`);
@@ -309,7 +309,7 @@ function rendreModal() {
     corps = `<article class="etiquette">
       <div class="et-tete"><strong>${esc(l.transporteur)}</strong><span>${esc(l.court)}</span></div>
       <div><span class="sous">Expéditeur</span><div>${esc(etat.entreprise.raison)}</div><div>${esc(etat.entreprise.adresse)}</div></div>
-      <div class="et-dest"><span class="sous">Destinataire</span><div><strong>${esc(c.client.nom)}</strong></div><div>${esc(c.client.ville)}</div></div>
+      <div class="et-dest"><span class="sous">Destinataire</span><div><strong>${esc(c.client.nom)}</strong></div>${c.client.adresse ? `<div>${esc(c.client.adresse)}</div>` : ''}<div>${esc([c.client.npa, c.client.ville].filter(Boolean).join(' '))}</div></div>
       <div class="code-barre" aria-hidden="true">${Array.from(c.suivi || 'X').map((ch, i) => `<i style="width:${1 + (ch.charCodeAt(0) + i) % 4}px"></i>`).join('')}</div>
       <div class="mono et-suivi">${esc(c.suivi)}</div>
     </article><p class="sous">Étiquette générée via l’API ${esc(l.transporteur)} (simulée). Poids estimé : ${(c.lignes.reduce((a, x) => a + x.qte, 0) * 0.45).toFixed(1).replace('.', ',')} kg.</p>`;

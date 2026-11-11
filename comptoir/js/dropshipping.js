@@ -210,8 +210,13 @@ function beneficeCommande(c) {
   return decomposer(c).net;   // une seule formule pour le tableau de bord, l'analyse et les fiches
 }
 
+/* Type de chaque ligne : celui enregistré sur la commande (comme le serveur), sinon celui du produit actuel. */
+function typeLigne(l) { return l.type || (etat.produits.find(x => x.id === l.produitId) || {}).type; }
 function estDropship(c) {
-  return c.lignes.length > 0 && c.lignes.every(l => (etat.produits.find(x => x.id === l.produitId) || {}).type === 'drop');
+  return c.lignes.length > 0 && c.lignes.every(l => typeLigne(l) === 'drop');
+}
+function partieFournisseurATransmettre(c) {
+  return ['payee', 'preparation'].includes(c.statut) && !c.refFournisseur && c.canal !== 'magasin' && !estDropship(c) && c.lignes.some(l => typeLigne(l) === 'drop');
 }
 
 /* ---------- Démo : Lacustre, boutique de dropshipping à Lausanne ---------- */
@@ -337,7 +342,7 @@ document.addEventListener('change', e => {
 
 /* Transmission d’une commande au fournisseur (automatique au paiement si activée). */
 function transmettre(c, auto) {
-  c.statut = 'fournisseur';
+  if (estDropship(c)) c.statut = 'fournisseur';   // commande mixte : seule la partie fournisseur part, le statut ne change pas
   c.refFournisseur = 'FO-' + Math.floor(100000 + Math.random() * 899999);
   const fournisseurs = [...new Set(c.lignes.map(l => (etat.produits.find(p => p.id === l.produitId) || {}).fournisseur).filter(Boolean))];
   c.historique.push({ date: Date.now(), texte: `${auto ? 'Transmise automatiquement' : 'Transmise'} à ${fournisseurs.join(', ')} (${c.refFournisseur})` });

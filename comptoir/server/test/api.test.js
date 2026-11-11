@@ -826,3 +826,33 @@ test('stock 1, deux commandes payées : une seule alerte « épuisé », la seco
   const seconde = db.prepare("SELECT corps FROM emails WHERE destinataire = 'rupture@exemple.ch' AND sujet LIKE 'Nouvelle commande%' ORDER BY id DESC LIMIT 1").get();
   assert.match(seconde.corps, /rupture de stock/);
 });
+
+test('rupture puis remboursement : pas de stock fantôme', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'fantome@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Fantôme', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Fantôme', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Bougie B', prix: 20, stock: 1, type: 'stock' }] });
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const commander = n => a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C ' + n, email: `f${n}@exemple.ch`, adresse: 'Rue 2', npa: '1006', ville: 'Lausanne' } });
+  const c1 = await commander(1), c2 = await commander(2);
+  await fetch(c1.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  await fetch(c2.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  assert.equal((await m('POST', `/api/admin/commandes/${c2.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 200);
+  let stock = (await m('GET', '/api/admin/etat')).json.produits[0].stock;
+  assert.equal(stock, 0, 'la commande en rupture ne rend aucun article');
+  assert.equal((await m('POST', `/api/admin/commandes/${c1.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 200);
+  stock = (await m('GET', '/api/admin/etat')).json.produits[0].stock;
+  assert.equal(stock, 1, 'la commande servie rend son article');
+});
+
+test('commande mixte : la partie fournisseur se transmet à la main, sans changer le statut', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'mixte-main@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Mixte', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Mixte', adresse: 'Rue 1, 1003 Lausanne' }, reglages: { autoTransmission: false } }, produits: [{ nom: 'Vase maison', prix: 30, stock: 5, type: 'stock' }], importer: ['f05'] });
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const lignes = pub.json.produits.map(p => ({ produitId: p.id, qte: 1 }));
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes, livraison: 'poste-eco', client: { nom: 'M', email: 'mx@exemple.ch', adresse: 'Rue 2', npa: '1006', ville: 'Lausanne' } });
+  await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const r = await m('POST', `/api/admin/commandes/${cmd.json.commandeId}/transmettre`, {});
+  assert.equal(r.statut, 200, JSON.stringify(r.json));
+  assert.ok(r.json.commande.refFournisseur);
+  assert.equal(r.json.commande.statut, 'payee', 'le statut ne change pas : le marchand prépare encore sa partie');
+  assert.equal((await m('POST', `/api/admin/commandes/${cmd.json.commandeId}/transmettre`, {})).statut, 409, 'pas deux fois');
+});

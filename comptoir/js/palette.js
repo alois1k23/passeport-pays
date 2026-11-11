@@ -7,13 +7,13 @@ function entreesPalette() {
     { nom: 'Nouveau produit', icone: 'plus', faire: () => { location.hash = 'produits'; setTimeout(() => document.querySelector('[data-action="nouveau-produit"]')?.click(), 50); } },
     { nom: 'Générer le calendrier des réseaux sociaux', icone: 'social', faire: () => { location.hash = 'social'; setTimeout(() => document.querySelector('[data-action="generer-planning"]')?.click(), 80); } },
     { nom: 'Lancer un test produit', icone: 'tests', faire: () => { location.hash = 'tests'; } },
-    { nom: 'Commandes à préparer', icone: 'commandes', faire: () => { ui.filtre = 'payee'; location.hash = 'commandes'; rendre(); } },
+    { nom: 'Commandes à préparer', icone: 'commandes', faire: () => { ui.filtre = 'payee'; ui.recherche = ''; ui.periodeCmd = 'tout'; ui.canalCmd = 'tous'; ui.pageCmd = 1; location.hash = 'commandes'; rendre(); } },
     { nom: 'Rentabilité sur 12 mois', icone: 'analyse', faire: () => { ui.analyse = { ...(ui.analyse || {}), onglet: 'rentabilite', periode: 365, canal: 'tous' }; location.hash = 'analyse'; rendre(); } },
     { nom: 'Exporter toutes les commandes (CSV)', icone: 'analyse', faire: () => exporterCommandesCsv(etat.commandes) },
     { nom: 'Changer de thème (clair, sombre, système)', icone: 'soleil', faire: changerTheme },
     { nom: 'Offre et tarifs', icone: 'offre', faire: () => { location.hash = 'offre'; } }
   ].map(a => ({ ...a, groupe: 'Actions' }));
-  const commandes = [...etat.commandes].sort((a, b) => b.date - a.date).slice(0, 60).map(c => ({ groupe: 'Commandes', nom: `Commande n° ${c.numero} · ${c.client.nom}`, sous: euros(c.total), icone: 'commandes', faire: () => { ui.commande = c.id; ui.filtre = 'tous'; location.hash = 'commandes'; rendre(); } }));
+  const commandes = [...etat.commandes].sort((a, b) => b.date - a.date).slice(0, 5000).map(c => ({ groupe: 'Commandes', nom: `Commande n° ${c.numero} · ${c.client.nom}`, sous: euros(c.total), icone: 'commandes', faire: () => { ui.commande = c.id; ui.filtre = 'tous'; location.hash = 'commandes'; rendre(); } }));
   const produits = etat.produits.map(p => ({ groupe: 'Produits', nom: p.nom, sous: euros(p.prix), icone: 'produits', faire: () => { ui.produitEdite = { ...p }; location.hash = 'produits'; rendre(); } }));
   return [...pages, ...actions, ...produits, ...commandes];
 }
@@ -74,6 +74,6 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   if (el.dataset.action === 'palette') ouvrirPalette();
-  else if (el.dataset.action === 'theme') changerTheme();
+  else if (el.dataset.action === 'theme-interface') changerTheme();
   else if (el.dataset.action === 'editer-produit' && ui.route === 'analyse') location.hash = 'produits';
 });

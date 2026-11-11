@@ -386,6 +386,23 @@ function completerEtat(e) {
   }
   return e;
 }
+/* Actions irréversibles (remboursement, annulation, suppression) : une confirmation explicite avant d'agir. */
+function confirmerAction(el) {
+  const { action, id, statut } = el.dataset;
+  try {
+    if (action === 'statut' && (statut === 'remboursee' || statut === 'annulee')) {
+      const c = etat.commandes.find(x => x.id === id);
+      return confirm(statut === 'remboursee'
+        ? `Rembourser la commande n° ${c ? c.numero : ''} (${c ? euros(c.total) : ''}) ? Le client est remboursé et un avoir est émis : c’est irréversible.`
+        : `Annuler la commande n° ${c ? c.numero : ''} ? Le lien de paiement envoyé au client ne fonctionnera plus.`);
+    }
+    if (action === 'supprimer-produit') {
+      const p = etat.produits.find(x => x.id === id);
+      return confirm(`Supprimer « ${p ? p.nom : 'ce produit'} » ? Il disparaît de la boutique ; les commandes passées le gardent. Pour le retirer temporairement, décochez plutôt « Visible dans la boutique ».`);
+    }
+  } catch { /* pas de boîte de dialogue disponible : on agit */ }
+  return true;
+}
 function numeroFactureSuivant(e, date, prefixe = 'FA') {
   e.compteurFacture = (e.compteurFacture || 0) + 1;
   return `${prefixe}-${new Date(date).getFullYear()}-${String(e.compteurFacture).padStart(4, '0')}`;

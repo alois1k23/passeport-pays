@@ -358,8 +358,9 @@ const FLUX = {
 /* Commandes filtrées selon l’onglet, la période, le canal et la recherche. */
 const PAR_PAGE = 50;
 function commandesFiltrees() {
-  const q = ui.recherche.trim().toLowerCase();
-  const depuis = ui.periodeCmd && ui.periodeCmd !== 'tout' ? Date.now() - Number(ui.periodeCmd) * JOUR : 0;
+  const q = ui.recherche.trim().toLowerCase().replace(/^#\s*/, '').replace(/^n°\s*/, '');   // « #1006 » et « n° 1006 » comme la liste les affiche
+  // Périodes en jours du calendrier : « Aujourd'hui » part de minuit, pas des dernières 24 heures.
+  const depuis = ui.periodeCmd && ui.periodeCmd !== 'tout' ? (() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (Number(ui.periodeCmd) - 1)); return d.getTime(); })() : 0;
   return [...etat.commandes].sort((a, b) => b.date - a.date)
     .filter(c => ui.filtre === 'tous' || c.statut === ui.filtre || (ui.filtre === 'payee' && c.statut === 'preparation' && false))
     .filter(c => c.date >= depuis)
@@ -376,7 +377,9 @@ function vueCommandes() {
   const debut = (ui.pageCmd - 1) * PAR_PAGE;
   const page = liste.slice(debut, debut + PAR_PAGE);
   const ouverte = etat.commandes.find(c => c.id === ui.commande);
-  const sel = [...ui.selection].filter(id => etat.commandes.some(c => c.id === id));
+  // La sélection ne garde que les commandes de la liste affichée : une commande cachée par un filtre n'est jamais modifiée à l'aveugle.
+  { const visibles = new Set(liste.map(c => c.id)); for (const id of [...ui.selection]) if (!visibles.has(id)) ui.selection.delete(id); }
+  const sel = [...ui.selection];
   const toutCoche = page.length && page.every(c => ui.selection.has(c.id));
   const ca = liste.filter(compteVentes).reduce((a, c) => a + c.total, 0);
   return `
@@ -426,6 +429,7 @@ function bonsPreparation(ids) {
       <header><div><strong>${esc(etat.boutique.nom)}</strong><div class="sous">Bon de préparation</div></div><div class="num"><b class="mono">#${c.numero}</b><div class="sous">${new Date(c.date).toLocaleDateString('fr-FR')}</div></div></header>
       <div class="bon-adresse"><span class="sous">Livrer à</span><b>${esc(c.client.nom)}</b><span>${esc(c.client.adresse || '')}</span><span>${esc([c.client.npa, c.client.ville].filter(Boolean).join(' '))}</span><span class="sous">${c.canal === 'magasin' ? 'Vente en personne' : esc((TOUTES_LIVRAISONS[c.livraison] || { nom: '' }).nom)}</span></div>
       <table class="table compacte"><thead><tr><th></th><th>Article</th><th class="num">Qté</th></tr></thead><tbody>${c.lignes.map(l => `<tr><td class="col-case">☐</td><td>${esc(l.nom)}${(etat.produits.find(p => p.id === l.produitId) || {}).type === 'drop' ? ' <span class="sous">(expédié par le fournisseur)</span>' : ''}</td><td class="num">${l.qte}</td></tr>`).join('')}</tbody></table>
+      ${(() => { const comp = etat.commandes.filter(x => x.parent === c.id && compteVentes(x)); return comp.length ? `<p><b>À joindre au même colis</b> (complément${comp.length > 1 ? 's' : ''} n° ${comp.map(x => x.numero).join(', ')}) :</p><table class="table compacte"><tbody>${comp.flatMap(x => x.lignes).map(l => `<tr><td class="col-case">☐</td><td>${esc(l.nom)}</td><td class="num">${l.qte}</td></tr>`).join('')}</tbody></table>` : ''; })()}
       ${c.note ? `<p class="sous">Note : ${esc(c.note)}</p>` : ''}
     </article>`).join('')}</div>
     <div class="rangee">${imprimable ? '<button class="btn" data-action="imprimer">Imprimer</button>' : '<span class="sous">L’impression est disponible dans l’application installée.</span>'}</div>`;
@@ -435,7 +439,8 @@ function filtresCmdActifs() { return !!(ui.recherche || ui.filtre !== 'tous' || 
 /* Valeurs CSV lisibles par un Excel en français : virgule décimale, dates locales, texte entre guillemets. */
 function csvMontant(n) { return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2).replace('.', ','); }
 function csvDate(t) { if (!t) return ''; const d = new Date(t), z = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; }
-function csvTexte(v) { return `"${String(v ?? '').replace(/"/g, '""')}"`; }
+function csvTexte(v) { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;   // un nom « =HYPERLINK(...) » ne devient pas une formule dans Excel
+  return `"${t.replace(/"/g, '""')}"`; }
 /* Export pour la fiduciaire : une ligne par facture, et une ligne négative par avoir. */
 function exporterCommandesCsv(liste) {
   const champs = ['document', 'date_document', 'commande', 'date_commande', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total_ht', 'tva', 'total_ttc', 'detail_tva', 'moyen', 'suivi'];
@@ -467,8 +472,13 @@ async function changerStatutGroupe(ids, statut) {
   const possibles = ids.map(id => etat.commandes.find(c => c.id === id)).filter(c => c && fluxPour(c).some(([s]) => s === statut));
   if (!possibles.length) { toast('Aucune des commandes sélectionnées ne peut passer à cette étape.'); return; }
   if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte) {
-    for (const c of possibles) { try { await api('POST', `/api/admin/commandes/${encodeURIComponent(c.id)}/statut`, { statut }); } catch (e) { toast(e.message); } }
+    // Réussites et refus comptés à part : on n'annonce pas un succès que le serveur a refusé.
+    let ok = 0; const refus = [];
+    for (const c of possibles) { try { await api('POST', `/api/admin/commandes/${encodeURIComponent(c.id)}/statut`, { statut }); ok++; } catch (e) { refus.push(`n° ${c.numero} : ${e.message}`); } }
     await rechargerEtat();
+    ui.selection.clear();
+    toast(`${ok} commande${ok > 1 ? 's' : ''} : ${STATUTS[statut].nom.toLowerCase()}.${refus.length ? ` Refusé : ${refus.slice(0, 2).join(' ; ')}${refus.length > 2 ? '…' : ''}` : ''}${possibles.length < ids.length ? ` ${ids.length - possibles.length} ignorée${ids.length - possibles.length > 1 ? 's' : ''}.` : ''}`);
+    rendre(); return;
   } else for (const c of possibles) changerStatut(c.id, statut, { silencieux: true });
   sauver();
   ui.selection.clear();
@@ -491,6 +501,8 @@ function detailCommande(c) {
     </div>
     ${c.suivi ? `<div class="bloc"><h3>Suivi ${esc(TOUTES_LIVRAISONS[c.livraison].transporteur || '')}</h3><p class="mono">${esc(c.suivi)}</p></div>` : ''}
     <div class="rangee">${c.facture ? `<button class="btn petit fantome" data-action="facture" data-id="${c.id}">Facture ${c.facture}</button>` : ''}${c.avoir ? `<button class="btn petit fantome" data-action="avoir" data-id="${c.id}">Avoir ${c.avoir.numero}</button>` : ''}${c.suivi && !estDropship(c) && TOUTES_LIVRAISONS[c.livraison].transporteur ? `<button class="btn petit fantome" data-action="etiquette" data-id="${c.id}">Étiquette d’envoi</button>` : ''}</div>
+    ${(() => { const comp = etat.commandes.filter(x => x.parent === c.id && compteVentes(x)); return comp.length ? `<div class="bloc"><p class="encart">Complément${comp.length > 1 ? 's' : ''} payé${comp.length > 1 ? 's' : ''} à joindre au même colis : n° ${comp.map(x => x.numero).join(', ')}.</p></div>` : ''; })()}
+    ${partieFournisseurATransmettre(c) ? `<div class="bloc"><p class="sous">Commande mixte : les articles du fournisseur ne lui sont pas encore transmis.</p><button class="btn petit" data-action="transmettre-partie" data-id="${c.id}">Transmettre la partie fournisseur</button></div>` : ''}
     <div class="bloc actions">${fluxPour(c).map(([s, nom], i) => `<button class="btn ${i ? 'fantome' : ''} ${s === 'annulee' || s === 'remboursee' ? 'danger' : ''}" data-action="statut" data-id="${c.id}" data-statut="${s}">${nom}</button>`).join('') || '<p class="sous">Aucune action possible : commande clôturée.</p>'}</div>
     <div class="bloc"><h3>Historique</h3><ol class="frise">${[...c.historique].reverse().map(h => `<li><span>${esc(h.texte)}</span><time>${dateHeure(h.date)}</time></li>`).join('')}</ol></div>
     <div class="bloc"><label for="note-${c.id}"><h3>Note interne</h3></label><textarea id="note-${c.id}" rows="2" data-champ="note" data-id="${c.id}" placeholder="Visible uniquement par vous">${esc(c.note)}</textarea></div>
@@ -506,7 +518,7 @@ function changerStatut(id, statut, { silencieux = false } = {}) {
   if (statut === 'payee' && !c.facture) { c.facture = numeroFactureSuivant(etat, Date.now()); c.dateFacture = Date.now(); }
   if (statut === 'remboursee' && c.facture && !c.avoir) c.avoir = { numero: numeroFactureSuivant(etat, Date.now(), 'AV'), date: Date.now(), montant: c.total };
   if (statut === 'remboursee' || statut === 'annulee') {
-    for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); if (p) p.stock += l.qte; }
+    for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); if (p && p.type !== 'drop') { p.stock += typeof l.retireStock === 'number' ? l.retireStock : l.qte; l.retireStock = 0; } }
   }
   const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: estDropship(c) ? `Expédiée par le fournisseur, suivi ${c.suivi} transmis au client` : `Expédiée, suivi ${c.suivi}`, livree: 'Livrée', remboursee: `Remboursée (${euros(c.total)}), avoir émis, stock remis`, annulee: 'Annulée, stock remis', prete: 'Prête à retirer, SMS envoyé au client (simulé)', retiree: 'Remise au client en boutique' };
   c.historique.push({ date: Date.now(), texte: textes[statut] });
@@ -536,7 +548,7 @@ function vueProduits() {
   const p = ui.produitEdite;
   const cats = SECTEURS[etat.boutique.secteur].categories;
   return `
-  <div class="tete"><div><h1>Produits</h1><p class="sous">${etat.produits.length} produits · ${etat.produits.filter(x => x.actif).length} en ligne</p></div>
+  <div class="tete"><div><h1>Produits</h1><p class="sous">${etat.produits.length} produits · ${etat.produits.filter(x => x.actif && !x.aVerifier && (typeof SERVEUR === 'undefined' || SERVEUR.fournisseurDemoVendable !== false || x.codeFournisseur !== 'demo')).length} en ligne</p></div>
     <div class="rangee"><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
     <input type="file" id="photo-input" accept="image/*" multiple hidden></div>
   <p class="astuce">Ajoutez des produits du <a class="lien" href="#sourcing">catalogue fournisseurs</a> (dropshipping) ou prenez vos propres produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
@@ -586,13 +598,16 @@ function listeClients() {
     if (c.canal === 'magasin' && !c.client.email) continue;
     if (!c.client.email && c.client.nom === 'Client effacé') continue;   // données effacées à la demande du client
     const k = (c.client.email || c.client.nom).toLowerCase();
-    const x = par[k] = par[k] || { cle: k, nom: c.client.nom, email: c.client.email, ville: c.client.ville, commandes: [], total: 0, premiere: c.date, derniere: 0, consentement: false };
+    const x = par[k] = par[k] || { cle: k, nom: c.client.nom, email: c.client.email, ville: c.client.ville, commandes: [], total: 0, premiere: Infinity, derniere: 0, consentement: false };
     x.commandes.push(c);
-    if (compteVentes(c)) x.total += c.total;
-    x.premiere = Math.min(x.premiere, c.date); x.derniere = Math.max(x.derniere, c.date);
+    if (compteVentes(c)) { x.total += c.total; x.premiere = Math.min(x.premiere, c.date); x.derniere = Math.max(x.derniere, c.date); }
     if (c.client.consentement) x.consentement = true;
   }
-  const l = Object.values(par);
+  // Un client est quelqu'un qui a acheté : une commande seulement annulée ou impayée ne compte pas.
+  // Une adresse désinscrite n'accepte plus les e-mails, quel que soit son accord d'origine.
+  const desinscrits = new Set((etat.desinscrits || []).map(e => String(e).toLowerCase()));
+  const l = Object.values(par).filter(x => x.commandes.some(compteVentes));
+  for (const x of l) if (x.email && desinscrits.has(x.email.toLowerCase())) x.consentement = false;
   const seuilTop = [...l].sort((a, b) => b.total - a.total)[Math.max(0, Math.floor(l.length * 0.1) - 1)];
   for (const x of l) {
     x.n = x.commandes.filter(compteVentes).length;
@@ -615,6 +630,7 @@ function vueClients() {
   const liste = tous.filter(c => seg === 'tous' || c.segments.includes(seg))
     .filter(c => !q || c.nom.toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q) || (c.ville || '').toLowerCase().includes(q))
     .sort((a, b) => b.total - a.total);
+  ui.clientsAffiches = liste;   // l'export reprend exactement la liste affichée (segment et recherche)
   const pages = Math.max(1, Math.ceil(liste.length / PAR_PAGE));
   ui.pageClient = Math.min(ui.pageClient || 1, pages);
   const debut = (ui.pageClient - 1) * PAR_PAGE;
@@ -691,9 +707,8 @@ function ficheClient(c) {
 }
 
 function exporterClientsCsv() {
-  const l = listeClients();
-  const lignes = l.map(c => [c.nom, c.email || '', c.ville || '', c.n, c.total, c.panier, new Date(c.premiere).toISOString().slice(0, 10), new Date(c.derniere).toISOString().slice(0, 10), c.consentement ? 'oui' : 'non']
-    .map(v => typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : `"${String(v).replace(/"/g, '""')}"`).join(';'));
+  const l = ui.clientsAffiches || listeClients();
+  const lignes = l.map(c => [csvTexte(c.nom), csvTexte(c.email || ''), csvTexte(c.ville || ''), String(c.n), csvMontant(c.total), csvMontant(c.panier), csvTexte(csvDate(c.premiere).slice(0, 10)), csvTexte(csvDate(c.derniere).slice(0, 10)), csvTexte(c.consentement ? 'oui' : 'non')].join(';'));
   telechargerTexte(`comptoir-clients-${new Date().toISOString().slice(0, 10)}.csv`, '﻿nom;email;ville;commandes;total;panier_moyen;premiere_commande;derniere_commande;accepte_emails\n' + lignes.join('\n'), 'text/csv;charset=utf-8', `${l.length} clients exportés.`);
 }
 
@@ -905,7 +920,8 @@ function passerCommande(form) {
   });
   const nouvelle = etat.commandes[etat.commandes.length - 1];
   if (estDropship(nouvelle) && reglages().autoTransmission) transmettre(nouvelle, true);
-  for (const l of ui.panier) { const p = etat.produits.find(x => x.id === l.produitId); if (p) p.stock = Math.max(0, p.stock - l.qte); }
+  // Quantité réellement retirée du stock, notée sur la ligne : un remboursement ne remet que celle-ci.
+  for (const l of nouvelle.lignes) { const p = etat.produits.find(x => x.id === l.produitId); l.type = l.type || (p ? p.type : undefined); if (p && p.type !== 'drop') { l.retireStock = Math.min(l.qte, Math.max(0, p.stock)); p.stock -= l.retireStock; } }
   ui.panier = [];
   ui.confirmation = numero;
   sauver();
@@ -1081,7 +1097,7 @@ document.addEventListener('click', e => {
     case 'groupe-bons': ui.modal = { type: 'html', html: `<h2>Bons de préparation</h2>${bonsPreparation([...ui.selection])}` }; rendreModal(); break;
     case 'bon-un': ui.modal = { type: 'html', html: `<h2>Bon de préparation</h2>${bonsPreparation([id])}` }; rendreModal(); break;
     case 'groupe-vider': ui.selection.clear(); rendre(); break;
-    case 'filtre-produit': ui.filtreProduit = el.dataset.v; rendre(); break;
+    case 'filtre-produit': ui.filtreProduit = el.dataset.v; rendreEnGardantProduit(); break;
     case 'dupliquer-produit': dupliquerProduit(id).catch(err => toast(err.message)); break;
     case 'segment': ui.segment = el.dataset.v; ui.pageClient = 1; rendre(); break;
     case 'page-client': ui.pageClient = (ui.pageClient || 1) + Number(el.dataset.d); rendre(); break;
@@ -1095,11 +1111,12 @@ document.addEventListener('click', e => {
     case 'copier': try { navigator.clipboard.writeText(el.dataset.texte).then(() => toast('Copié.'), () => toast(el.dataset.texte)); } catch { toast(el.dataset.texte); } break;
     case 'imprimer': window.print(); break;
     case 'filtre-lien': ui.filtre = el.dataset.filtre; ui.pageCmd = 1; ui.canalCmd = 'tous'; ui.periodeCmd = 'tout'; ui.recherche = ''; break;
-    case 'statut': changerStatut(id, el.dataset.statut); break;
+    case 'statut': if (confirmerAction(el)) changerStatut(id, el.dataset.statut); break;
+    case 'transmettre-partie': { const c = etat.commandes.find(x => x.id === id); if (c) { transmettre(c, false); sauver(); rendre(); } break; }
     case 'nouveau-produit': ui.produitEdite = { id: nouvelId('p'), nom: '', description: '', prix: 20, stock: 10, categorie: SECTEURS[etat.boutique.secteur].categories[0], teinte: Math.floor(Math.random() * 360), actif: true }; rendre(); break;
     case 'editer-produit': ui.produitEdite = { ...etat.produits.find(x => x.id === id) }; rendre(); break;
     case 'fermer-produit': ui.produitEdite = null; rendre(); break;
-    case 'supprimer-produit': etat.produits = etat.produits.filter(x => x.id !== id); ui.produitEdite = null; sauver(); toast('Produit supprimé.'); rendre(); break;
+    case 'supprimer-produit': if (!confirmerAction(el)) break; etat.produits = etat.produits.filter(x => x.id !== id); ui.produitEdite = null; sauver(); toast('Produit supprimé.'); rendre(); break;
     case 'choisir-section': ui.section = ui.section === id ? null : id; rendre(); break;
     case 'monter': if (idx > 0) { etat.boutique.sections.splice(idx - 1, 0, ...etat.boutique.sections.splice(idx, 1)); modifie(); rendre(); } break;
     case 'descendre': if (idx >= 0 && idx < etat.boutique.sections.length - 1) { etat.boutique.sections.splice(idx + 1, 0, ...etat.boutique.sections.splice(idx, 1)); modifie(); rendre(); } break;
@@ -1113,7 +1130,7 @@ document.addEventListener('click', e => {
     }
     case 'onglet-editeur': ui.ongletEditeur = id; rendre(); break;
     case 'appareil': ui.appareil = id; rendre(); break;
-    case 'theme': etat.boutique.theme = { ...THEMES[id], id }; modifie(); rendre(); break;
+    case 'theme': if (THEMES[id]) { etat.boutique.theme = { ...THEMES[id], id }; modifie(); rendre(); } break;   // tuiles de l'éditeur seulement
     case 'publier': etat.boutique.modifie = false; sauver(); toast('Modifications publiées.', ['boutique', 'Voir la boutique']); rendre(); break;
     case 'choisir-domaine':
       etat.boutique.domaine = { domaine: el.dataset.domaine, prix: Number(el.dataset.prix), genre: el.dataset.genre, date: Date.now() };
@@ -1169,7 +1186,7 @@ document.addEventListener('input', e => {
     etat.boutique[t.dataset.boutique] = t.value; modifie(); rendreApercu();
     if (t.dataset.boutique === 'nom') $('#nom-boutique').textContent = t.value;
   } else if (t.dataset.champ === 'recherche-produit') {
-    ui.rechercheProduit = t.value; rendre(); const r = $('#recherche-produits'); r.focus(); r.setSelectionRange(r.value.length, r.value.length);
+    ui.rechercheProduit = t.value; rendreEnGardantProduit(); const r = $('#recherche-produits'); r.focus(); r.setSelectionRange(r.value.length, r.value.length);
   } else if (t.dataset.champ === 'recherche-client') {
     ui.rechercheClient = t.value; ui.pageClient = 1; rendre(); const r = $('#recherche-clients'); r.focus(); r.setSelectionRange(r.value.length, r.value.length);
   } else if (t.dataset.champ === 'recherche') {

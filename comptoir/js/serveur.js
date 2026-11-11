@@ -66,7 +66,16 @@ async function viderEnregistrement() {
   else if (ENREGISTREMENT.enCours) await ENREGISTREMENT.enCours;
 }
 
+/* Notes internes en attente d'envoi : envoyées avant toute relecture de l'état (sinon la relecture les écraserait). */
+const NOTES_EN_ATTENTE = { valeurs: {}, minuteries: {} };
+function envoyerNote(id) {
+  clearTimeout(NOTES_EN_ATTENTE.minuteries[id]);
+  if (!(id in NOTES_EN_ATTENTE.valeurs)) return Promise.resolve();
+  const note = NOTES_EN_ATTENTE.valeurs[id]; delete NOTES_EN_ATTENTE.valeurs[id];
+  return api('PATCH', `/api/admin/commandes/${encodeURIComponent(id)}`, { note }).catch(err => toast(err.message));
+}
 async function rechargerEtat() {
+  await Promise.all(Object.keys(NOTES_EN_ATTENTE.valeurs).map(envoyerNote));
   await viderEnregistrement();
   const e = await api('GET', '/api/admin/etat');
   // Une modification faite pendant la lecture garde la priorité : on relira au prochain passage.
@@ -299,8 +308,9 @@ function installerModeConnecte() {
     if (!el) return;
     const { action, id } = el.dataset;
     const bloquer = () => { e.preventDefault(); e.stopImmediatePropagation(); };
+    if ((action === 'statut' || action === 'supprimer-produit') && !confirmerAction(el)) { bloquer(); return; }
     // Une action qui écrit ne peut pas partir deux fois en même temps (double clic, réseau lent).
-    const verrou = ['statut', 'supprimer-produit', 'importer-produit', 'encaisser', 'as-creer'].includes(action) ? `${action}:${id || ''}` : null;
+    const verrou = ['statut', 'supprimer-produit', 'importer-produit', 'encaisser', 'as-creer', 'transmettre-partie'].includes(action) ? `${action}:${id || ''}` : null;
     if (verrou && ACTIONS_EN_COURS.has(verrou)) { bloquer(); return; }
     if (verrou) ACTIONS_EN_COURS.add(verrou);
     try {
@@ -308,6 +318,10 @@ function installerModeConnecte() {
         bloquer(); el.disabled = true;
         const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/statut`, { statut: el.dataset.statut });
         await rafraichir(`Commande n° ${r.commande.numero} : ${STATUTS[r.commande.statut].nom.toLowerCase()}.`);
+      } else if (action === 'transmettre-partie') {
+        bloquer(); el.disabled = true;
+        const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/transmettre`, {});
+        await rafraichir(`Commande n° ${r.commande.numero} : partie fournisseur transmise.`);
       } else if (action === 'supprimer-produit') {
         bloquer();
         await api('DELETE', `/api/admin/produits/${encodeURIComponent(id)}`);
@@ -351,12 +365,15 @@ function installerModeConnecte() {
   }, true);
 
   // Notes internes : enregistrées en base quelques instants après la frappe.
-  const notes = {};
   document.addEventListener('input', e => {
     const t = e.target;
     if (t.dataset.champ !== 'note') return;
-    clearTimeout(notes[t.dataset.id]);
-    notes[t.dataset.id] = setTimeout(() => api('PATCH', `/api/admin/commandes/${encodeURIComponent(t.dataset.id)}`, { note: t.value }).catch(err => toast(err.message)), 700);
+    const id = t.dataset.id;
+    // La note est aussi gardée dans l'état local : un rendu entre-temps ne la remet pas à l'ancienne valeur.
+    const c = etat.commandes.find(x => x.id === id); if (c) c.note = t.value;
+    NOTES_EN_ATTENTE.valeurs[id] = t.value;
+    clearTimeout(NOTES_EN_ATTENTE.minuteries[id]);
+    NOTES_EN_ATTENTE.minuteries[id] = setTimeout(() => envoyerNote(id), 700);
   }, true);
 
   // Photos : les fiches sont créées en base.
