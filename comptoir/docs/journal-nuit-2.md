@@ -103,7 +103,7 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - En-tête `Cross-Origin-Opener-Policy: same-origin` ajouté.
 - Tests : 80 sur 80.
 
-## Cycle 6 (00 h 30) : corrections de la revue API et webhooks
+## Cycle 6 (00 h 20) : corrections de la revue API et webhooks
 
 La revue indépendante a relevé 11 points. Tous sont corrigés :
 1. **File des webhooks partagée** (critique) : 30 envois en attente vers un webhook en pause bloquaient tous les webhooks de toutes les boutiques. Désormais :
@@ -131,3 +131,18 @@ La revue indépendante a relevé 11 points. Tous sont corrigés :
     - la documentation précise les doublons et l'ordre des événements.
 
 Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, formes IPv6). Écran Intégrations ajusté : état « ne répond plus depuis… », réactivation avec le nombre d'événements en attente, intégrations inactives encore supprimables.
+
+## Cycle 7 (00 h 35) : tableau de bord en direct
+
+- Flux en direct (Server-Sent Events, `/api/admin/flux`). Le serveur compare l'état de chaque boutique suivie toutes les 2 secondes et prévient l'onglet dès qu'une commande arrive ou change.
+- Avant, l'onglet interrogeait le serveur toutes les 15 secondes. Cette interrogation reste en secours si un proxy coupe le flux.
+- Côté marchand, à chaque nouvelle commande payée :
+  - un message « Nouvelle commande n° 1001 : CHF 47.00 » ;
+  - le compteur dans le titre de l'onglet, « (2) Comptoir », si l'onglet est en arrière-plan ;
+  - une notification du navigateur, si elle est autorisée.
+- Pas de rechargement pendant une saisie (fiche produit, éditeur) : la mise à jour attend la fin.
+- Sécurité :
+  - le flux exige une session ;
+  - il est contrôlé toutes les 30 secondes et se ferme si l'appareil est déconnecté à distance ;
+  - 8 onglets en direct au plus par compte.
+- Vérifié dans un vrai navigateur : une commande payée sur la boutique s'affiche chez le marchand en 1,5 seconde. Test automatique ajouté : 84 tests sur 84.

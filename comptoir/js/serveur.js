@@ -449,23 +449,50 @@ function installerModeConnecte() {
     await rafraichir(messagePhotos(n, refus));
   }, true);
 
-  // Les nouvelles commandes de la boutique publique apparaissent toutes seules.
-  // Toutes les 15 s, une signature de quelques octets ; l'état complet n'est rechargé que s'il a changé.
-  let signature = null;
+  // Les nouvelles commandes apparaissent toutes seules : flux en direct (Server-Sent Events), le serveur prévient dès
+  // qu'une commande arrive ou change. Sans flux (proxy qui le coupe, navigateur ancien) : signature toutes les 15 s.
+  let signature = null, enAttente = false, nonVues = 0;
+  const titreDeBase = document.title;
+  const appliquer = async (nouvelles = []) => {
+    if (ui.produitEdite || ['editeur', 'creer'].includes(ui.route)) { enAttente = true; return; }   // pas pendant une saisie
+    enAttente = false;
+    const avant = etat.commandes.length, statuts = etat.commandes.map(c => c.statut).join();
+    try { await rechargerEtat(); } catch { return; }
+    if (etat.commandes.length === avant && etat.commandes.map(c => c.statut).join() === statuts) return;
+    rendre();
+    const payees = nouvelles.filter(n => !etat.commandes.some(c => c.numero === n.numero && c.vueEnDirect));
+    if (payees.length) {
+      payees.forEach(n => { const c = etat.commandes.find(x => x.numero === n.numero); if (c) c.vueEnDirect = true; });
+      const texte = payees.length === 1 ? `Nouvelle commande n° ${payees[0].numero} : ${euros(Number(payees[0].total) || 0)}` : `${payees.length} nouvelles commandes payées`;
+      toast(texte);
+      if (document.hidden) {
+        nonVues += payees.length; document.title = `(${nonVues}) ${titreDeBase}`;
+        try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Comptoir', { body: texte, tag: 'comptoir-commande'}); } catch { /* ignoré */ }
+      }
+    } else if (etat.commandes.length > avant) toast(`Nouvelle commande reçue (${etat.commandes.length - avant}).`);
+  };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { nonVues = 0; document.title = titreDeBase; } });
+  setInterval(() => { if (enAttente) appliquer(); }, 3000);
+  let echecsFlux = 0, flux = null;
+  const ouvrirFlux = () => {
+    if (!('EventSource' in window)) return false;
+    flux = new EventSource('/api/admin/flux');
+    flux.addEventListener('pret', () => { echecsFlux = 0; ui.enDirect = true; });
+    flux.addEventListener('maj', e => { let d = {}; try { d = JSON.parse(e.data); } catch { /* ignoré */ } appliquer(d.nouvelles || []); });
+    flux.addEventListener('fin', () => { flux.close(); ui.enDirect = false; });   // session terminée
+    flux.onerror = () => { ui.enDirect = false; if (++echecsFlux >= 5) { flux.close(); flux = null; } };
+    return true;
+  };
+  ouvrirFlux();
   setInterval(async () => {
-    if (document.hidden || ui.produitEdite || ['editeur', 'creer'].includes(ui.route)) return;
+    if (flux && flux.readyState !== 2) return;   // le flux en direct s'en charge
+    if (document.hidden) return;
     let s;
     try { s = JSON.stringify(await api('GET', '/api/admin/signature')); } catch { return; }
     if (signature === null) { signature = s; return; }
     if (s === signature) return;
     signature = s;
-    const avant = etat.commandes.length;
-    const statuts = etat.commandes.map(c => c.statut).join();
-    try { await rechargerEtat(); } catch { return; }
-    if (etat.commandes.length !== avant || etat.commandes.map(c => c.statut).join() !== statuts) {
-      rendre();
-      if (etat.commandes.length > avant) toast(`Nouvelle commande reçue (${etat.commandes.length - avant}).`);
-    }
+    appliquer();
   }, 15000);
 }
 

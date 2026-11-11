@@ -1848,11 +1848,52 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     return { p, row, c: lireCommande(row), config: JSON.parse(row.config) };
   };
   /* Signature légère de l'état (pour savoir s'il faut recharger) : quelques octets au lieu de plusieurs Mo. */
-  r.get('/api/admin/signature', exigerMarchand, ctx => {
-    const c = db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(date), 0) AS derniere FROM commandes WHERE boutique_id = ?").get(ctx.boutique.id);
-    const a = db.prepare('SELECT COUNT(*) AS n FROM avis WHERE boutique_id = ?').get(ctx.boutique.id);
-    const statuts = db.prepare('SELECT statut, COUNT(*) AS n FROM commandes WHERE boutique_id = ? GROUP BY statut').all(ctx.boutique.id).map(x => x.statut + x.n).join(',');
-    return { commandes: c.n, derniere: c.derniere, statuts, avis: a.n };
+  const signatureDe = boutiqueId => {
+    const c = db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(date), 0) AS derniere, COALESCE(MAX(maj_le), 0) AS maj FROM commandes WHERE boutique_id = ?").get(boutiqueId);
+    const a = db.prepare('SELECT COUNT(*) AS n FROM avis WHERE boutique_id = ?').get(boutiqueId);
+    const statuts = db.prepare('SELECT statut, COUNT(*) AS n FROM commandes WHERE boutique_id = ? GROUP BY statut').all(boutiqueId).map(x => x.statut + x.n).join(',');
+    return { commandes: c.n, derniere: c.derniere, maj: c.maj, statuts, avis: a.n };
+  };
+  r.get('/api/admin/signature', exigerMarchand, ctx => signatureDe(ctx.boutique.id));
+
+  /* Tableau de bord en direct (Server-Sent Events) : une connexion ouverte par onglet ; le serveur compare la signature
+     de chaque boutique suivie toutes les 2 s et pousse « maj » quand elle change, avec les nouvelles commandes payées
+     (numéro, total) pour la notification. Session révoquée ou expirée : le flux se ferme. */
+  const flux = new Set();
+  let minuterieFlux = null;
+  const ecrire = (a, texte) => { try { a.res.write(texte); } catch { /* fermé */ } };
+  function tourDeFlux() {
+    const parBoutique = new Map();
+    for (const a of flux) { if (!parBoutique.has(a.boutiqueId)) parBoutique.set(a.boutiqueId, []); parBoutique.get(a.boutiqueId).push(a); }
+    const maintenant = Date.now();
+    for (const [boutiqueId, abonnes] of parBoutique) {
+      let sig; try { sig = signatureDe(boutiqueId); } catch { continue; }
+      const cle = JSON.stringify(sig);
+      for (const a of abonnes) {
+        // Session encore valable ? (contrôle toutes les 30 s : déconnexion à distance, mot de passe changé)
+        if (maintenant - a.controle > (Number(env.FLUX_CONTROLE_MS) || 30000)) {
+          a.controle = maintenant;
+          if (!db.prepare('SELECT 1 FROM sessions WHERE jeton_hash = ? AND expire_le > ?').get(a.session, maintenant)) { ecrire(a, 'event: fin\ndata: {}\n\n'); a.res.end(); flux.delete(a); continue; }
+        }
+        if (a.signature !== cle) {
+          const nouvelles = a.depuis ? db.prepare("SELECT numero, json_extract(donnees, '$.total') AS total FROM commandes WHERE boutique_id = ? AND COALESCE(maj_le, date) > ? AND statut IN ('payee', 'retiree') ORDER BY date LIMIT 5").all(boutiqueId, a.depuis) : [];
+          if (a.signature !== null) ecrire(a, `event: maj\ndata: ${JSON.stringify({ ...sig, nouvelles })}\n\n`);
+          a.signature = cle; a.depuis = maintenant;
+        } else if (maintenant - a.ping > 25000) { ecrire(a, ': ping\n\n'); a.ping = maintenant; }   // garde la connexion ouverte (proxys)
+      }
+    }
+    if (!flux.size) { clearInterval(minuterieFlux); minuterieFlux = null; }
+  }
+  r.get('/api/admin/flux', exigerMarchand, ctx => {
+    const parMarchand = [...flux].filter(a => a.marchandId === ctx.marchand.id).length;
+    if (parMarchand >= 8 || flux.size >= 5000) throw erreur(429, 'Trop d’onglets ouverts en direct.', 'trop_de_flux');
+    const a = { res: ctx.res, boutiqueId: ctx.boutique.id, marchandId: ctx.marchand.id, session: auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), signature: JSON.stringify(signatureDe(ctx.boutique.id)), depuis: Date.now(), ping: Date.now(), controle: Date.now() };
+    ctx.res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', Connection: 'keep-alive', ...ctx.entetes });
+    ctx.res.write('retry: 5000\nevent: pret\ndata: {}\n\n');
+    flux.add(a);
+    ctx.req.on('close', () => flux.delete(a));
+    if (!minuterieFlux) { minuterieFlux = setInterval(tourDeFlux, Number(env.FLUX_INTERVALLE_MS) || 2000); minuterieFlux.unref(); }
+    return { diffusion: true };
   });
 
   /* ---------- Produits stars : signaux de demande pour le pays de la boutique ---------- */
@@ -2130,6 +2171,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       }
       let resultat;
       for (const g of route.gestionnaires) resultat = await g(ctx);
+      if (resultat && resultat.diffusion) return;   // flux SSE : la réponse reste ouverte
       if (resultat && resultat.binaire) { res.writeHead(200, { 'Content-Type': resultat.type, 'Cache-Control': 'public, max-age=3600', ...ctx.entetes }); res.end(resultat.binaire); return; }
       if (resultat && resultat.redirection) { res.writeHead(303, { Location: resultat.redirection, ...ctx.entetes }); res.end(); return; }
       if (resultat && resultat.html) return envoyerHtml(res, 200, resultat.html);
