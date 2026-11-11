@@ -304,3 +304,11 @@ Tests : 40 ; audits accessibilité et XSS propres.
 2. **Ventes en espèces chargées de frais de carte** : le moyen de paiement est enregistré sur chaque vente en caisse (démo et serveur), et les espèces n'ont plus de frais.
 3. **Retrait en magasin compté avec 7 de frais d'envoi** dans le bénéfice : plus de port quand le client vient chercher sa commande.
 4. **Bénéfice recalculé avec le taux de TVA actuel** au lieu de celui de la commande (après un changement de régime, les anciens mois changeaient). Le taux figé sur la commande, celui de sa facture, est utilisé.
+
+### Cycle 15 — Calendrier commercial, pays par pays
+
+Dates calculées comparées aux règles officielles pour 2026 à 2032 : soldes français (7 janvier et 24 juin 2026, 6 janvier 2027 car le 2e mercredi tombe après le 12), fête des mères française décalée quand elle tombe à la Pentecôte (aucun cas avant 2032 dans la période, règle vérifiée), Pâques (5 avril 2026, 28 mars 2027, 16 avril 2028), Black Friday, fêtes suisses et belges. Tout est juste, sauf :
+
+1. **Soldes belges un dimanche** : quand le 3 janvier ou le 1er juillet tombe un dimanche, les soldes commencent la veille (2 janvier 2027, 30 juin 2029). Le copilote annonçait le dimanche.
+2. **Conseils du mois faux pour la Belgique** : « fête des mères le dernier dimanche de mai », « soldes le 2e mercredi de janvier » (règles françaises). Conseils belges ajoutés (2e dimanche de mai et de juin, soldes du 3 janvier et du 1er juillet, Saint-Nicolas).
+3. **Conseils français incomplets** : les exceptions (1er mercredi de janvier, fête des mères en juin les années de Pentecôte) sont précisées.

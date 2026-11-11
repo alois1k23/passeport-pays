@@ -37,7 +37,9 @@ function tempsFortsAnnee(an, pays = (typeof etat !== 'undefined' && etat ? etat.
   let soldesEte = se.getDate() > 28 ? ajouterJours(se, -7) : se, soldesH = soldesHiver, fdp = nieme(an, 5, 0, 3);
   // Belgique : soldes le 3 janvier et le 1er juillet, fête des mères et des pères le 2e dimanche de mai et de juin, Saint-Nicolas.
   const be = pays === 'be';
-  if (be) { soldesH = new Date(an, 0, 3); soldesEte = new Date(an, 6, 1); fdm = nieme(an, 4, 0, 2); fdp = nieme(an, 5, 0, 2); }
+  // Un dimanche, les soldes belges commencent la veille (2 janvier, 30 juin).
+  const veilleSiDimanche = d => d.getDay() === 0 ? ajouterJours(d, -1) : d;
+  if (be) { soldesH = veilleSiDimanche(new Date(an, 0, 3)); soldesEte = veilleSiDimanche(new Date(an, 6, 1)); fdm = nieme(an, 4, 0, 2); fdp = nieme(an, 5, 0, 2); }
   return [
     { id: 'soldes-hiver', nom: 'Soldes d’hiver', kw: 'soldes', date: soldesH, duree: 28, remise: 30, cadeau: false, angle: 'Dernières pièces de la saison à prix doux' },
     { id: 'saint-valentin', nom: 'Saint-Valentin', kw: 'saint-valentin', date: new Date(an, 1, 14), duree: 10, remise: 10, cadeau: true, angle: 'Le cadeau à offrir à deux' },

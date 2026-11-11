@@ -9,11 +9,11 @@ const MOIS_LONG = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juill
 /* Temps forts du commerce en France, mois par mois.
    kw : mot-clé de campagne utilisé pour les domaines saisonniers. */
 const SAISONS = [
-  { mois: 0, nom: 'Soldes d’hiver', kw: 'soldes', force: 0.75, conseil: 'Les soldes démarrent le 2e mercredi de janvier : préparez une collection « dernières pièces ».' },
+  { mois: 0, nom: 'Soldes d’hiver', kw: 'soldes', force: 0.75, conseil: 'Les soldes démarrent le 2e mercredi de janvier (le 1er si le 2e tombe après le 12) : préparez une collection « dernières pièces ».' },
   { mois: 1, nom: 'Saint-Valentin', kw: 'saint-valentin', force: 0.85, conseil: 'Coffrets duo et cartes cadeaux : la demande culmine la semaine du 7 au 14 février.' },
   { mois: 2, nom: 'Printemps', kw: 'printemps', force: 0.5, conseil: 'Renouvelez les visuels : couleurs claires, nouveautés, grand ménage de printemps.' },
   { mois: 3, nom: 'Pâques', kw: 'paques', force: 0.55, conseil: 'Petits cadeaux et décoration de table : une bannière Pâques suffit.' },
-  { mois: 4, nom: 'Fête des mères', kw: 'fete-des-meres', force: 0.95, conseil: 'Fête des mères le dernier dimanche de mai : la meilleure période du printemps pour le cadeau.' },
+  { mois: 4, nom: 'Fête des mères', kw: 'fete-des-meres', force: 0.95, conseil: 'Fête des mères le dernier dimanche de mai (le 1er dimanche de juin quand il coïncide avec la Pentecôte) : la meilleure période du printemps pour le cadeau.' },
   { mois: 5, nom: 'Fête des pères et soldes d’été', kw: 'fete-des-peres', force: 0.7, conseil: 'Fête des pères le 3e dimanche de juin, puis soldes d’été fin juin.' },
   { mois: 6, nom: 'Vacances d’été', kw: 'ete', force: 0.45, conseil: 'Trafic plus faible : idéal pour tester de nouveaux produits et préparer la rentrée.' },
   { mois: 7, nom: 'Préparation rentrée', kw: 'rentree', force: 0.5, conseil: 'Préparez les campagnes de septembre et les stocks de fin d’année.' },
@@ -30,11 +30,19 @@ const SAISONS_CH = {
   7: { nom: '1er Août et préparation de la rentrée', kw: 'rentree', conseil: 'Fête nationale le 1er août : une sélection rouge et blanc suffit. Préparez ensuite la rentrée.' },
   9: { nom: 'Halloween et premiers cadeaux' }
 };
+/* Belgique : soldes le 3 janvier et le 1er juillet, fêtes des mères et des pères le 2e dimanche de mai et de juin, Saint-Nicolas. */
+const SAISONS_BE = {
+  0: { conseil: 'Soldes d’hiver dès le 3 janvier en Belgique (le 2 si c’est un dimanche) : préparez une sélection « dernières pièces ».' },
+  4: { conseil: 'Fête des mères le 2e dimanche de mai en Belgique : la meilleure période du printemps pour le cadeau.' },
+  5: { nom: 'Fête des pères et soldes d’été', conseil: 'Fête des pères le 2e dimanche de juin en Belgique, puis soldes d’été dès le 1er juillet.' },
+  10: { conseil: 'Black Friday fin novembre, puis Saint-Nicolas le 6 décembre : deux temps forts à préparer dès maintenant.' }
+};
 function saisonDuMois(mois) {
   const base = SAISONS[mois];
-  let ch = false;
-  try { ch = !!(etat && etat.boutique && etat.boutique.pays === 'ch'); } catch { /* état pas encore chargé */ }
-  return ch && SAISONS_CH[mois] ? { ...base, ...SAISONS_CH[mois] } : base;
+  let pays = 'fr';
+  try { pays = (etat && etat.boutique && etat.boutique.pays) || 'fr'; } catch { /* état pas encore chargé */ }
+  const propre = pays === 'ch' ? SAISONS_CH[mois] : pays === 'be' ? SAISONS_BE[mois] : null;
+  return propre ? { ...base, ...propre } : base;
 }
 
 /* Secteurs : mots-clés (volume de recherche mensuel simulé) + courbe saisonnière. */
