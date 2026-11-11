@@ -1129,3 +1129,17 @@ Contrôles finaux sur le dernier code :
 - Tests du serveur : 64, tous verts.
 
 La démo est republiée (version 15 de l'aperçu). Aucun nouveau cycle n'est lancé après 6 h 50.
+
+### Après la nuit — Parcours d'entrée dans la démo (demande du matin)
+
+En ouvrant Comptoir (l'aperçu), on arrivait directement dans le tableau de bord d'une boutique de démonstration. On arrive maintenant, comme sur Shopify, sur un parcours d'entrée :
+1. **Accueil** : présentation, « Comment ça marche » en 4 étapes, ce que fait Comptoir, les 3 formules avec leurs prix selon le pays (Suisse en CHF, France et Belgique en euros hors taxes), et les questions fréquentes.
+2. **Choix de la formule**, puis **création du compte** : e-mail, mot de passe, pays, conditions d'utilisation.
+3. **Paiement** : récapitulatif et confirmation. Dans la démonstration, aucun moyen de paiement n'est demandé et rien n'est débité ; sur la vraie plateforme, cette étape ouvre la page de paiement Stripe.
+4. **Création de la boutique** : l'assistant existant (nom, activité, style, domaine), puis l'éditeur et le tableau de bord.
+
+La formule choisie s'applique ensuite dans la démo comme sur la vraie plateforme : fonctions réservées verrouillées, changement de formule dans Paramètres > Abonnement. On peut aussi recommencer depuis l'accueil, ou ouvrir la démo libre sans compte, avec tout ouvert.
+
+Code : `js/parcours.js`, chargé avant `app.js` ; `abonnementCourant()` dans `js/data.js` sert aussi bien au mode connecté qu'à la démo. Sur un vrai serveur, rien ne change : ce parcours y est assuré par `accueil.html`, l'inscription et Stripe.
+
+Vérifié dans un navigateur, sur ordinateur et sur iPhone : parcours complet de bout en bout, verrous de la formule Lancement, passage à Croissance, rechargement de la page, aucune erreur.

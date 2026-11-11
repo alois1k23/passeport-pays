@@ -1330,3 +1330,36 @@ html, body { overflow-x: clip; }
 }
 /* Sur téléphone, l'aperçu a déjà la taille d'un téléphone : le choix Ordinateur / Mobile n'a pas de sens. */
 @media (max-width: 900px) { .segment[aria-label="Appareil"] { display: none; } }
+
+/* ---------- Parcours d'entrée (démonstration) : accueil, formules, compte, paiement ---------- */
+.parcours main { max-width: 1080px; margin-inline: auto; }
+.parcours-page { display: grid; gap: 40px; padding-block: 12px 48px; }
+.parcours-page.etroite { max-width: 560px; margin-inline: auto; gap: 20px; }
+.parcours-hero { display: grid; gap: 16px; padding-block: 24px 8px; max-width: 760px; }
+.parcours-hero h1 { font: 600 clamp(1.9rem, 4.5vw, 3rem)/1.1 var(--f-display); letter-spacing: -.02em; margin: 0; }
+.parcours-hero .intro { font-size: 1.08rem; line-height: 1.6; color: var(--muted); margin: 0; }
+.parcours-bloc { display: grid; gap: 16px; }
+.parcours-bloc h2 { font: 600 1.5rem var(--f-display); margin: 0; }
+.parcours-etapes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.parcours-etapes li, .parcours-fonctions > div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 6px; align-content: start; }
+.parcours-etapes span, .parcours-fonctions span { color: var(--muted); font-size: .9rem; line-height: 1.5; }
+.parcours-fonctions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.parcours .plan h3 { font: 600 1.5rem var(--f-display); margin: 0; text-transform: none; letter-spacing: -.01em; color: var(--ink); }
+.parcours .plan.conseille { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.parcours-bloc details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+.parcours-bloc summary { cursor: pointer; font-weight: 600; min-height: 28px; }
+.parcours-bloc details p { color: var(--muted); line-height: 1.55; margin: 8px 0 0; }
+.parcours-carte { display: grid; gap: 14px; padding: 24px; }
+.parcours-carte h1 { font: 600 1.6rem var(--f-display); margin: 0; }
+.parcours-carte .pile { display: grid; gap: 12px; }
+.parcours-page .etapes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.parcours-recap { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; background: var(--surface-2); border-radius: 10px; }
+.parcours-recap > div { display: grid; gap: 2px; }
+.parcours-recap strong { font: 600 1.4rem var(--f-display); white-space: nowrap; }
+.parcours-recap small { font-size: .8rem; color: var(--muted); font-weight: 400; }
+.parcours-note { text-align: center; }
+.marque-retour.lien-bouton { font-weight: 700; font-size: 1rem; }
+@media (max-width: 900px) {
+  .parcours-etapes, .parcours-fonctions { grid-template-columns: minmax(0, 1fr); }
+  .parcours .plans { grid-template-columns: minmax(0, 1fr); }
+}

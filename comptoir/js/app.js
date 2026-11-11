@@ -153,7 +153,7 @@ function rendre() {
   let groupe = '';
   $('#nav').innerHTML = NAV.map(([id, nom, g]) => {
     const tete = g !== groupe ? `<div class="nav-groupe">${(groupe = g)}</div>` : '';
-    const verrouille = typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.abonnement && SERVEUR.abonnement.obligatoire && Formules.FONCTIONS[id] && !Formules.permet(SERVEUR.abonnement.formule, id);
+    const verrouille = !fonctionIncluse(id);
     return `${tete}<a href="#${id}" class="${route === id ? 'actif' : ''}${verrouille ? ' verrouille' : ''}" ${route === id ? 'aria-current="page"' : ''} ${verrouille ? `title="Formule ${Formules.FORMULES[Formules.FONCTIONS[id]].nom}"` : ''}>${icone(id)}<span>${nom}</span>${verrouille ? '<i class="cadenas" aria-label="Non inclus dans votre formule">🔒</i>' : ''}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider && !verrouille ? `<b class="badge">${aValider}</b>` : ''}</a>`;
   }).join('');
   const n = NAV.find(x => x[0] === route);
@@ -189,7 +189,7 @@ function rendre() {
     cible.focus();
   }, 0);
   // Mode connecté : une fonction hors de la formule payée affiche une invitation (le serveur refuse aussi l'accès).
-  const ab = typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.abonnement;
+  const ab = abonnementCourant();
   if (ab && ab.obligatoire && Formules.FONCTIONS[route] && !Formules.permet(ab.formule, route)) $('#vue').innerHTML = vueFonctionVerrouillee(route, ab);
   apresRendu();
 }
@@ -1000,6 +1000,7 @@ function creerBoutique() {
   }
   sauver();
   ui.assistant = { etape: 1, nom: '', secteur: 'maison', pays: 'ch', modele: 'drop', theme: 'leman', exemples: true, domaine: null };
+  if (typeof finParcoursCreation === 'function') finParcoursCreation();   // démonstration : parcours d'entrée terminé
   toast(`${nom} est en ligne. Personnalisez maintenant chaque section.`);
   location.hash = 'editeur';
 }

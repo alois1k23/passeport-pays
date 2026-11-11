@@ -403,13 +403,21 @@ function urlBoutiquePublique() {
 
 /* Retrait en boutique réellement proposé : activé ET avec une adresse de magasin (même règle que le serveur). */
 /* Réglages tels qu'ils s'appliquent aux ventes selon la formule payée (mode connecté) ; en démonstration, tout est ouvert. */
+/* Abonnement qui s'applique : celui du compte (mode connecté) ou celui choisi dans le parcours de démonstration. */
+function abonnementCourant() {
+  if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte) return SERVEUR.abonnement || null;
+  const p = typeof parcoursCourant === 'function' ? parcoursCourant() : null;
+  if (!p || !['fini', 'creation'].includes(p.etape) || typeof Formules === 'undefined' || !Formules.FORMULES[p.formule]) return null;
+  const devise = p.pays === 'ch' || !p.pays ? 'CHF' : 'EUR';
+  return { obligatoire: true, actif: true, statut: 'actif', formule: p.formule, devise, prix: Formules.FORMULES[p.formule].prix, demo: true };
+}
 function etatVente() {
-  const ab = typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? SERVEUR.abonnement : null;
+  const ab = abonnementCourant();
   return ab && ab.obligatoire && typeof Formules !== 'undefined' ? Formules.configVente(etat, ab.formule) : etat;
 }
 /* Écran ou fonction inclus dans la formule payée (toujours vrai en démonstration). */
 function fonctionIncluse(id) {
-  const ab = typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? SERVEUR.abonnement : null;
+  const ab = abonnementCourant();
   return !(ab && ab.obligatoire && typeof Formules !== 'undefined' && Formules.FONCTIONS[id] && !Formules.permet(ab.formule, id));
 }
 function retraitPossible() { try { const v = etatVente(); return !!(v.magasin && v.magasin.clickCollect && String(v.magasin.adresse || '').trim()); } catch { return false; } }

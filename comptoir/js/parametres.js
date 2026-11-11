@@ -61,10 +61,19 @@ function vueParametres() {
       <div class="rangee"><a class="btn petit" href="#domaines">${d ? 'Gérer le domaine' : 'Choisir un domaine'}</a></div></section>`;
   } else if (s === 'abonnement') {
     const a = enLigne() && SERVEUR.abonnement;
-    if (!a) {
+    const demo = !enLigne() ? abonnementCourant() : null;
+    if (demo) {
+      // Démonstration avec le parcours d'entrée : la formule choisie s'applique, et peut changer ici.
+      const f = Formules.FORMULES[demo.formule];
+      corps = `<section class="carte"><div class="carte-tete"><h2>Formule ${esc(f.nom)}</h2><span class="pill good">Active (démo)</span></div>
+        <p class="sous">${esc(Formules.prixTexte(demo.formule, demo.devise))} par mois. ${esc(f.resume)}.</p>
+        <ul class="sous">${f.inclus.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+        <div class="rangee">${Formules.ORDRE.filter(k => k !== demo.formule).map(k => `<button class="btn petit fantome" data-action="abo-changer" data-v="${k}">Passer à ${esc(Formules.FORMULES[k].nom)}</button>`).join('')}<a class="btn petit fantome" href="#offre">Comparer les formules</a></div>
+        <p class="sous">Démonstration : aucun prélèvement. <button class="lien-bouton" data-action="parcours-recommencer">Recommencer depuis l’accueil</button></p></section>`;
+    } else if (!a) {
       corps = `<section class="carte"><div class="carte-tete"><h2>Formule</h2><span class="pill muted">Démo</span></div>
-        <p class="sous">Dans la démo, aucun abonnement n’est nécessaire. Sur Comptoir, vous choisissez une formule et payez avant d’accéder à votre espace : uniquement votre boutique et vos données.</p>
-        <div class="rangee"><a class="btn petit fantome" href="#offre">Comparer les formules</a></div></section>`;
+        <p class="sous">Dans la démo libre, toutes les fonctions sont ouvertes. Sur Comptoir, vous choisissez une formule et payez avant d’accéder à votre espace : uniquement votre boutique et vos données.</p>
+        <div class="rangee"><button class="btn petit" data-action="parcours-recommencer">Voir l’accueil et choisir une formule</button><a class="btn petit fantome" href="#offre">Comparer les formules</a></div></section>`;
     } else {
       const noms = { lancement: 'Lancement', croissance: 'Croissance', pro: 'Pro' };
       const prixAbo = a.prix ? (a.devise === 'CHF' ? `CHF ${a.prix}.– / mois` : `${a.prix} € / mois`) : '—';
@@ -123,6 +132,14 @@ document.addEventListener('click', async e => {
       if (r.url) { location.href = r.url; return; }   // page d'activation de Stripe (identité, IBAN) ; retour ici ensuite
       SERVEUR.paiementsBoutique = { mode: 'stripe', pret: true, compte: true }; toast('Paiements actifs : votre boutique accepte les commandes.'); rendre();
     }).catch(err => { el.disabled = false; toast(err.message || 'Activation impossible pour le moment.'); });
+  }
+  else if (a === 'parcours-recommencer') { if (typeof recommencerParcours === 'function') recommencerParcours(); }
+  else if (a === 'abo-changer' && !enLigne() && abonnementCourant() && typeof parcoursCourant === 'function') {
+    // Démonstration : la formule change tout de suite, sans prélèvement.
+    const f = Formules.FORMULES[el.dataset.v];
+    if (!f || !confirm(`Passer à ${f.nom} (démonstration, aucun prélèvement) ?`)) return;
+    ecrireParcours({ ...parcoursCourant(), formule: el.dataset.v });
+    toast(`Formule ${f.nom} active.`); rendre();
   }
   else if (a === 'abo-changer' || a === 'abo-resilier' || a === 'abo-reprendre') {
     if (a === 'abo-resilier' && !confirm('Résilier l’abonnement ? Votre boutique reste ouverte jusqu’à la fin du mois payé.')) return;
