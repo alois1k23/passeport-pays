@@ -57,6 +57,7 @@
     const dansMois = (pic - m + 12) % 12;
     if (idx[m] >= 130) raisons.unshift(`En pleine saison (${Math.round(idx[m] - 100)} % au-dessus d’un mois moyen)`);
     else if (dansMois > 0 && dansMois <= 2 && idx[pic] >= 130) raisons.unshift(`Pic de demande en ${MOIS[pic]} : lancez maintenant`);
+    else if (dansMois === 3 && idx[pic] >= 170) raisons.unshift(`Grand pic en ${MOIS[pic]} : testez dès maintenant (fiches, photos et publicités se préparent 2 à 3 mois avant)`);
     if (o.marge) raisons.push(o.marge.taux < 0.15 ? `Marge faible (${Math.round(o.marge.taux * 100)} %)` : `Marge nette ${Math.round(o.marge.taux * 100)} %`);
     if (o.pays === 'ch' && p.entrepot === 'CN') raisons.push('Envoi de Chine : délai long et frais de douane possibles en Suisse');
     else if (dmax <= 4) raisons.push(`Livré en ${p.delai[0]} à ${dmax} jours`);

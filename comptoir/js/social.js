@@ -303,9 +303,9 @@ function vueSocial() {
           ${bf ? `<li><span>Meilleur format : <strong>${esc(bf.nom)}</strong>. Le moins efficace : ${esc(bf.pire)}.</span></li>` : ''}
           <li><span>Moins de <strong>${esc(bp.pire)}</strong>, qui convertit le moins.</span></li></ul>`
         : '<p class="sous">Le pilote a besoin de quelques publications pour comparer. En attendant, il suit les bonnes pratiques : vidéo verticale, accroche dans les 3 premières secondes, produit montré en vrai.</p>'}
-        <table class="table compacte"><thead><tr><th>Type de contenu</th><th class="num">Vues</th><th class="num">Clics</th><th class="num">Ventes</th></tr></thead><tbody>
+        <div class="table-wrap"><table class="table compacte"><thead><tr><th>Type de contenu</th><th class="num">Vues</th><th class="num">Clics</th><th class="num">Ventes</th></tr></thead><tbody>
           ${Object.entries(a.piliers).sort((x, y) => y[1].clics - x[1].clics).map(([k, v]) => `<tr><td>${PILIERS[k] ? PILIERS[k].nom : k}</td><td class="num">${v.vues.toLocaleString('fr-FR')}</td><td class="num">${v.clics}</td><td class="num">${v.ventes}</td></tr>`).join('')}
-        </tbody></table>
+        </tbody></table></div>
       </section>
       ${blocInfluenceurs()}
       <section class="carte">

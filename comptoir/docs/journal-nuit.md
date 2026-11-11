@@ -280,3 +280,18 @@ Une relecture de l'interface a relevé 20 défauts. Chacun a été reproduit pui
 20. Palette (Ctrl+K) : « Exporter les commandes » n'exportait que 30 jours de ventes. Exporte bien toutes les commandes.
 
 Tests : 40 ; audits accessibilité et XSS propres.
+
+### Cycle 13 — Saisons des produits stars, téléphone, rapidité
+
+**Contrôles**
+
+- **Produits stars mois par mois** (Suisse et France, 12 mois, 148 produits) : le classement suit bien les saisons (résolutions en janvier, Saint-Valentin en février, printemps, été, rentrée, Noël d'octobre à décembre). Le chocolat qui reste dans le haut du classement à Pâques et en mai (fête des mères) est cohérent.
+- **Rapidité** : chaque écran de l'administration se redessine en moins de 15 ms avec la démo complète (plus de 1 000 commandes).
+
+**Défauts trouvés et corrigés**
+
+1. **Coffrets de Noël en tête dès septembre sans explication** (« hors saison » apparent). La fiche indique désormais : « Grand pic en décembre : testez dès maintenant (fiches, photos et publicités se préparent 2 à 3 mois avant) ».
+2. **Contenu coupé sur téléphone (360 px)** :
+   - fiches fournisseurs : les quatre chiffres restaient sur une ligne et le dernier sortait de l'écran (deux par ligne maintenant) ;
+   - Réseaux sociaux : le tableau « Ce que le pilote a appris » élargissait toute la carte, coupée à droite (le tableau défile maintenant seul).
+   - Correction générale : une carte ne peut plus être élargie par son contenu. Vérifié sans changement sur ordinateur.

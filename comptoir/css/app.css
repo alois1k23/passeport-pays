@@ -105,7 +105,7 @@ main { padding-block: 28px 48px; padding-left: max(32px, env(safe-area-inset-lef
 .icone { border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 4px 8px; cursor: pointer; color: var(--muted); }
 .icone:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); border-color: var(--line); }
 .icone:disabled { opacity: .35; cursor: default; }
-.carte { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.carte { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: grid; gap: 14px; align-content: start; min-width: 0; grid-template-columns: minmax(0, 1fr); }
 .carte.sans-pad { padding: 0; gap: 0; overflow: hidden; }
 .carte-tete { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .carte-tete.pad { padding: 16px 18px 12px; }
@@ -964,7 +964,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 @media (min-width: 761px) { .app:not(:has(> .cote[hidden])) .cookies { left: calc(236px + 16px); } }
 @media (max-width: 640px) {
   .cookies { padding: 10px 12px; gap: 8px; font-size: .8rem; }
-  .chiffres { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .chiffres { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; grid-auto-flow: row; }
   .btn, .param-nav button, .onglets button, select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 40px; }
   #fil { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
   #fil > *:not(:last-child) { display: none; }
