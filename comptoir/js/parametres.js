@@ -228,6 +228,7 @@ function chargerSecurite() {
 }
 function vueSecurite() {
   const d = SECURITE.donnees;
+  if (!d && SECURITE.erreur) return `<section class="carte"><p class="encart alerte-encart" role="alert">${esc(SECURITE.erreur)}</p><div class="rangee"><button class="btn petit" data-action="securite-reessayer">Réessayer</button></div></section>`;
   if (!d) { chargerSecurite(); return '<section class="carte"><p class="sous">Chargement…</p></section>'; }
   const date = t => t ? new Date(t).toLocaleString('fr-CH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
   const erreur = SECURITE.erreur ? `<p class="encart alerte-encart" role="alert">${esc(SECURITE.erreur)}</p>` : '';
@@ -238,14 +239,16 @@ function vueSecurite() {
       <div class="rangee"><button class="btn" data-action="secours-telecharger">Télécharger (.txt)</button><button class="btn fantome" data-action="secours-fini">C’est noté</button></div></section>`;
   else if (SECURITE.mise) df = `<section class="carte"><div class="carte-tete"><h2>Activer la double authentification</h2></div>
       <ol class="sous etapes-texte"><li>Ouvrez votre application d’authentification et scannez ce code (ou saisissez la clé).</li><li>Saisissez le code à 6 chiffres affiché, et votre mot de passe.</li></ol>
-      <div class="qr-2fa" id="qr-2fa" aria-label="QR code à scanner"></div>
+      <div class="qr-2fa" id="qr-2fa">${qrSvg(SECURITE.mise.uri, { taille: 180, etiquette: 'QR code à scanner avec votre application d’authentification' })}</div>
       <p class="sous">Clé : <span class="mono">${esc(SECURITE.mise.secret.replace(/(.{4})/g, '$1 ').trim())}</span></p>
       <form data-form="2fa-activer" class="grille-form"><label class="champ"><span>Code à 6 chiffres</span><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
         <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>
         ${erreur}<div class="rangee"><button class="btn">Activer</button><button type="button" class="btn fantome" data-action="2fa-annuler">Annuler</button></div></form></section>`;
   else if (d.deuxFacteurs) df = `<section class="carte"><div class="carte-tete"><h2>Double authentification</h2><span class="pill good">Active</span></div>
-      <p class="sous">Un code de votre application est demandé à chaque connexion. Codes de secours restants : <b>${d.codesSecoursRestants}</b>${d.codesSecoursRestants <= 3 ? ' (pensez à la désactiver puis réactiver pour en obtenir de nouveaux)' : ''}.</p>
-      <details><summary>Désactiver</summary><form data-form="2fa-desactiver" class="grille-form"><label class="champ"><span>Code à 6 chiffres</span><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
+      <p class="sous">Un code de votre application est demandé à chaque connexion. Codes de secours restants : <b>${d.codesSecoursRestants}</b>.</p>
+      <details><summary>Obtenir de nouveaux codes de secours</summary><form data-form="2fa-codes" class="grille-form"><label class="champ"><span>Code de l’application ou code de secours</span><input name="code" autocomplete="one-time-code" maxlength="12" required></label>
+        <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label><div class="rangee"><button class="btn fantome">Remplacer mes codes de secours</button></div></form></details>
+      <details><summary>Désactiver</summary><form data-form="2fa-desactiver" class="grille-form"><label class="champ"><span>Code de l’application ou code de secours</span><input name="code" autocomplete="one-time-code" maxlength="12" required></label>
         <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>${erreur}<div class="rangee"><button class="btn fantome danger">Désactiver</button></div></form></details></section>`;
   else df = `<section class="carte"><div class="carte-tete"><h2>Double authentification</h2><span class="pill warn">Inactive</span></div>
       <p class="sous">Recommandée : même avec votre mot de passe, personne ne peut se connecter sans le code de votre téléphone. Compatible Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden, Proton Pass.</p>
@@ -258,13 +261,11 @@ function vueSecurite() {
     ${d.journal.length ? `<ul class="journal-compte">${d.journal.map(x => `<li><span class="sous">${date(x.date)}</span> <b>${esc(LIBELLES_ACTIVITE[x.type] || x.type)}</b>${x.detail ? ` · ${esc(x.detail)}` : ''}${x.reseau ? ` <span class="mono sous">${esc(x.reseau)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="sous">Aucun événement pour l’instant.</p>'}</section>`;
   return df + appareils + journal;
 }
-// Le QR code est dessiné après le rendu (bibliothèque qrcodejs déjà chargée par l'application).
-const rendreQr2fa = () => { const el = document.getElementById('qr-2fa'); if (el && SECURITE.mise && !el.childElementCount && typeof QRCode !== 'undefined') new QRCode(el, { text: SECURITE.mise.uri, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M }); };
-new MutationObserver(rendreQr2fa).observe(document.documentElement, { childList: true, subtree: true });
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action]'); if (!el) return;
   const a = el.dataset.action;
-  if (!['2fa-preparer', '2fa-annuler', 'secours-telecharger', 'secours-fini', 'session-revoquer'].includes(a)) return;
+  if (!['2fa-preparer', '2fa-annuler', 'secours-telecharger', 'secours-fini', 'session-revoquer', 'securite-reessayer', 'secours-nouveaux'].includes(a)) return;
+  if (a === 'securite-reessayer') { SECURITE.erreur = ''; SECURITE.donnees = null; rendre(); return; }
   SECURITE.erreur = '';
   try {
     if (a === '2fa-preparer') { SECURITE.mise = await api('POST', '/api/admin/compte/2fa/preparer'); }
@@ -279,11 +280,12 @@ document.addEventListener('click', async e => {
   rendre();
 });
 document.addEventListener('submit', async e => {
-  const f = e.target.closest('[data-form="2fa-activer"], [data-form="2fa-desactiver"]'); if (!f) return;
+  const f = e.target.closest('[data-form="2fa-activer"], [data-form="2fa-desactiver"], [data-form="2fa-codes"]'); if (!f) return;
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f)); SECURITE.erreur = '';
   try {
     if (f.dataset.form === '2fa-activer') { const r = await api('POST', '/api/admin/compte/2fa/activer', d); SECURITE.mise = null; SECURITE.codes = r.codesSecours; toast('Double authentification activée.'); }
+    else if (f.dataset.form === '2fa-codes') { const r = await api('POST', '/api/admin/compte/2fa/codes', d); SECURITE.codes = r.codesSecours; toast('Nouveaux codes de secours : les anciens ne fonctionnent plus.'); }
     else { await api('POST', '/api/admin/compte/2fa/desactiver', d); toast('Double authentification désactivée.'); SECURITE.donnees = null; }
   } catch (err) { SECURITE.erreur = err.message; }
   rendre();

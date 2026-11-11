@@ -28,3 +28,18 @@ Demande : jusqu'à 7 h 00 (heure de Lausanne), pousser le code, renforcer la sé
 - **Faille fermée en passant** : un lien de réinitialisation du mot de passe connectait directement le marchand. Avec la double authentification, un accès à sa boîte e-mail aurait donc suffi. Ce n'est plus le cas.
 - **Interface** : nouvelle section Paramètres > Sécurité, et étape « code de vérification » à la connexion.
 - **Vérifié** : tests `totp.test.js` (RFC) et `securite.test.js` (parcours complet), plus un parcours dans un vrai navigateur (QR scanné, codes de secours, connexion depuis un autre appareil avec le code). 72 tests.
+
+**Relecture indépendante du cycle 1.** Aucun contournement possible de la double authentification. Neuf faiblesses ont été trouvées et corrigées :
+1. **Blocage du propriétaire.** Quelqu'un qui connaît le mot de passe pouvait bloquer le vrai propriétaire en ratant volontairement le code. Les limites comptent maintenant par réseau, avec une limite globale qui ne s'applique pas à un appareil déjà connu. Le propriétaire est prévenu par e-mail quand des codes sont refusés (son mot de passe a fuité).
+2. **Désactivation.** Les essais de code y sont maintenant comptés (une session volée ne peut plus deviner le code).
+3. **Codes de secours.**
+   - Ils sont acceptés pour désactiver.
+   - On peut en obtenir de nouveaux, mot de passe et code exigés ; les anciens cessent alors de fonctionner.
+4. **Autres appareils.** L'activation de la double authentification déconnecte les autres appareils.
+5. **Bibliothèque QR.** Celle chargée depuis un CDN externe est remplacée par une copie locale (licence MIT), plus aucun code externe sur la page qui montre le secret.
+6. **Écran de code.**
+   - Les lettres sont maintenant possibles (codes de secours).
+   - Un défi expiré ramène au mot de passe.
+   - Le curseur revient dans le champ après une erreur.
+7. **Erreur de chargement.** Elle n'entraîne plus de boucle de requêtes ; un bouton « Réessayer » s'affiche.
+8. **Journal d'activité.** Il est conservé 12 mois.

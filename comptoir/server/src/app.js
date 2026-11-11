@@ -241,6 +241,24 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const creerDefi = mid => { const expire = Date.now() + 5 * 60000; return `${mid}.${expire}.${signerDefi(mid, expire)}`; };
   const lireDefi = d => { const [mid, expire, sig] = String(d || '').split('.'); return mid && Number(expire) > Date.now() && auth.egal(sig, signerDefi(mid, Number(expire))) ? mid : null; };
   const deuxFacteursDe = mid => db.prepare('SELECT * FROM deux_facteurs WHERE marchand_id = ?').get(mid) || null;
+  /* Vérifie un code de l'application ou un code de secours (consommé). Renvoie true/false ; met à jour le dernier pas. */
+  function verifierSecondFacteur(df, saisi, ctx) {
+    const s = String(saisi || '').trim();
+    const pas = totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), s, { dernierPas: df.dernier_pas });
+    if (pas !== null) { db.prepare('UPDATE deux_facteurs SET dernier_pas = ? WHERE marchand_id = ?').run(pas, df.marchand_id); return true; }
+    const secours = JSON.parse(df.secours), i = secours.indexOf(totp.empreinteSecours(s));
+    if (i >= 0 && s.replace(/[^a-z0-9]/gi, '').length === 10) {
+      secours.splice(i, 1); db.prepare('UPDATE deux_facteurs SET secours = ? WHERE marchand_id = ?').run(JSON.stringify(secours), df.marchand_id);
+      noterActivite(df.marchand_id, 'code-secours', `${secours.length} code(s) de secours restant(s)`, ctx);
+      return true;
+    }
+    return false;
+  }
+  // Codes refusés à répétition : le mot de passe est probablement connu d'un tiers ; le propriétaire est prévenu (au plus 1 fois par heure).
+  function alerterEchecs2fa(m) {
+    try { auth.limiter('alerte-2fa:' + m.id, 1, 3600000, ''); } catch { return; }
+    envoyerEmail(null, m.email, 'Codes de vérification refusés sur votre compte Comptoir', `Bonjour,\n\nPlusieurs codes de vérification faux viennent d’être saisis après votre mot de passe. Votre mot de passe est probablement connu de quelqu’un d’autre : changez-le maintenant (Paramètres > Zone sensible) et vérifiez vos appareils connectés (Paramètres > Sécurité).\n${urlPublique}/app\n\nVotre double authentification a bloqué l’accès.\n\nL’équipe Comptoir`);
+  }
   const cookieAppareil = email => `comptoir_appareil=${jetonAppareil(email)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${365 * 86400}${securise ? '; Secure' : ''}`;
   // IPv6 : une personne dispose d'un réseau /64 entier ; les limites comptent par réseau, pas par adresse.
   const reseauIp = ip => {
@@ -627,24 +645,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/auth/connexion/2fa', async ctx => {
     const mid = lireDefi(ctx.corps.defi);
     if (!mid) throw erreur(401, 'Délai dépassé : reconnectez-vous avec votre mot de passe.', 'defi_expire');
-    const cles = ['2fa:' + mid];
-    auth.verifierEchecs(cles, 5);
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(mid), df = deuxFacteursDe(mid);
     if (!m || !df || !df.actif) throw erreur(401, 'Reconnectez-vous avec votre mot de passe.', 'defi_expire');
-    const saisi = String(ctx.corps.code || '').trim();
-    let ok = false;
-    const pas = totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), saisi, { dernierPas: df.dernier_pas });
-    if (pas !== null) { db.prepare('UPDATE deux_facteurs SET dernier_pas = ? WHERE marchand_id = ?').run(pas, mid); ok = true; }
-    else {
-      const secours = JSON.parse(df.secours), emp = totp.empreinteSecours(saisi), i = secours.indexOf(emp);
-      if (i >= 0 && saisi.replace(/[^a-z0-9]/gi, '').length === 10) {
-        secours.splice(i, 1); db.prepare('UPDATE deux_facteurs SET secours = ? WHERE marchand_id = ?').run(JSON.stringify(secours), mid); ok = true;
-        noterActivite(mid, 'code-secours', `${secours.length} code(s) de secours restant(s)`, ctx);
-      }
-    }
-    if (!ok) { auth.noterEchec(cles); noterActivite(mid, 'echec-2fa', null, ctx); throw erreur(401, 'Code incorrect.', 'code_2fa'); }
-    auth.oublierEchecs(cles);
+    // Limites : par compte et par réseau (5), et globale par compte (50) sauf sur un appareil déjà connu :
+    // quelqu'un qui connaît le mot de passe ne peut pas bloquer le vrai propriétaire chez lui.
     const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(String(m.email).toLowerCase());
+    const parReseau = [`2fa:${mid}|${reseauIp(ctx.ip)}`], global = ['2fa:' + mid];
+    auth.verifierEchecs(parReseau, 5);
+    if (!appareilConnu) auth.verifierEchecs(global, 50);
+    auth.noterEchec([...parReseau, ...global]);   // compté avant la vérification (essais parallèles)
+    if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { noterActivite(mid, 'echec-2fa', null, ctx); if (auth.compteEchecs && auth.compteEchecs(parReseau[0]) >= 3) alerterEchecs2fa(m); throw erreur(401, 'Code incorrect.', 'code_2fa'); }
+    auth.oublierEchecs(parReseau);
     ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
     return { ok: true };
   });
@@ -827,19 +838,35 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
     if (!df || df.actif) throw erreur(409, 'Recommencez la mise en place.', 'etat_2fa');
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
     const pas = totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), ctx.corps.code);
-    if (pas === null) throw erreur(400, 'Code incorrect : vérifiez l’heure de votre téléphone et saisissez le code affiché maintenant.', 'code_2fa');
+    if (pas === null) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect : vérifiez l’heure de votre téléphone et saisissez le code affiché maintenant.', 'code_2fa'); }
     const { codes, empreintes } = totp.codesSecours();
     db.prepare('UPDATE deux_facteurs SET actif = 1, dernier_pas = ?, secours = ? WHERE marchand_id = ?').run(pas, JSON.stringify(empreintes), m.id);
+    // Les autres appareils déjà connectés sont déconnectés : un intrus déjà entré ne reste pas.
+    db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, auth.sha256(String(ctx.cookies[auth.COOKIE] || '')));
     noterActivite(m.id, '2fa-activee', null, ctx);
     envoyerEmail(null, m.email, 'Double authentification activée', `Bonjour,\n\nLa double authentification est maintenant active sur votre compte Comptoir. À chaque connexion, le code de votre application vous sera demandé.\n\nGardez vos codes de secours en lieu sûr : ils remplacent le téléphone en cas de perte.\n\nCe n’était pas vous ? Écrivez-nous immédiatement.\n\nL’équipe Comptoir`);
+    return { ok: true, codesSecours: codes };
+  });
+  // Nouveaux codes de secours (les anciens cessent de fonctionner) : mot de passe et second facteur exigés.
+  r.post('/api/admin/compte/2fa/codes', exigerCompte, async ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
+    if (!df || !df.actif) throw erreur(409, 'La double authentification n’est pas active.', 'etat_2fa');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
+    if (!verifierSecondFacteur(deuxFacteursDe(m.id), ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
+    const { codes, empreintes } = totp.codesSecours();
+    db.prepare('UPDATE deux_facteurs SET secours = ? WHERE marchand_id = ?').run(JSON.stringify(empreintes), m.id);
+    noterActivite(m.id, 'codes-secours-renouveles', null, ctx);
     return { ok: true, codesSecours: codes };
   });
   r.post('/api/admin/compte/2fa/desactiver', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
     if (!df || !df.actif) return { ok: true };
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
-    if (totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), ctx.corps.code, { dernierPas: df.dernier_pas }) === null) throw erreur(400, 'Code incorrect.', 'code_2fa');
+    auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
+    if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
     db.prepare('DELETE FROM deux_facteurs WHERE marchand_id = ?').run(m.id);
     noterActivite(m.id, '2fa-desactivee', null, ctx);
     envoyerEmail(null, m.email, 'Double authentification désactivée', `Bonjour,\n\nLa double authentification vient d’être désactivée sur votre compte Comptoir.\n\nCe n’était pas vous ? Changez votre mot de passe tout de suite et réactivez-la : ${urlPublique}/app\n\nL’équipe Comptoir`);
@@ -1413,6 +1440,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
     db.prepare("UPDATE emails SET corps = '(contenu effacé après 180 jours)' WHERE envoye = 1 AND cree_le < ? AND corps <> '(contenu effacé après 180 jours)'").run(maintenant - 180 * 86400000);
     db.prepare('DELETE FROM tickets_caisse WHERE le < ?').run(maintenant - 30 * 86400000);
+    db.prepare('DELETE FROM journal_compte WHERE date < ?').run(maintenant - 365 * 86400000);   // activité du compte : 12 mois
     if (abo.obligatoire) conservation(maintenant).catch(e => journal.error('[conservation]', e.message));
   }
   function automatisationsEcheances(maintenant = Date.now()) {

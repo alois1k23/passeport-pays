@@ -151,7 +151,7 @@ function installerConnexion() {
         <span class="eyebrow">Comptoir</span><h1>Code de vérification</h1>
         <p class="sous">Saisissez le code à 6 chiffres de votre application d’authentification, ou un code de secours.</p>
         <form id="form-auth" class="assistant-corps">
-          <label class="champ"><span>Code</span><input name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="12" autofocus></label>
+          <label class="champ"><span>Code</span><input name="code" required autocomplete="one-time-code" maxlength="12" autofocus autocapitalize="off" spellcheck="false"></label>
           ${etatForm.erreur ? `<p class="encart alerte-encart" role="alert">${esc(etatForm.erreur)}</p>` : ''}
           <button class="btn" ${etatForm.envoi ? 'disabled' : ''}>Vérifier</button>
         </form>
@@ -239,7 +239,10 @@ function installerConnexion() {
       location.hash = 'tableau';
       location.reload();
     } catch (err) {
-      etatForm.envoi = false; etatForm.erreur = err.message; rendre();
+      etatForm.envoi = false; etatForm.erreur = err.message;
+      if (etatForm.onglet === '2fa' && /reconnectez-vous|Délai dépassé/i.test(err.message)) etatForm.onglet = 'connexion';   // défi expiré : retour au mot de passe
+      rendre();
+      document.querySelector('#form-auth input:not([type=hidden])')?.focus();
     }
   }, true);
 }

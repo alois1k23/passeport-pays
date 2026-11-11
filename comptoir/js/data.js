@@ -404,6 +404,13 @@ function urlBoutiquePublique() {
 /* Retrait en boutique réellement proposé : activé ET avec une adresse de magasin (même règle que le serveur). */
 /* Réglages tels qu'ils s'appliquent aux ventes selon la formule payée (mode connecté) ; en démonstration, tout est ouvert. */
 /* Abonnement qui s'applique : celui du compte (mode connecté) ou celui choisi dans le parcours de démonstration. */
+/* QR code en SVG (bibliothèque locale qrcode-generator, aucune ressource externe). */
+function qrSvg(texte, { taille = 160, niveau = 'M', etiquette = 'QR code' } = {}) {
+  if (typeof qrcode === 'undefined') return '';
+  qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
+  const q = qrcode(0, niveau); q.addData(String(texte), 'Byte'); q.make();
+  return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }).replace('<svg ', `<svg width="${taille}" height="${taille}" role="img" aria-label="${String(etiquette).replace(/"/g, '&quot;')}" `);
+}
 function abonnementCourant() {
   if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte) return SERVEUR.abonnement || null;
   const p = typeof parcoursCourant === 'function' ? parcoursCourant() : null;
