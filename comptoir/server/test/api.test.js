@@ -216,6 +216,17 @@ test('Stripe : session Checkout en CHF avec TWINT', async () => {
   assert.equal(envoye.corps.get('line_items[1][price_data][product_data][name]'), 'Livraison');
 });
 
+test('Stripe : Bancontact pour une boutique belge, carte seule pour une boutique française', async () => {
+  let envoye;
+  const fauxFetch = async (url, opts) => { envoye = new URLSearchParams(opts.body); return { ok: true, json: async () => ({ id: 'cs_test_2', url: 'https://checkout.stripe.com/c/cs_test_2' }) }; };
+  const s = prestataireStripe({ cleSecrete: 'sk_test', secretWebhook: 'whsec', fetchImpl: fauxFetch });
+  const commande = { id: 'c_2', client: { email: 'a@b.be' }, lignes: [{ nom: 'Vase', prix: 30, qte: 1 }], port: 0 };
+  await s.creerSession({ pays: 'be', paiement: { id: 'pay_2' }, commande, devise: 'EUR', urlRetour: 'https://x/ok', urlAnnulation: 'https://x/ko' });
+  assert.deepEqual(envoye.getAll('payment_method_types[]'), ['card', 'bancontact']);
+  await s.creerSession({ pays: 'fr', paiement: { id: 'pay_3' }, commande, devise: 'EUR', urlRetour: 'https://x/ok', urlAnnulation: 'https://x/ko' });
+  assert.deepEqual(envoye.getAll('payment_method_types[]'), ['card']);
+});
+
 test('fichiers statiques : le code serveur et la base ne sont pas servis', async () => {
   assert.equal((await fetch(`${base}/server/src/app.js`)).status, 404);
   assert.equal((await fetch(`${base}/js/../server/server.js`)).status, 404);

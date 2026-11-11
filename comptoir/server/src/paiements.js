@@ -34,7 +34,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, fetchImpl = fetch }) {
   };
   return {
     nom: 'stripe',
-    async creerSession({ paiement, commande, devise, urlRetour, urlAnnulation }) {
+    async creerSession({ paiement, commande, devise, urlRetour, urlAnnulation, pays }) {
       const d = devise.toLowerCase();
       const params = [
         ['mode', 'payment'],
@@ -48,6 +48,8 @@ function prestataireStripe({ cleSecrete, secretWebhook, fetchImpl = fetch }) {
       ];
       // TWINT n'est proposé par Stripe qu'en CHF.
       if (d === 'chf') params.push(['payment_method_types[]', 'twint']);
+      // Belgique : Bancontact, le moyen de paiement le plus utilisé du pays (Stripe le propose en EUR).
+      if (d === 'eur' && pays === 'be') params.push(['payment_method_types[]', 'bancontact']);
       commande.lignes.forEach((l, i) => {
         params.push([`line_items[${i}][quantity]`, l.qte], [`line_items[${i}][price_data][currency]`, d],
           [`line_items[${i}][price_data][unit_amount]`, centimes(l.prix)], [`line_items[${i}][price_data][product_data][name]`, l.nom]);

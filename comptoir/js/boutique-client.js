@@ -166,7 +166,7 @@ function rendreBrut() {
             <p class="erreur-form" id="erreur" hidden></p>
             ${(donnees.entreprise || {}).adresse ? '' : '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>'}
             <button class="sf-btn plein" ${vue.envoi || !(donnees.entreprise || {}).adresse ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
-            <p class="mini">${donnees.paiement === 'stripe' ? (ch ? 'Paiement sécurisé par TWINT ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
+            <p class="mini">${donnees.paiement === 'stripe' ? (ch ? 'Paiement sécurisé par TWINT ou carte.' : donnees.boutique.pays === 'be' ? 'Paiement sécurisé par Bancontact ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
     </div>

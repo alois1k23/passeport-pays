@@ -314,7 +314,7 @@ function blocEntonnoir(d0, f0, cur, visites) {
   const conseils = {
     'Saisie de la livraison': 'Beaucoup quittent le panier : affichez plus tôt le coût total et la date de livraison. Les frais imprévus sont la première cause d’abandon citée par les acheteurs (Baymard Institute).',
     'Paiement commencé': `Le formulaire de livraison freine : gardez 7 à 8 champs au plus, pas de compte obligatoire (Baymard Institute).${estSuisse() ? ' Le NPA remplit déjà la localité.' : ''}`,
-    'Commande payée': `Des paiements sont abandonnés : la relance automatique en récupère une partie.${estSuisse() ? ' Vérifiez que TWINT est bien proposé : c’est le moyen de paiement mobile le plus utilisé en Suisse.' : ' Vérifiez que les moyens de paiement habituels de vos clients sont proposés.'}`
+    'Commande payée': `Des paiements sont abandonnés : la relance automatique en récupère une partie.${estSuisse() ? ' Vérifiez que TWINT est bien proposé : c’est le moyen de paiement mobile le plus utilisé en Suisse.' : ' Vérifiez que les moyens de paiement habituels de vos clients sont proposés (Bancontact est activé pour les boutiques belges).'}`
   };
   return `${entonnoir(etapes)}
     <table class="table compacte abandons"><thead><tr><th>Abandon entre</th><th class="num">Perdus</th><th class="num">Taux</th></tr></thead><tbody>${pertes.map(p => `<tr><td>${esc(p.de)} → ${esc(p.vers)}</td><td class="num">${Math.round(p.perdus).toLocaleString('fr-FR')}</td><td class="num">${fmtPct(p.taux)}</td></tr>`).join('')}</tbody></table>

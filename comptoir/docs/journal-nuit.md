@@ -484,3 +484,7 @@ Chaque écran d'un compte réel tout neuf a été parcouru, à la recherche de c
    - « Impressum » (terme suisse) dans le plan de lancement : « mentions légales » ;
    - les produits d'entrepôts suisses étaient mis en tête avec « expédié depuis la Suisse » comme un atout. Or la Suisse est hors de l'UE : TVA d'importation pour l'acheteur. Ils sont désormais pénalisés dans le sourcing et les produits stars, avec l'explication, et les entrepôts européens sont signalés « sans formalité ».
 5. **Boutique belge** : le balayage ne trouve plus de terme français ou suisse déplacé, sauf le conseil sur les influenceurs, qui citait la loi française du 9 juin 2023. Il cite désormais le droit belge (Code de droit économique, livre VI) et la directive européenne.
+
+### Cycle 26 — Bancontact pour les boutiques belges
+
+**Manque** : le paiement ne proposait que la carte en Belgique, alors que Bancontact est le moyen de paiement le plus utilisé du pays (TWINT l'était déjà en Suisse). La page de paiement Stripe d'une boutique belge propose désormais Bancontact et la carte, et la boutique l'annonce. Test ajouté : Bancontact en Belgique, carte seule en France. Tests : 45.

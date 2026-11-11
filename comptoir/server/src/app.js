@@ -831,7 +831,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       return { commande: { ...c, jeton }, pmt: p };
     });
     const retour = `${urlBoutique(b)}?commande=${commande.id}&jeton=${commande.jeton}`;
-    const session = await paiement.creerSession({ paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
+    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { commandeId: commande.id, numero: commande.numero, jeton: commande.jeton, total, paiementUrl: session.url } };
   });
@@ -911,7 +911,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       return { commande: { ...c, jeton }, pmt: pp };
     });
     const retour = `${urlBoutique(b)}?commande=${commande.id}&jeton=${commande.jeton}`;
-    const session = await paiement.creerSession({ paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${urlBoutique(b)}?commande=${parent.id}&jeton=${row.jeton_client}` });
+    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${urlBoutique(b)}?commande=${parent.id}&jeton=${row.jeton_client}` });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { paiementUrl: session.url } };
   });
@@ -965,7 +965,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const pmt = { id: auth.nouvelId('pay_'), commande_id: c.id };
     db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(pmt.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', Date.now());
     const retour = `${urlBoutique(b)}?commande=${c.id}&jeton=${row.jeton_client}`;
-    const session = await paiement.creerSession({ paiement: pmt, commande: c, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
+    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande: c, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { paiementUrl: session.url };
   });
