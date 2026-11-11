@@ -14,7 +14,7 @@ function prestataire(env, fetchImpl = fetch) {
     return {
       nom: 'brevo',
       async envoyer({ destinataire, sujet, corps, nomBoutique, desinscription, repondreA }) {
-        const rep = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
+        const rep = await fetchImpl(`${env.BREVO_API_URL || 'https://api.brevo.com'}/v3/smtp/email`, {
           method: 'POST', signal: AbortSignal.timeout(15000),   // un service qui ne répond pas ne bloque pas toute la file
           headers: { 'api-key': env.BREVO_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ sender: { email: adresse, name: (nomBoutique ? nomExpediteur(nomBoutique) : nom) || undefined }, to: [{ email: destinataire }], subject: sujet, textContent: corps, ...(repondreA ? { replyTo: { email: repondreA } } : {}), ...(desinscription ? { headers: { 'List-Unsubscribe': `<${desinscription}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } } : {}) })
@@ -27,7 +27,7 @@ function prestataire(env, fetchImpl = fetch) {
     return {
       nom: 'postmark',
       async envoyer({ destinataire, sujet, corps, nomBoutique, desinscription, repondreA }) {
-        const rep = await fetchImpl('https://api.postmarkapp.com/email', {
+        const rep = await fetchImpl(`${env.POSTMARK_API_URL || 'https://api.postmarkapp.com'}/email`, {
           method: 'POST', signal: AbortSignal.timeout(15000),
           headers: { 'X-Postmark-Server-Token': env.POSTMARK_TOKEN, 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ From: nomBoutique ? `"${nomExpediteur(nomBoutique)}" <${adresse}>` : exp, To: destinataire, Subject: sujet, TextBody: corps, MessageStream: 'outbound', ...(repondreA ? { ReplyTo: repondreA } : {}), ...(desinscription ? { Headers: [{ Name: 'List-Unsubscribe', Value: `<${desinscription}>` }, { Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' }] } : {}) })

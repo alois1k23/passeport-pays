@@ -35,11 +35,12 @@ CREATE TABLE IF NOT EXISTS abonnements (
 function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   db.exec(SCHEMA);
   const stripe = env.STRIPE_SECRET_KEY ? env.STRIPE_SECRET_KEY : null;
+  const baseStripe = env.STRIPE_API_URL || 'https://api.stripe.com';   // essais avec un faux Stripe uniquement
   const obligatoire = String(env.ABONNEMENT_OBLIGATOIRE || 'oui') !== 'non';
   const appelerStripe = async (methode, chemin, params = []) => {
     const corps = new URLSearchParams();
     for (const [k, v] of params) corps.append(k, String(v));
-    const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, { method: methode, headers: { Authorization: `Bearer ${stripe}`, 'Stripe-Version': VERSION_STRIPE, 'Content-Type': 'application/x-www-form-urlencoded' }, body: methode === 'GET' ? undefined : corps });
+    const rep = await fetchImpl(`${baseStripe}/v1/${chemin}`, { method: methode, headers: { Authorization: `Bearer ${stripe}`, 'Stripe-Version': VERSION_STRIPE, 'Content-Type': 'application/x-www-form-urlencoded' }, body: methode === 'GET' ? undefined : corps });
     const json = await rep.json();
     if (!rep.ok) throw erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe');
     return json;
@@ -231,7 +232,7 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   async function arreterDefinitivement(marchandId) {
     const a = lire(marchandId);
     if (stripe && a && a.ref_externe) {   // même « résilié » localement (impayé, suspendu), la souscription peut vivre encore chez Stripe
-      const rep = await fetchImpl(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(a.ref_externe)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${stripe}`, 'Stripe-Version': VERSION_STRIPE } });
+      const rep = await fetchImpl(`${baseStripe}/v1/subscriptions/${encodeURIComponent(a.ref_externe)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${stripe}`, 'Stripe-Version': VERSION_STRIPE } });
       if (!rep.ok && rep.status !== 404 && !(rep.status === 400 && a.statut === 'resilie')) throw erreur(502, 'Stripe ne confirme pas la résiliation : réessayez avant de supprimer le compte.', 'stripe');
     }
   }

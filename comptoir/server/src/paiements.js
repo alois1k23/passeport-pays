@@ -21,10 +21,10 @@ function prestataireSimulation({ urlPublique }) {
 
 /* Stripe Connect : chaque boutique encaisse sur SON compte Stripe (paiement « direct » sur le compte connecté,
    en-tête Stripe-Account). La plateforme ne détient jamais l'argent des ventes des marchands, et ne prend aucune commission. */
-function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fetchImpl = fetch }) {
+function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fetchImpl = fetch, baseStripe = 'https://api.stripe.com' }) {
   const entetes = compte => ({ Authorization: `Bearer ${cleSecrete}`, 'Stripe-Version': '2024-06-20', ...(compte ? { 'Stripe-Account': compte } : {}) });   // version figée, comme pour les abonnements
   const lire = async (chemin, compte) => {
-    const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, { headers: entetes(compte) });
+    const rep = await fetchImpl(`${baseStripe}/v1/${chemin}`, { headers: entetes(compte) });
     const json = await rep.json();
     if (!rep.ok) throw erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe');
     return json;
@@ -32,7 +32,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
   const appeler = async (chemin, params, compte, cleIdempotence) => {
     const corps = new URLSearchParams();
     for (const [k, v] of params) corps.append(k, String(v));
-    const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, {
+    const rep = await fetchImpl(`${baseStripe}/v1/${chemin}`, {
       method: 'POST',
       headers: { ...entetes(compte), 'Content-Type': 'application/x-www-form-urlencoded', ...(cleIdempotence ? { 'Idempotency-Key': cleIdempotence } : {}) },
       body: corps
@@ -134,7 +134,7 @@ function verifierSignatureStripe(corpsBrut, entete, secret, maintenant = Date.no
 }
 
 function choisirPrestataire(env, urlPublique, fetchImpl = fetch) {
-  if (env.STRIPE_SECRET_KEY) return prestataireStripe({ cleSecrete: env.STRIPE_SECRET_KEY, secretWebhook: env.STRIPE_WEBHOOK_SECRET, secretWebhookConnect: env.STRIPE_CONNECT_WEBHOOK_SECRET, fetchImpl });
+  if (env.STRIPE_SECRET_KEY) return prestataireStripe({ cleSecrete: env.STRIPE_SECRET_KEY, secretWebhook: env.STRIPE_WEBHOOK_SECRET, secretWebhookConnect: env.STRIPE_CONNECT_WEBHOOK_SECRET, fetchImpl, baseStripe: env.STRIPE_API_URL || 'https://api.stripe.com' });   // STRIPE_API_URL : essais avec un faux Stripe uniquement
   return prestataireSimulation({ urlPublique });
 }
 

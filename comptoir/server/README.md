@@ -74,6 +74,8 @@ Rafraîchissement : Google Trends et fichier au démarrage puis toutes les 6 heu
 4. Ajoutez un second webhook, de type **Connect** (« événements des comptes connectés »), vers la même adresse, pour `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `account.updated`, `account.application.deauthorized` et `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed` (litiges : le marchand est prévenu par e-mail et dans « À faire ») ; son secret va dans `STRIPE_CONNECT_WEBHOOK_SECRET`.
 
 ### Un vrai fournisseur
+Déclarez-le par `FOURNISSEUR_URL_API`, `FOURNISSEUR_CLE_API`, `FOURNISSEUR_SECRET_WEBHOOK` (et `FOURNISSEUR_NOM`, `FOURNISSEUR_CODE`, `principal` par défaut) : son catalogue remplace celui de démonstration dans « Trouver des produits », et son webhook d'expédition arrive sur `/api/webhooks/fournisseurs/<code>`. Les commandes lui sont envoyées avec un en-tête `Idempotency-Key`.
+
 Tout fournisseur qui respecte ce contrat (ou un petit adaptateur devant son API) se branche sans changer le reste :
 
 ```
@@ -124,6 +126,7 @@ La route `/api/tls/autoriser` ne répond « oui » que pour le domaine principal
 |---|---|
 | `RDAP_URL` | Registre interrogé pour la disponibilité des domaines (tests). Par défaut : SWITCH (.ch, .li), AFNIC (.fr), Verisign (.com, .net), rdap.org pour les autres. |
 | `HEBERGEUR`, `EXPLOITANT_*` | Voir ci-dessus. |
+| `STRIPE_API_URL`, `BREVO_API_URL`, `POSTMARK_API_URL` | Essais uniquement : adresse d'un faux service (voir `outils/simulation/bout-en-bout.js`). Jamais en production. |
 | `SOCIAL_SIMULATION` | `1` : publication et statistiques des réseaux simulées. |
 | `LIMITE_COMMANDES` | Commandes publiques par adresse IP et par quart d'heure (30), multipliées par `LIMITES_FACTEUR`. |
 | `EMAIL_INTERVALLE_MS`, `SOCIAL_INTERVALLE_MS`, `AUTO_INTERVALLE_MS` | Fréquence d'envoi de la file d'e-mails (30 000), des publications programmées (60 000) et des e-mails automatiques (300 000), en ms. |

@@ -55,6 +55,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const delaiExpeditionDemo = env.DEMO_DELAI_EXPEDITION_MS === undefined ? 120000 : Number(env.DEMO_DELAI_EXPEDITION_MS);
   const secretsDemo = { cleApiDemo: crypto.randomBytes(24).toString('hex'), secretWebhookDemo: crypto.randomBytes(24).toString('hex') };
   fournisseurs.installerDemo(db, urlPublique, secretsDemo);
+  // Vrai fournisseur (contrat décrit dans le README) : déclaré par l'exploitant, il remplace celui de démonstration
+  // pour le catalogue et les imports. Les produits déjà importés gardent leur fournisseur d'origine.
+  if (env.FOURNISSEUR_URL_API && env.FOURNISSEUR_CLE_API && env.FOURNISSEUR_SECRET_WEBHOOK) {
+    db.prepare(`INSERT INTO fournisseurs (code, nom, url_api, cle_api, secret_webhook) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(code) DO UPDATE SET nom = excluded.nom, url_api = excluded.url_api, cle_api = excluded.cle_api, secret_webhook = excluded.secret_webhook`)
+      .run(env.FOURNISSEUR_CODE || 'principal', env.FOURNISSEUR_NOM || 'Fournisseur', env.FOURNISSEUR_URL_API.replace(/\/$/, ''), env.FOURNISSEUR_CLE_API, env.FOURNISSEUR_SECRET_WEBHOOK);
+  }
+  const fournisseurActif = () => db.prepare('SELECT * FROM fournisseurs WHERE code = ?').get(env.FOURNISSEUR_URL_API ? (env.FOURNISSEUR_CODE || 'principal') : 'demo');
   relances.creerTables(db);
   courriel.creerTables(db);
   const serviceEmail = courriel.prestataire(env, fetchImpl);
@@ -335,6 +343,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Produit envoyé par le navigateur : l'origine fournisseur ne se déclare pas, elle vient du catalogue.
      Sans cela, un faux « source » gonflerait les tendances et un faux code fournisseur contournerait « vendable ». */
   function produitDuNavigateur(p, historiqueAvant) {
+    // Produit d'un vrai fournisseur déclaré (restauration d'une sauvegarde) : il le garde ; sinon, catalogue de démonstration.
+    const reel = p && p.type === 'drop' && p.codeFournisseur && p.codeFournisseur !== 'demo' && db.prepare('SELECT 1 FROM fournisseurs WHERE code = ?').get(String(p.codeFournisseur));
+    if (reel) return nettoyerProduit({ ...p, source: String(p.source || '').slice(0, 40), codeFournisseur: String(p.codeFournisseur) }, historiqueAvant);
     const src = p && p.type === 'drop' && fournisseurs.CATALOGUE_DEMO.find(x => x.id === p.source);
     return nettoyerProduit({ ...p, source: src ? src.id : '', codeFournisseur: 'demo' }, historiqueAvant);
   }
@@ -796,11 +807,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { ok: true };
   });
   r.get('/api/admin/catalogue', exigerMarchand, async () => {
-    const f = db.prepare("SELECT * FROM fournisseurs WHERE code = 'demo'").get();
+    const f = fournisseurActif();
     return { fournisseur: f.nom, produits: await fournisseurs.client(f, fetchImpl).catalogue() };
   });
   r.post('/api/admin/produits/import', exigerMarchand, async ctx => {
-    const f = db.prepare("SELECT * FROM fournisseurs WHERE code = 'demo'").get();
+    const f = fournisseurActif();
     const cat = await fournisseurs.client(f, fetchImpl).catalogue();
     const src = cat.find(x => x.id === ctx.corps.source);
     if (!src) throw erreur(404, 'Produit absent du catalogue fournisseur.', 'catalogue_introuvable');

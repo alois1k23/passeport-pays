@@ -1224,3 +1224,33 @@ Test ajouté.
 - 60 jours, 100 marchands, 8 562 commandes, serveur redémarré au jour 30, 970 désinscriptions, 9 effacements et 2 comptes supprimés : 0 anomalie, 0 erreur serveur.
 - Nouvel An et heure d'été (40 marchands sur 30 jours chacun) : 0 anomalie.
 - Tests : 67, dont la panne du service d'e-mail, les photos et la session glissante.
+
+### Après la nuit — Essai de bout en bout « comme en production », avec de faux services
+
+`outils/simulation/faux-services.js` imite :
+- **Stripe** : pages de paiement, activation des comptes des boutiques, abonnements, renouvellements, impayés, remboursements, litiges et webhooks signés, parfois en double ;
+- **Brevo**, avec ses pannes ;
+- **un fournisseur** qui respecte le contrat du README.
+
+`outils/simulation/bout-en-bout.js` lance le vrai serveur en mode production (clé Stripe « réelle », Brevo, fournisseur réel) et fait les parcours dans un vrai navigateur.
+
+**Défaut trouvé avant même l'essai.** Le catalogue et l'import étaient câblés sur le fournisseur de démonstration : un vrai fournisseur ne pouvait pas être utilisé sans modifier le code. Il se déclare maintenant par `FOURNISSEUR_*`, et les sauvegardes restaurées gardent leur fournisseur.
+
+**Résultat : 51 contrôles sur 51 réussis.**
+- **Abonnements des marchands :** de la page d'accueil au paiement sur la page Stripe, jusqu'à l'ouverture de l'espace.
+- **Paiements des boutiques :** activation par Stripe ; vente sur le compte de la boutique, jamais sur celui de la plateforme.
+- **Moyens de paiement :** TWINT seulement une fois validé, Bancontact en Belgique, version d'API figée.
+- **Paiements difficiles :** un webhook reçu deux fois ne donne qu'une confirmation ; une carte refusée n'encaisse rien.
+- **Fournisseur :**
+  - le catalogue et l'import passent par le vrai fournisseur ;
+  - la commande lui est transmise automatiquement, avec une clé d'idempotence ;
+  - son expédition revient signée, avec le numéro de suivi, et l'e-mail part au client.
+- **Après-vente :** remboursement exécuté sur le compte de la boutique ; litige signalé au marchand.
+- **E-mails :** la panne de Brevo n'en fait perdre aucun.
+- **Cycle de l'abonnement :**
+  - renouvellement, puis impayé (accès gardé pendant le délai, sans mois offert), puis régularisation ;
+  - passage de Lancement à Croissance, qui s'applique tout de suite ;
+  - résiliation à la fin du mois payé.
+- **Exploitation :** redémarrage du serveur sans perte ; e-mails propres, au nom de la boutique, avec réponse au marchand ; mentions légales de l'exploitant.
+
+Le faux Stripe imite la forme des objets de Stripe (version 2024-06-20) pour les champs que Comptoir lit. Ce n'est pas Stripe : un essai en mode test avec un vrai compte reste indispensable.
