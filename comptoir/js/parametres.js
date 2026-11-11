@@ -237,7 +237,7 @@ document.addEventListener('submit', async e => {
 
 /* ---------- Sécurité du compte (mode connecté) ---------- */
 const SECURITE = { donnees: null, chargement: false, mise: null, codes: null, erreur: '' };
-const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé' };
+const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-acces': 'Connexion par clé d’accès', 'cle-acces-ajoutee': 'Clé d’accès ajoutée', 'cle-acces-supprimee': 'Clé d’accès supprimée', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé' };
 function chargerSecurite() {
   if (SECURITE.chargement) return;
   SECURITE.chargement = true;
@@ -270,13 +270,22 @@ function vueSecurite() {
   else df = `<section class="carte"><div class="carte-tete"><h2>Double authentification</h2><span class="pill warn">Inactive</span></div>
       <p class="sous">Recommandée : même avec votre mot de passe, personne ne peut se connecter sans le code de votre téléphone. Compatible Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden, Proton Pass.</p>
       ${erreur}<div class="rangee"><button class="btn" data-action="2fa-preparer">Activer la double authentification</button></div></section>`;
+  const cles = d.clesAcces || [];
+  const clesAcces = `<section class="carte"><div class="carte-tete"><h2>Clés d’accès</h2>${cles.length ? `<span class="pill good">${cles.length} enregistrée${cles.length > 1 ? 's' : ''}</span>` : '<span class="pill muted">Aucune</span>'}</div>
+    <p class="sous">Connectez-vous sans mot de passe, avec le visage, l’empreinte ou le code de votre téléphone ou ordinateur (Face ID, Touch ID, Windows Hello, Android). Une clé d’accès ne peut pas être volée par un faux site : elle ne fonctionne que sur Comptoir.</p>
+    ${cles.length ? `<ul class="journal-compte">${cles.map(c => `<li><b>${esc(c.nom)}</b> <span class="sous">ajoutée le ${date(c.creeLe)} · dernière utilisation : ${c.utiliseeLe ? date(c.utiliseeLe) : 'jamais'}</span>
+      <details class="en-ligne"><summary>Supprimer</summary><form data-form="cle-supprimer" data-id="${esc(c.id)}" class="rangee"><input type="password" name="motDePasse" required placeholder="Mot de passe" autocomplete="current-password"><button class="btn petit fantome danger">Supprimer</button></form></details></li>`).join('')}</ul>` : ''}
+    ${ClesAcces.disponible() ? `<details${cles.length ? '' : ' open'}><summary>Ajouter une clé d’accès sur cet appareil</summary><form data-form="cle-ajouter" class="grille-form">
+      <label class="champ"><span>Nom (pour la reconnaître)</span><input name="nom" maxlength="60" placeholder="iPhone de Marie, MacBook…"></label>
+      <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>
+      <div class="rangee"><button class="btn">Créer la clé d’accès</button></div></form></details>` : '<p class="sous">Ce navigateur ne gère pas les clés d’accès.</p>'}</section>`;
   const appareils = `<section class="carte"><div class="carte-tete"><h2>Appareils connectés</h2></div>
     <div class="table-wrap"><table class="table compacte"><thead><tr><th>Appareil</th><th>Dernière activité</th><th>Réseau</th><th></th></tr></thead><tbody>
     ${d.sessions.map(x => `<tr><td>${esc(x.appareil)}${x.actuelle ? ' <span class="pill info">Cet appareil</span>' : ''}</td><td>${date(x.vuLe || x.creeLe)}</td><td class="mono sous">${esc(x.reseau || '—')}</td><td class="num">${x.actuelle ? '' : `<button class="btn petit fantome" data-action="session-revoquer" data-id="${esc(x.id)}">Déconnecter</button>`}</td></tr>`).join('')}
     </tbody></table></div></section>`;
   const journal = `<section class="carte"><div class="carte-tete"><h2>Activité du compte</h2><span class="sous">50 derniers événements</span></div>
     ${d.journal.length ? `<ul class="journal-compte">${d.journal.map(x => `<li><span class="sous">${date(x.date)}</span> <b>${esc(LIBELLES_ACTIVITE[x.type] || x.type)}</b>${x.detail ? ` · ${esc(x.detail)}` : ''}${x.reseau ? ` <span class="mono sous">${esc(x.reseau)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="sous">Aucun événement pour l’instant.</p>'}</section>`;
-  return df + appareils + journal;
+  return df + clesAcces + appareils + journal;
 }
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action]'); if (!el) return;
@@ -294,6 +303,17 @@ document.addEventListener('click', async e => {
     else if (a === 'secours-fini') { SECURITE.codes = null; SECURITE.donnees = null; }
     else if (a === 'session-revoquer') { await api('POST', `/api/admin/compte/sessions/${encodeURIComponent(el.dataset.id)}/revoquer`); toast('Appareil déconnecté.'); SECURITE.donnees = null; }
   } catch (err) { SECURITE.erreur = err.message; }
+  rendre();
+});
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('[data-form="cle-ajouter"], [data-form="cle-supprimer"]'); if (!f) return;
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(f));
+  try {
+    if (f.dataset.form === 'cle-ajouter') { const r = await ClesAcces.enregistrer(d.motDePasse, d.nom); toast(`Clé d’accès « ${r.nom} » ajoutée.`); }
+    else { await api('POST', `/api/admin/compte/cles-acces/${encodeURIComponent(f.dataset.id)}/supprimer`, { motDePasse: d.motDePasse }); toast('Clé d’accès supprimée.'); }
+    SECURITE.donnees = null;
+  } catch (err) { toast(ClesAcces.messageErreur(err)); }
   rendre();
 });
 document.addEventListener('submit', async e => {

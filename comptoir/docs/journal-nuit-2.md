@@ -158,3 +158,18 @@ Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, 
   - ETag par fichier : un rechargement reçoit 304 et ne retélécharge rien qui n'ait changé ;
   - compression Brotli, sinon gzip, faite une seule fois et gardée en mémoire. Avant, gzip était recalculé à chaque requête.
 - Vérifié dans un vrai navigateur : service worker actif, manifeste lu, application ouverte hors connexion, 304 sur un fichier inchangé, Brotli servi.
+
+## Cycle 9 (00 h 45) : clés d'accès (passkeys)
+
+- Connexion **sans mot de passe** avec une clé d'accès : visage, empreinte ou code de l'appareil (Face ID, Touch ID, Windows Hello, Android). La norme est W3C WebAuthn, implémentée sans dépendance dans `server/src/webauthn.js` :
+  - lecture CBOR bornée ;
+  - clés ES256 et RS256 ;
+  - vérification du domaine, de l'origine (un faux site ne peut rien en faire), de la présence et de la vérification de l'utilisateur ;
+  - défi à usage unique, valable 5 minutes ;
+  - détection d'une clé clonée par le compteur.
+- Paramètres > Sécurité, nouvelle carte « Clés d'accès » : ajouter une clé (mot de passe exigé), la nommer, voir sa dernière utilisation, la supprimer (mot de passe exigé). Un e-mail prévient à chaque ajout, et le journal du compte garde la trace.
+- Écran de connexion : bouton « Se connecter avec une clé d'accès », sans saisir d'e-mail (clé découvrable).
+- Tests :
+  - automatiques, avec un authentificateur logiciel : enregistrement, connexion, rejeu refusé, faux site refusé, mauvaise clé refusée, clé clonée refusée, entrées CBOR piégées ;
+  - dans un vrai Chromium, avec l'authentificateur virtuel du navigateur : clé créée depuis Paramètres, puis connexion sans mot de passe réussie.
+- Tests : 86 sur 86.

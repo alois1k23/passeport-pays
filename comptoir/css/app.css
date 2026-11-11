@@ -1385,3 +1385,8 @@ html, body { overflow-x: clip; }
 .secret-integ { padding: 12px; background: var(--surface-2); border-radius: 8px; word-break: break-all; font-size: .95rem; user-select: all; }
 .webhook-integ { padding: 12px 0; border-bottom: 1px solid var(--line, #e5e5e5); }
 .webhook-integ p { margin: 0 0 6px; word-break: break-all; }
+.separateur-ou { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; color: var(--muted, #6B7280); font-size: .85rem; }
+.separateur-ou::before, .separateur-ou::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.plein-largeur { width: 100%; justify-content: center; }
+details.en-ligne { display: inline-block; margin-left: 8px; }
+details.en-ligne form { margin-top: 6px; }

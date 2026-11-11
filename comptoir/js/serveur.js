@@ -190,11 +190,18 @@ function installerConnexion() {
         ${etatForm.erreur ? `<p class="encart alerte-encart">${esc(etatForm.erreur)}</p>` : ''}
         <button class="btn" ${etatForm.envoi ? 'disabled' : ''}>${etatForm.envoi ? 'Un instant…' : ins ? 'Continuer vers le choix de la formule' : 'Se connecter'}</button>
       </form>
+      ${ins || !ClesAcces.disponible() ? '' : '<div class="separateur-ou" role="separator"><span>ou</span></div><button class="btn fantome plein-largeur" data-cle-acces="connexion">Se connecter avec une clé d’accès</button>'}
       ${ins ? '' : '<button class="bouton-lien" data-cx="oubli">Mot de passe oublié ?</button>'}
       ${ins ? '<p class="sous">Votre boutique est créée avec un design, des pages et, en dropshipping, les meilleurs produits du catalogue fournisseurs pour votre niche. Vous pourrez tout modifier.</p>' : ''}
     </div>`;
   };
   rendre = rendreAuth;
+  document.addEventListener('click', async e => {
+    if (!e.target.closest('[data-cle-acces="connexion"]')) return;
+    etatForm.erreur = ''; etatForm.envoi = true; rendre();
+    try { await ClesAcces.connexion(); location.hash = 'tableau'; location.reload(); }
+    catch (err) { etatForm.envoi = false; etatForm.erreur = ClesAcces.messageErreur(err); rendre(); }
+  });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-cx]');
     if (b) { etatForm.onglet = b.dataset.cx; etatForm.erreur = ''; etatForm.info = ''; rendre(); }

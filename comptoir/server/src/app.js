@@ -9,6 +9,7 @@ const abonnements = require('./abonnements');
 const Formules = require('../../js/formules.js');
 const tendances = require('./tendances');
 const MotDePasse = require('./motdepasse');
+const WebAuthn = require('./webauthn');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
 const totp = require('./totp');
@@ -878,6 +879,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const df = deuxFacteursDe(ctx.marchand.id);
     return {
       deuxFacteurs: !!(df && df.actif), codesSecoursRestants: df && df.actif ? JSON.parse(df.secours).length : 0,
+      clesAcces: clesAccesDe(ctx.marchand.id).map(c => ({ id: c.id, nom: c.nom, creeLe: c.cree_le, utiliseeLe: c.utilisee_le })),
       sessions: db.prepare('SELECT jeton_hash, cree_le, vu_le, appareil, reseau FROM sessions WHERE marchand_id = ? AND expire_le > ? ORDER BY vu_le DESC').all(ctx.marchand.id, Date.now())
         .map(x => ({ id: x.jeton_hash.slice(0, 16), appareil: x.appareil || 'Appareil', reseau: x.reseau, creeLe: x.cree_le, vuLe: x.vu_le, actuelle: x.jeton_hash === actuelle })),
       journal: db.prepare('SELECT date, type, detail, reseau FROM journal_compte WHERE marchand_id = ? ORDER BY date DESC LIMIT 50').all(ctx.marchand.id)
@@ -889,6 +891,81 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const n = db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND substr(jeton_hash, 1, 16) = ?').run(ctx.marchand.id, id).changes;
     if (!n) throw erreur(404, 'Session inconnue.', 'session');
     noterActivite(ctx.marchand.id, 'session-revoquee', null, ctx);
+    return { ok: true };
+  });
+  /* ---------- Clés d'accès (passkeys) : connexion sans mot de passe, par le visage, l'empreinte ou le code de l'appareil ---------- */
+  db.exec(`CREATE TABLE IF NOT EXISTS cles_acces (id TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, nom TEXT NOT NULL, cle TEXT NOT NULL, compteur INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, utilisee_le INTEGER);
+    CREATE INDEX IF NOT EXISTS cles_acces_marchand ON cles_acces(marchand_id);
+    CREATE TABLE IF NOT EXISTS defis_webauthn (defi TEXT PRIMARY KEY, marchand_id TEXT, type TEXT NOT NULL, expire_le INTEGER NOT NULL);`);
+  const rpUrl = new URL(urlPublique), rpId = env.WEBAUTHN_RP_ID || rpUrl.hostname, origineRp = rpUrl.origin;
+  function nouveauDefi(type, marchandId = null) {
+    db.prepare('DELETE FROM defis_webauthn WHERE expire_le < ?').run(Date.now());
+    const defi = crypto.randomBytes(32).toString('base64url');
+    db.prepare('INSERT INTO defis_webauthn (defi, marchand_id, type, expire_le) VALUES (?, ?, ?, ?)').run(defi, marchandId, type, Date.now() + 5 * 60000);
+    return defi;
+  }
+  // Le défi est lu dans la réponse signée, puis consommé : une réponse ne sert qu'une fois.
+  function consommerDefi(reponse, type) {
+    let defi = '';
+    try { defi = JSON.parse(WebAuthn.deB64u(reponse && reponse.clientDataJSON).toString('utf8')).challenge; } catch { /* invalide */ }
+    const d = defi && db.prepare('DELETE FROM defis_webauthn WHERE defi = ? AND type = ? AND expire_le > ? RETURNING *').get(String(defi), type, Date.now());
+    if (!d) throw erreur(400, 'Demande expirée : recommencez.', 'defi_expire');
+    return d;
+  }
+  const clesAccesDe = mid => db.prepare('SELECT id, nom, cree_le, utilisee_le FROM cles_acces WHERE marchand_id = ? ORDER BY cree_le').all(mid);
+  r.post('/api/admin/compte/cles-acces/options', exigerCompte, async ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (clesAccesDe(m.id).length >= 10) throw erreur(409, '10 clés d’accès au plus : supprimez-en une.', 'trop_de_cles');
+    return { publicKey: { challenge: nouveauDefi('create', m.id), rp: { id: rpId, name: 'Comptoir' }, user: { id: WebAuthn.b64u(m.id), name: m.email, displayName: m.email },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }], timeout: 300000, attestation: 'none',
+      authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+      excludeCredentials: clesAccesDe(m.id).map(c => ({ type: 'public-key', id: c.id })) } };
+  });
+  r.post('/api/admin/compte/cles-acces', exigerCompte, ctx => {
+    const rep = ctx.corps.reponse || {};
+    const d = consommerDefi(rep, 'create');
+    if (d.marchand_id !== ctx.marchand.id) throw erreur(400, 'Demande expirée : recommencez.', 'defi_expire');
+    let v;
+    try { v = WebAuthn.verifierEnregistrement(rep, { defi: d.defi, origine: origineRp, rpId }); } catch (e) { throw erreur(400, `Clé d’accès refusée : ${e.message}.`, 'cle_acces_invalide'); }
+    if (db.prepare('SELECT 1 FROM cles_acces WHERE id = ?').get(v.credId)) throw erreur(409, 'Cette clé d’accès est déjà enregistrée.', 'deja');
+    const nom = String(ctx.corps.nom || '').trim().slice(0, 60) || decrireAppareil(ctx.req.headers['user-agent']);
+    db.prepare('INSERT INTO cles_acces (id, marchand_id, nom, cle, compteur, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(v.credId, ctx.marchand.id, nom, JSON.stringify(v.cle), v.compteur, Date.now());
+    noterActivite(ctx.marchand.id, 'cle-acces-ajoutee', nom, ctx);
+    envoyerEmail(null, ctx.marchand.email, 'Clé d’accès ajoutée à votre compte Comptoir', `Bonjour,\n\nUne clé d’accès (« ${nom} ») vient d’être ajoutée à votre compte : elle permet de vous connecter sans mot de passe, avec le visage, l’empreinte ou le code de cet appareil.\n\nCe n’était pas vous ? Supprimez-la tout de suite dans Paramètres > Sécurité, et changez votre mot de passe.\n${urlPublique}/app\n\nL’équipe Comptoir`);
+    return { statut: 201, corps: { id: v.credId, nom } };
+  });
+  r.post('/api/admin/compte/cles-acces/:id/supprimer', exigerCompte, async ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    const c = db.prepare('DELETE FROM cles_acces WHERE id = ? AND marchand_id = ? RETURNING nom').get(String(ctx.params.id), m.id);
+    if (!c) throw erreur(404, 'Clé d’accès inconnue.', 'introuvable');
+    noterActivite(m.id, 'cle-acces-supprimee', c.nom, ctx);
+    return { ok: true };
+  });
+  // Connexion : sans e-mail (clé « découvrable ») ; le navigateur propose les clés enregistrées pour Comptoir.
+  r.post('/api/auth/cle-acces/options', ctx => {
+    auth.limiter('cle-acces-options:' + reseauIp(ctx.ip), 30 * facteurLimites, 60000, 'Trop de demandes : réessayez dans une minute.');
+    return { publicKey: { challenge: nouveauDefi('get'), rpId, userVerification: 'required', timeout: 300000, allowCredentials: [] } };
+  });
+  r.post('/api/auth/cle-acces/connexion', ctx => {
+    const reseau = reseauIp(ctx.ip), max = Number(env.LIMITE_ESSAIS) || 10;
+    auth.verifierEchecs(['cle-acces:' + reseau], max);
+    const rep = ctx.corps.reponse || {};
+    const d = consommerDefi(rep, 'get');
+    const cred = db.prepare('SELECT * FROM cles_acces WHERE id = ?').get(String(rep.id || ''));
+    const refus = msg => { auth.noterEchec(['cle-acces:' + reseau]); throw erreur(401, msg, 'cle_acces_refusee'); };
+    if (!cred) refus('Clé d’accès inconnue : elle a peut-être été supprimée. Connectez-vous avec votre mot de passe.');
+    if (rep.userHandle && WebAuthn.deB64u(rep.userHandle).toString('utf8') !== cred.marchand_id) refus('Clé d’accès refusée.');
+    let v;
+    try { v = WebAuthn.verifierConnexion(rep, { defi: d.defi, origine: origineRp, rpId, cle: JSON.parse(cred.cle), compteur: cred.compteur }); }
+    catch (e) { journal.error('[cle-acces]', e.message); refus('Clé d’accès refusée.'); }
+    db.prepare('UPDATE cles_acces SET compteur = ?, utilisee_le = ? WHERE id = ?').run(v.compteur, Date.now(), cred.id);
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(cred.marchand_id);
+    if (!m) refus('Compte introuvable.');
+    const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(String(m.email).toLowerCase());
+    ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
+    noterActivite(m.id, 'cle-acces', cred.nom, ctx);
     return { ok: true };
   });
   /* Double authentification : préparation (secret en attente), activation avec un premier code, désactivation */
