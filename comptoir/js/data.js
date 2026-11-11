@@ -229,8 +229,15 @@ const LIVRAISONS_CH = {
   pickpost: { nom: 'Retrait PickPost / My Post 24', court: 'PickPost', prix: 6, delai: '2 à 3 jours ouvrables', transporteur: 'La Poste' },
   retrait: LIVRAISONS.retrait
 };
-const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH };
-function livraisonsPays(pays) { return pays === 'ch' ? LIVRAISONS_CH : LIVRAISONS; }
+/* Belgique : bpost et Mondial Relay (tarifs indicatifs). */
+const LIVRAISONS_BE = {
+  bpost: { nom: 'bpost à domicile', court: 'bpost', prix: 6.5, delai: '1 à 2 jours ouvrables', transporteur: 'bpost' },
+  'bpost-point': { nom: 'bpost en point d’enlèvement', court: 'Point bpost', prix: 5.5, delai: '1 à 2 jours ouvrables', transporteur: 'bpost' },
+  'relais-be': { nom: 'Mondial Relay en point relais', court: 'Point relais', prix: 4.2, delai: '3 à 5 jours', transporteur: 'Mondial Relay' },
+  retrait: LIVRAISONS.retrait
+};
+const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH, ...LIVRAISONS_BE };
+function livraisonsPays(pays) { return pays === 'ch' ? LIVRAISONS_CH : pays === 'be' ? LIVRAISONS_BE : LIVRAISONS; }
 const SEUIL_PORT_DEFAUT = 60;
 /* Seuil de livraison offerte de la boutique (réglable dans Conversion ; 0 = jamais offerte). */
 function seuilPort() { try { return etat && etat.offres && etat.offres.seuilPort !== undefined ? Number(etat.offres.seuilPort) : SEUIL_PORT_DEFAUT; } catch { return SEUIL_PORT_DEFAUT; } }

@@ -354,3 +354,10 @@ Tests : 41 (refus de commande sans adresse ajouté).
 20. **Détails serveur** : les requêtes HEAD (robots, vérificateurs de liens) recevaient 404 sur les boutiques ; une boutique « Lumière & <b>Co</b> » avait des balises dans son adresse (`lumiere-b-co-b`, désormais `lumiere-co`).
 
 **À faire par l'exploitant avant l'ouverture** : renseigner `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL` (et `HEBERGEUR`). Je ne peux pas inventer ces informations.
+
+### Cycle 17 — Belgique et boutiques déjà créées
+
+1. **Transporteurs français proposés aux boutiques belges** (Colissimo, Chronopost : services français). Une boutique belge propose désormais bpost à domicile, bpost en point d'enlèvement et Mondial Relay ; le lien de suivi bpost est envoyé au client.
+2. **Boutiques créées avant le cycle 16** : elles gardent les anciens textes d'exemple (« Fabriqué en France », « Expédié sous 48 h »…). Je ne modifie pas le contenu d'un marchand à sa place : une alerte « à vérifier » apparaît dans sa liste de tâches, avec un lien vers l'éditeur.
+
+Contrôles de non-régression sur la démo : aucune erreur, aucun débordement à 360 px, audit d'accessibilité propre (clair et sombre). Tests : 41.

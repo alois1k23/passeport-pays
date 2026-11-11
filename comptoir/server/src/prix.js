@@ -16,12 +16,19 @@ const LIVRAISONS = {
     'poste-prio': { nom: 'La Poste Priority', prix: 9, transporteur: 'La Poste', jamaisOffert: true },
     pickpost: { nom: 'Retrait PickPost / My Post 24', prix: 6, transporteur: 'La Poste' },
     retrait: { nom: 'Retrait en boutique (click & collect)', prix: 0, transporteur: null }
+  },
+  // Belgique : bpost et Mondial Relay (Colissimo et Chronopost sont des services français).
+  be: {
+    bpost: { nom: 'bpost à domicile', prix: 6.5, transporteur: 'bpost' },
+    'bpost-point': { nom: 'bpost en point d’enlèvement', prix: 5.5, transporteur: 'bpost' },
+    'relais-be': { nom: 'Mondial Relay en point relais', prix: 4.2, transporteur: 'Mondial Relay' },
+    retrait: { nom: 'Retrait en boutique', prix: 0, transporteur: null }
   }
 };
 const SEUIL_PORT_OFFERT = 60;
 
 function modesLivraison(config) {
-  const pays = config.boutique.pays === 'ch' ? 'ch' : 'fr';
+  const pays = config.boutique.pays === 'ch' ? 'ch' : config.boutique.pays === 'be' ? 'be' : 'fr';
   const modes = { ...LIVRAISONS[pays] };
   if (!config.magasin || !config.magasin.clickCollect) delete modes.retrait;
   return modes;
