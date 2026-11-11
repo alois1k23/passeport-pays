@@ -2,34 +2,66 @@
 //  - Clé : « cpt_<32 caractères> », montrée une seule fois, gardée en empreinte (SHA-256) ; portées : lecture ou écriture
 //    des commandes et des produits, lecture des clients.
 //  - Webhook : URL https du marchand ; chaque envoi est signé (en-tête Comptoir-Signature: t=…,v1=HMAC-SHA256(t.corps)),
-//    réessayé avec un délai croissant (jusqu'à 10 fois sur environ 2 jours) ; les adresses internes sont refusées (SSRF).
+//    réessayé avec un délai croissant (15 essais sur environ 40 heures) ; mis en pause après 3 jours sans réponse réussie.
+//  - SSRF : adresses internes refusées sous toutes leurs formes (IPv4, IPv6, IPv4 dans IPv6, NAT64, 6to4) ; la connexion
+//    se fait à l'adresse vérifiée (résolution DNS unique, pas de « rebinding » entre le contrôle et l'envoi).
 'use strict';
 const crypto = require('node:crypto');
 const dns = require('node:dns').promises;
 const net = require('node:net');
+const http = require('node:http');
+const https = require('node:https');
 const { erreur } = require('./http');
 
 const PORTEES = ['commandes:lecture', 'commandes:ecriture', 'produits:lecture', 'produits:ecriture', 'clients:lecture'];
 const EVENEMENTS = ['commande.payee', 'commande.expediee', 'commande.livree', 'commande.remboursee', 'commande.annulee', 'commande.retiree', 'produit.rupture'];
-const ESSAIS_MAX = 10;
+const ESSAIS_MAX = 15;
+const PAUSE_APRES_MS = 3 * 86400000;   // aucune réponse réussie depuis 3 jours : webhook mis en pause
+const FILE_MAX = 5000;                  // envois en attente par webhook (au-delà, les plus anciens sont abandonnés)
 const sha256 = t => crypto.createHash('sha256').update(t).digest('hex');
 
 /* Adresse IP privée, locale ou réservée : un webhook ne doit jamais viser l'intérieur du serveur ou du réseau. */
+function ipv4Interne(ip) {
+  const [a, b, c] = ip.split('.').map(Number);
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+    || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19)) || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113) || a >= 224;
+}
+// IPv6 → 8 groupes de 16 bits (accepte « :: » et une fin en notation IPv4).
+function groupesIpv6(ip) {
+  let t = ip.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+  const v4 = /(\d+\.\d+\.\d+\.\d+)$/.exec(t);
+  if (v4) { const o = v4[1].split('.').map(Number); t = t.slice(0, -v4[1].length) + ((o[0] << 8) | o[1]).toString(16) + ':' + ((o[2] << 8) | o[3]).toString(16); }
+  const [g, d] = t.split('::');
+  const gauche = g ? g.split(':') : [], droite = d !== undefined && d ? d.split(':') : [];
+  const milieu = d !== undefined ? Array(8 - gauche.length - droite.length).fill('0') : [];
+  return [...gauche, ...milieu, ...droite].map(x => parseInt(x, 16) || 0);
+}
+const v4De = (h, l) => `${h >> 8}.${h & 255}.${l >> 8}.${l & 255}`;
 function ipInterne(ip) {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split('.').map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
-  }
-  const i = ip.toLowerCase();
-  if (i.startsWith('::ffff:')) return ipInterne(i.slice(7));
-  return i === '::1' || i === '::' || /^f[cd]/.test(i) || /^fe[89ab]/.test(i) || i.startsWith('ff');
+  ip = String(ip || '').replace(/^\[|\]$/g, '');
+  if (net.isIPv4(ip)) return ipv4Interne(ip);
+  if (!net.isIPv6(ip)) return true;   // forme inconnue : refusée par prudence
+  const g = groupesIpv6(ip);
+  const zero = n => g.slice(0, n).every(x => x === 0);
+  if (zero(8)) return true;                                              // ::
+  if (zero(7) && g[7] === 1) return true;                                // ::1
+  if (zero(5) && (g[5] === 0xffff || g[5] === 0)) return ipv4Interne(v4De(g[6], g[7]));   // ::ffff:a.b.c.d, ::a.b.c.d
+  if (zero(4) && g[4] === 0xffff && g[5] === 0) return ipv4Interne(v4De(g[6], g[7]));     // ::ffff:0:a.b.c.d
+  if (g[0] === 0x64 && g[1] === 0xff9b) return ipv4Interne(v4De(g[6], g[7]));             // NAT64
+  if (g[0] === 0x2002) return ipv4Interne(v4De(g[1], g[2]));                               // 6to4
+  if (g[0] === 0x2001 && g[1] === 0) return true;                                          // Teredo
+  if (g[0] === 0x2001 && g[1] === 0xdb8) return true;                                      // documentation
+  const h = g[0];
+  return (h & 0xfe00) === 0xfc00 || (h & 0xffc0) === 0xfe80 || (h & 0xffc0) === 0xfec0 || (h & 0xff00) === 0xff00 || (h & 0xff00) === 0x0100 && g[1] === 0 && g[2] === 0 && g[3] === 0;
 }
 
-function creerIntegrations({ db, env = {}, journal = console, fetchImpl = fetch, resoudre = h => dns.lookup(h, { all: true }) }) {
+function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dns.lookup(h, { all: true }), permis = () => true }) {
   db.exec(`CREATE TABLE IF NOT EXISTS cles_api (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE, nom TEXT NOT NULL, prefixe TEXT NOT NULL, empreinte TEXT NOT NULL UNIQUE, portees TEXT NOT NULL, cree_le INTEGER NOT NULL, utilisee_le INTEGER, revoquee INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE, url TEXT NOT NULL, secret TEXT NOT NULL, evenements TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 1, cree_le INTEGER NOT NULL, echecs_suite INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS webhook_envois (id TEXT PRIMARY KEY, webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE, evenement TEXT NOT NULL, corps TEXT NOT NULL, statut TEXT NOT NULL DEFAULT 'attente', tentatives INTEGER NOT NULL DEFAULT 0, prochain_essai INTEGER NOT NULL, dernier_code INTEGER, cree_le INTEGER NOT NULL);
-    CREATE INDEX IF NOT EXISTS webhook_envois_file ON webhook_envois(statut, prochain_essai);`);
+    CREATE INDEX IF NOT EXISTS webhook_envois_file ON webhook_envois(statut, prochain_essai);
+    CREATE INDEX IF NOT EXISTS webhook_envois_hook ON webhook_envois(webhook_id, statut, cree_le);`);
+  for (const col of ['premier_echec INTEGER', 'dernier_succes INTEGER']) { try { db.exec(`ALTER TABLE webhooks ADD COLUMN ${col}`); } catch { /* déjà là */ } }
   const httpLocalPermis = env.INTEGRATIONS_HTTP_LOCAL === '1';   // essais uniquement : webhooks vers http://127.0.0.1
 
   /* ---------- Clés d'API ---------- */
@@ -55,19 +87,59 @@ function creerIntegrations({ db, env = {}, journal = console, fetchImpl = fetch,
   }
 
   /* ---------- Webhooks ---------- */
+  const hoteLocal = u => httpLocalPermis && u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
   async function verifierUrl(url) {
+    const brut = String(url || '');
+    if (brut.length > 500) throw erreur(400, 'Adresse trop longue (500 caractères au plus).', 'url');
     let u;
-    try { u = new URL(String(url)); } catch { throw erreur(400, 'Adresse invalide.', 'url'); }
-    const local = httpLocalPermis && u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
-    if (!local) {
+    try { u = new URL(brut); } catch { throw erreur(400, 'Adresse invalide.', 'url'); }
+    if (!hoteLocal(u)) {
       if (u.protocol !== 'https:') throw erreur(400, 'L’adresse doit commencer par https://', 'url');
       if (u.username || u.password) throw erreur(400, 'Pas d’identifiants dans l’adresse.', 'url');
-      if (net.isIP(u.hostname) && ipInterne(u.hostname)) throw erreur(400, 'Adresse interne refusée.', 'url');
-      const ips = await resoudre(u.hostname).catch(() => { throw erreur(400, 'Nom de domaine introuvable.', 'url'); });
-      if (!ips.length || ips.some(x => ipInterne(x.address))) throw erreur(400, 'Ce domaine pointe vers une adresse interne : refusé.', 'url');
+      const hote = u.hostname.replace(/^\[|\]$/g, '');
+      if (net.isIP(hote)) { if (ipInterne(hote)) throw erreur(400, 'Adresse interne refusée.', 'url'); }
+      else {
+        const ips = await resoudre(hote).catch(() => { throw erreur(400, 'Nom de domaine introuvable.', 'url'); });
+        if (!ips.length || ips.some(x => ipInterne(x.address))) throw erreur(400, 'Ce domaine pointe vers une adresse interne : refusé.', 'url');
+      }
     }
-    return u.toString().slice(0, 500);
+    return u.toString();
   }
+  /* Résolution DNS au moment de la connexion, avec contrôle de l'adresse obtenue : la connexion part vers l'adresse
+     vérifiée, pas vers une seconde résolution qu'un DNS malveillant pourrait faire pointer vers l'intérieur. */
+  const lookupSur = (hote, options, rappel) => {
+    if (typeof options === 'function') { rappel = options; options = {}; }
+    resoudre(hote).then(ips => {
+      const bonnes = ips.filter(x => !ipInterne(x.address));
+      if (!bonnes.length || bonnes.length !== ips.length) return rappel(Object.assign(new Error('adresse interne refusée'), { code: 'EINTERNE' }));
+      if (options && options.all) return rappel(null, bonnes.map(x => ({ address: x.address, family: x.family || (net.isIPv6(x.address) ? 6 : 4) })));
+      rappel(null, bonnes[0].address, bonnes[0].family || (net.isIPv6(bonnes[0].address) ? 6 : 4));
+    }, e => rappel(e));
+  };
+  /* Envoi POST (pas de redirection suivie, 10 s au plus, réponse lue et limitée à 64 Ko). Renvoie le code HTTP ou 0. */
+  function poster(url, corps, entetes, delai = 10000) {
+    return new Promise(ok => {
+      let u; try { u = new URL(url); } catch { return ok(0); }
+      const local = hoteLocal(u);
+      const mod = u.protocol === 'https:' ? https : http;
+      if (!local && u.protocol !== 'https:') return ok(0);
+      const hote = u.hostname.replace(/^\[|\]$/g, '');
+      if (!local && net.isIP(hote) && ipInterne(hote)) return ok(0);
+      const req = mod.request({ protocol: u.protocol, hostname: hote, port: u.port || undefined, path: u.pathname + u.search, method: 'POST', agent: false,
+        headers: { ...entetes, 'Content-Length': Buffer.byteLength(corps) }, timeout: delai, servername: net.isIP(hote) ? undefined : hote,
+        ...(local || net.isIP(hote) ? {} : { lookup: lookupSur }) }, rep => {
+        let lu = 0; rep.on('data', d => { lu += d.length; if (lu > 65536) rep.destroy(); });
+        rep.on('end', () => ok(rep.statusCode)); rep.on('close', () => ok(rep.statusCode)); rep.on('error', () => ok(rep.statusCode || 0));
+      });
+      const minuterie = setTimeout(() => req.destroy(new Error('délai dépassé')), delai);
+      req.on('timeout', () => req.destroy(new Error('délai dépassé')));
+      req.on('error', e => { journal.error('[webhook]', u.host, e.code || e.message); ok(0); });
+      req.on('close', () => clearTimeout(minuterie));
+      req.end(corps);
+    });
+  }
+  const entetesSignes = (secret, id, type, corps) => { const t = Math.floor(Date.now() / 1000); return { 'Content-Type': 'application/json', 'User-Agent': 'Comptoir-Webhooks/1', 'Comptoir-Signature': `t=${t},v1=${signer(secret, t, corps)}`, 'Comptoir-Evenement': type, 'Comptoir-Id': id }; };
+
   async function creerWebhook(boutiqueId, { url, evenements }) {
     const ev = (Array.isArray(evenements) ? evenements : []).filter(x => EVENEMENTS.includes(x));
     if (!ev.length) throw erreur(400, 'Choisissez au moins un événement.', 'evenements');
@@ -77,61 +149,94 @@ function creerIntegrations({ db, env = {}, journal = console, fetchImpl = fetch,
     db.prepare('INSERT INTO webhooks (id, boutique_id, url, secret, evenements, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(id, boutiqueId, propre, secret, JSON.stringify([...new Set(ev)]), Date.now());
     return { id, secret };
   }
-  const listerWebhooks = boutiqueId => db.prepare('SELECT id, url, evenements, actif, cree_le, echecs_suite FROM webhooks WHERE boutique_id = ? ORDER BY cree_le DESC').all(boutiqueId)
-    .map(w => ({ ...w, evenements: JSON.parse(w.evenements), actif: !!w.actif, derniers: db.prepare('SELECT evenement, statut, tentatives, dernier_code, cree_le FROM webhook_envois WHERE webhook_id = ? ORDER BY cree_le DESC LIMIT 5').all(w.id) }));
+  const listerWebhooks = boutiqueId => db.prepare('SELECT id, url, evenements, actif, cree_le, echecs_suite, premier_echec, dernier_succes FROM webhooks WHERE boutique_id = ? ORDER BY cree_le DESC').all(boutiqueId)
+    .map(w => ({ ...w, evenements: JSON.parse(w.evenements), actif: !!w.actif,
+      enAttente: db.prepare("SELECT COUNT(*) n FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente'").get(w.id).n,
+      derniers: db.prepare('SELECT evenement, statut, tentatives, dernier_code, cree_le FROM webhook_envois WHERE webhook_id = ? ORDER BY cree_le DESC LIMIT 5').all(w.id) }));
   const supprimerWebhook = (boutiqueId, id) => db.prepare('DELETE FROM webhooks WHERE id = ? AND boutique_id = ?').run(String(id), boutiqueId).changes > 0;
-  function reactiverWebhook(boutiqueId, id) { return db.prepare('UPDATE webhooks SET actif = 1, echecs_suite = 0 WHERE id = ? AND boutique_id = ?').run(String(id), boutiqueId).changes > 0; }
+  /* Réactivation : les événements gardés pendant la pause repartent tout de suite. */
+  function reactiverWebhook(boutiqueId, id) {
+    const ok = db.prepare('UPDATE webhooks SET actif = 1, echecs_suite = 0, premier_echec = NULL WHERE id = ? AND boutique_id = ?').run(String(id), boutiqueId).changes > 0;
+    if (ok) db.prepare("UPDATE webhook_envois SET prochain_essai = ?, tentatives = 0 WHERE webhook_id = ? AND statut = 'attente'").run(Date.now(), String(id));
+    return ok;
+  }
 
-  /* Émet un événement : un envoi par webhook abonné (file persistante, survit aux redémarrages). */
+  /* Émet un événement : un envoi par webhook abonné (file persistante, survit aux redémarrages).
+     Un webhook en pause continue de recevoir ses événements dans la file : rien n'est perdu à la réactivation. */
   function emettre(boutiqueId, type, donnees) {
-    if (!EVENEMENTS.includes(type) && type !== 'test') return 0;
+    if (!EVENEMENTS.includes(type)) return 0;
+    if (!permis(boutiqueId)) return 0;   // formule sans API ou abonnement terminé : plus aucune donnée ne sort
     let n = 0;
-    for (const w of db.prepare('SELECT * FROM webhooks WHERE boutique_id = ? AND actif = 1').all(boutiqueId)) {
-      if (type !== 'test' && !JSON.parse(w.evenements).includes(type)) continue;
+    for (const w of db.prepare('SELECT * FROM webhooks WHERE boutique_id = ?').all(boutiqueId)) {
+      if (!JSON.parse(w.evenements).includes(type)) continue;
       const id = 'evt_' + crypto.randomBytes(8).toString('hex');
       const corps = JSON.stringify({ id, type, cree: new Date().toISOString(), donnees });
       db.prepare('INSERT INTO webhook_envois (id, webhook_id, evenement, corps, prochain_essai, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(id, w.id, type, corps, Date.now(), Date.now());
+      // File bornée : un point d'arrivée en panne depuis des semaines ne remplit pas la base.
+      db.prepare(`UPDATE webhook_envois SET statut = 'echec' WHERE id IN (SELECT id FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente' ORDER BY cree_le DESC LIMIT -1 OFFSET ${FILE_MAX})`).run(w.id);
       n++;
     }
     return n;
   }
   const signer = (secret, t, corps) => crypto.createHmac('sha256', secret).update(`${t}.${corps}`).digest('hex');
 
+  /* Test depuis l'écran Intégrations : envoyé tout de suite à chaque webhook de la boutique, hors file et hors
+     compteur d'échecs ; renvoie le code reçu par adresse. */
+  async function tester(boutiqueId) {
+    const res = [];
+    for (const w of db.prepare('SELECT * FROM webhooks WHERE boutique_id = ?').all(boutiqueId)) {
+      const id = 'evt_test_' + crypto.randomBytes(6).toString('hex');
+      const corps = JSON.stringify({ id, type: 'test', cree: new Date().toISOString(), donnees: { message: 'Événement de test envoyé depuis Comptoir.' } });
+      const code = await poster(w.url, corps, entetesSignes(w.secret, id, 'test', corps), 5000);
+      res.push({ id: w.id, url: w.url, code, ok: code >= 200 && code < 300 });
+    }
+    return res;
+  }
+
+  /* Envoi de la file : équitable entre webhooks (5 envois au plus par webhook et par passage), dans l'ordre des
+     événements d'un même webhook, et on s'arrête au premier échec d'un webhook (inutile d'insister pendant ce passage). */
   let enCours = false;
-  async function envoyerFile({ lot = 30 } = {}) {
+  async function envoyerFile({ lot = 60, parWebhook = 5 } = {}) {
     if (enCours) return 0;
     enCours = true;
     let n = 0;
     try {
-      const envois = db.prepare(`SELECT e.*, w.url, w.secret, w.actif FROM webhook_envois e JOIN webhooks w ON w.id = e.webhook_id WHERE e.statut = 'attente' AND e.prochain_essai <= ? ORDER BY e.prochain_essai LIMIT ?`).all(Date.now(), lot);
-      for (const e of envois) {
-        if (!e.actif) continue;
-        const t = Math.floor(Date.now() / 1000);
-        let code = 0;
-        try {
-          await verifierUrl(e.url);   // le DNS a pu changer depuis l'enregistrement (rebinding)
-          const rep = await fetchImpl(e.url, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(10000),
-            headers: { 'Content-Type': 'application/json', 'User-Agent': 'Comptoir-Webhooks/1', 'Comptoir-Signature': `t=${t},v1=${signer(e.secret, t, e.corps)}`, 'Comptoir-Evenement': e.evenement, 'Comptoir-Id': e.id }, body: e.corps });
-          code = rep.status;
-        } catch (err) { code = 0; journal.error('[webhook]', e.url, err.message); }
-        if (code >= 200 && code < 300) {
-          db.prepare("UPDATE webhook_envois SET statut = 'envoye', tentatives = tentatives + 1, dernier_code = ? WHERE id = ?").run(code, e.id);
-          db.prepare('UPDATE webhooks SET echecs_suite = 0 WHERE id = ?').run(e.webhook_id);
-          n++;
-        } else {
-          const t2 = e.tentatives + 1, fin = t2 >= ESSAIS_MAX;
-          db.prepare('UPDATE webhook_envois SET statut = ?, tentatives = ?, dernier_code = ?, prochain_essai = ? WHERE id = ?').run(fin ? 'echec' : 'attente', t2, code || null, Date.now() + Math.min(12 * 3600000, 30000 * 2 ** t2), e.id);
-          // Point d'arrivée en panne depuis longtemps : le webhook est mis en pause (le marchand le réactive).
-          const w = db.prepare('UPDATE webhooks SET echecs_suite = echecs_suite + 1 WHERE id = ? RETURNING echecs_suite').get(e.webhook_id);
-          if (w && w.echecs_suite >= 50) db.prepare('UPDATE webhooks SET actif = 0 WHERE id = ?').run(e.webhook_id);
+      const maintenant = Date.now();
+      const hooks = db.prepare(`SELECT DISTINCT w.* FROM webhooks w JOIN webhook_envois e ON e.webhook_id = w.id WHERE w.actif = 1 AND e.statut = 'attente' AND e.prochain_essai <= ? LIMIT 500`).all(maintenant);
+      let budget = lot;
+      const traiter = async w => {
+        if (!permis(w.boutique_id)) { db.prepare("UPDATE webhook_envois SET statut = 'echec' WHERE webhook_id = ? AND statut = 'attente'").run(w.id); return; }
+        const envois = db.prepare("SELECT * FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente' AND prochain_essai <= ? ORDER BY cree_le LIMIT ?").all(w.id, maintenant, parWebhook);
+        for (const e of envois) {
+          if (budget <= 0) return;
+          budget--;
+          const code = await poster(w.url, e.corps, entetesSignes(w.secret, e.id, e.evenement, e.corps));
+          if (code >= 200 && code < 300) {
+            db.prepare("UPDATE webhook_envois SET statut = 'envoye', tentatives = tentatives + 1, dernier_code = ? WHERE id = ?").run(code, e.id);
+            db.prepare('UPDATE webhooks SET echecs_suite = 0, premier_echec = NULL, dernier_succes = ? WHERE id = ?').run(Date.now(), w.id);
+            n++;
+          } else {
+            const t2 = e.tentatives + 1, fin = t2 >= ESSAIS_MAX;
+            db.prepare('UPDATE webhook_envois SET statut = ?, tentatives = ?, dernier_code = ?, prochain_essai = ? WHERE id = ?').run(fin ? 'echec' : 'attente', t2, code || null, Date.now() + Math.min(6 * 3600000, 30000 * 2 ** t2), e.id);
+            const h = db.prepare('UPDATE webhooks SET echecs_suite = echecs_suite + 1, premier_echec = COALESCE(premier_echec, ?) WHERE id = ? RETURNING premier_echec').get(Date.now(), w.id);
+            // Plus aucune réponse réussie depuis 3 jours : pause (les événements restent en file, le marchand réactive).
+            if (h && Date.now() - h.premier_echec >= PAUSE_APRES_MS) db.prepare('UPDATE webhooks SET actif = 0 WHERE id = ?').run(w.id);
+            return;
+          }
         }
-      }
-      db.prepare("DELETE FROM webhook_envois WHERE cree_le < ? AND statut <> 'attente'").run(Date.now() - 30 * 86400000);
+      };
+      for (let k = 0; k < hooks.length; k += 10) await Promise.all(hooks.slice(k, k + 10).map(traiter));   // 10 adresses en parallèle au plus
+      // Ménage : historique gardé 30 jours ; un événement jamais livré est abandonné au bout de 30 jours.
+      db.prepare("DELETE FROM webhook_envois WHERE cree_le < ?").run(Date.now() - 30 * 86400000);
     } finally { enCours = false; }
     return n;
   }
+  /* Effacement d'un client (RGPD) : ses données disparaissent aussi des envois gardés. */
+  function effacerClient(boutiqueId, email) {
+    return db.prepare("DELETE FROM webhook_envois WHERE webhook_id IN (SELECT id FROM webhooks WHERE boutique_id = ?) AND instr(lower(corps), ?) > 0").run(boutiqueId, JSON.stringify(String(email).toLowerCase())).changes;
+  }
 
-  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, signer, verifierUrl };
+  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, signer, verifierUrl, poster };
 }
 
 module.exports = { creerIntegrations, ipInterne, PORTEES, EVENEMENTS };

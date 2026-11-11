@@ -18,7 +18,7 @@ Chaque clé n'a que les permissions que vous lui donnez :
 | `commandes:ecriture` | Marquer une commande comme expédiée |
 | `produits:lecture` | Lire les produits |
 | `produits:ecriture` | Modifier un prix, un stock ou la visibilité d'un produit |
-| `clients:lecture` | Lire les clients (nom, e-mail, nombre de commandes, total) |
+| `clients:lecture` | Données personnelles des clients : nom, e-mail, adresse (dans les commandes et dans `/clients`) |
 
 Chaque appel envoie la clé dans l'en-tête `Authorization` :
 
@@ -26,7 +26,9 @@ Chaque appel envoie la clé dans l'en-tête `Authorization` :
 Authorization: Bearer cpt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-Une clé est limitée à 300 requêtes par minute. Au-delà, l'API répond `429`.
+Une clé est limitée à 300 requêtes par minute, et une boutique à 600 requêtes par minute toutes clés confondues. Au-delà, l'API répond `429`.
+
+Sans la permission `clients:lecture`, une commande ne contient que le pays de livraison du client : ni nom, ni e-mail, ni adresse. Un entrepôt qui expédie a donc besoin de cette permission ; un outil de statistiques, non.
 
 Une clé révoquée cesse de fonctionner immédiatement. L'API répond aussi `402` quand l'abonnement est inactif ou que la formule n'inclut plus l'API.
 
@@ -38,13 +40,15 @@ L'adresse de base est `https://<votre-instance>/api/v1`. Elle s'affiche aussi da
 
 ### Commandes
 
-`GET /commandes` liste les commandes, de la plus ancienne à la plus récente. Paramètres :
+`GET /commandes` liste les commandes. Paramètres :
 
-- `depuis` : une date ISO 8601 ;
-- `statut` : par exemple `payee` ;
+- `tri` : `creation` (par défaut, de la plus ancienne à la plus récente) ou `modification` (ordre de dernière modification, pour une synchronisation incrémentale : une commande qui passe de payée à expédiée réapparaît) ;
+- `depuis` : une date ISO 8601, incluse ;
+- `apres` : le curseur `suite` reçu à la page précédente ;
+- `statut` : par exemple `payee`. Sans ce paramètre, les commandes en attente de paiement (paniers abandonnés) ne sont pas listées ;
 - `limite` : entre 1 et 100, 50 par défaut.
 
-La réponse a la forme `{ "donnees": [...], "suite": "<date>" | null }`. Pour lire la page suivante, rappelez avec `depuis=<suite>`.
+La réponse a la forme `{ "donnees": [...], "suite": "<curseur>" | null }`. Pour lire la page suivante, rappelez avec `apres=<suite>` et le même `tri`. Aucune commande n'est sautée ni répétée, même si plusieurs ont été créées à la même milliseconde. Chaque commande porte aussi `modifiee`, la date de sa dernière modification.
 
 `GET /commandes/:numero` renvoie une commande.
 
@@ -58,7 +62,7 @@ Exemple de commande :
   "total": 89.9, "sousTotal": 82.9, "remise": 0, "port": 7, "devise": "CHF",
   "livraison": "poste-eco", "canal": "web", "moyen": "en_ligne", "facture": "FA-2026-0042",
   "suivi": null, "transporteur": null,
-  "client": { "nom": "Pia Muster", "email": "pia@exemple.ch", "adresse": "Marktgasse 28", "npa": "9400", "ville": "Rorschach" },
+  "client": { "nom": "Pia Muster", "email": "pia@exemple.ch", "adresse": "Marktgasse 28", "npa": "9400", "ville": "Rorschach", "pays": "ch" },
   "lignes": [{ "produitId": "…", "nom": "Vase en grès", "qte": 1, "prix": 82.9, "type": "stock" }]
 }
 ```
@@ -79,7 +83,7 @@ Les statuts possibles :
 
 `GET /produits` liste les produits.
 
-`PATCH /produits/:id` modifie un produit. Le corps contient un ou plusieurs de ces champs : `{ "prix": 39.9, "stock": 12, "actif": true }`. Le stock d'un produit en dropshipping vient du fournisseur et ne se modifie pas.
+`PATCH /produits/:id` modifie un produit. Le corps contient un ou plusieurs de ces champs : `{ "prix": 39.9, "stock": 12, "actif": true }`. Le prix est un nombre positif, le stock un entier positif ou nul, `actif` un vrai booléen (`true` ou `false`, pas `"false"`). Un stock mis à zéro déclenche l'événement `produit.rupture`. Le stock d'un produit en dropshipping vient du fournisseur et ne se modifie pas.
 
 ### Clients
 
@@ -94,8 +98,8 @@ Ajoutez une adresse `https://` dans **Paramètres > Intégrations** et choisisse
 - `commande.livree`
 - `commande.remboursee`
 - `commande.annulee`
-- `commande.retiree`
-- `produit.rupture`
+- `commande.retiree` : retrait en magasin et ventes à la caisse
+- `produit.rupture` : stock tombé à zéro, quelle qu'en soit la cause (vente en ligne, caisse, API)
 
 Pour chaque événement, Comptoir envoie une requête `POST` en JSON :
 
@@ -121,14 +125,18 @@ function verifier(corpsBrut, entete, secret) {
 }
 ```
 
-**Réponses et nouveaux essais.** Votre outil doit répondre par un code `2xx` en moins de 10 secondes. Les redirections ne sont pas suivies.
+**Réponses et nouveaux essais.** Votre outil doit répondre par un code `2xx` en moins de 10 secondes. Les redirections ne sont pas suivies. Le bouton « Envoyer un test » envoie tout de suite un événement `test` et affiche la réponse reçue.
 
-Si votre outil ne répond pas correctement, Comptoir réessaie 10 fois, à intervalles croissants, pendant environ 8 heures. Après 50 échecs de suite, le webhook est mis en pause. Vous le réactivez depuis Paramètres > Intégrations, où s'affichent aussi les derniers envois.
+Si votre outil ne répond pas correctement, Comptoir réessaie 15 fois, à intervalles croissants, pendant environ 40 heures. Si aucune réponse réussie n'arrive pendant 3 jours, le webhook est mis en pause. Les événements continuent alors d'être gardés en file, jusqu'à 30 jours, et repartent dès que vous réactivez le webhook dans Paramètres > Intégrations, où s'affichent aussi les derniers envois.
 
 Les envois sont gardés en file d'attente : un redémarrage du serveur ne fait perdre aucun événement.
 
-**Sécurité.** Les adresses internes sont refusées, à l'enregistrement comme à chaque envoi. Cela comprend localhost, les réseaux privés et les adresses réservées.
+**Doublons et ordre.** Un événement peut arriver deux fois, par exemple si votre réponse s'est perdue. Mémorisez `Comptoir-Id` et ignorez un identifiant déjà traité. L'ordre d'arrivée n'est pas garanti non plus : un `commande.payee` réessayé peut arriver après le `commande.expediee`. Fiez-vous au `statut` de la commande, ou relisez-la par l'API.
+
+**Formule et abonnement.** Si la formule ne comprend plus l'API, ou si l'abonnement prend fin, plus aucun événement n'est envoyé et les clés cessent de fonctionner. Vous pouvez toujours révoquer les clés et supprimer les webhooks.
+
+**Sécurité.** Les adresses internes sont refusées, à l'enregistrement comme à chaque envoi : localhost, les réseaux privés, les adresses réservées, ainsi que leurs formes IPv6. La connexion se fait vers l'adresse vérifiée, donc un DNS qui changerait de réponse entre le contrôle et l'envoi ne peut pas viser l'intérieur.
 
 ## Données personnelles
 
-L'API donne accès au nom, à l'e-mail et à l'adresse de vos clients. N'accordez la permission `clients:lecture`, et la lecture des commandes, qu'à des outils de confiance, liés à vous par un contrat de sous-traitance (RGPD, nLPD).
+L'API donne accès au nom, à l'e-mail et à l'adresse de vos clients. N'accordez la permission `clients:lecture` qu'à des outils de confiance, liés à vous par un contrat de sous-traitance (RGPD, nLPD). Les webhooks contiennent ces données : n'enregistrez que des adresses de confiance. Quand vous effacez les données d'un client (Clients > Effacer), ses données disparaissent aussi des envois gardés en file.

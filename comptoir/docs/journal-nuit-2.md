@@ -92,7 +92,7 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - Honnêteté : le badge « Le plus choisi » devient « Conseillé pour démarrer ». Il n'y a encore aucun client, donc l'affirmation était fausse.
 - Le message après l'import d'un relevé bancaire signale les doublons à rembourser, les trop-perçus et les versements dans une autre devise.
 
-## Cycle 5 (00 h 25) : politique de mot de passe
+## Cycle 5 (00 h 15) : politique de mot de passe
 
 - Les mots de passe trop courants sont refusés, à l'inscription, à la réinitialisation et au changement de mot de passe. Sont concernés :
   - les mots de passe des listes de fuites publiques, avec leurs variantes (« Lausanne2024 », « azerty123! ») ;
@@ -102,3 +102,32 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - En production, les mots de passe déjà parus dans une fuite de données sont refusés (Have I Been Pwned). Seuls 5 caractères de l'empreinte SHA-1 quittent le serveur (anonymat k), jamais le mot de passe. Si le service ne répond pas, l'inscription n'est pas bloquée. Réglage : `VERIFIER_FUITES`.
 - En-tête `Cross-Origin-Opener-Policy: same-origin` ajouté.
 - Tests : 80 sur 80.
+
+## Cycle 6 (00 h 30) : corrections de la revue API et webhooks
+
+La revue indépendante a relevé 11 points. Tous sont corrigés :
+1. **File des webhooks partagée** (critique) : 30 envois en attente vers un webhook en pause bloquaient tous les webhooks de toutes les boutiques. Désormais :
+   - la file est lue webhook par webhook, 5 envois au plus par passage ;
+   - 10 adresses sont traitées en parallèle ;
+   - l'envoi s'arrête au premier échec d'une adresse ;
+   - un webhook en pause est exclu de l'envoi.
+2. **Pause trop rapide et événements perdus** : la pause n'intervient plus qu'après 3 jours sans aucune réponse réussie. Pendant la pause, les événements restent en file et repartent à la réactivation. La file est bornée à 5000 envois par webhook. Les nouveaux essais durent environ 40 heures, et la documentation dit maintenant la vérité.
+3. **DNS rebinding** : la connexion part vers l'adresse vérifiée. La résolution DNS se fait une seule fois, contrôle compris (`lookup` contrôlé). Un test le prouve.
+4. **Formes d'adresses** : IPv4 dans IPv6 (`::ffff:7f00:1`), NAT64, 6to4, Teredo, `fec0::/10` et `198.18/15` sont refusés. Les adresses IPv6 entre crochets sont acceptées.
+5. **Pagination** : curseur `apres` = (date, numéro), sans commande sautée à la même milliseconde. Avec `tri=modification`, une intégration voit passer chaque changement de statut (nouvelle colonne `maj_le`).
+6. **Changement de formule ou fin d'abonnement** : plus aucun événement ne sort. Le marchand peut toujours révoquer ses clés et supprimer ses webhooks, même en lecture seule.
+7. **Données personnelles** :
+   - nom, e-mail et adresse du client sont masqués sans la permission `clients:lecture` ;
+   - les paniers abandonnés ne sont plus listés par défaut ;
+   - effacer un client (RGPD) purge aussi les envois gardés en file.
+8. **Bouton de test** : l'envoi est immédiat, vers la boutique seulement, hors file et hors compteur. Il est limité à 5 par minute et affiche la réponse reçue.
+9. **Événements manquants** : `commande.retiree` est émis pour les ventes à la caisse, et `produit.rupture` pour tout passage du stock à zéro (caisse, paiement manuel, API).
+10. **Validation** : `actif` doit être un vrai booléen, le stock un entier, le prix un nombre positif.
+11. **Divers** :
+    - la réponse du point d'arrivée est lue et limitée à 64 Ko ;
+    - limite de 600 requêtes par minute par boutique ;
+    - les clés refusées sont limitées par adresse IP ;
+    - une URL trop longue est refusée au lieu d'être tronquée ;
+    - la documentation précise les doublons et l'ordre des événements.
+
+Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, formes IPv6). Écran Intégrations ajusté : état « ne répond plus depuis… », réactivation avec le nombre d'événements en attente, intégrations inactives encore supprimables.
