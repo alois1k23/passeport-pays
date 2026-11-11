@@ -1511,7 +1511,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/demo-fournisseur/commandes', exigerCleDemo, ctx => {
     const lignes = ctx.corps.lignes;
     if (!Array.isArray(lignes) || !lignes.length || lignes.some(l => !fournisseurs.CATALOGUE_DEMO.find(p => p.id === l.produitId))) throw erreur(400, 'Produit inconnu du fournisseur.', 'produit_inconnu');
-    const ref = 'FO-' + crypto.randomInt(100000, 999999);
+    // Référence unique (un tirage à 6 chiffres finissait par se répéter après quelques milliers de commandes).
+    const ref = 'FO-' + crypto.randomBytes(8).toString('hex').toUpperCase();
     db.prepare('INSERT INTO demo_fournisseur_commandes (ref, donnees, statut, cree_le) VALUES (?, ?, ?, ?)').run(ref, JSON.stringify(ctx.corps), 'recue', Date.now());
     if (delaiExpeditionDemo >= 0) setTimeout(() => expedierDemo(ref).catch(e => journal.error('[demo-fournisseur]', e.message)), delaiExpeditionDemo).unref();
     return { statut: 201, corps: { ref, statut: 'recue' } };

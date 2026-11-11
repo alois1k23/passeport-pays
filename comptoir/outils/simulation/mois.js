@@ -49,7 +49,7 @@ const durees = [];
       for (const c of rep.headers.getSetCookie()) { const [nv] = c.split(';'); jar[nv.split('=')[0]] = nv; }
       const t = await rep.text(); let json = null; try { json = t ? JSON.parse(t) : null; } catch { json = { _texte: t.slice(0, 100) }; }
       if (rep.status >= 500) note(`${m} ${chemin.replace(base, '')}`, `erreur serveur ${rep.status}`, t);
-      if (/undefined|NaN/.test(t) && !/catalogue|etat/.test(chemin)) note(chemin.replace(base, ''), 'texte suspect', t.match(/.{0,50}(undefined|NaN).{0,50}/)?.[0]);
+      if (/\bundefined\b|\bNaN\b/.test(t) && !/catalogue|etat/.test(chemin)) note(chemin.replace(base, ''), 'texte suspect', t.match(/.{0,50}\b(undefined|NaN)\b.{0,50}/)?.[0]);
       return { s: rep.status, j: json };
     };
   }
@@ -181,8 +181,8 @@ const durees = [];
       if (p.stock < 0) note(`boutique ${m.i}`, 'stock négatif', `${p.nom} : ${p.stock}`);
       if (p.stock !== STOCK_INITIAL - retire) note(`boutique ${m.i}`, 'stock incohérent avec les ventes', `${p.nom} : stock ${p.stock}, attendu ${STOCK_INITIAL - retire}`);
     }
-    // Factures : une par commande payée, numéros uniques et sans trou ; avoir pour chaque remboursement facturé
-    const factures = cmds.filter(c => c.facture).map(c => c.facture);
+    // Factures et avoirs : une seule suite continue (exigence comptable), numéros uniques et sans trou
+    const factures = [...cmds.filter(c => c.facture).map(c => c.facture), ...cmds.filter(c => c.avoir).map(c => c.avoir.numero)];
     if (new Set(factures).size !== factures.length) note(`boutique ${m.i}`, 'numéro de facture en double');
     const nums = factures.map(f => Number(String(f).match(/(\d+)$/)?.[1])).sort((x, y) => x - y);
     for (let k = 1; k < nums.length; k++) if (nums[k] !== nums[k - 1] + 1) { note(`boutique ${m.i}`, 'trou dans la numérotation des factures', `${nums[k - 1]} → ${nums[k]}`); break; }
@@ -228,7 +228,8 @@ const durees = [];
     emails: { total: file.n, envoyes: file.e || 0, parSujet: bilan.emails },
     requetes: { nombre: durees.length, medianeMs: tri[Math.floor(tri.length / 2)], p95Ms: tri[Math.floor(tri.length * 0.95)], maxMs: tri[tri.length - 1] },
     erreursJournalServeur: erreursServeur.slice(0, 10), nbErreursJournal: erreursServeur.length,
-    anomalies: anomalies.slice(0, 60), nbAnomalies: anomalies.length
+    anomaliesParType: anomalies.reduce((o, a) => { o[a.quoi] = (o[a.quoi] || 0) + 1; return o; }, {}),
+    anomalies: anomalies.slice(0, 40), nbAnomalies: anomalies.length
   }, null, 1));
   serveur.close();
   process.exit(0);
