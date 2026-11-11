@@ -779,7 +779,7 @@ function vueDomaines() {
   const reco = (r, titre, texte) => r ? `<div class="reco"><span class="eyebrow">${titre}</span><div class="mono dom grand">${esc(r.domaine)}</div>
       <div class="detail-score">${Object.entries({ Demande: r.detail.demande, Saison: r.detail.saison, Brièveté: r.detail.court, Mémorisation: r.detail.memo, Extension: r.detail.extension }).map(([k, v]) => `<div><span>${k}</span><div class="score-barre"><i style="width:${v}%"></i></div><b>${v}</b></div>`).join('')}</div>
       <p class="sous">${texte}</p>
-      <button class="btn" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">Réserver pour ${euros(r.prix)}</button></div>` : '';
+      <button class="btn" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">${connecteAuServeur() ? 'Choisir ce nom' : `Réserver pour ${euros(r.prix)}`}</button></div>` : '';
   return `
   <div class="tete"><div><h1>Domaines</h1><p class="sous">Suggestions calculées à partir de la demande du marché, des ventes de vos clients et de la saison.</p></div></div>
   <section class="carte filtres-domaine">
@@ -1049,7 +1049,9 @@ document.addEventListener('click', e => {
     case 'publier': etat.boutique.modifie = false; sauver(); toast('Modifications publiées.', ['boutique', 'Voir la boutique']); rendre(); break;
     case 'choisir-domaine':
       etat.boutique.domaine = { domaine: el.dataset.domaine, prix: Number(el.dataset.prix), genre: el.dataset.genre, date: Date.now() };
-      sauver(); toast(`${el.dataset.domaine} réservé (simulation). Votre boutique y est accessible.`); rendre(); break;
+      sauver();
+      toast(connecteAuServeur() ? `${el.dataset.domaine} retenu : réservez-le chez un registrar, puis suivez les étapes en haut de cette page.` : `${el.dataset.domaine} réservé (simulation). Votre boutique y est accessible.`);
+      rendre(); if (connecteAuServeur()) window.scrollTo({ top: 0, behavior: 'smooth' }); break;
     case 'fermer-panier': ui.panierOuvert = false; ui.confirmation = null; rendre(); break;
     case 'qte': {
       const l = ui.panier.find(x => x.produitId === id);

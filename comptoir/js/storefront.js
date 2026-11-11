@@ -199,7 +199,9 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
       <nav aria-label="Navigation de la boutique"><button type="button" data-sf="nav" data-v="collection">Boutique</button><button type="button" data-sf="nav" data-v="apropos">À propos</button><button type="button" data-sf="nav" data-v="contact">Contact</button></nav>
       <button class="sf-panier-btn" data-sf="panier" aria-label="Ouvrir le panier">Panier <b>${nbPanier}</b></button>
     </header>`;
-  const sections = b.sections.map(s => {
+  // Aucune section (configuration vide ou abîmée) : en ligne, la boutique montre au moins ses produits au lieu d'une page blanche.
+  const listeSections = (b.sections || []).length || mode === 'edition' ? (b.sections || []) : [{ id: 'secours', type: 'produits', props: { titre: 'Nos produits', nombre: '8', categorie: '' } }];
+  const sections = listeSections.map(s => {
     const html = renduSection(s, etat, mode);
     if (mode !== 'edition') return html;
     return `<div class="sf-bloc${selection === s.id ? ' choisi' : ''}" data-section="${s.id}" tabindex="0">

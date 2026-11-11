@@ -461,3 +461,11 @@ Tests : 43 ; démo sans erreur ni débordement.
 - un marchand ne peut agir que sur les clients de sa boutique.
 
 Vérifié dans la démo (export téléchargé ; 7 commandes anonymisées) et par un test serveur. Tests : 44.
+
+### Cycle 24 — Contrôle visuel des nouveautés (compte réel)
+
+Captures d'une boutique réelle (formule Croissance, Suisse) : Domaines, Réseaux sociaux, tableau de bord, fiche produit sur téléphone.
+
+1. **« Réserver pour CHF 12.99 »** sur les domaines recommandés d'un compte réel, avec le message « réservé, votre boutique y est accessible » : faux, rien n'est réservé. Le bouton devient « Choisir ce nom », qui renvoie aux étapes du registrar et du DNS.
+2. **Boutique sans aucune section** (configuration vide ou abîmée) : page publique entièrement blanche. Elle affiche maintenant au moins ses produits.
+3. Vérifié : la fiche produit indique le pays d'expédition (« Chine ») et l'avertissement d'importation ; pour une entreprise non assujettie, elle n'affiche plus « TTC ».
