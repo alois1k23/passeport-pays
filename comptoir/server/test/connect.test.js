@@ -9,7 +9,8 @@ const { creerApp } = require('../src/app');
 
 test('Stripe Connect : commandes fermées avant activation, vente et remboursement sur le compte de la boutique', async () => {
   const appels = [];
-  let actif = false, twint = 'pending', refuser = false, paye = false;
+  let actif = false, twint = 'pending', refuser = false, paye = false, panne = false;
+  const finAbo = Math.floor(Date.now() / 1000) + 86400 * 30;
   const reponse = json => ({ ok: true, status: 200, json: async () => json });
   const fauxFetch = async (url, opts = {}) => {
     const chemin = url.replace('https://api.stripe.com/v1/', ''), compte = (opts.headers || {})['Stripe-Account'] || null;
@@ -21,6 +22,7 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     if (chemin === 'checkout/sessions') return refuser ? { ok: false, status: 400, json: async () => ({ error: { message: 'The payment method type twint is invalid.' } }) } : reponse({ id: 'cs_' + appels.length, url: 'https://checkout.stripe.com/c/x' });
     if (/^checkout\/sessions\/cs_\d+$/.test(chemin)) return reponse({ id: chemin.split('/')[2], payment_intent: 'pi_1', payment_status: paye ? 'paid' : 'unpaid' });
     if (chemin === 'refunds') return reponse({ id: 're_1' });
+    if (chemin === 'subscriptions/sub_t') return panne ? { ok: false, status: 500, json: async () => ({ error: { message: 'Stripe indisponible' } }) } : reponse({ id: 'sub_t', status: 'active', customer: 'cus_t', current_period_end: finAbo, cancel_at_period_end: false, metadata: {} });
     return reponse({});
   };
   const db = ouvrir(':memory:');
@@ -84,6 +86,15 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     assert.deepEqual(appels.filter(a => a.chemin === 'checkout/sessions').pop().corps.getAll('payment_method_types[]'), ['card', 'twint']);
     assert.equal(await webhook({ type: 'account.updated', account: 'acct_boutique', data: { object: { charges_enabled: false, details_submitted: true } } }), 200);
     assert.equal((await commander()).json.code, 'paiements_inactifs');
+    // Webhook de la plateforme en échec (Stripe injoignable pendant la relecture) : la nouvelle tentative de Stripe est traitée
+    const mid = db.prepare('SELECT marchand_id FROM boutiques WHERE slug = ?').get(ins.json.slug).marchand_id;
+    db.prepare("INSERT INTO abonnements (marchand_id, formule, statut, devise, periode_fin, ref_externe, client_externe, cree_le, maj_le) VALUES (?, 'pro', 'actif', 'CHF', ?, 'sub_t', 'cus_t', 0, 0)").run(mid, Date.now() + 86400000);
+    const evAbo = { id: 'evt_renouvellement', type: 'invoice.paid', data: { object: { subscription: 'sub_t' } } };
+    panne = true;
+    assert.equal(await webhook(evAbo, 'whsec_plateforme'), 502);
+    panne = false;
+    assert.equal(await webhook(evAbo, 'whsec_plateforme'), 200);
+    assert.equal(db.prepare('SELECT periode_fin FROM abonnements WHERE marchand_id = ?').get(mid).periode_fin, finAbo * 1000);
     // Un événement de compte connecté n'est jamais lu comme un abonnement Comptoir
     assert.equal(await webhook({ type: 'customer.subscription.deleted', account: 'acct_boutique', data: { object: { id: 'sub_x', metadata: {} } } }), 200);
   } finally { s.close(); }

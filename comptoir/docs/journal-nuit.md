@@ -942,7 +942,7 @@ Le test Connect couvre aussi :
 - la confirmation au retour du client sans webhook ;
 - les deux activations simultanées.
 
-Tests : 63.
+Tests : 63 (le test Connect vérifie aussi qu’un webhook en échec est bien retraité à la tentative suivante).
 
 ### Cycle 45 — L'abonnement Comptoir du marchand avec le vrai Stripe (05 h 25 – 05 h 40)
 
@@ -980,7 +980,7 @@ Tests : 63. Le test d'abonnement Stripe couvre aussi :
 - l'impayé avec un seul e-mail ;
 - la résiliation par l'API.
 
-### Cycle 46 — Relecture des cycles 44 et 45 : 9 défauts corrigés (05 h 40 – 05 h 50)
+### Cycle 46 — Relecture des cycles 44 et 45 : 9 défauts corrigés (05 h 40 – 05 h 45)
 
 **Graves (introduits au cycle 45)**
 
@@ -1001,4 +1001,4 @@ Tests : 63. Le test d'abonnement Stripe couvre aussi :
    - L'e-mail d'impayé annonce les 7 jours avant fermeture.
 9. **TWINT proposé par le serveur pour un ancien compte** dont l'état était inconnu. Le serveur applique maintenant la même règle que la boutique : seulement si TWINT est connu comme actif.
 
-Tests : 63.
+Tests : 63 (le test Connect vérifie aussi qu’un webhook en échec est bien retraité à la tentative suivante).
