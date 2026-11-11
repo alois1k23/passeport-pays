@@ -174,7 +174,7 @@ Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, 
   - dans un vrai Chromium, avec l'authentificateur virtuel du navigateur : clé créée depuis Paramètres, puis connexion sans mot de passe réussie.
 - Tests : 86 sur 86.
 
-## Cycle 10 (00 h 50) : corrections de la seconde revue (relevé bancaire, direct, PWA)
+## Cycle 10 (00 h 40) : corrections de la seconde revue (relevé bancaire, direct, PWA)
 
 Une revue indépendante des cycles 3 à 8 a relevé 15 points. Tous sont corrigés :
 - **Relevé bancaire** :
@@ -195,3 +195,22 @@ Une revue indépendante des cycles 3 à 8 a relevé 15 points. Tous sont corrig�
 - **ETag** : une étiquette distincte par encodage (Brotli, gzip, sans compression).
 - **Réinitialisation du mot de passe** : la même politique qu'ailleurs s'applique, y compris le refus d'un mot de passe qui reprend l'e-mail.
 - Tests : 86 sur 86. Le test du relevé couvre maintenant tous les cas de la revue.
+
+## Cycle 11 (00 h 55) : score de risque des commandes (anti-fraude)
+
+- Chaque commande en ligne reçoit un score de risque de 0 à 100 (`server/src/risque.js`). Les règles sont explicables : chaque point vient avec sa raison, en clair. Signaux pris en compte :
+  - adresse e-mail jetable ou générée ;
+  - nom incohérent ;
+  - rafale de commandes depuis le même réseau ou la même adresse (cartes testées l'une après l'autre) ;
+  - quantités de revente ;
+  - montant très supérieur au panier moyen de la boutique ;
+  - premier achat d'un montant élevé ;
+  - livraison hors du pays.
+- Un client ayant déjà payé atténue le score.
+- Le score ne bloque jamais une vente. Quand il est **élevé** :
+  - la transmission automatique au fournisseur (dropshipping) est retenue : le marchand ne paie pas un fournisseur avant un litige bancaire possible ;
+  - l'e-mail « Nouvelle commande » l'explique ;
+  - la commande porte la mention « Risque » dans la liste, et un encadré dans le détail donne les raisons et ce qu'il faut faire.
+- Protection des données : aucune adresse IP n'est gardée dans la commande. Les compteurs de rafale restent en mémoire, sur 24 heures au plus.
+- Tests : règles, et parcours complet (commande suspecte payée, transmission retenue, marchand prévenu). 88 tests sur 88.
+- Simulation de 30 marchands sur 20 jours : 0 anomalie, aucune fausse alerte bloquante. Une simulation complète est en cours. Le simulateur gardait les connexions inactives trop peu longtemps lors de ses longues vérifications : corrigé.

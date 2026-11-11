@@ -10,6 +10,7 @@ const Formules = require('../../js/formules.js');
 const tendances = require('./tendances');
 const MotDePasse = require('./motdepasse');
 const WebAuthn = require('./webauthn');
+const Risque = require('./risque');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
 const totp = require('./totp');
@@ -562,7 +563,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     {
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
       const drop = res.c.lignes.every(l => l.type === 'drop'), auto = config.reglages.autoTransmission;
-      const quoiFaire = res.c.alerteStock ? 'Attention : rupture de stock pour cette commande. Réapprovisionnez, ou remboursez le client depuis Commandes.' : res.c.parent ? `Complément de la commande n° ${(lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.parent)) || {}).numero || ''} : à joindre au même colis.` : res.c.livraison === 'retrait' ? 'À préparer pour un retrait en magasin.' : drop && auto ? 'Rien à faire : la commande part automatiquement chez le fournisseur.' : drop ? 'À transmettre au fournisseur depuis Commandes.' : 'À préparer et expédier.';
+      const retenue = res.c.risque && res.c.risque.niveau === 'eleve';
+      const quoiFaire = retenue ? `Attention : risque de fraude élevé (${res.c.risque.score}/100 : ${res.c.risque.raisons.join(' ; ')}). ${drop && auto ? 'La transmission automatique au fournisseur est retenue : vérifiez la commande, puis transmettez-la ou remboursez-la depuis Commandes.' : 'Vérifiez la commande avant de l’expédier.'}` : res.c.alerteStock ? 'Attention : rupture de stock pour cette commande. Réapprovisionnez, ou remboursez le client depuis Commandes.' : res.c.parent ? `Complément de la commande n° ${(lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.parent)) || {}).numero || ''} : à joindre au même colis.` : res.c.livraison === 'retrait' ? 'À préparer pour un retrait en magasin.' : drop && auto ? 'Rien à faire : la commande part automatiquement chez le fournisseur.' : drop ? 'À transmettre au fournisseur depuis Commandes.' : 'À préparer et expédier.';
       // Produits en stock tombés à zéro avec cette vente : ils s'affichent « Épuisé » ; le marchand doit le savoir.
       // Une seule alerte, au passage à zéro : le stock d'avant cette vente était positif (pas de doublon à chaque vente suivante).
       const vendus = {}; for (const l of res.c.lignes) if (l.type !== 'drop') vendus[l.produitId] = (vendus[l.produitId] || 0) + l.qte;
@@ -571,7 +573,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
         `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
     }
-    if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop')) {
+    if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop') && res.c.risque && res.c.risque.niveau === 'eleve') {
+      const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.id));
+      historique(c, 'Transmission automatique au fournisseur retenue : risque de fraude élevé. Vérifiez puis transmettez à la main.'); enregistrerCommande(c);
+    } else if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop')) {
       try { await transmettreAuFournisseur(res.boutique, res.c, true); } catch (e) {
         const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.id));
         historique(c, `Échec de la transmission automatique : ${e.message} Transmettez-la à la main.`);
@@ -1363,6 +1368,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       hebergeur: env.HEBERGEUR || null   // identité de l'hébergeur (obligatoire dans les mentions légales en France)
     };
   });
+  const compteursRisque = Risque.creerCompteurs(), paniersMoyens = new Map();
+  const panierMoyen = boutiqueId => {
+    const m = paniersMoyens.get(boutiqueId);
+    if (m && Date.now() - m.le < 600000) return m.v;
+    const v = db.prepare("SELECT AVG(json_extract(donnees, '$.total')) AS v FROM (SELECT donnees FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee') ORDER BY date DESC LIMIT 200)").get(boutiqueId).v || 0;
+    paniersMoyens.set(boutiqueId, { v, le: Date.now() });
+    return v;
+  };
   r.post('/api/public/:slug/commandes', async ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
     // Après la boutique (une adresse inventée ne crée pas de compteur) : par boutique et par adresse.
@@ -1409,6 +1422,13 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const now = Date.now();
       const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes, sousTotal, remise, motifRemise: calcul.motif ? calcul.motif.libelle : null, port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${calcul.motif.libelle})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
+      // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.
+      try {
+        const clientConnu = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee') AND lower(json_extract(donnees, '$.client.email')) = ? LIMIT 1").get(b.id, String(client.email || '').toLowerCase());
+        c.risque = Risque.evaluer(c, { reseau: ctx.ip, compteurs: compteursRisque, panierMoyen: panierMoyen(b.id), clientConnu, paysBoutique: config.boutique.pays });
+        if (c.risque.niveau !== 'faible') c.historique.push({ date: now, texte: `Risque ${c.risque.niveau === 'eleve' ? 'élevé' : 'moyen'} (${c.risque.score}/100) : ${c.risque.raisons.join(' ; ')}` });
+      } catch (e) { journal.error('[risque]', e.message); }
+      compteursRisque.ajouter('r:' + ctx.ip, now); if (client.email) compteursRisque.ajouter('e:' + String(client.email).toLowerCase(), now);
       if (parFacture) {
         c.moyen = 'facture'; c.facture = prochaineFacture(b.id, now); c.dateFacture = now;
         c.echeance = now + config.reglages.echeanceJours * 86400000; c.referenceQr = referencePaiement(b, numero, config.entreprise.iban);

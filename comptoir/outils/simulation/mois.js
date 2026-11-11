@@ -37,6 +37,7 @@ const durees = [];
   const silencieux = { log() {}, error(...a) { erreursServeur.push(a.join(' ').slice(0, 200)); } };
   const erreursServeur = [];
   const serveur = http.createServer();
+  serveur.keepAliveTimeout = 120000;   // longues vérifications synchrones entre deux requêtes : pas de connexion fermée sous le client
   await new Promise(ok => serveur.listen(0, '127.0.0.1', ok));
   const base = `http://127.0.0.1:${serveur.address().port}`;
   const ENV = { DEMO_DELAI_EXPEDITION_MS: '10', LIMITE_ESSAIS: '10' };
