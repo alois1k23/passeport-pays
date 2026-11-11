@@ -400,3 +400,20 @@ Tests : 42 (registre simulé : libre, pris, injoignable, saisie invalide, cache)
 Tests : 43 (boutique avec une clé de production : produit du marchand visible, produit de démonstration masqué et refusé à la commande).
 
 **À faire avant l'ouverture** : brancher au moins un vrai fournisseur. Le contrat d'API est décrit dans `server/src/fournisseurs.js`.
+
+### Cycle 21 — Réseaux sociaux : ne pas faire croire qu'on publie
+
+**Défaut** : aucune API de réseau social n'est branchée (Meta, TikTok et Pinterest exigent une application validée). Pourtant, sur un compte réel :
+- « Connecter Instagram » affichait « Connecté » sans rien connecter ;
+- « Publier maintenant », comme la publication programmée, marquait la publication « publiée » alors que rien ne partait ;
+- des vues, des clics et des ventes inventés s'affichaient ;
+- la formule Croissance promettait les « réseaux sociaux en pilote automatique ».
+
+**Correction**, sur un compte réel :
+- les réseaux s'« activent » (publication manuelle) ;
+- le pilote prépare toujours le calendrier, les accroches, les légendes et les scripts vidéo ;
+- le marchand publie lui-même, avec un bouton « Copier le texte », puis « Marquer comme publiée » ;
+- rien ne part tout seul et aucune statistique n'est inventée ;
+- tarifs et page d'accueil : « Calendrier et textes des réseaux sociaux préparés pour vous ».
+
+La démo garde la simulation, signalée comme telle.

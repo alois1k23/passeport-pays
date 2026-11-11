@@ -34,6 +34,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   // Le fournisseur de démonstration n'expédie rien : ses produits ne se vendent jamais contre de l'argent réel
   // (seulement en paiement simulé ou avec une clé Stripe de test).
   const fournisseurDemoVendable = paiement.nom === 'simulation' || /^sk_test_/.test(env.STRIPE_SECRET_KEY || '');
+  const socialSimule = paiement.nom === 'simulation' || env.SOCIAL_SIMULATION === '1';   // démo : publication et statistiques simulées
   const vendable = p => p.actif && !p.aVerifier && (fournisseurDemoVendable || p.codeFournisseur !== 'demo');
   // Délai avant que le faux fournisseur expédie (2 min par défaut ; négatif = jamais, pour tester à la main).
   const delaiExpeditionDemo = env.DEMO_DELAI_EXPEDITION_MS === undefined ? 120000 : Number(env.DEMO_DELAI_EXPEDITION_MS);
@@ -393,7 +394,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/api/session', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     const b = m && db.prepare('SELECT slug FROM boutiques WHERE marchand_id = ?').get(m.id);
-    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, fournisseurDemoVendable, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(m.id) : null };
+    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(m.id) : null };
   });
   r.post('/api/auth/inscription', ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
@@ -698,7 +699,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const p = publicationDeBoutique(ctx.boutique.id, ctx.params.id);
     const config = lireConfig(ctx.boutique);
     if (!config.social.comptes[p.reseau]) throw erreur(409, 'Connectez d’abord ce réseau.', 'compte_absent');
-    return { publication: await social.publier(db, ctx.boutique.id, p, config) };
+    return { publication: await social.publier(db, ctx.boutique.id, p, config, { simulation: socialSimule }) };
   });
 
   /* Publie les publications programmées arrivées à échéance (appelé chaque minute). */
@@ -708,7 +709,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     for (const row of dues) {
       const config = JSON.parse(row.config);
       if (!config.social || !config.social.comptes || !config.social.comptes[row.reseau]) continue;
-      try { await social.publier(db, row.boutique_id, social.lire(row), config); n++; } catch (e) { journal.error('[social]', e.message); }
+      // Sans API de réseau branchée, rien ne part tout seul : la publication reste « à publier » par le marchand.
+      if (!social.apiReseauxBranchee() && !socialSimule) continue;
+      try { await social.publier(db, row.boutique_id, social.lire(row), config, { simulation: socialSimule }); n++; } catch (e) { journal.error('[social]', e.message); }
     }
     return n;
   }

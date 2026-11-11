@@ -10,7 +10,7 @@
     lancement: { nom: 'Lancement', prix: 29, resume: 'Votre première boutique de dropshipping',
       inclus: ['Boutique complète et éditeur', 'Catalogue fournisseurs et produits stars', 'Transmission automatique des commandes', 'Marge nette réelle par produit', 'Paiement par carte, et TWINT en Suisse', '0 % de commission Comptoir'] },
     croissance: { nom: 'Croissance', prix: 59, resume: 'Pour vendre plus et fidéliser',
-      inclus: ['Tout Lancement, plus :', 'Réseaux sociaux en pilote automatique', 'Copilote de saison et tests produits', 'E-mails automatiques, codes promo et offres', 'Tendances mises à jour en continu'] },
+      inclus: ['Tout Lancement, plus :', 'Calendrier et textes des réseaux sociaux préparés pour vous', 'Copilote de saison et tests produits', 'E-mails automatiques, codes promo et offres', 'Tendances mises à jour en continu'] },
     pro: { nom: 'Pro', prix: 119, resume: 'Boutique en ligne et vente en personne',
       inclus: ['Tout Croissance, plus :', 'Caisse et stock unique (marchés, pop-up, magasin)', 'Retrait en magasin et QR code de vitrine', 'Export pour votre fiduciaire', 'Assistance prioritaire'] }
   };

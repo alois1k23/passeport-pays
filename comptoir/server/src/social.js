@@ -69,11 +69,14 @@ function statsSimulees(p) {
   return { vues, likes: Math.round(vues * (0.04 + h * 0.05)), clics, ventes: Math.round(clics * 0.03 * pil), simulees: true };
 }
 
-async function publier(db, boutiqueId, p) {
-  // Point de branchement des API officielles (voir en-tête). Ici : simulation.
-  const publiee = { ...p, statut: 'publiee', date: Math.min(p.date, Date.now()), idExterne: 'sim_' + crypto.randomBytes(6).toString('hex'), stats: statsSimulees(p) };
+/* Aucune API de réseau n'est branchée : rien n'est publié automatiquement.
+   « Publier » enregistre que le marchand l'a publiée lui-même (publication manuelle), sans statistiques inventées.
+   Les statistiques simulées ne servent qu'en mode démonstration (SOCIAL_SIMULATION=1, paiement simulé). */
+const apiReseauxBranchee = () => false;
+async function publier(db, boutiqueId, p, config, { simulation = false } = {}) {
+  const publiee = { ...p, statut: 'publiee', date: Math.min(p.date, Date.now()), manuelle: !simulation, idExterne: simulation ? 'sim_' + crypto.randomBytes(6).toString('hex') : null, stats: simulation ? statsSimulees(p) : null };
   enregistrer(db, boutiqueId, publiee);
   return publiee;
 }
 
-module.exports = { nettoyerReglages, nettoyerPublication, lire, enregistrer, publier, RESEAUX };
+module.exports = { nettoyerReglages, nettoyerPublication, lire, enregistrer, publier, apiReseauxBranchee, RESEAUX };

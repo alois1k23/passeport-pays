@@ -56,6 +56,9 @@ function etatSocial() {
   return s;
 }
 
+/* Compte réel sans API de réseau branchée : Comptoir prépare, le marchand publie lui-même. */
+function socialManuel() { return typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.socialSimule === false; }
+
 /* Petit hachage déterministe pour les statistiques simulées. */
 function hacheTexte(t) { let h = 2166136261; for (const c of String(t)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
 
@@ -277,8 +280,8 @@ function vueSocial() {
   <div class="comptes">${Object.entries(RESEAUX).map(([k, n]) => `
     <div class="compte-reseau ${s.comptes[k] ? 'connecte' : ''}">
       <span class="reseau r-${k}">${n.nom}</span>
-      ${s.comptes[k] ? `<span class="etat-compte ok">Connecté</span><label class="champ mini-champ"><span>Publications / semaine</span><input type="number" min="0" max="21" value="${r.frequence[k]}" data-frequence="${k}"></label><button class="btn petit fantome" data-action="compte-social" data-id="${k}">Déconnecter</button>`
-      : `<span class="etat-compte">Non connecté</span><p class="sous">Connectez le compte pour que le pilote y publie.</p><button class="btn petit" data-action="compte-social" data-id="${k}">Connecter</button>`}
+      ${s.comptes[k] ? `<span class="etat-compte ok">${socialManuel() ? 'Activé · publication manuelle' : 'Connecté'}</span><label class="champ mini-champ"><span>Publications / semaine</span><input type="number" min="0" max="21" value="${r.frequence[k]}" data-frequence="${k}"></label><button class="btn petit fantome" data-action="compte-social" data-id="${k}">Déconnecter</button>`
+      : (socialManuel() ? `<span class="etat-compte">Non activé</span><p class="sous">Activez ce réseau pour que le pilote prépare son calendrier et ses textes.</p><button class="btn petit" data-action="compte-social" data-id="${k}">Activer</button>` : `<span class="etat-compte">Non connecté</span><p class="sous">Connectez le compte pour que le pilote y publie.</p><button class="btn petit" data-action="compte-social" data-id="${k}">Connecter</button>`)}
     </div>`).join('')}</div>
 
   <div class="kpis">
@@ -318,7 +321,8 @@ function vueSocial() {
         <table class="table compacte"><tbody>${publiees.slice(0, 6).map(p => `<tr data-action="voir-pub" data-id="${p.id}" tabindex="0"><td><span class="reseau r-${p.reseau}">${RESEAUX[p.reseau].nom}</span></td><td>${esc(p.accroche)}<div class="sous">${dateCourte(p.date)} · ${esc(p.format)}</div></td><td class="num">${p.stats ? p.stats.vues.toLocaleString('fr-FR') + ' vues' : ''}<div class="sous">${p.stats ? p.stats.clics + ' clics' : ''}</div></td></tr>`).join('')}</tbody></table></section>` : ''}
     </div>
   </div>
-  <p class="note">Démo : connexion des comptes et statistiques simulées. En production, la publication passe par les API officielles (Instagram et Facebook via Meta, TikTok Content Posting API, Pinterest), après validation de l’application par chaque réseau.</p>`;
+  <p class="note">${socialManuel() ? 'La publication automatique demande la connexion officielle de chaque réseau (Meta, TikTok, Pinterest), pas encore disponible. D’ici là, le pilote prépare le calendrier, les accroches, les textes et les scripts vidéo ; vous publiez depuis l’application du réseau (« Copier le texte »), puis vous marquez la publication comme faite. Aucune statistique n’est inventée.' : ''}</p>
+  <p class="note" ${socialManuel() ? 'hidden' : ''}>Démo : connexion des comptes et statistiques simulées. En production, la publication passe par les API officielles (Instagram et Facebook via Meta, TikTok Content Posting API, Pinterest), après validation de l’application par chaque réseau.</p>`;
 }
 
 function modalPublication(p) {
@@ -341,7 +345,7 @@ function modalPublication(p) {
       ${p.script ? `<div class="bloc"><h3>Script vidéo</h3><ol class="script">${p.script.map(s => `<li><b class="mono">${s.t}</b><span>${esc(s.texte)}</span></li>`).join('')}</ol></div>` : ''}
       ${p.statut === 'publiee' ? '<span class="pill good">Publiée</span>' : `<div class="rangee">
         <button class="btn" data-action="enregistrer-pub" data-id="${p.id}" data-statut="programmee">${p.statut === 'brouillon' ? 'Valider et programmer' : 'Enregistrer'}</button>
-        <button class="btn fantome" data-action="publier-pub" data-id="${p.id}">Publier maintenant</button>
+        ${socialManuel() ? `<button class="btn fantome" data-action="copier-pub" data-id="${p.id}">Copier le texte</button><button class="btn fantome" data-action="publier-pub" data-id="${p.id}">Marquer comme publiée</button>` : `<button class="btn fantome" data-action="publier-pub" data-id="${p.id}">Publier maintenant</button>`}
         <button class="btn fantome danger" data-action="supprimer-pub" data-id="${p.id}">Supprimer</button></div>`}
     </div></div>`;
 }
@@ -379,7 +383,11 @@ document.addEventListener('click', async e => {
       if (!etat.social.comptes[pub.reseau]) { toast(`Connectez d’abord ${RESEAUX[pub.reseau].nom}.`); return; }
       await socialEnregistrer('maj', { ...pub, ...champsPublication() });
       await socialEnregistrer('publier', pub);
-      ui.modal = null; rendreModal(); toast(`Publié sur ${RESEAUX[pub.reseau].nom}.`); rendre();
+      ui.modal = null; rendreModal(); toast(socialManuel() ? `Marquée comme publiée sur ${RESEAUX[pub.reseau].nom}.` : `Publié sur ${RESEAUX[pub.reseau].nom}.`); rendre();
+    } else if (action === 'copier-pub') {
+      const c = champsPublication();
+      const texte = [c.accroche || pub.accroche, c.legende || pub.legende].filter(Boolean).join('\n\n');
+      try { await navigator.clipboard.writeText(texte); toast('Texte copié : collez-le dans l’application du réseau.'); } catch { toast('Copie impossible : sélectionnez le texte à la main.'); }
     } else if (action === 'supprimer-pub') {
       await socialEnregistrer('suppr', pub); ui.modal = null; rendreModal(); rendre();
     } else if (action === 'valider-tout') {
@@ -388,7 +396,7 @@ document.addEventListener('click', async e => {
     } else if (action === 'compte-social') {
       const s = etatSocial();
       s.comptes[id] = !s.comptes[id];
-      sauver(); toast(s.comptes[id] ? `${RESEAUX[id].nom} connecté (simulation).` : `${RESEAUX[id].nom} déconnecté.`); rendre();
+      sauver(); toast(s.comptes[id] ? (socialManuel() ? `${RESEAUX[id].nom} activé : le pilote prépare ses publications.` : `${RESEAUX[id].nom} connecté (simulation).`) : `${RESEAUX[id].nom} ${socialManuel() ? 'désactivé' : 'déconnecté'}.`); rendre();
     }
   } catch (err) { el.disabled = false; toast(err.message); }
 });
