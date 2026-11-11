@@ -28,12 +28,13 @@ function verifierSignature(corps, signature, secret) {
 }
 
 function client(fournisseur, fetchImpl = fetch) {
-  const appeler = async (methode, chemin, corps) => {
+  const appeler = async (methode, chemin, corps, cleIdempotence) => {
     let rep;
     try {
       rep = await fetchImpl(fournisseur.url_api + chemin, {
-        method: methode,
-        headers: { Authorization: `Bearer ${fournisseur.cle_api}`, 'Content-Type': 'application/json' },
+        method: methode, signal: AbortSignal.timeout(20000),
+        // Clé d'idempotence : si la réponse se perd et que la commande est renvoyée, le fournisseur ne l'expédie pas deux fois.
+        headers: { Authorization: `Bearer ${fournisseur.cle_api}`, 'Content-Type': 'application/json', ...(cleIdempotence ? { 'Idempotency-Key': cleIdempotence } : {}) },
         body: corps ? JSON.stringify(corps) : undefined
       });
     } catch (e) {
@@ -45,7 +46,7 @@ function client(fournisseur, fetchImpl = fetch) {
   };
   return {
     catalogue: () => appeler('GET', '/catalogue'),
-    passerCommande: c => appeler('POST', '/commandes', c),
+    passerCommande: c => appeler('POST', '/commandes', c, c.referenceMarchand),
     forcerExpedition: ref => appeler('POST', `/commandes/${encodeURIComponent(ref)}/expedier`)
   };
 }

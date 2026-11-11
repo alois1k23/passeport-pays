@@ -939,3 +939,25 @@ test('expédition : le numéro de suivi saisi par le marchand est celui transmis
   const mail = db.prepare("SELECT corps FROM emails WHERE destinataire = 'st@x.ch' AND sujet LIKE '%en route' ORDER BY id DESC LIMIT 1").get();
   assert.match(mail.corps, /Numéro de suivi : 99\.60\.123456\.12345678/);
 });
+
+test('photos de produit : rangées à part, servies par adresse, gardées si inchangées, retirées sur demande', async () => {
+  const m = client();
+  const png = 'data:image/png;base64,' + Buffer.from('\x89PNG\r\n\x1a\n' + 'x'.repeat(2000), 'binary').toString('base64');
+  const ins = await m('POST', '/api/auth/inscription', { email: 'photos@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Photos', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'P', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock', image: png }] });
+  const b = db.prepare('SELECT id FROM boutiques WHERE slug = ?').get(ins.json.slug);
+  const row = db.prepare('SELECT id, donnees FROM produits WHERE boutique_id = ?').get(b.id);
+  assert.doesNotMatch(row.donnees, /base64/, 'la fiche ne contient plus la photo');
+  const etat = (await m('GET', '/api/admin/etat')).json;
+  assert.equal(etat.produits[0].image, png, 'le marchand reçoit sa photo');
+  const pub = await (await fetch(`${base}/api/public/${ins.json.slug}`)).json();
+  assert.equal(pub.produits[0].image, `/api/public/${ins.json.slug}/image/${row.id}`);
+  const img = await fetch(base + pub.produits[0].image);
+  assert.equal(img.status, 200); assert.equal(img.headers.get('content-type'), 'image/png');
+  // Modification du prix, photo renvoyée telle quelle : elle reste
+  assert.equal((await m('PUT', `/api/admin/produits/${row.id}`, { produit: { ...etat.produits[0], prix: 45 } })).statut, 200);
+  assert.equal((await fetch(base + pub.produits[0].image)).status, 200);
+  // Photo retirée
+  assert.equal((await m('PUT', `/api/admin/produits/${row.id}`, { produit: { ...etat.produits[0], image: '' } })).statut, 200);
+  assert.equal((await fetch(base + pub.produits[0].image)).status, 404);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM images_produits WHERE produit_id = ?').get(row.id).n, 0);
+});

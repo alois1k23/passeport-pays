@@ -132,6 +132,22 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!abo.etat(b.marchand_id).actif) throw erreur(404, 'Cette boutique n’est pas encore ouverte.', 'boutique_fermee');
     return b;
   };
+  /* Photos des produits dans leur propre table : les lectures courantes (paiement, stock, statistiques) ne chargent
+     plus des centaines de Ko par produit. Dans la fiche, « image » vaut alors le repère IMG. */
+  const IMG = '#image';
+  db.exec('CREATE TABLE IF NOT EXISTS images_produits (produit_id TEXT PRIMARY KEY, donnees TEXT NOT NULL)');
+  const imageDe = id => (db.prepare('SELECT donnees FROM images_produits WHERE produit_id = ?').get(id) || {}).donnees || null;
+  function serialiserProduit(id, produit) {
+    const p = { ...produit };
+    if (typeof p.image === 'string' && p.image.startsWith('data:')) { db.prepare('INSERT OR REPLACE INTO images_produits (produit_id, donnees) VALUES (?, ?)').run(id, p.image); p.image = IMG; }
+    else if (p.image !== IMG) { db.prepare('DELETE FROM images_produits WHERE produit_id = ?').run(id); delete p.image; }
+    return JSON.stringify(p);
+  }
+  // Migration : images déjà enregistrées dans la fiche (une seule fois, par lots).
+  for (const r of db.prepare(`SELECT id, donnees FROM produits WHERE donnees LIKE '%"image":"data:%'`).all()) {
+    try { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(r.id, JSON.parse(r.donnees)), r.id); } catch { /* fiche illisible : laissée */ }
+  }
+  const avecImage = p => p.image === IMG ? { ...p, image: imageDe(p.id) } : p;
   const listerProduits = (boutiqueId, avecSupprimes = false) =>
     db.prepare(`SELECT id, donnees FROM produits WHERE boutique_id = ? ${avecSupprimes ? '' : 'AND supprime = 0'} ORDER BY ordre, rowid`).all(boutiqueId)
       .map(p => ({ ...JSON.parse(p.donnees), id: p.id }));
@@ -305,7 +321,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       tauxReduit: !!p.tauxReduit   // denrées alimentaires : TVA à taux réduit
     };
     if (p.cout !== undefined && p.cout !== null && p.cout !== '') propre.cout = prix.arrondi(valider.nombre(p.cout, 'Le coût', { min: 0, max: 100000 }));
-    if (typeof p.image === 'string' && p.image) {
+    if (p.image === '#image') propre.image = '#image';   // photo déjà rangée dans images_produits, inchangée
+    else if (typeof p.image === 'string' && p.image) {
       if (!IMAGE.test(p.image) || p.image.length > 400000) throw erreur(400, 'Image invalide : JPEG, PNG ou WebP de moins de 300 Ko.', 'image_invalide');
       propre.image = p.image;
     }
@@ -327,7 +344,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (deja) return { id: deja.id, deja: true };
     const id = auth.nouvelId('p_');
     const produit = nettoyerProduit({ ...src, type: 'drop', actif: true, tauxReduit: src.niche === 'epicerie', teinte: (src.id.charCodeAt(2) * 47) % 360, source: src.id, codeFournisseur, description: src.description || `${src.nom}. Expédié par notre partenaire, livré en ${src.delai[0]} à ${src.delai[1]} jours.` });
-    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, (SELECT COALESCE(MAX(ordre), 0) + 1 FROM produits WHERE boutique_id = ?))').run(id, boutiqueId, JSON.stringify(produit), boutiqueId);
+    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, (SELECT COALESCE(MAX(ordre), 0) + 1 FROM produits WHERE boutique_id = ?))').run(id, boutiqueId, serialiserProduit(id, produit), boutiqueId);
     return { id };
   }
   function slugUnique(nom) {
@@ -338,7 +355,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
   function insererProduits(boutiqueId, produits) {
     (Array.isArray(produits) ? produits : []).filter(p => p && typeof p === 'object').slice(0, 200).forEach((p, i) => {
-      db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(auth.nouvelId('p_'), boutiqueId, JSON.stringify(produitDuNavigateur(p)), i);
+      const id = auth.nouvelId('p_');
+      db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, boutiqueId, serialiserProduit(id, produitDuNavigateur(p)), i);
     });
   }
 
@@ -698,6 +716,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     await abo.arreterDefinitivement(m.id);   // sinon Stripe continuerait de prélever un compte supprimé
     transaction(db, () => {
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
+        db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE boutique_id = ?)').run(b.id);
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails', 'comptes_stripe']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
@@ -725,7 +744,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id), paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id), paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -752,7 +771,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/produits', exigerMarchand, ctx => {
     const id = auth.nouvelId('p_');
     const ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) + 1 AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
-    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, JSON.stringify(produitDuNavigateur(ctx.corps.produit || {})), ordre);
+    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, serialiserProduit(id, produitDuNavigateur(ctx.corps.produit || {})), ordre);
     return { statut: 201, corps: { id } };
   });
   r.put('/api/admin/produits/:id', exigerMarchand, ctx => {
@@ -761,7 +780,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const avant = JSON.parse(ancien.donnees);
     // Les données fournisseur ne se modifient pas depuis l'interface.
     const fusion = { ...ctx.corps.produit, type: avant.type, source: avant.source, fournisseur: avant.fournisseur, entrepot: avant.entrepot, delai: avant.delai, portF: avant.portF, codeFournisseur: avant.codeFournisseur };
-    db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id);
+    // Photo inchangée (renvoyée telle quelle par le navigateur) : celle enregistrée reste.
+    if (avant.image === IMG && fusion.image === imageDe(ctx.params.id)) fusion.image = IMG;
+    db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id);
     return { ok: true };
   });
   r.delete('/api/admin/produits/:id', exigerMarchand, ctx => {
@@ -847,12 +868,16 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
   // Idempotence de la caisse : une même clé de ticket n'enregistre qu'une vente (double clic, renvoi après coupure).
   const ticketsVus = new Map();
+  db.exec('CREATE TABLE IF NOT EXISTS tickets_caisse (cle TEXT PRIMARY KEY, reponse TEXT NOT NULL, le INTEGER NOT NULL)');
   r.post('/api/admin/caisse', exigerFonction('magasin'), ctx => {
     const cleTicket = typeof ctx.corps.cle === 'string' ? `${ctx.boutique.id}:${ctx.corps.cle.slice(0, 60)}` : null;
     if (cleTicket && ticketsVus.has(cleTicket)) return ticketsVus.get(cleTicket);
+    // Après un redémarrage, la mémoire est vide : la clé du ticket est aussi gardée en base (une vente renvoyée n'est pas comptée deux fois).
+    const enBase = cleTicket && db.prepare('SELECT reponse FROM tickets_caisse WHERE cle = ?').get(cleTicket);
+    if (enBase) return JSON.parse(enBase.reponse);
     for (const [k, v] of ticketsVus) if (Date.now() - v.le > 3600000) ticketsVus.delete(k);
     const reponse = encaisserCaisse(ctx);
-    if (cleTicket) ticketsVus.set(cleTicket, { ...reponse, le: Date.now() });
+    if (cleTicket) { ticketsVus.set(cleTicket, { ...reponse, le: Date.now() }); db.prepare('INSERT OR IGNORE INTO tickets_caisse (cle, reponse, le) VALUES (?, ?, ?)').run(cleTicket, JSON.stringify(reponse), Date.now()); }
     return reponse;
   });
   function encaisserCaisse(ctx) {
@@ -977,7 +1002,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
     const produits = listerProduits(b.id).filter(vendable).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
       const pb = PrixBarres.verifier({ prix: p.prix, prixReference, historiquePrix }, regime);
-      return { ...p, avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };
+      return { ...p, ...(p.image === IMG ? { image: `/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` } : {}), avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };   // photo chargée à part (mise en cache par le navigateur)
     });
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
     // Un code promo affiché dans la bannière doit exister au paiement ; un contact d'exemple est remplacé par l'e-mail de l'entreprise.
@@ -1112,7 +1137,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const r = Remises.regleApplicable(config, c.lignes, 'apres');
     if (!r) return null;
     const p = listerProduits(b.id).find(x => x.id === r.alors && vendable(x) && (x.type === 'drop' || x.stock > 0));
-    return p ? { regle: r.id, produitId: p.id, nom: p.nom, prix: p.prix, prixOffre: prix.arrondi(p.prix * (1 - r.remise / 100)), remise: r.remise, teinte: p.teinte, image: p.image || null } : null;
+    return p ? { regle: r.id, produitId: p.id, nom: p.nom, prix: p.prix, prixOffre: prix.arrondi(p.prix * (1 - r.remise / 100)), remise: r.remise, teinte: p.teinte, image: p.image === IMG ? `/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : p.image || null } : null;
   }
   const verifierJeton = (row, jeton) => row && auth.egal(jeton || '', row.jeton_client);
   r.post('/api/public/:slug/commandes/:id/complement', async ctx => {
@@ -1205,9 +1230,32 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
 
   /* E-mails automatiques de toutes les boutiques (appelé régulièrement). */
+  /* Entretien périodique : ce qui ne doit pas dépendre d'un minuteur en mémoire (perdu au redémarrage),
+     les commandes restées bloquées chez le fournisseur, et la purge des tables qui grossiraient sans fin. */
+  let dernierePurge = 0;
+  function entretien(maintenant = Date.now()) {
+    // Fournisseur de démonstration : expéditions en attente (redémarrage, webhook en échec)
+    if (delaiExpeditionDemo >= 0) for (const r of db.prepare("SELECT ref FROM demo_fournisseur_commandes WHERE statut = 'recue' AND cree_le < ?").all(maintenant - delaiExpeditionDemo - 60000)) expedierDemo(r.ref).catch(e => journal.error('[demo-fournisseur]', e.message));
+    // Commande transmise, sans expédition depuis 7 jours : le marchand est prévenu (une fois), pour relancer le fournisseur
+    for (const row of db.prepare("SELECT * FROM commandes WHERE statut = 'fournisseur' AND date < ?").all(maintenant - 7 * 86400000)) {
+      if (!relances.reserverEnvoi || !relances.reserverEnvoi(db, row.boutique_id, `bloquee:${row.id}`, maintenant)) continue;
+      const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id), mch = b && db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+      if (mch) envoyerEmail(null, mch.email, `Commande n° ${row.numero} : toujours pas expédiée par le fournisseur`, `Bonjour,\n\nLa commande n° ${row.numero} a été transmise au fournisseur il y a plus de 7 jours et n'a pas encore de numéro de suivi. Contactez le fournisseur, ou remboursez le client depuis Commandes si le colis ne part pas.\n\nComptoir`);
+    }
+    if (maintenant - dernierePurge < 86400000) return;
+    dernierePurge = maintenant;
+    // Purge quotidienne : sessions et liens expirés, mesures d'audience de plus de 400 jours, corps des e-mails envoyés de plus de 180 jours
+    db.prepare('DELETE FROM sessions WHERE expire_le < ?').run(maintenant);
+    try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
+    try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
+    db.prepare("UPDATE emails SET corps = '(contenu effacé après 180 jours)' WHERE envoye = 1 AND cree_le < ? AND corps <> '(contenu effacé après 180 jours)'").run(maintenant - 180 * 86400000);
+    db.prepare('DELETE FROM tickets_caisse WHERE le < ?').run(maintenant - 30 * 86400000);
+  }
   function automatisationsEcheances(maintenant = Date.now()) {
     let n = 0;
+    entretien(maintenant);
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {
+      if (!paiementsActifs(b) || !abo.etat(b.marchand_id).actif) continue;   // vérifié avant de lire les commandes (coût)
       const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));
       if (!paiementsActifs(b) || !abo.etat(b.marchand_id).actif) continue;   // boutique fermée (abonnement) : ses liens mèneraient à une page 404   // paiements non activés : une relance renverrait vers un lien qui refuse le paiement
       n += relances.executer({ db, boutique: b, config: configVente(b), commandes, maintenant, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail, formatMontant,
@@ -1390,7 +1438,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/api/public/:slug/image/:id', ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
     const p = listerProduits(b.id).find(x => x.id === ctx.params.id && vendable(x) && x.image);
-    const m = p && /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(p.image);
+    const m = p && /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(p.image === IMG ? imageDe(p.id) || '' : p.image);
     if (!m) throw erreur(404, 'Image introuvable.', 'introuvable');
     return { binaire: Buffer.from(m[3], 'base64'), type: m[1] };
   });
@@ -1532,16 +1580,20 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   async function expedierDemo(ref) {
     const cmd = db.prepare('SELECT * FROM demo_fournisseur_commandes WHERE ref = ?').get(ref);
     if (!cmd || cmd.statut === 'expediee') return;
-    db.prepare("UPDATE demo_fournisseur_commandes SET statut = 'expediee' WHERE ref = ?").run(ref);
     const f = db.prepare("SELECT * FROM fournisseurs WHERE code = 'demo'").get();
     const corps = JSON.stringify({ ref, statut: 'expediee', transporteur: 'La Poste', suivi: '99.60.' + Math.floor(100000 + Math.random() * 899999) + '.' + Math.floor(1e7 + Math.random() * 9e7) });
-    await fetchImpl(`${urlPublique}/api/webhooks/fournisseurs/demo`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Signature': fournisseurs.signer(corps, f.secret_webhook) }, body: corps });
+    const rep = await fetchImpl(`${urlPublique}/api/webhooks/fournisseurs/demo`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Signature': fournisseurs.signer(corps, f.secret_webhook) }, body: corps });
+    if (rep && rep.ok) db.prepare("UPDATE demo_fournisseur_commandes SET statut = 'expediee' WHERE ref = ?").run(ref);   // sinon : nouvel essai au prochain passage
   }
   r.get('/demo-fournisseur/catalogue', exigerCleDemo, () => fournisseurs.CATALOGUE_DEMO);
   r.post('/demo-fournisseur/commandes', exigerCleDemo, ctx => {
     const lignes = ctx.corps.lignes;
     if (!Array.isArray(lignes) || !lignes.length || lignes.some(l => !fournisseurs.CATALOGUE_DEMO.find(p => p.id === l.produitId))) throw erreur(400, 'Produit inconnu du fournisseur.', 'produit_inconnu');
     // Référence unique (un tirage à 6 chiffres finissait par se répéter après quelques milliers de commandes).
+    // Même commande renvoyée (réponse perdue) : la même référence revient, rien n'est expédié deux fois.
+    const cle = String(ctx.req.headers['idempotency-key'] || '').slice(0, 120);
+    const deja = cle && db.prepare("SELECT ref, statut FROM demo_fournisseur_commandes WHERE json_extract(donnees, '$.referenceMarchand') = ?").get(cle);
+    if (deja) return { statut: 201, corps: { ref: deja.ref, statut: deja.statut } };
     const ref = 'FO-' + crypto.randomBytes(8).toString('hex').toUpperCase();
     db.prepare('INSERT INTO demo_fournisseur_commandes (ref, donnees, statut, cree_le) VALUES (?, ?, ?, ?)').run(ref, JSON.stringify(ctx.corps), 'recue', Date.now());
     if (delaiExpeditionDemo >= 0) setTimeout(() => expedierDemo(ref).catch(e => journal.error('[demo-fournisseur]', e.message)), delaiExpeditionDemo).unref();

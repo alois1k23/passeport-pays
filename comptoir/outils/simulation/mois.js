@@ -193,7 +193,7 @@ const durees = [];
       const b = db.prepare('SELECT id FROM boutiques WHERE slug = ?').get(m.slug);
       const parClient = {};
       for (const r of db.prepare('SELECT statut, donnees FROM commandes WHERE boutique_id = ?').all(b.id)) { const e = JSON.parse(r.donnees).client.email; (parClient[e] = parClient[e] || []).push(r.statut); }
-      const cible = Object.entries(parClient).find(([e, st]) => !/^rafale/.test(e) && st.every(x => ['livree', 'retiree', 'remboursee', 'annulee'].includes(x)));
+      const cible = Object.entries(parClient).find(([e, st]) => e && !/^rafale/.test(e) && st.every(x => ['livree', 'retiree', 'remboursee', 'annulee'].includes(x)));
       if (!cible) continue;
       const x = await m.c('POST', '/api/admin/clients/effacer', { email: cible[0] });
       if (x.s !== 200) { note(`marchand ${m.i}`, 'effacement des données refusé', JSON.stringify(x.j)); continue; }
@@ -296,7 +296,7 @@ const durees = [];
   for (const ef of effaces) {
     const restes = db.prepare('SELECT donnees FROM commandes WHERE boutique_id = ?').all(ef.boutique).filter(r => JSON.parse(r.donnees).client.email.toLowerCase() === ef.email.toLowerCase());
     if (restes.length) note(`boutique ${ef.m.i}`, 'commandes non anonymisées après l’effacement', `${restes.length} commande(s)`);
-    const mails = db.prepare('SELECT sujet FROM emails WHERE lower(destinataire) = ? AND cree_le > ?').all(ef.email.toLowerCase(), ef.t);
+    const mails = db.prepare('SELECT sujet FROM emails WHERE boutique_id = ? AND lower(destinataire) = ? AND cree_le > ?').all(ef.boutique, ef.email.toLowerCase(), ef.t);   // (d'autres boutiques peuvent encore lui écrire)
     if (mails.length) note(`boutique ${ef.m.i}`, 'e-mail envoyé à un client effacé', mails[0].sujet);
   }
   // Comptes supprimés : plus rien ne reste, la boutique ne répond plus

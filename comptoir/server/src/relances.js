@@ -116,4 +116,4 @@ function emailBienvenue({ db, boutique, config, email, urlPublique, urlBoutique,
   return true;
 }
 
-module.exports = { DEFAUT, nettoyer, creerTables, executer, emailBienvenue };
+module.exports = { DEFAUT, nettoyer, creerTables, executer, emailBienvenue, reserverEnvoi: reserver };

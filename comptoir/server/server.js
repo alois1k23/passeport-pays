@@ -30,6 +30,23 @@ setInterval(tendances, Number(env.TENDANCES_INTERVALLE_MS || 6 * 3600000)).unref
 // Ventes observées sur Comptoir : calcul local, toutes les 15 minutes.
 setInterval(() => { try { gerer.actualiserVentesTendances(); } catch (e) { console.error('[tendances]', e.message); } }, Number(env.TENDANCES_VENTES_INTERVALLE_MS || 15 * 60000)).unref();
 
+// Sauvegarde quotidienne de la base (copie cohérente par VACUUM INTO, même en mode WAL), 14 jours gardés.
+// SAUVEGARDE_DOSSIER (par défaut : dossier « sauvegardes » à côté de la base) ; copiez-le aussi hors de la machine.
+{
+  const fs = require('node:fs');
+  const dossier = env.SAUVEGARDE_DOSSIER || path.join(path.dirname(env.BASE_DE_DONNEES || path.join(__dirname, 'donnees', 'comptoir.db')), 'sauvegardes');
+  const sauvegarder = () => {
+    try {
+      fs.mkdirSync(dossier, { recursive: true });
+      const nom = path.join(dossier, `comptoir-${new Date().toISOString().slice(0, 10)}.db`);
+      if (!fs.existsSync(nom)) db.exec(`VACUUM INTO '${nom.replace(/'/g, "''")}'`);
+      const fichiers = fs.readdirSync(dossier).filter(f => /^comptoir-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
+      for (const f of fichiers.slice(0, -14)) fs.rmSync(path.join(dossier, f));
+    } catch (e) { console.error('[sauvegarde] ÉCHEC', e.message); }
+  };
+  if (env.SAUVEGARDE !== 'non') { setTimeout(sauvegarder, 60000).unref(); setInterval(sauvegarder, 6 * 3600000).unref(); }
+}
+
 http.createServer(gerer).listen(port, () => {
   console.log(`Comptoir écoute sur ${urlPublique}`);
   console.log(`Paiements : ${env.STRIPE_SECRET_KEY ? 'Stripe Connect (chaque boutique encaisse sur son compte)' : 'simulation (aucune clé Stripe)'}`);

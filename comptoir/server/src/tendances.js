@@ -34,7 +34,8 @@ function creerCollecte({ db, env = {}, catalogue, fetchImpl = fetch, journal = c
     const lignes = db.prepare(`SELECT c.date, c.donnees, b.id AS boutique, b.config FROM commandes c JOIN boutiques b ON b.id = c.boutique_id
       WHERE c.date >= ? AND c.statut NOT IN ('attente', 'annulee', 'remboursee')
         AND EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = c.id AND p.statut = 'paye')`).all(depuis);   // seul un vrai paiement en ligne compte : une commande marquée « payée » à la main ne fabrique pas de tendance
-    const sources = new Map(db.prepare('SELECT id, donnees FROM produits').all().map(r => { try { return [r.id, JSON.parse(r.donnees).source || null]; } catch { return [r.id, null]; } }));
+    // Seulement la source : lire et décoder toutes les fiches (photos comprises) bloquait le serveur à chaque passage.
+    const sources = new Map(db.prepare("SELECT id, json_extract(donnees, '$.source') AS source FROM produits").all().map(r => [r.id, r.source || null]));
     const agr = {};
     for (const l of lignes) {
       let cmd, pays;
