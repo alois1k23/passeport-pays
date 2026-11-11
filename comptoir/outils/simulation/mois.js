@@ -2,12 +2,13 @@
 // créent leur boutique, vendent pendant 30 jours, changent de formule, résilient, sont renouvelés.
 // Le vrai code du serveur tourne dans ce processus avec une horloge virtuelle (30 jours en quelques minutes).
 // Après chaque journée et à la fin, des invariants sont vérifiés, côté marchands, côté acheteurs et côté exploitant.
-// Usage : node outils/simulation/mois.js [nombre de marchands=100] [jours=30]
+// Usage : node outils/simulation/mois.js [nombre de marchands=100] [jours=60] [départ AAAA-MM-JJ]
 'use strict';
 
 /* Horloge virtuelle (avant de charger le serveur) */
 const DateReelle = Date;
-let T = DateReelle.UTC(2026, 10, 12, 7, 0, 0);
+// Date de départ (4e argument, AAAA-MM-JJ) : par ex. 2026-12-20 pour passer le Nouvel An, 2027-03-20 pour le passage à l'heure d'été.
+let T = process.argv[4] ? DateReelle.parse(process.argv[4] + 'T07:00:00Z') : DateReelle.UTC(2026, 10, 12, 7, 0, 0);
 class DateVirtuelle extends DateReelle {
   constructor(...a) { if (a.length) super(...a); else super(T); }
   static now() { return T; }
@@ -251,6 +252,8 @@ const durees = [];
     for (let k = 1; k < nums.length; k++) if (nums[k] !== nums[k - 1] + 1) { note(`boutique ${m.i}`, 'trou dans la numérotation des factures', `${nums[k - 1]} → ${nums[k]}`); break; }
     for (const c of cmds) {
       if (!['attente', 'annulee'].includes(c.statut) && !c.facture) note(`boutique ${m.i}`, 'commande payée sans facture', `n° ${c.numero}`);
+      if (c.facture && c.dateFacture && !String(c.facture).includes(`-${new DateReelle(c.dateFacture).getFullYear()}-`)) note(`boutique ${m.i}`, 'année de la facture différente de sa date', `${c.facture} du ${new DateReelle(c.dateFacture).toISOString().slice(0, 10)}`);
+      if (c.facture && c.dateFacture && c.dateFacture < c.date) note(`boutique ${m.i}`, 'facture datée avant la commande', `n° ${c.numero}`);
       if (c.statut === 'remboursee' && c.facture && !c.avoir) note(`boutique ${m.i}`, 'remboursement sans avoir', `n° ${c.numero}`);
       const sousTotal = Math.round(c.lignes.reduce((s, l) => s + l.prix * l.qte, 0) * 100) / 100;
       if (c.canal !== 'magasin' && Math.abs(sousTotal + (c.port || 0) - c.total) > 0.011) note(`boutique ${m.i}`, 'total de commande incohérent', `n° ${c.numero} : lignes ${sousTotal} + port ${c.port} ≠ ${c.total}`);
