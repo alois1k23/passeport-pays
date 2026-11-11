@@ -25,6 +25,22 @@
     if (!min) return true;
     return ORDRE.indexOf(formule) >= ORDRE.indexOf(min);
   }
+  /* Réglages tels qu'ils s'appliquent aux ventes : sans Croissance, ni codes, ni paliers, ni offres, ni campagnes,
+     ni e-mails automatiques ; sans Pro, pas de retrait en magasin. Les réglages enregistrés ne sont pas modifiés
+     (copie), ils reviennent si le marchand change de formule. Même règle pour le serveur et l'interface. */
+  function configVente(config, formule) {
+    const c = Object.assign({}, config);
+    if (!permet(formule, 'conversion')) {
+      c.offres = Object.assign({}, c.offres || {}, { paliersActifs: false, paliers: [], regles: [], codes: [] });
+      c.campagnes = {};
+      const a = Object.assign({}, c.automatisations || {});
+      // Toutes les clés, même absentes : une clé manquante reprendrait sinon sa valeur par défaut (active).
+      for (const k of ['bienvenue', 'paiement', 'avis', 'reconquete']) a[k] = Object.assign({}, a[k] || {}, { actif: false });
+      c.automatisations = a;
+    }
+    if (!permet(formule, 'magasin') && c.magasin) c.magasin = Object.assign({}, c.magasin, { clickCollect: false });
+    return c;
+  }
   function prixTexte(id, devise) { const f = FORMULES[id]; return devise === 'CHF' ? `CHF ${f.prix}.–` : `${f.prix} €`; }
-  return { ORDRE, FORMULES, FONCTIONS, NOMS_FONCTIONS, permet, prixTexte };
+  return { ORDRE, FORMULES, FONCTIONS, NOMS_FONCTIONS, permet, configVente, prixTexte };
 });

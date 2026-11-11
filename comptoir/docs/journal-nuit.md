@@ -814,3 +814,25 @@ Une relecture indépendante du serveur a relevé 8 problèmes. Tous sont corrig�
 8. **Contournement de « vendable ».** Un code fournisseur déclaré librement contournait la règle « vendable ». Il est désormais toujours fixé par le serveur.
 
 Tests : 60 (2 nouveaux, et le test de la newsletter suit le lien de confirmation).
+
+## Cycle 41 — Relecture des corrections du cycle 40 (04 h 35 – 05 h 00)
+
+Une relecture indépendante des corrections du cycle 40 a trouvé une régression que j'avais introduite, et six points à compléter.
+
+1. **Grave (régression du cycle 40) : limite d'essais contournable en parallèle.** Avec le hachage asynchrone, 60 essais de mot de passe lancés en même temps passaient tous la limite (10) avant qu'un seul échec soit noté.
+   - Chaque essai est maintenant compté avant le calcul, puis décompté s'il réussit. Cela vaut pour la connexion, le changement de mot de passe et la suppression du compte.
+   - Test ajouté : 40 essais en rafale donnent au plus 5 réponses « mot de passe incorrect », tout le reste est refusé (429).
+2. **Connexion avec l'ancien mot de passe pendant une réinitialisation.** Une connexion encore en cours de vérification pouvait ouvrir une session juste après une réinitialisation.
+   - Le mot de passe est relu après le calcul ; s'il a changé entre-temps, la connexion est refusée.
+   - Même contrôle pour le changement de mot de passe.
+3. **Domaines déjà enregistrés.** Un domaine squatté avec une fausse date de vérification échappait à la correction du cycle 40. Une migration unique désactive maintenant tous les domaines actifs : chaque marchand clique à nouveau sur « Vérifier » (DNS et TXT), et le vrai propriétaire peut revendiquer le sien.
+4. **Newsletter.** La limite par adresse révélait si une adresse était déjà inscrite (le 4ᵉ essai répondait différemment) et pouvait bloquer une personne. La réponse est maintenant identique dans tous les cas.
+5. **Interface du marchand alignée sur sa formule.** Une seule règle, `Formules.configVente`, sert désormais au serveur et à l'interface. Avec Lancement :
+   - l'aperçu de la boutique n'applique plus de palier ni de code ;
+   - les bannières de campagne suivent la même règle qu'en ligne ;
+   - la liste de lancement ne coche plus « E-mails automatiques actifs » ;
+   - les Paramètres précisent que relances, avis et bienvenue viennent avec Croissance.
+6. **E-mails automatiques.** Une ancienne configuration à laquelle manquait une clé pouvait réactiver un e-mail automatique sous Lancement. Les quatre e-mails sont maintenant toujours éteints explicitement.
+7. **Base de données.** Ajout d'un index `paiements(commande_id, statut)`, utilisé par le calcul des tendances et par la mise à jour des paiements d'une commande.
+
+Tests : 61.

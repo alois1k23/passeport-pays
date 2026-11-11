@@ -16,7 +16,7 @@ function etapesLancement() {
   const pubs = (etat.publications || []).filter(p => p.statut === 'publiee');
   const web = etat.commandes.filter(c => c.canal === 'web' && compteVentes(c));
   const tests = (etat.tests || []).map(analyseTest).filter(Boolean);
-  const auto = etat.automatisations || {};
+  const auto = (typeof etatVente === 'function' ? etatVente() : etat).automatisations || {};   // éteints si la formule ne les inclut pas
   const e = etat.entreprise || {};
   const manuel = (etat.lancement = etat.lancement || {});
   const semaine = (etat.tests || []).filter(t => t.debut > Date.now() - 7 * JOUR).length;

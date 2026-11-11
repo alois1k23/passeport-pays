@@ -52,3 +52,14 @@ test('attaque répartie sur un compte : le marchand se connecte quand même depu
   assert.equal((await appel({ email: 'y@exemple.ch', motDePasse: 'faux' }, '2001:db8:1:2:ffff::9')).status, 429);
   s.close();
 });
+
+test('connexion : des essais lancés en parallèle ne contournent pas la limite', async () => {
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db: ouvrir(':memory:'), env: { LIMITE_ESSAIS: '5' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const appel = (chemin, corps, ip) => fetch(base + chemin, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip }, body: JSON.stringify(corps) });
+  assert.equal((await appel('/api/auth/inscription', { email: 'rafale@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Rafale' } } }, '203.0.113.9')).status, 201);
+  const codes = (await Promise.all(Array.from({ length: 40 }, (_, k) => appel('/api/auth/connexion', { email: 'rafale@exemple.ch', motDePasse: 'mauvais ' + k }, '198.51.100.20')))).map(r => r.status);
+  assert.ok(codes.filter(c => c === 401).length <= 5, codes.join(','));
+  assert.ok(codes.filter(c => c === 429).length >= 35, codes.join(','));
+  s.close();
+});

@@ -39,7 +39,7 @@ function vueParametres() {
   } else if (s === 'emails') {
     const service = enLigne() ? SERVEUR.emails : null;
     corps = `<section class="carte"><div class="carte-tete"><h2>Envoi des e-mails</h2>${statut(!!service, service === 'brevo' ? 'Brevo actif' : service === 'postmark' ? 'Postmark actif' : 'Actif', enLigne() ? 'File d’attente' : 'Démo')}</div>
-      <p class="sous">${service ? 'Les e-mails partent automatiquement : confirmations, expéditions, relances, avis, bienvenue.' : 'Sans service d’envoi, les e-mails sont préparés et gardés en file, mais ne partent pas. Branchez Brevo (hébergé en Europe) ou Postmark sur le serveur pour les envoyer.'}</p>
+      <p class="sous">${service ? `Les e-mails partent automatiquement : confirmations, expéditions${etatVente() === etat ? ', relances, avis, bienvenue' : ' (relances, avis et bienvenue : avec la formule Croissance)'}.` : 'Sans service d’envoi, les e-mails sont préparés et gardés en file, mais ne partent pas. Branchez Brevo (hébergé en Europe) ou Postmark sur le serveur pour les envoyer.'}</p>
       <div class="liste-reglages">${['Confirmation de commande', 'Colis expédié, avec suivi', 'Commande prête à retirer', 'Relance de paiement abandonné', 'Bienvenue (newsletter)', 'Demande d’avis', 'Reconquête des inactifs'].map((n, i) => `<div><strong>${n}</strong><span class="sous">${i < 3 ? 'Toujours envoyé (e-mail de service)' : 'Réglable dans Conversion'}</span></div>`).join('')}</div>
       ${enLigne() ? '<div class="rangee"><button class="btn petit fantome" data-action="voir-emails">Voir les derniers e-mails</button></div>' : ''}</section>`;
   } else if (s === 'domaine') {

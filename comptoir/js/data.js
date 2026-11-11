@@ -402,7 +402,12 @@ function urlBoutiquePublique() {
 }
 
 /* Retrait en boutique réellement proposé : activé ET avec une adresse de magasin (même règle que le serveur). */
-function retraitPossible() { try { return !!(etat.magasin && etat.magasin.clickCollect && String(etat.magasin.adresse || '').trim()); } catch { return false; } }
+/* Réglages tels qu'ils s'appliquent aux ventes selon la formule payée (mode connecté) ; en démonstration, tout est ouvert. */
+function etatVente() {
+  const ab = typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? SERVEUR.abonnement : null;
+  return ab && ab.obligatoire && typeof Formules !== 'undefined' ? Formules.configVente(etat, ab.formule) : etat;
+}
+function retraitPossible() { try { const v = etatVente(); return !!(v.magasin && v.magasin.clickCollect && String(v.magasin.adresse || '').trim()); } catch { return false; } }
 
 /* Actions irréversibles (remboursement, annulation, suppression) : une confirmation explicite avant d'agir. */
 function confirmerAction(el) {

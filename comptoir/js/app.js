@@ -869,7 +869,7 @@ function vueBoutique() {
   etat.produits.forEach(p => { p.avis = notes[p.id] || null; });
   etat.avisRecents = (etat.avis || []).filter(a => a.texte).slice(0, 6);
   etat.produits.forEach(p => { p.prixBarre = p.prixReference && PrixBarres.verifier(p, estSuisse() ? 'ch' : 'ue').ok ? p.prixReference : undefined; });
-  const calc = Remises.appliquer(ui.panier, etat, ui.codePromo || '');
+  const calc = Remises.appliquer(ui.panier, etatVente(), ui.codePromo || '');   // comme la vraie boutique : selon la formule
   const total = calc.apresRemise;
   const modes = Object.entries(livraisonsPays(etat.boutique.pays)).filter(([k]) => k !== 'retrait' || retraitPossible());
   if (!modes.find(([k]) => k === ui.livraison)) ui.livraison = modes[0][0];
@@ -892,7 +892,7 @@ function vueBoutique() {
           <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         ${etat.offres.barrePort && ui.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuilPort() ? 'Livraison offerte' : `Plus que <b>${euros(seuilPort() - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuilPort() * 100)}%"></i></span></div>` : ''}
         ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
-        ${(() => { const r = ui.panier.length ? Remises.regleApplicable(etat, ui.panier, 'panier') : null; const p = r && etat.produits.find(x => x.id === r.alors); return p ? `<label class="offre-panier">${visuelProduit(p)}<span><input type="checkbox" data-offre-demo="${esc(r.id)}" data-id="${esc(p.id)}"> <strong>Ajouter ${esc(p.nom)}</strong><br><s>${euros(p.prix)}</s> <b>${euros(p.prix * (1 - r.remise / 100))}</b> · −${r.remise} % seulement avec cette commande</span></label>` : ''; })()}
+        ${(() => { const r = ui.panier.length ? Remises.regleApplicable(etatVente(), ui.panier, 'panier') : null; const p = r && etat.produits.find(x => x.id === r.alors); return p ? `<label class="offre-panier">${visuelProduit(p)}<span><input type="checkbox" data-offre-demo="${esc(r.id)}" data-id="${esc(p.id)}"> <strong>Ajouter ${esc(p.nom)}</strong><br><s>${euros(p.prix)}</s> <b>${euros(p.prix * (1 - r.remise / 100))}</b> · −${r.remise} % seulement avec cette commande</span></label>` : ''; })()}
         <form class="code-promo" data-form="code-demo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(ui.codePromo || '')}"><button class="sf-btn sf-btn-ligne">Appliquer</button></form>
         ${calc.codeValide === false ? '<p class="mini">Ce code n’existe pas ou a expiré.</p>' : calc.codeMoinsBon ? '<p class="mini">Code valable, mais la remise par quantité est plus avantageuse (non cumulable).</p>' : ''}
         <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
@@ -910,7 +910,7 @@ function vueBoutique() {
 
 function passerCommande(form) {
   const d = new FormData(form);
-  const calc = Remises.appliquer(ui.panier, etat, ui.codePromo || '');
+  const calc = Remises.appliquer(ui.panier, etatVente(), ui.codePromo || '');   // comme la vraie boutique : selon la formule
   const sousTotal = calc.apresRemise;
   const port = fraisPort(ui.livraison, sousTotal);
   const numero = Math.max(1000, ...etat.commandes.map(c => c.numero)) + 1;

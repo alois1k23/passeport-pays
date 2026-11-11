@@ -78,6 +78,15 @@ function verifierEchecs(cles, max) {
   if (cles.some(c => compteEchecs(c) >= max)) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
 }
 function oublierEchecs(cles) { for (const c of cles) echecs.delete(c); }
+/* Essai de mot de passe compté AVANT le calcul (asynchrone) : des requêtes parallèles ne passent pas toutes la limite
+   avant qu'un seul échec soit noté. Un essai réussi est ensuite décompté. */
+async function essayerMotDePasse(cles, max, mdp, stocke) {
+  verifierEchecs(cles, max);
+  noterEchec(cles);
+  const ok = !!stocke && await verifierMotDePasse(mdp, stocke);
+  if (ok) for (const c of cles) { const e = echecs.get(c); if (e && e.n > 0) e.n--; }
+  return ok;
+}
 function noterEchec(cles) {
   const maintenant = Date.now();
   // Purge : la table ne grossit pas sans limite (adresses et e-mails choisis par un attaquant).
@@ -97,4 +106,4 @@ function limiter(cle, max, fenetreMs, message) {
   if (e.n > max) throw erreur(429, message, 'trop_de_requetes');
 }
 
-module.exports = { egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };
+module.exports = { essayerMotDePasse, egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };

@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS paiements (
   cree_le INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS paiements_ref ON paiements(ref_externe);
+CREATE INDEX IF NOT EXISTS paiements_commande ON paiements(commande_id, statut);
 
 CREATE TABLE IF NOT EXISTS fournisseurs (
   code TEXT PRIMARY KEY,

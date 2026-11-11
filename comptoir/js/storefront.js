@@ -105,18 +105,19 @@ function renduSection(s, etat, mode) {
       </section>`;
     }
     case 'saison': {
+      const vente = typeof etatVente === 'function' ? etatVente() : etat;   // codes et campagnes selon la formule, comme en ligne
       // Bannière hors de sa période : invisible en ligne (une remise ne s'annonce pas avant que son code marche, et s'efface après).
       // Côté public, le serveur a déjà retiré les bannières hors période (l'état public ne contient pas les campagnes).
-      if (typeof etat.campagnes !== 'undefined' && typeof Remises !== 'undefined' && Remises.banniereVisible && !Remises.banniereVisible(etat, p)) {
+      if (typeof etat.campagnes !== 'undefined' && typeof Remises !== 'undefined' && Remises.banniereVisible && !Remises.banniereVisible(vente, p)) {
         if (mode !== 'edition') return '';
         const c = p.campagne ? etat.campagnes[p.campagne] : null;
-        const per = !c && p.code ? Remises.periodeCampagne(etat, p.code) : null;
+        const per = !c && p.code ? Remises.periodeCampagne(vente, p.code) : null;
         const debut = c ? c.debut : per && per.debut, avant = debut && debut > Date.now();
         const quoi = avant ? `Programmée : visible à partir du ${new Date(debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : p.campagne || p.code ? 'Campagne terminée : cette bannière n’est plus affichée.' : 'Masquée pendant qu’une bannière de campagne est affichée.';
         return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${quoi}</span></div></section>`;
       }
       // Côté admin, on vérifie que le code existe vraiment (Conversion ou campagne) ; côté public, le serveur a déjà retiré les codes inconnus.
-      const connu = !p.code || typeof etat.campagnes === 'undefined' || typeof Remises === 'undefined' || Remises.codesValables(etat).some(c => c.code === String(p.code).toUpperCase());
+      const connu = !p.code || typeof etat.campagnes === 'undefined' || typeof Remises === 'undefined' || Remises.codesValables(vente).some(c => c.code === String(p.code).toUpperCase());
       const code = p.code && connu ? `<code>${esc(p.code)}</code>` : p.code && mode === 'edition' ? `<code class="sf-code-inconnu" title="Ce code n’existe pas : créez-le dans Conversion, sinon il n’est pas affiché aux clients">${esc(p.code)} · inconnu</code>` : '';
       return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${esc(p.texte)}</span></div>${code}</section>`;
     }

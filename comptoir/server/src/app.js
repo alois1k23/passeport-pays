@@ -61,28 +61,30 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 
   /* ---------- Accès aux données ---------- */
   const lireConfig = b => JSON.parse(b.config);
+  // Ancienne faille (avant le cycle 40) : un domaine pouvait être déclaré actif dès l'inscription, sans vérification,
+  // y compris avec une fausse date de vérification. Une seule fois : tous les domaines actifs repassent par la
+  // vérification DNS et TXT (le marchand clique à nouveau sur « Vérifier »), le vrai propriétaire peut le revendiquer.
+  db.exec('CREATE TABLE IF NOT EXISTS cles (nom TEXT PRIMARY KEY, valeur TEXT NOT NULL);');
+  if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'migration-domaines-40'").get()) {
+    transaction(db, () => {
+      for (const b of db.prepare('SELECT id, config FROM boutiques').all()) {
+        try {
+          const conf = JSON.parse(b.config), d = conf.boutique && conf.boutique.domaine;
+          if (d && d.actif) { d.actif = false; d.verifieLe = null; db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(conf), b.id); }
+        } catch { /* configuration illisible : laissée telle quelle */ }
+      }
+      db.prepare("INSERT INTO cles (nom, valeur) VALUES ('migration-domaines-40', ?)").run(String(Date.now()));
+    });
+  }
   /* Configuration telle qu'elle s'applique aux ventes : les fonctions que la formule n'inclut pas sont éteintes
      (codes, paliers, offres, campagnes et e-mails automatiques : Croissance ; retrait en magasin : Pro).
      Les réglages du marchand restent enregistrés : ils reviennent s'il change de formule. */
-  // Ancienne faille (avant le cycle 40) : un domaine pouvait être déclaré actif dès l'inscription, sans vérification.
-  for (const b of db.prepare('SELECT id, config FROM boutiques').all()) {
-    try {
-      const conf = JSON.parse(b.config), d = conf.boutique && conf.boutique.domaine;
-      if (d && d.actif && !d.verifieLe) { d.actif = false; db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(conf), b.id); }
-    } catch { /* configuration illisible : laissée telle quelle */ }
-  }
   function configVente(b) {
     const config = lireConfig(b);
     if (!b.marchand_id) return config;
     const e = abo.etat(b.marchand_id);
     if (!e.obligatoire) return config;
-    if (!Formules.permet(e.formule, 'conversion')) {
-      config.offres = { ...(config.offres || {}), paliersActifs: false, paliers: [], regles: [], codes: [] };
-      config.campagnes = {};
-      config.automatisations = Object.fromEntries(Object.entries(config.automatisations || {}).map(([k, v]) => [k, { ...(v || {}), actif: false }]));
-    }
-    if (!Formules.permet(e.formule, 'magasin') && config.magasin) config.magasin = { ...config.magasin, clickCollect: false };
-    return config;
+    return Formules.configVente(config, e.formule);
   }
   /* Adresse publique d’une boutique : son domaine personnalisé s’il est actif, sinon /s/<slug>. */
   const domaineDe = b => { const d = lireConfig(b).boutique.domaine; return d && d.actif && d.domaine ? String(d.domaine).toLowerCase() : null; };
@@ -495,13 +497,19 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const max = Number(env.LIMITE_ESSAIS) || 10, e = email.toLowerCase(), reseau = reseauIp(ctx.ip);
     const parIp = ['ip:' + reseau, `compte-ip:${e}|${reseau}`];
     auth.verifierEchecs(parIp, max);
+    auth.verifierEchecs(['ip-cours:' + reseau, `compte-ip-cours:${e}|${reseau}`], max);
     // Seuil global du compte (attaque répartie sur beaucoup d'adresses) : il ne s'applique jamais à un appareil où
     // le marchand s'est déjà connecté (cookie signé), donc personne ne peut l'empêcher de se connecter de chez lui.
     const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(e);
     if (!appareilConnu) auth.verifierEchecs(['compte:' + e], max * 20);
     const m = db.prepare('SELECT * FROM marchands WHERE email = ?').get(email);
-    if (!m || !(await auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
-    auth.oublierEchecs([`compte-ip:${e}|${reseau}`]);
+    // Compté avant le calcul : des essais lancés en parallèle ne contournent pas la limite.
+    const enCours = ['ip-cours:' + reseau, `compte-ip-cours:${e}|${reseau}`];
+    const ok = await auth.essayerMotDePasse(enCours, max, String(ctx.corps.motDePasse || ''), m && m.mot_de_passe);
+    // Mot de passe changé ou réinitialisé pendant le calcul : l'ancien ne doit pas ouvrir de session.
+    const actuel = m && db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(m.id);
+    if (!ok || !actuel || actuel.mot_de_passe !== m.mot_de_passe) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
+    auth.oublierEchecs([`compte-ip:${e}|${reseau}`, `compte-ip-cours:${e}|${reseau}`]);
     ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, m.id), securise), cookieAppareil(e)];
     return { ok: true };
   });
@@ -601,11 +609,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/compte/mot-de-passe', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     const cles = ['mdp:' + m.id];   // clé propre : une attaque sur la page de connexion ne bloque pas un marchand déjà connecté
-    auth.verifierEchecs(cles, Number(env.LIMITE_ESSAIS) || 10);
-    if (!(await auth.verifierMotDePasse(String(ctx.corps.actuel || ''), m.mot_de_passe))) { auth.noterEchec(cles); throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants'); }
+    if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.actuel || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants');
     const nouveau = valider.texte(ctx.corps.nouveau, 'Le nouveau mot de passe', { min: 10, max: 200 });
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
     const hashMdp = await auth.hacherMotDePasse(nouveau);
+    if (db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(m.id).mot_de_passe !== m.mot_de_passe) throw erreur(409, 'Le mot de passe vient d’être modifié ailleurs. Rechargez la page et recommencez.', 'mdp_change');
     transaction(db, () => {
       db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, m.id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, actuelle);
@@ -621,8 +629,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/compte/supprimer', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     const cles = ['mdp:' + m.id];   // même compteur que le changement de mot de passe : une session volée ne devine pas le mot de passe par essais
-    auth.verifierEchecs(cles, Number(env.LIMITE_ESSAIS) || 10);
-    if (!(await auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { auth.noterEchec(cles); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
+    if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
     await abo.arreterDefinitivement(m.id);   // sinon Stripe continuerait de prélever un compte supprimé
     transaction(db, () => {
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
@@ -1078,8 +1085,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const email = valider.email(ctx.corps.email);
     // Double confirmation (opt-in) : n'importe qui pourrait saisir l'adresse d'un tiers ; seul un clic dans l'e-mail envoyé
     // à cette adresse l'inscrit (et déclenche l'e-mail de bienvenue). Une adresse déjà inscrite ne reçoit rien de plus.
+    // Même réponse dans tous les cas (déjà inscrit, trop de demandes) : le formulaire ne révèle pas qui est abonné.
+    try { auth.limiter(`newsletter-adresse:${b.id}|${email.toLowerCase()}`, 3, 24 * 3600000, ''); } catch { return { ok: true, confirmation: true }; }
     if (db.prepare('SELECT 1 FROM abonnes WHERE boutique_id = ? AND email = ?').get(b.id, email)) return { ok: true, confirmation: true };
-    auth.limiter(`newsletter-adresse:${b.id}|${email.toLowerCase()}`, 3, 24 * 3600000, 'Un e-mail de confirmation vous a déjà été envoyé. Vérifiez votre boîte de réception (et les indésirables).');
     const nom = lireConfig(b).boutique.nom, lien = `${urlPublique}/reinscription?j=${jetonDesinscription(b.id, email)}`;
     envoyerEmail(b.id, email, `Confirmez votre inscription chez ${nom}`, `Bonjour,\n\nVous (ou quelqu'un d'autre) avez demandé à recevoir les nouvelles et offres de ${nom}. Pour confirmer, cliquez ici :\n${lien}\n\nSi ce n'est pas vous, ignorez cet e-mail : vous ne recevrez rien d'autre.\n\n${nom}`);
     return { ok: true, confirmation: true };
