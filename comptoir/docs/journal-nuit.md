@@ -1002,3 +1002,38 @@ Tests : 63. Le test d'abonnement Stripe couvre aussi :
 9. **TWINT proposé par le serveur pour un ancien compte** dont l'état était inconnu. Le serveur applique maintenant la même règle que la boutique : seulement si TWINT est connu comme actif.
 
 Tests : 63 (le test Connect vérifie aussi qu’un webhook en échec est bien retraité à la tentative suivante).
+
+### Cycle 47 — Nouveau marchand sur téléphone, en mode connecté (05 h 50 – 06 h 05)
+
+Parcours complet sur iPhone 13, Pixel 7 et un écran de 360 × 640 :
+- accueil, choix de formule, inscription, paiement, fiche entreprise, premier produit ;
+- les 19 écrans et les 9 sections des Paramètres, puis l'éditeur ;
+- la boutique publique : fiche produit, panier, paiement ;
+- la commande reçue, puis expédiée.
+
+**Ce qui fonctionne :** aucune erreur, rien ne déborde de l'écran sur l'application et la boutique. Les champs sont en 16 px, donc l'iPhone ne zoome pas à la saisie. Un écran s'ouvre en 1,5 s environ.
+
+**Corrigé**
+
+1. **Faux numéro de suivi envoyé au client.** « Expédier (générer le suivi) » inventait un numéro La Poste, même pour une vraie commande, et l'envoyait au client.
+   - Le marchand saisit maintenant le numéro reçu du transporteur (facultatif).
+   - Sans numéro, l'e-mail ne promet aucun suivi.
+   - Seul le mode simulation fabrique encore un numéro, pour la démonstration.
+   - Test ajouté.
+2. **« Votre boutique est en ligne » annoncé trop tôt.** Après le paiement, le message et le badge l'annonçaient alors que l'adresse du vendeur manquait, et le serveur refusait donc les commandes. Le message indique maintenant la dernière étape, et le badge affiche « À compléter » tant que la boutique ne peut pas vendre.
+3. **Adresse incomplète acceptée.** « Rue du Lac 12 », sans code postal ni localité, passait pour une adresse complète. La Conformité exige maintenant code postal et localité ; le champ montre un exemple et explique pourquoi.
+4. **« Rédiger pour moi »** laissait « Décrivez ici sa matière… » dans la description, visible des clients. Ce texte n'est plus généré.
+5. **Accueil sur téléphone.** « Se connecter » y était masqué ; il reste maintenant visible.
+6. **Promesse sur les réseaux sociaux.** L'accueil disait « publie sur vos réseaux sociaux à votre place ». Il dit maintenant ce qui existe : publications préparées avec la formule Croissance, publication automatique dès que les API des réseaux sont branchées.
+7. **Contenu sous le menu collant.** Le détail d'une commande et les bulles d'erreur passaient sous le menu ; ils restent maintenant visibles.
+8. **Cibles tactiles agrandies** (40 px) : boutons − et + du panier, Fermer, menu, cases à cocher et boutons radio.
+9. **Pages de paiement simulé** : un débordement de 14 px est corrigé.
+10. « 1 étapes » devient « 1 étape ».
+
+**Non traité cette nuit** (pour la suite) :
+- dates de livraison différentes entre la fiche produit et le panier ;
+- encadré de marge calculé sur des valeurs par défaut ;
+- bascule « Mobile » de l'aperçu sans effet sur téléphone ;
+- fournisseurs marqués « (démo) ».
+
+Tests : 64.

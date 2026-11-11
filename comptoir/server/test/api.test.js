@@ -927,3 +927,15 @@ test('passage à Lancement : les publications programmées ne partent pas, elles
   const p = db.prepare('SELECT statut, donnees FROM publications WHERE boutique_id = ?').get(b.id);
   assert.equal(p.statut, 'brouillon'); assert.equal(JSON.parse(p.donnees).statut, 'brouillon');
 });
+
+test('expédition : le numéro de suivi saisi par le marchand est celui transmis au client', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'suivi@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Suivi', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Suivi', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'S T', email: 'st@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
+  await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  await m('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'preparation' });
+  assert.equal((await m('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'expediee', suivi: '99.60.123456.12345678' })).statut, 200);
+  const mail = db.prepare("SELECT corps FROM emails WHERE destinataire = 'st@x.ch' AND sujet LIKE '%en route' ORDER BY id DESC LIMIT 1").get();
+  assert.match(mail.corps, /Numéro de suivi : 99\.60\.123456\.12345678/);
+});

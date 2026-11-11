@@ -162,7 +162,9 @@ function rendre() {
   requestAnimationFrame(() => { const nav = document.getElementById('nav'), a = nav && nav.querySelector('a.actif'); if (a && nav.scrollWidth > nav.clientWidth) nav.scrollLeft += a.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - a.offsetWidth) / 2; });
   $('#fil').innerHTML = `<i>${esc(etat.boutique.nom)}</i><i>/</i><span>${esc(g)}</span><i>/</i><b>${esc(t)}</b>`;
   const enLigne = typeof SERVEUR !== 'undefined' && SERVEUR.connecte;
-  $('#mode-badge').textContent = enLigne ? 'En ligne' : 'Démo';
+  // « En ligne » seulement si la boutique peut vendre : adresse du vendeur saisie (sinon le serveur refuse les commandes).
+  const vend = enLigne && String((etat.entreprise || {}).adresse || '').trim() && !/compléter/.test((etat.entreprise || {}).adresse || '') && !(SERVEUR.paiementsBoutique && !SERVEUR.paiementsBoutique.pret);
+  $('#mode-badge').textContent = enLigne ? (vend ? 'En ligne' : 'À compléter') : 'Démo';
   $('#mode-badge').classList.toggle('reel', enLigne);
   document.title = `${t || 'Comptoir'} · ${etat.boutique.nom}`;
   $('#nom-boutique').textContent = etat.boutique.nom;
@@ -352,7 +354,7 @@ function fluxPour(c) {
 const FLUX = {
   attente: [['payee', 'Marquer comme payée'], ['annulee', 'Annuler la commande']],
   payee: [['preparation', 'Commencer la préparation'], ['remboursee', 'Annuler et rembourser']],
-  preparation: [['expediee', 'Expédier (générer le suivi)'], ['remboursee', 'Annuler et rembourser']],
+  preparation: [['expediee', 'Marquer comme expédiée'], ['remboursee', 'Annuler et rembourser']],
   expediee: [['livree', 'Marquer comme livrée']],
   livree: [['remboursee', 'Rembourser']],
   remboursee: [], annulee: []

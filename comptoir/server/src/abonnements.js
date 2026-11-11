@@ -244,7 +244,7 @@ function pageAbonnementSimule(a, marchandEmail) {
   const montant = a.devise === 'CHF' ? `CHF ${f.prix}.–` : `${f.prix} €`;
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Paiement de l’abonnement</title>
 <style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}
-.c{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}
+*{box-sizing:border-box}.c{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}
 h1{font-size:1.2rem;margin:0}.m{font-size:2rem;font-weight:700}.s{color:#5E6573;font-size:.85rem}
 button{font:inherit;padding:12px;border-radius:9px;border:1px solid #2F55D4;background:#2F55D4;color:#fff;font-weight:600;cursor:pointer;width:100%}
 button.f{background:#fff;color:#151821;border-color:#D0D4DC}.n{background:#FFF7E6;border:1px solid #F3D9A4;border-radius:9px;padding:10px 12px;font-size:.85rem}</style></head>

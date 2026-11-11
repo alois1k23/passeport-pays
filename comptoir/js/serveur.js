@@ -46,7 +46,7 @@ async function initServeur() {
   if (SERVEUR.connecte && s.abonnement && !s.abonnement.actif) { installerAbonnement(s.abonnement, params.get('abonnement')); return; }
   if (SERVEUR.connecte) {
     await rechargerEtat(); installerModeConnecte();
-    if (params.get('abonnement') === 'ok') { history.replaceState(null, '', location.pathname + '#tableau'); setTimeout(() => toast('Paiement reçu : votre boutique est en ligne. Bienvenue !'), 300); }
+    if (params.get('abonnement') === 'ok') { history.replaceState(null, '', location.pathname + '#tableau'); setTimeout(() => toast(String((etat.entreprise || {}).adresse || '').trim() ? 'Paiement reçu : votre boutique est en ligne. Bienvenue !' : 'Paiement reçu. Dernière étape avant vos premières ventes : l’adresse de votre entreprise (Conformité).'), 300); }
   } else installerConnexion();
 }
 
@@ -330,8 +330,11 @@ function installerModeConnecte() {
     if (verrou) ACTIONS_EN_COURS.add(verrou);
     try {
       if (action === 'statut') {
+        // Expédition : le numéro de suivi du transporteur (facultatif), transmis au client dans l'e-mail.
+        let suivi = '';
+        if (el.dataset.statut === 'expediee') { const s = prompt('Numéro de suivi du colis (facultatif) :', ''); if (s === null) return; suivi = s.trim(); }
         bloquer(); el.disabled = true;
-        const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/statut`, { statut: el.dataset.statut, ...(el.dataset.fournisseurAnnule === '1' ? { fournisseurAnnule: true } : {}) });
+        const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/statut`, { statut: el.dataset.statut, ...(suivi ? { suivi } : {}), ...(el.dataset.fournisseurAnnule === '1' ? { fournisseurAnnule: true } : {}) });
         await rafraichir(`Commande n° ${r.commande.numero} : ${STATUTS[r.commande.statut].nom.toLowerCase()}.`);
       } else if (action === 'transmettre-partie') {
         bloquer(); el.disabled = true;

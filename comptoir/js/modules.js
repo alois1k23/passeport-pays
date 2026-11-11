@@ -191,13 +191,15 @@ function documentFacture(c, avoir = false) {
     </article>`;
 }
 
+/* Adresse postale complète : rue, puis code postal (4 ou 5 chiffres) et localité. */
+const adressePostale = a => !!a && !/compléter/.test(a) && /\d{4,5}\s+\S/.test(a);
 const COMPLETER = { Impressum: 'en-adresse', 'Mentions légales': 'en-siret', 'Médiateur de la consommation': 'en-med', TVA: 'en-tva', 'Facture électronique': '', 'Transparence dropshipping': '' };
 function vueConformite() {
   const e = etat.entreprise;
   const factures = etat.commandes.filter(c => c.facture).sort((a, b) => b.date - a.date);
   const ch = estSuisse();
   const verifs = ch ? [
-    ['Impressum', !!(e.raison && e.adresse && e.email && !/compléter/.test(e.adresse)), 'Nom, adresse postale et e-mail affichés (obligatoire en Suisse pour la vente en ligne, LCD art. 3)', 'Indiquez votre adresse postale complète : obligatoire pour vendre en ligne', 'mentions'],
+    ['Impressum', !!(e.raison && adressePostale(e.adresse) && e.email), 'Nom, adresse postale et e-mail affichés (obligatoire en Suisse pour la vente en ligne, LCD art. 3)', 'Indiquez votre adresse postale complète : obligatoire pour vendre en ligne', 'mentions'],
     ['Conditions générales de vente', true, `Générées : livraison, ${Number(e.retoursJours) > 0 ? `retours volontaires ${Number(e.retoursJours)} jours` : 'pas de reprise hors défaut'}, garantie 2 ans`, '', 'cgv'],
     ['Protection des données (nLPD)', true, 'Déclaration de confidentialité générée, avec les fournisseurs et les pays où leurs données sont transmises', '', 'mentions'],
     ['Transparence dropshipping', etat.produits.filter(p => p.type === 'drop').every(p => p.delai), 'Délais réels de chaque fournisseur affichés sur les fiches et au paiement', 'Indiquez les délais de livraison de chaque fournisseur', null],
@@ -231,7 +233,7 @@ function vueConformite() {
       <label class="champ"><span>Raison sociale</span><input id="en-raison" value="${esc(e.raison)}" data-entreprise="raison"></label>
       <div class="deux"><label class="champ"><span>Forme juridique</span><select id="en-forme" data-entreprise="forme">${(ch ? ['Raison individuelle', 'Sàrl', 'SA'] : droitPays().formes).map(f => `<option ${f === e.forme ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
       <label class="champ"><span>${ch ? 'Numéro IDE' : droitPays().id}</span><input id="en-siret" value="${esc(e.siret)}" data-entreprise="siret" placeholder="${ch ? 'CHE-123.456.789' : droitPays().idExemple}"></label></div>
-      <label class="champ"><span>Adresse</span><input id="en-adresse" value="${esc(e.adresse)}" data-entreprise="adresse"></label>
+      <label class="champ"><span>Adresse postale complète</span><input id="en-adresse" value="${esc(e.adresse)}" data-entreprise="adresse" placeholder="Rue du Lac 12, 1003 Lausanne" autocomplete="street-address"></label>${e.adresse && !adressePostale(e.adresse) ? '<p class="sous erreur-champ">Ajoutez le code postal et la localité (ex. « Rue du Lac 12, 1003 Lausanne ») : l’adresse figure sur vos factures et vos mentions légales.</p>' : ''}
       <div class="deux"><label class="champ"><span>Régime de TVA</span><select id="en-regime" data-entreprise="regime">${(ch ? [['ch-non', 'Non assujetti'], ['ch-assujetti', 'Assujetti (8,1 %)']] : [['franchise', droitPays().franchiseNom], ['normal', `Assujetti (${droitPays().tvaTexte})`]]).map(([v, n]) => `<option value="${v}" ${e.regime === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="champ"><span>${ch ? 'Numéro TVA' : 'Numéro de TVA'}</span><input id="en-tva" value="${esc(e.tvaIntra)}" data-entreprise="tvaIntra" placeholder="${ch ? 'CHE-123.456.789 TVA' : droitPays().tvaExemple}"></label></div>
       <label class="champ"><span>E-mail de contact</span><input id="en-email" value="${esc(e.email)}" data-entreprise="email"></label>
@@ -357,9 +359,8 @@ function ficheDepuisPhoto(nomFichier, i) {
 function redigerDescription(nom, cat) {
   const b = etat.boutique;
   const sec = SECTEURS[b.secteur];
-  return `${nom} : une pièce de notre collection ${cat.toLowerCase()}, sélectionnée par ${b.nom}. ` +
-    // Aucun délai, aucune condition de retour inventés : ils figurent dans les CGV et sur la fiche, d'après les vrais réglages.
-    `Décrivez ici sa matière, ses dimensions et son usage.`;
+  return `${nom} : une pièce de notre collection ${cat.toLowerCase()}, sélectionnée par ${b.nom}.`;
+    // Aucun délai, aucune condition de retour inventés (CGV et fiche) ; pas de texte « à compléter » qui finirait tel quel sous les yeux des clients.
 }
 function reduireImage(fichier, taille = 480) {
   return new Promise((ok, ko) => {
