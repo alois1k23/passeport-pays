@@ -245,3 +245,38 @@ Une relecture ligne à ligne du serveur a relevé 18 points ; chacun a été vé
 16. **Requêtes malformées** (`null`, tableau, nombre au lieu d'un objet) : erreur 500. Refus propre (400).
 
 Tests : 40.
+
+### Cycle 12 — Relecture complète de l'administration et de la boutique
+
+Une relecture de l'interface a relevé 20 défauts. Chacun a été reproduit puis corrigé, et vérifié dans le navigateur (démo et compte réel).
+
+**Graves**
+
+1. **« Essayer 30 jours » effaçait la boutique d'un vrai client** : le bouton de la page Offre menait à l'assistant de création, qui remplaçait sans avertissement tous les produits et le design. En compte réel, il mène maintenant à l'abonnement (« Choisir Croissance »), et l'assistant affiche un avertissement clair ; les boutons de démo inertes ont disparu.
+2. **Prix barré jamais enregistré** sur un compte réel (saisi, affiché « licite », puis perdu au rechargement ; impossible aussi de l'effacer). Corrigé et vérifié : 55 enregistré, puis effacé.
+3. **« Ajouter par photo » plantait** pour les secteurs Maison, Animaux et Tech (la démo par défaut). Noms proposés pour tous les secteurs.
+4. **Script exécuté sur la page Réseaux sociaux** si le nom de la boutique ou d'un produit contenait du HTML. Échappé ; vérifié avec `<img onerror>`.
+
+**Moyens**
+
+5. **Passer de la Suisse à la France gardait les francs suisses** (et les CGV annonçaient des euros). La devise suit le pays ; Paramètres affiche le nom du pays.
+6. **« Publier les modifications » trompeur en compte réel** : tout est déjà en ligne à chaque frappe. Remplacé par « Enregistré, en ligne ».
+7. **Échap fermait la facture et la commande en même temps**, focus perdu. Une fenêtre à la fois, focus rendu.
+8. **« Ajouter une offre » plantait** avec moins de deux produits en ligne : bouton désactivé avec explication.
+9. **Calendrier social : erreur JavaScript** quand aucun type de contenu n'est possible. Message clair.
+10. **Saisie effacée dans une fenêtre ouverte** (accroche d'une publication) à chaque rafraîchissement automatique. Saisie et focus conservés.
+11. **Tab renvoyait au début de la page** après la modification d'un champ (Conformité, Domaines, Conversion). Le focus passe au champ suivant.
+12. **Évolution des chiffres inversée** quand la période précédente était négative (bénéfice de −50 à +100 affiché « ▼ 300 % » en rouge).
+13. **« Livraison offerte dès CHF 0.00 »** dans les CGV alors que 0 signifie « jamais ». Texte juste partout.
+14. **Prix barré périmé** dans l'aperçu de l'éditeur : il est maintenant vérifié à chaque affichage.
+
+**Mineurs**
+
+15. Cartes du calendrier social inaccessibles au clavier.
+16. Échap ne fermait pas la fiche produit de la démo.
+17. Le compteur « commandes à préparer » ne correspondait pas à la liste ouverte (les filtres précédents restaient actifs).
+18. « Pas encore de commande » affiché avec un filtre de canal actif.
+19. Boutique publique : le bouton « + » du panier dépassait le stock (refus seulement au paiement). Borné, et désactivé au maximum.
+20. Palette (Ctrl+K) : « Exporter les commandes » n'exportait que 30 jours de ventes. Exporte bien toutes les commandes.
+
+Tests : 40 ; audits accessibilité et XSS propres.

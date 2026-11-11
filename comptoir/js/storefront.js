@@ -80,6 +80,11 @@ function varsTheme(t) {
   return `--sf-bg:${v(t.bg)};--sf-surface:${v(t.surface)};--sf-text:${v(t.text)};--sf-muted:${v(t.muted)};--sf-primary:${v(t.primary)};--sf-on-primary:${v(t.onPrimary)};--sf-font:${v(t.font)};--sf-body:${v(t.body)};--sf-radius:${Number(t.radius) || 0}px`;
 }
 
+/* Prix barré affiché : vérifié à chaque rendu (côté marchand, depuis le prix de référence ; côté public, le serveur l'a déjà vérifié). */
+function prixBarreAffiche(p, etat) {
+  if (!('prixReference' in p)) return p.prixBarre || 0;
+  return p.prixReference && typeof PrixBarres !== 'undefined' && PrixBarres.verifier(p, etat.boutique.pays === 'ch' ? 'ch' : 'ue').ok ? p.prixReference : 0;
+}
 function renduSection(s, etat, mode) {
   const p = s.props;
   const prods = etat.produits.filter(x => x.actif);
@@ -110,7 +115,7 @@ function renduSection(s, etat, mode) {
         <div class="sf-grille">${liste.map(x => `
           <article class="sf-carte">
             <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>
-            <div class="sf-carte-infos"><h3><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${x.prixBarre ? `<s class="sf-barre">${euros(x.prixBarre)}</s> ` : ''}${euros(x.prix)}</span></div>
+            <div class="sf-carte-infos"><h3><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${prixBarreAffiche(x, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(x, etat))}</s> ` : ''}${euros(x.prix)}</span></div>
             ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}<small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}</small>
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
           </article>`).join('') || (prods.length ? '<p class="sf-vide">Aucun produit dans cette catégorie.</p>' : '<p class="sf-vide">Nos produits arrivent très bientôt.</p>')}
@@ -161,8 +166,8 @@ function renduFiche(etat, p, qte = 1) {
     <div class="sf-fiche-infos">
       ${p.categorie ? `<small class="sf-fiche-cat">${esc(p.categorie)}</small>` : ''}
       <h2>${esc(p.nom)}</h2>
-      <p class="sf-fiche-prix">${p.prixBarre ? `<s class="sf-barre">${euros(p.prixBarre)}</s> ` : ''}<strong>${euros(p.prix)}</strong> <small>TTC${ch ? '' : ', TVA incluse'}</small></p>
-      ${p.prixBarre ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
+      <p class="sf-fiche-prix">${prixBarreAffiche(p, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(p, etat))}</s> ` : ''}<strong>${euros(p.prix)}</strong> <small>TTC${ch ? '' : ', TVA incluse'}</small></p>
+      ${prixBarreAffiche(p, etat) ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
       ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
       ${p.description ? `<p class="sf-fiche-desc">${esc(p.description)}</p>` : ''}
       <p class="sf-fiche-delai">${esc(fenetreLivraison(delaiProduit(p)))}</p>

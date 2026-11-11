@@ -9,7 +9,7 @@ function entreesPalette() {
     { nom: 'Lancer un test produit', icone: 'tests', faire: () => { location.hash = 'tests'; } },
     { nom: 'Commandes à préparer', icone: 'commandes', faire: () => { ui.filtre = 'payee'; location.hash = 'commandes'; rendre(); } },
     { nom: 'Rentabilité sur 12 mois', icone: 'analyse', faire: () => { ui.analyse = { ...(ui.analyse || {}), onglet: 'rentabilite', periode: 365, canal: 'tous' }; location.hash = 'analyse'; rendre(); } },
-    { nom: 'Exporter les commandes (CSV)', icone: 'analyse', faire: () => { location.hash = 'analyse'; setTimeout(exporterCsv, 60); } },
+    { nom: 'Exporter toutes les commandes (CSV)', icone: 'analyse', faire: () => exporterCommandesCsv(etat.commandes) },
     { nom: 'Changer de thème (clair, sombre, système)', icone: 'soleil', faire: changerTheme },
     { nom: 'Offre et tarifs', icone: 'offre', faire: () => { location.hash = 'offre'; } }
   ].map(a => ({ ...a, groupe: 'Actions' }));

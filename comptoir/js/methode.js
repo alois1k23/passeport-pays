@@ -201,7 +201,7 @@ function blocInfluenceurs() {
   return `<section class="carte">
     <div class="carte-tete"><h2>Micro-influenceurs</h2><span class="sous">Payés à la commission, sans avance</span></div>
     <p class="sous">Contactez beaucoup de petits comptes (Kamil Sattar conseille 50 à 100 par jour au démarrage) : produit offert, 15 % de commission sur les ventes faites avec leur code, et 10 % de remise pour leur communauté.</p>
-    <pre class="brouillon">Bonjour ! On adore tes vidéos. On est ${b.nom}, une petite boutique${b.pays === 'ch' ? ' de Suisse romande' : ''}. On aimerait t’offrir notre ${(etat.produits[0] || { nom: 'produit phare' }).nom.toLowerCase()} et te proposer 15 % de commission sur chaque vente faite avec ton code ${code} (−10 % pour ta communauté). Ça te dit ?</pre>
+    <pre class="brouillon">Bonjour ! On adore tes vidéos. On est ${esc(b.nom)}, une petite boutique${b.pays === 'ch' ? ' de Suisse romande' : ''}. On aimerait t’offrir notre ${esc((etat.produits[0] || { nom: 'produit phare' }).nom.toLowerCase())} et te proposer 15 % de commission sur chaque vente faite avec ton code ${esc(code)} (−10 % pour ta communauté). Ça te dit ?</pre>
     <p class="encart">${fr ? 'France (loi du 9 juin 2023) : l’influenceur doit afficher « Publicité » ou « Collaboration commerciale ». En dropshipping, il est responsable envers l’acheteur et doit indiquer l’identité du fournisseur.' : 'Suisse : la loi contre la concurrence déloyale interdit la publicité déguisée. Demandez une mention claire « Publicité » ou « Collaboration commerciale ».'}</p>
   </section>`;
 }

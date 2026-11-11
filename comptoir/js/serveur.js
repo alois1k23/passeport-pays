@@ -262,9 +262,6 @@ function installerModeConnecte() {
     return carte + domainesOrig();
   };
 
-  // Pas de démo ni de réinitialisation sur un vrai compte.
-  const assistantOrig = vueAssistant;
-  vueAssistant = function () { return assistantOrig().replace(/<div class="rangee"><span class="sous">Ou charger une démo :[\s\S]*?<\/div>\s*$/, '').replace('La boutique de démonstration actuelle sera remplacée. Vous pourrez la restaurer avec « Réinitialiser la démo ».', 'Le design et les produits actuels seront remplacés. Vos commandes et factures sont conservées.'); };
 
   // Clics : on intercepte avant les gestionnaires de la démo (phase de capture).
   document.addEventListener('click', async e => {
@@ -321,7 +318,7 @@ function installerModeConnecte() {
     const bouton = e.target.querySelector('button.btn:not(.fantome)');
     if (bouton) bouton.disabled = true;
     const d = new FormData(e.target);
-    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false };
+    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || null };
     try {
       if (etat.produits.find(x => x.id === p.id)) await api('PUT', `/api/admin/produits/${encodeURIComponent(p.id)}`, { produit: p });
       else await api('POST', '/api/admin/produits', { produit: p });
@@ -381,7 +378,7 @@ async function recreerBoutique() {
   const a = ui.assistant;
   const nom = a.nom.trim() || etat.boutique.nom;
   const config = configActuelle();
-  config.boutique = { ...config.boutique, nom, secteur: a.secteur, theme: { ...THEMES[a.theme], id: a.theme }, sections: sectionsParDefaut(nom, a.secteur, a.pays), pays: a.pays, modele: a.modele };
+  config.boutique = { ...config.boutique, nom, secteur: a.secteur, theme: { ...THEMES[a.theme], id: a.theme }, sections: sectionsParDefaut(nom, a.secteur, a.pays), pays: a.pays, devise: a.pays === 'ch' ? 'CHF' : 'EUR', modele: a.modele };
   if (a.domaine) config.boutique.domaine = { domaine: a.domaine, date: Date.now() };
   const propres = a.exemples && a.modele !== 'drop' ? produitsDepuisSecteur(a.secteur).slice(0, a.modele === 'mixte' ? 2 : 6).map(({ id, ...p }) => ({ ...p, type: 'stock' })) : [];
   await api('POST', '/api/admin/reinitialiser', { config, produits: propres });

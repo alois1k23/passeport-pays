@@ -14,7 +14,7 @@ function vueParametres() {
       <div class="deux"><label class="champ"><span>Nom de la boutique</span><input id="pa-nom" value="${esc(b.nom)}" data-boutique="nom"></label>
       <label class="champ"><span>Slogan</span><input id="pa-slogan" value="${esc(b.slogan || '')}" data-boutique="slogan" placeholder="Une phrase qui résume votre boutique"></label></div>
       <div class="deux"><label class="champ"><span>E-mail de contact (affiché aux clients)</span><input id="pa-email" type="email" value="${esc(e.email || '')}" data-entreprise="email"></label>
-      <div class="champ"><span>Pays et devise</span><p class="valeur">${b.pays === 'ch' ? 'Suisse · CHF' : b.pays === 'fr' ? 'France · EUR' : esc(b.pays) + ' · ' + esc(b.devise)}</p></div></div>
+      <div class="champ"><span>Pays et devise</span><p class="valeur">${({ ch: 'Suisse', fr: 'France', be: 'Belgique', ca: 'Canada' }[b.pays] || esc(b.pays))} · ${esc(b.devise || (b.pays === 'ch' ? 'CHF' : 'EUR'))}</p></div></div>
       <p class="sous">Les informations légales (raison sociale, IDE, TVA) se règlent dans <a class="lien" href="#conformite">Conformité</a>. Les langues et le design, dans l’<a class="lien" href="#editeur">éditeur du site</a>.</p></section>`;
   else if (s === 'apparence') {
     let t = 'auto'; try { t = localStorage.getItem('comptoir-theme') || 'auto'; } catch { /* ignoré */ }

@@ -134,6 +134,7 @@ function genererPlanning(jours = 14) {
   const prochains = prochainsTempsForts(3).filter(e => (e.date - Date.now()) / 86400000 <= 30);
   const campagne = prochains.map(e => etat.campagnes[e.cle] && { e, c: etat.campagnes[e.cle] }).find(Boolean);
   const piliers = r.piliers.filter(k => k !== 'saison' || prochains.length).filter(k => k !== 'offre' || campagne);
+  if (!piliers.length) return { erreur: r.piliers.length ? 'Les types cochés (saison, offre) n’ont rien à annoncer ces 30 prochains jours : cochez aussi « Produit » ou « Problème résolu ».' : 'Choisissez au moins un type de contenu.' };
   const poidsPilier = k => ({ probleme: 3, produit: 3, avis: 2, coulisses: 1.5, saison: 2, offre: 1 }[k] || 1) * Math.max(0.5, Math.min(2, appris.piliers[k] ? appris.piliers[k].indice : 1));
   const tirage = (liste, poids, graine) => { const tot = liste.reduce((a, x) => a + poids(x), 0); let v = hacheTexte(graine) * tot; for (const x of liste) { v -= poids(x); if (v <= 0) return x; } return liste[0]; };
   const nouvelles = [];

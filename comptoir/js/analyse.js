@@ -211,7 +211,7 @@ function ongletClients(t, tp, d0, f0, d1, f1) {
       <p class="sous">Lecture : chaque ligne regroupe les clients arrivés le même mois (avec leur nombre).</p></section>
     <section class="carte"><div class="carte-tete"><h2>Montant des paniers</h2><span class="sous">nombre de commandes par tranche (${devise()})</span></div>
       <div class="graph-wrap">${graphBarres(hist.map(h => ({ label: h.label, v: h.v, tip: `${h.label} ${devise()} : ${h.v} commande${h.v > 1 ? 's' : ''}` })), { labelsTous: true, hauteur: 200 })}</div>
-      <p class="sous">La livraison est offerte dès ${euros(seuilPort())} : les paniers juste en dessous sont une cible pour une vente additionnelle.</p></section>
+      <p class="sous">${seuilPort() > 0 ? `La livraison est offerte dès ${euros(seuilPort())} : les paniers juste en dessous sont une cible pour une vente additionnelle.` : 'Aucune livraison offerte : un seuil (dans Conversion) incite souvent à compléter le panier.'}</p></section>
   </div>`;
 }
 

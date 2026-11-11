@@ -215,7 +215,7 @@ function blocRegles(o) {
       <td class="num">${s.vues}</td><td class="num">${s.acceptees}<div class="sous">${fmtPct(s.taux)}</div></td><td class="num">${euros(s.ca)}</td>
       <td class="num actions-regle"><label class="interrupteur petit"><input type="checkbox" data-regle="${i}.actif" ${r.actif ? 'checked' : ''} aria-label="Offre active"><span>${r.actif ? 'Active' : 'Inactive'}</span></label><button class="btn petit fantome danger-doux" data-action="suppr-regle" data-i="${i}">Retirer</button></td></tr>`; }).join('') || '<tr><td colspan="8" class="vide">Aucune offre. Ajoutez-en une : par exemple, une bougie proposée avec le diffuseur.</td></tr>'}
     </tbody></table></div>
-    <div class="pad-x pad-b"><button class="btn petit fantome" data-action="ajout-regle" ${etat.produits.length < 2 ? 'disabled' : ''}>Ajouter une offre</button>${connecteServeur() ? '' : ' <span class="sous">Démo : vues et acceptations simulées.</span>'}</div>
+    <div class="pad-x pad-b"><button class="btn petit fantome" data-action="ajout-regle" ${etat.produits.filter(p => p.actif).length < 2 ? 'disabled title="Il faut au moins deux produits en ligne"' : ''}>Ajouter une offre</button>${connecteServeur() ? '' : ' <span class="sous">Démo : vues et acceptations simulées.</span>'}</div>
   </section>`;
 }
 
@@ -273,6 +273,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-action="ajout-regle"]')) {
     const { o } = etatConversion();
     const [a, b] = etat.produits.filter(p => p.actif);
+    if (!a || !b) { toast('Mettez au moins deux produits en ligne pour créer une offre.'); return; }
     o.regles = [...o.regles, { id: 'r' + Date.now().toString(36), si: a.id, alors: b.id, remise: 10, type: 'panier', actif: true }].slice(0, 10);
     sauver(); rendre(); return;
   }

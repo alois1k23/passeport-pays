@@ -227,7 +227,7 @@ function texteCGV() {
     return `<h2>Conditions générales de vente</h2>
     <p><strong>1. Objet.</strong> Ventes conclues sur le site de ${esc(b.nom)}, exploité par ${esc(e.raison)}, ${esc(e.adresse || '[adresse]')}.</p>
     <p><strong>2. Prix et paiement.</strong> Prix en francs suisses (CHF), TVA comprise${e.regime === 'ch-assujetti' ? ' (8,1 %)' : ' (entreprise non assujettie à la TVA)'}. Paiement par TWINT ou carte. Aucun frais de douane n’est facturé à la livraison.</p>
-    <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}`).join(' ; ')}. Offerte dès ${euros(seuilPort())} (hors Priority). ${drops.length ? `Certains articles sont expédiés directement par nos partenaires depuis la Suisse ou l’Europe : le délai indiqué sur chaque fiche produit (de ${Math.min(...drops.map(p => p.delai[0]))} à ${Math.max(...drops.map(p => p.delai[1]))} jours) s’applique.` : ''}</p>
+    <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}`).join(' ; ')}. ${seuilPort() > 0 ? `Offerte dès ${euros(seuilPort())} (hors Priority).` : 'Pas de livraison offerte.'} ${drops.length ? `Certains articles sont expédiés directement par nos partenaires depuis la Suisse ou l’Europe : le délai indiqué sur chaque fiche produit (de ${Math.min(...drops.map(p => p.delai[0]))} à ${Math.max(...drops.map(p => p.delai[1]))} jours) s’applique.` : ''}</p>
     <p><strong>4. Retours.</strong> Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. ${esc(b.nom)} accepte toutefois les retours sous 30 jours, frais de retour offerts.</p>
     <p><strong>5. Garantie.</strong> Garantie de 2 ans pour les défauts (art. 197 ss CO).</p>
     <p><strong>6. Droit applicable.</strong> Droit suisse, for au siège de l’exploitant, sous réserve des fors impératifs du consommateur.</p>`;
@@ -235,7 +235,7 @@ function texteCGV() {
   return `<h2>Conditions générales de vente</h2>
   <p><strong>1. Objet.</strong> Les présentes conditions régissent les ventes conclues sur le site de ${esc(b.nom)}, exploité par ${esc(e.raison)} (${droitPays().idCourt} ${esc(e.siret || '[à compléter]')}).</p>
   <p><strong>2. Prix.</strong> Les prix sont indiqués en euros, toutes taxes comprises${e.regime === 'franchise' ? ` (${droitPays().franchise})` : ''}.</p>
-  <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}, ${l.delai}`).join(' ; ')}. Livraison offerte dès ${seuilPort()} € d’achat (hors express).</p>
+  <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}, ${l.delai}`).join(' ; ')}. ${seuilPort() > 0 ? `Livraison offerte dès ${euros(seuilPort())} d’achat (hors express).` : 'Pas de livraison offerte.'}</p>
   <p><strong>4. Droit de rétractation.</strong> Vous disposez de 14 jours à compter de la réception pour vous rétracter, sans avoir à vous justifier (art. L221-18 du Code de la consommation). Le remboursement intervient sous 14 jours.</p>
   <p><strong>5. Garanties.</strong> Les produits bénéficient de la garantie légale de conformité (2 ans) et de la garantie des vices cachés.</p>
   <p><strong>6. Médiation.</strong> En cas de litige, vous pouvez recourir gratuitement au médiateur de la consommation : ${esc(e.mediateur || '[médiateur à renseigner]')}.</p>`;
@@ -247,12 +247,13 @@ function rendreModal() {
   const m = ui.modal;
   if (!m) {
     const etaitOuverte = !zone.hidden;
-    zone.hidden = true; zone.innerHTML = '';
+    zone.hidden = true; zone.innerHTML = ''; zone.dataset.cle = '';
     // Rendre le focus à l’élément qui a ouvert la fenêtre
     if (etaitOuverte && rendreModal.retour && document.contains(rendreModal.retour)) rendreModal.retour.focus();
     return;
   }
   if (zone.hidden) rendreModal.retour = document.activeElement;
+  zone.dataset.cle = JSON.stringify(m);
   let corps = '';
   if (m.type === 'facture') {
     const c = etat.commandes.find(x => x.id === m.id);
@@ -305,13 +306,15 @@ function rendreModal() {
 const MOTS_PRODUITS = {
   deco: ['Bougie', 'Vase', 'Diffuseur', 'Coupelle', 'Plaid'], mode: ['Pull', 'Chemise', 'Robe', 'Écharpe', 'Sac'],
   beaute: ['Sérum', 'Savon', 'Baume', 'Huile', 'Crème'], epicerie: ['Thé', 'Confiture', 'Miel', 'Biscuits', 'Coffret'],
-  sport: ['Gourde', 'Tapis', 'T-shirt', 'Sac', 'Bandeau'], bijoux: ['Collier', 'Bague', 'Bracelet', 'Boucles', 'Pendentif']
+  sport: ['Gourde', 'Tapis', 'T-shirt', 'Sac', 'Bandeau'], bijoux: ['Collier', 'Bague', 'Bracelet', 'Boucles', 'Pendentif'],
+  maison: ['Lampe', 'Diffuseur', 'Plaid', 'Organiseur', 'Bougie'], animaux: ['Gamelle', 'Coussin', 'Jouet', 'Laisse', 'Brosse'],
+  tech: ['Chargeur', 'Support', 'Câble', 'Écouteurs', 'Étui']
 };
 function ficheDepuisPhoto(nomFichier, i) {
   const sec = etat.boutique.secteur;
   const s = SECTEURS[sec];
   const brut = nomFichier.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').replace(/\b(img|dsc|photo|image|pxl)\b\s*\d*/gi, '').replace(/\d{3,}/g, '').trim();
-  const mot = MOTS_PRODUITS[sec][i % 5];
+  const mot = (MOTS_PRODUITS[sec] || ['Produit'])[i % 5] || 'Produit';
   const nom = brut.length > 2 ? brut[0].toUpperCase() + brut.slice(1) : `${mot} ${['Aube', 'Sauge', 'Galet', 'Lin', 'Ambre'][i % 5]}`;
   const prix = s.produits.map(p => p[2]).sort((a, b) => a - b)[3];
   const cat = s.categories.find(c => nom.toLowerCase().includes(c.toLowerCase().slice(0, 4))) || s.categories[i % s.categories.length];
@@ -374,7 +377,7 @@ function vueOffre() {
       <h2>${nom}</h2><p class="sous">${pour}</p>
       <div class="prix"><strong>${devise === 'CHF' ? 'CHF ' + prix + '.–' : prix + ' €'}</strong><span class="sous">${ch ? 'par mois' : 'HT / mois'}</span></div>
       <ul>${inclus.map(x => `<li>${x}</li>`).join('')}</ul>
-      <a class="btn ${i === 1 ? '' : 'fantome'}" href="#creer">Essayer 30 jours</a>
+      ${connecteAuServeur() ? `<a class="btn ${i === 1 ? '' : 'fantome'}" href="#parametres" data-action="section-param" data-v="abonnement">Choisir ${nom}</a>` : `<a class="btn ${i === 1 ? '' : 'fantome'}" href="#creer">Essayer 30 jours</a>`}
     </section>`).join('')}</div>
   <section class="carte">
     <div class="carte-tete"><h2>Ce qui nous distingue</h2></div>
@@ -437,7 +440,7 @@ document.addEventListener('change', e => {
   else if (t.dataset.entreprise) { etat.entreprise[t.dataset.entreprise] = t.value; sauver(); rendre(); }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && ui.modal) { ui.modal = null; rendreModal(); return; }
+  if (e.key === 'Escape' && ui.modal) { e.preventDefault(); e.stopImmediatePropagation(); ui.modal = null; rendreModal(); return; }
   // Le focus reste dans la fenêtre ouverte (Tab et Maj+Tab)
   if (e.key === 'Tab' && ui.modal) {
     const f = [...document.querySelectorAll('#modal .modal-corps button, #modal .modal-corps input, #modal .modal-corps textarea, #modal .modal-corps select, #modal .modal-corps a[href]')].filter(x => !x.disabled && x.offsetParent);

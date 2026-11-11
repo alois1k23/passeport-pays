@@ -141,6 +141,9 @@ function appliquerTheme() {
 }
 appliquerTheme();
 
+let dernierTab = null;
+document.addEventListener('keydown', e => { if (e.key === 'Tab') dernierTab = { id: e.target.id || '', arriere: e.shiftKey, t: Date.now() }; }, true);
+
 function rendre() {
   const route = ui.route;
   document.body.dataset.route = route;
@@ -164,7 +167,21 @@ function rendre() {
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : (typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? location.host + '/s/' + SERVEUR.slug : slugifier(etat.boutique.nom) + '.comptoir.shop');
   const vues = { stars: vueStars, tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, parametres: vueParametres, fournisseurs: vueFournisseurs, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
+  // Le champ actif (par son id) retrouve le focus après le rendu : Tab après une modification ne renvoie plus au début de la page.
+  // Si l'on quitte un champ avec Tab, son « change » redessine la vue avant que le focus n'arrive au champ suivant : on l'y amène.
+  const actif = document.activeElement, surCorps = !actif || actif === document.body;
+  const idActif = actif && actif.id && actif.closest && actif.closest('#vue') ? actif.id : '';
+  const tab = surCorps && dernierTab && Date.now() - dernierTab.t < 300 ? dernierTab : null;
   $('#vue').innerHTML = (vues[route] || vueTableau)();
+  if (idActif || (tab && tab.id)) setTimeout(() => {
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const el = document.getElementById(idActif || tab.id);
+    if (!el) return;
+    if (idActif) return el.focus({ preventScroll: true });
+    const ordre = [...$('#vue').querySelectorAll('a[href], button, input, select, textarea, [tabindex="0"]')].filter(x => !x.disabled && x.offsetParent && x.type !== 'hidden');
+    const i = ordre.indexOf(el), cible = ordre[i + (tab.arriere ? -1 : 1)] || el;
+    cible.focus();
+  }, 0);
   // Mode connecté : une fonction hors de la formule payée affiche une invitation (le serveur refuse aussi l'accès).
   const ab = typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.abonnement;
   if (ab && ab.obligatoire && Formules.FONCTIONS[route] && !Formules.permet(ab.formule, route)) $('#vue').innerHTML = vueFonctionVerrouillee(route, ab);
@@ -176,7 +193,18 @@ window.addEventListener('resize', () => { clearTimeout(minuterieRedim); minuteri
 function apresRendu() {
   if (ui.route === 'editeur') rendreApercu();
   if (ui.route === 'magasin') dessinerQR();
+  // Fenêtre déjà affichée pour le même objet : on la laisse telle quelle (sinon la saisie en cours est effacée).
+  const zone = $('#modal'), cle = ui.modal ? JSON.stringify(ui.modal) : '';
+  // Même fenêtre déjà affichée : elle est redessinée (son contenu peut avoir changé) en gardant la saisie et le focus.
+  const meme = cle && zone && !zone.hidden && zone.dataset.cle === cle;
+  const champs = meme ? [...zone.querySelectorAll('input, textarea, select')].map((el, i) => [el.id || el.name || i, el.type === 'checkbox' ? el.checked : el.value]) : [];
+  const focusCle = meme && zone.contains(document.activeElement) ? (document.activeElement.id || document.activeElement.name || [...zone.querySelectorAll('input, textarea, select, button')].indexOf(document.activeElement)) : null;
   rendreModal();
+  if (meme) {
+    const liste = [...zone.querySelectorAll('input, textarea, select')];
+    for (const [k, v] of champs) { const el = typeof k === 'number' ? liste[k] : liste.find(x => (x.id || x.name) === k); if (el) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } }
+    if (focusCle !== null) { const el = typeof focusCle === 'number' ? [...zone.querySelectorAll('input, textarea, select, button')][focusCle] : liste.find(x => (x.id || x.name) === focusCle); if (el) el.focus({ preventScroll: true }); }
+  }
 }
 
 /* État vide commun : icône, titre, explication, action. */
@@ -193,6 +221,8 @@ function pagination(total, page, parPage, action) {
   return `<div class="pagination"><span class="sous">${debut + 1}–${Math.min(debut + parPage, total)} sur ${total.toLocaleString('fr-FR')}</span>
     <div class="rangee"><button class="btn petit fantome" data-action="${action}" data-d="-1" ${page <= 1 ? 'disabled' : ''}>Précédente</button><span class="sous">Page ${page} / ${pages}</span><button class="btn petit fantome" data-action="${action}" data-d="1" ${page >= pages ? 'disabled' : ''}>Suivante</button></div></div>`;
 }
+
+function connecteAuServeur() { return typeof SERVEUR !== 'undefined' && !!SERVEUR.connecte; }
 
 function vueFonctionVerrouillee(route, ab) {
   const min = Formules.FONCTIONS[route], f = Formules.FORMULES[min];
@@ -219,7 +249,7 @@ function vueTableau() {
   const bCur = benef(debut, fin), bPrev = benef(debut - 30 * JOUR, debut);
   const prev = statsPeriode(debut - 30 * JOUR, debut);
   const conv = cur.n / etat.visites30j;
-  const aExpedier = etat.commandes.filter(c => c.statut === 'payee' || c.statut === 'preparation');
+  const aExpedier = etat.commandes.filter(c => c.statut === 'payee');
   const attente = etat.commandes.filter(c => c.statut === 'attente').length;
   const jours = [], joursPrec = [];
   for (let i = 29; i >= 0; i--) {
@@ -375,7 +405,7 @@ function vueCommandes() {
         </tbody></table></div>
         <div class="pagination"><span class="sous">${debut + 1}–${Math.min(debut + PAR_PAGE, liste.length)} sur ${liste.length.toLocaleString('fr-FR')}</span>
           <div class="rangee"><button class="btn petit fantome" data-action="page-cmd" data-d="-1" ${ui.pageCmd <= 1 ? 'disabled' : ''}>Précédente</button><span class="sous">Page ${ui.pageCmd} / ${pages}</span><button class="btn petit fantome" data-action="page-cmd" data-d="1" ${ui.pageCmd >= pages ? 'disabled' : ''}>Suivante</button></div></div>`
-      : etatVide('commandes', ui.recherche || ui.filtre !== 'tous' || (ui.periodeCmd && ui.periodeCmd !== 'tout') ? 'Aucune commande ne correspond' : 'Pas encore de commande', ui.recherche || ui.filtre !== 'tous' ? 'Modifiez la recherche ou les filtres.' : 'Les commandes de votre boutique en ligne et de la caisse apparaîtront ici.')}
+      : etatVide('commandes', filtresCmdActifs() ? 'Aucune commande ne correspond' : 'Pas encore de commande', filtresCmdActifs() ? 'Modifiez la recherche ou les filtres.' : 'Les commandes de votre boutique en ligne et de la caisse apparaîtront ici.')}
     </section>
     ${ouverte ? detailCommande(ouverte) : ''}
   </div>`;
@@ -394,6 +424,7 @@ function bonsPreparation(ids) {
     <div class="rangee">${imprimable ? '<button class="btn" data-action="imprimer">Imprimer</button>' : '<span class="sous">L’impression est disponible dans l’application installée.</span>'}</div>`;
 }
 
+function filtresCmdActifs() { return !!(ui.recherche || ui.filtre !== 'tous' || (ui.periodeCmd && ui.periodeCmd !== 'tout') || (ui.canalCmd && ui.canalCmd !== 'tous')); }
 function exporterCommandesCsv(liste) {
   const champs = ['numero', 'date', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total', 'facture', 'suivi'];
   const lignes = liste.map(c => [c.numero, new Date(c.date).toISOString(), STATUTS[c.statut] ? STATUTS[c.statut].nom : c.statut, c.client.nom, c.client.email, c.client.ville, c.canal, c.livraison, c.lignes.map(l => `${l.qte}× ${l.nom}`).join(' | '), c.remise || 0, c.port || 0, c.total, c.facture || '', c.suivi || '']
@@ -658,7 +689,7 @@ function vueEditeur() {
         <button class="${ui.appareil === 'ordinateur' ? 'actif' : ''}" data-action="appareil" data-id="ordinateur">Ordinateur</button>
         <button class="${ui.appareil === 'mobile' ? 'actif' : ''}" data-action="appareil" data-id="mobile">Mobile</button>
       </div>
-      ${b.modifie ? '<button class="btn" data-action="publier">Publier les modifications</button>' : '<span class="etat-publication">✓ En ligne, à jour</span>'}
+      ${connecteAuServeur() ? '<span class="etat-publication" title="Chaque modification est enregistrée et visible par vos clients aussitôt.">✓ Enregistré, en ligne</span>' : b.modifie ? '<button class="btn" data-action="publier">Publier les modifications</button>' : '<span class="etat-publication">✓ En ligne, à jour</span>'}
     </div></div>
   <div class="segment bascule-editeur" role="group" aria-label="Affichage de l’éditeur">
     <button class="${ui.vueEdMobile !== 'apercu' ? 'actif' : ''}" data-action="vue-ed-mobile" data-id="modifier">Modifier</button>
@@ -691,7 +722,8 @@ function rendreApercu() {
   const a = $('#apercu');
   if (a) a.innerHTML = renduBoutique(etat, { mode: 'edition', selection: ui.section });
 }
-function modifie() { etat.boutique.modifie = true; sauver(); const b = document.querySelector('[data-action="publier"]'); if (b) b.textContent = 'Publier les modifications'; else { const e = document.querySelector('.etat-publication'); if (e) e.outerHTML = '<button class="btn" data-action="publier">Publier les modifications</button>'; } }
+function modifie() { if (connecteAuServeur()) { sauver(); return; }   // mode connecté : enregistré et en ligne aussitôt, pas de brouillon
+  etat.boutique.modifie = true; sauver(); const b = document.querySelector('[data-action="publier"]'); if (b) b.textContent = 'Publier les modifications'; else { const e = document.querySelector('.etat-publication'); if (e) e.outerHTML = '<button class="btn" data-action="publier">Publier les modifications</button>'; } }
 
 /* ---------- Domaines ---------- */
 function vueDomaines() {
@@ -850,12 +882,12 @@ function vueAssistant() {
   }
   return `<div class="assistant carte">
     <div class="assistant-tete"><h1>Créer une boutique</h1><a href="#tableau" class="btn petit fantome">Annuler</a></div>
-    ${typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? '' : '<p class="encart">La boutique de démonstration de ce navigateur sera remplacée. Vous pourrez la retrouver avec « Réinitialiser la démo » dans Paramètres.</p>'}
+    ${connecteAuServeur() ? '<p class="encart alerte">Attention : le design et les produits actuels de votre boutique seront remplacés. Vos commandes, clients et factures sont conservés.</p>' : '<p class="encart">La boutique de démonstration de ce navigateur sera remplacée. Vous pourrez la retrouver avec « Réinitialiser la démo » dans Paramètres.</p>'}
     <ol class="etapes">${etapes.map((e, i) => `<li class="${i + 1 === a.etape ? 'actif' : i + 1 < a.etape ? 'fait' : ''}">${e}</li>`).join('')}</ol>
     <div class="assistant-corps">${corps}</div>
     <div class="rangee fin">${a.etape > 1 ? '<button class="btn fantome" data-action="as-prec">Retour</button>' : ''}
       <button class="btn" data-action="${a.etape < 3 ? 'as-suiv' : 'as-creer'}">${a.etape < 3 ? 'Continuer' : 'Créer ma boutique'}</button></div>
-    <div class="rangee"><span class="sous">Ou ouvrir une démo toute prête :</span><button class="btn petit fantome" data-action="demo" data-id="lausanne">Dropshipping à Lausanne</button><button class="btn petit fantome" data-action="demo" data-id="lyon">Artisan à Lyon</button></div>
+    ${connecteAuServeur() ? '' : '<div class="rangee"><span class="sous">Ou ouvrir une démo toute prête :</span><button class="btn petit fantome" data-action="demo" data-id="lausanne">Dropshipping à Lausanne</button><button class="btn petit fantome" data-action="demo" data-id="lyon">Artisan à Lyon</button></div>'}
   </div>`;
 }
 
@@ -957,7 +989,7 @@ document.addEventListener('click', e => {
     case 'export-clients': exporterClientsCsv(); break;
     case 'copier': try { navigator.clipboard.writeText(el.dataset.texte).then(() => toast('Copié.'), () => toast(el.dataset.texte)); } catch { toast(el.dataset.texte); } break;
     case 'imprimer': window.print(); break;
-    case 'filtre-lien': ui.filtre = el.dataset.filtre; break;
+    case 'filtre-lien': ui.filtre = el.dataset.filtre; ui.pageCmd = 1; ui.canalCmd = 'tous'; ui.periodeCmd = 'tout'; ui.recherche = ''; break;
     case 'statut': changerStatut(id, el.dataset.statut); break;
     case 'nouveau-produit': ui.produitEdite = { id: nouvelId('p'), nom: '', description: '', prix: 20, stock: 10, categorie: SECTEURS[etat.boutique.secteur].categories[0], teinte: Math.floor(Math.random() * 360), actif: true }; rendre(); break;
     case 'editer-produit': ui.produitEdite = { ...etat.produits.find(x => x.id === id) }; rendre(); break;
@@ -1003,8 +1035,8 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('keydown', e => {
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr[data-action], [data-section]')) { e.preventDefault(); e.target.click(); }
-  if (e.key === 'Escape') { if (ui.panierOuvert) { ui.panierOuvert = false; rendre(); } else if (ui.commande) { ui.commande = null; rendre(); } }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr[data-action], [data-section], [data-action][tabindex="0"]:not(button):not(a)')) { e.preventDefault(); e.target.click(); }
+  if (e.key === 'Escape' && !ui.modal && !e.defaultPrevented) { if (ui.panierOuvert) { ui.panierOuvert = false; rendre(); } else if (ui.fiche) { ui.fiche = null; rendre(); } else if (ui.commande) { ui.commande = null; rendre(); } }
 });
 
 document.addEventListener('input', e => {
@@ -1058,7 +1090,7 @@ document.addEventListener('change', e => {
   if (t.dataset.champ === 'dom-marque') { ui.dom.marque = t.value; rendre(); }
   else if (t.dataset.champ === 'dom-kw') { ui.dom.motsCles = t.value; rendre(); }
   else if (t.dataset.champ === 'dom-mois') { ui.dom.mois = Number(t.value); rendre(); }
-  else if (t.dataset.boutiqueDom === 'pays') { etat.boutique.pays = t.value; sauver(); rendre(); }
+  else if (t.dataset.boutiqueDom === 'pays') { etat.boutique.pays = t.value; etat.boutique.devise = t.value === 'ch' ? 'CHF' : 'EUR'; sauver(); rendre(); }
   else if (t.dataset.boutique === 'secteur') { rendre(); }
   else if (t.dataset.livraison !== undefined) { ui.livraison = t.value; rendreEnGardantSaisie(); }
   else if (t.dataset.assistant === 'exemples') ui.assistant.exemples = t.checked;

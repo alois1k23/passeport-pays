@@ -138,7 +138,7 @@ function tuile({ nom, valeur, actuel, precedent, tendance = [], inverse = false,
   let evol = '';
   if (precedent === null && !note) note = 'pas assez d’historique pour comparer';
   if (precedent !== undefined && precedent !== null && precedent !== 0) {
-    const d = actuel / precedent - 1;
+    const d = (actuel - precedent) / Math.abs(precedent);
     const bon = inverse ? d <= 0 : d >= 0;
     evol = `<span class="evol ${bon ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${fmtPct(Math.abs(d))}</span>`;
   } else if (precedent === 0 && actuel > 0) evol = '<span class="evol up">nouveau</span>';

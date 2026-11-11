@@ -127,7 +127,7 @@ function rendreBrut() {
         ${vue.message ? vue.message : vue.panier.length ? `
           <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
             <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span>${esc(l.nom)}</span>
-            <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-d="1" aria-label="Ajouter un">+</button></div>
+            <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId); return pr && l.qte >= (pr.type === 'drop' ? 20 : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
             <span class="num">${euros(l.prixInitial * l.qte)}</span></li>`).join('')}</ul>
           ${donnees.offres.barrePort && seuil > 0 && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuil * 100)}%"></i></span></div>` : ''}
           ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
@@ -160,7 +160,7 @@ function texteLegal(type) {
   if (type === 'cgv') return `<h2>Conditions générales de vente</h2>
     <p><strong>Vendeur.</strong> ${esc(e.raison || b.nom)}, ${esc(e.adresse || '')}. Contact : ${esc(e.email || '')}.</p>
     <p><strong>Prix.</strong> En ${esc(b.devise)}, TVA comprise${e.regime === 'ch-non' ? ' (entreprise non assujettie à la TVA)' : ''}.</p>
-    <p><strong>Livraison.</strong> ${Object.values(donnees.livraisons).map(m => `${esc(m.nom)} : ${m.prix ? euros(m.prix) : 'gratuit'}`).join(' ; ')}. Offerte dès ${euros(donnees.seuilPortOffert)} sauf envoi express. Les articles expédiés par nos partenaires indiquent leur délai sur la fiche produit.</p>
+    <p><strong>Livraison.</strong> ${Object.values(donnees.livraisons).map(m => `${esc(m.nom)} : ${m.prix ? euros(m.prix) : 'gratuit'}`).join(' ; ')}. ${donnees.seuilPortOffert > 0 ? `Offerte dès ${euros(donnees.seuilPortOffert)} sauf envoi express.` : 'Pas de livraison offerte.'} Les articles expédiés par nos partenaires indiquent leur délai sur la fiche produit.</p>
     <p><strong>Retours.</strong> ${ch ? 'Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. Nous acceptons toutefois les retours sous 30 jours.' : 'Vous disposez de 14 jours pour vous rétracter (art. L221-18 du Code de la consommation).'}</p>
     <p><strong>Garantie.</strong> 2 ans pour les défauts.</p>`;
   return `<h2>${ch ? 'Impressum et protection des données' : 'Mentions légales'}</h2>
@@ -252,7 +252,9 @@ document.addEventListener('click', e => {
   else if (c === 'retour-panier') { vue.message = null; rendre(); }
   else if (c === 'qte') {
     const l = vue.panier.find(x => x.produitId === el.dataset.id && !x.offre);
-    l.qte += Number(el.dataset.d);
+    const pr = donnees.produits.find(x => x.id === l.produitId);
+    const max = pr ? (pr.type === 'drop' ? 20 : pr.stock) : 20;
+    l.qte = Math.min(max, l.qte + Number(el.dataset.d));   // le serveur refuserait au paiement : on borne tout de suite
     if (l.qte <= 0) vue.panier = vue.panier.filter(x => x !== l);
     garderPanier(); rendre();
   } else if (c === 'cookies') { try { localStorage.setItem('comptoir-cookies', el.dataset.v); } catch { /* ignoré */ } rendre(); }
