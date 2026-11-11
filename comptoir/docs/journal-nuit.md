@@ -3,7 +3,7 @@
 Boucle demandée : tester, analyser et améliorer Comptoir sans relâche jusqu'à 7 h 00 (heure de Lausanne), sans rien laisser passer.
 Chaque cycle : un domaine, des tests réels (navigateur, serveur, scripts), les corrections, `npm test`, puis commit et push.
 
-## Synthèse de la nuit (0 h 10 – 6 h 50)
+## Synthèse de la nuit (0 h 10 – 6 h 45)
 
 49 cycles, environ 74 commits poussés sur `claude/nice-mccarthy-59mfb5`. Tests du serveur : 64, tous verts.
 
@@ -1120,3 +1120,12 @@ Après une nuit de changements, `server/README.md`, `.env.example` et le README 
 **Exploitation**
 - Sauvegarde d'une base SQLite en mode WAL : `.backup` ou `VACUUM INTO`, pas une simple copie du fichier.
 - Comportements en production : les pages simulées sont refusées, et un abonnement sans clé Stripe répond 503.
+
+### Clôture (06 h 45)
+
+Contrôles finaux sur le dernier code :
+- 100 boutiques de dropshipping : aucune anomalie.
+- 100 utilisateurs dans un vrai navigateur : 40 marchands sur tous les écrans, 46 commandes payées, 10 paniers abandonnés, 4 paiements annulés, aucune anomalie.
+- Tests du serveur : 64, tous verts.
+
+La démo est republiée (version 15 de l'aperçu). Aucun nouveau cycle n'est lancé après 6 h 50.
