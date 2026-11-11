@@ -472,3 +472,14 @@ Captures d'une boutique réelle (formule Croissance, Suisse) : Domaines, Réseau
 4. **Prévision inventée pour une boutique neuve** : « Campagne prête : CHF 166.60 de ventes prévues » sans aucune vente (le calcul comptait au moins une vente par produit). Sans historique, plus de chiffre : « prévision dès vos premières commandes ».
 5. **Graphique vide** : l'axe affichait « 0, 0, 1, 1, 1 ». Deux graduations nettes, 0 et 1.
 6. Réseaux sociaux en publication manuelle : le sous-titre ne dit plus « prépare et publie ».
+
+### Cycle 25 — Compte neuf, écran par écran (Suisse puis France)
+
+Chaque écran d'un compte réel tout neuf a été parcouru, à la recherche de chiffres inventés et de termes d'un autre pays.
+
+1. **« Votre stock couvre la demande prévue »** sans aucune prévision : « la demande sera prévue à partir de vos premières ventes ».
+2. **« 1,0 pour 1000 vues »** affiché avec zéro vue : « pas encore de vues mesurées ».
+3. **« Les chiffres de démo sont fictifs »** sur la page Tests d'un compte réel : retiré hors de la démo.
+4. **Boutique française** :
+   - « Impressum » (terme suisse) dans le plan de lancement : « mentions légales » ;
+   - les produits d'entrepôts suisses étaient mis en tête avec « expédié depuis la Suisse » comme un atout. Or la Suisse est hors de l'UE : TVA d'importation pour l'acheteur. Ils sont désormais pénalisés dans le sourcing et les produits stars, avec l'explication, et les entrepôts européens sont signalés « sans formalité ».

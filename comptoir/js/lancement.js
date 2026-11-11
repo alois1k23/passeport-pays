@@ -25,7 +25,7 @@ function etapesLancement() {
     { phase: 'Jours 1 à 7 · Préparer', etapes: [
       { cle: 'produits', nom: '3 produits ou plus avec au moins 20 % de marge nette', ok: rentables.length >= 3, detail: `${rentables.length} sur ${actifs.length}`, lien: 'sourcing', source: 'Minea' },
       { cle: 'delais', nom: 'Tous les produits en dropshipping livrés en 7 jours maximum', ok: drops.length > 0 && drops.every(p => p.delai && p.delai[1] <= 7), detail: `${drops.filter(p => p.delai && p.delai[1] > 7).length} trop lent(s)`, lien: 'produits', source: 'Kamil Sattar, Baymard' },
-      { cle: 'legal', nom: 'Fiche entreprise complète (Impressum, contact)', ok: !!(e.raison && e.email && e.adresse && !/compléter/.test(e.adresse)), lien: 'conformite' },
+      { cle: 'legal', nom: `Fiche entreprise complète (${estSuisse() ? 'Impressum' : 'mentions légales'}, contact)`, ok: !!(e.raison && e.email && e.adresse && !/compléter/.test(e.adresse)), lien: 'conformite' },
       { cle: 'emails', nom: 'E-mails automatiques actifs avant toute publicité', ok: !!(auto.paiement && auto.paiement.actif && auto.bienvenue && auto.bienvenue.actif && auto.avis && auto.avis.actif), lien: 'conversion', source: 'créateurs interrogés, Klaviyo' },
       { cle: 'domaine', nom: 'Domaine personnalisé choisi', ok: !!etat.boutique.domaine, lien: 'domaines' }
     ] },

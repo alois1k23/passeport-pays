@@ -120,7 +120,9 @@ function potentielProduit(f) {
   const sMarge = Math.max(0, Math.min(100, m.taux * 250));
   const sTendance = Math.min(100, f.tendance * indice);
   const sConcurrence = 100 - f.concurrence;
-  const sDelai = Math.max(0, 100 - (f.delai[1] - 2) * 6);
+  // Envoi depuis l'étranger (hors Suisse pour une boutique suisse, hors UE pour une boutique française ou belge) : frais d'importation pour le client.
+  const importe = estSuisse() ? f.entrepot !== 'CH' : f.entrepot !== 'UE';
+  const sDelai = Math.max(0, 100 - (f.delai[1] - 2) * 6) * (importe && !estSuisse() ? 0.6 : 1);
   const score = Math.round(sMarge * 0.35 + sTendance * 0.25 + sConcurrence * 0.2 + sDelai * 0.2);
   const raisons = [];
   if (m.taux >= 0.25) raisons.push(`marge nette ${Math.round(m.taux * 100)} %`);
@@ -128,7 +130,8 @@ function potentielProduit(f) {
   if (indice >= 1.2) raisons.push(`demande +${Math.round((indice - 1) * 100)} % en ${MOIS_LONG[mois]}`);
   if (f.concurrence >= 85) raisons.push('marché saturé');
   if (f.entrepot === 'CN') raisons.push(`livraison lente (${f.delai[0]}–${f.delai[1]} j) et TVA d’importation à la charge du client`);
-  if (f.entrepot === 'CH') raisons.push('expédié depuis la Suisse');
+  if (f.entrepot === 'CH') raisons.push(estSuisse() ? 'expédié depuis la Suisse' : 'envoi depuis la Suisse, hors UE : TVA d’importation pour le client');
+  if (f.entrepot === 'UE' && !estSuisse()) raisons.push('expédié depuis l’UE, sans formalité');
   return { score, marge: m, raisons };
 }
 

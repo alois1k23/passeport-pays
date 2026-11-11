@@ -287,7 +287,7 @@ function vueSocial() {
   <div class="kpis">
     <div class="kpi"><span>Publications (30 j)</span><strong>${publiees.filter(p => p.date > Date.now() - 30 * 86400000).length}</strong><span class="evol neutre">${avenir.length} à venir</span></div>
     <div class="kpi"><span>Vues</span><strong>${tot('vues').toLocaleString('fr-FR')}</strong><span class="evol neutre">${publiees.length} publication${publiees.length > 1 ? 's' : ''} publiée${publiees.length > 1 ? 's' : ''}</span></div>
-    <div class="kpi"><span>Clics vers la boutique</span><strong>${tot('clics').toLocaleString('fr-FR')}</strong><span class="evol neutre">${a.global.toFixed(1).replace('.', ',')} pour 1000 vues</span></div>
+    <div class="kpi"><span>Clics vers la boutique</span><strong>${tot('clics').toLocaleString('fr-FR')}</strong><span class="evol neutre">${tot('vues') ? `${a.global.toFixed(1).replace('.', ',')} pour 1000 vues` : 'pas encore de vues mesurées'}</span></div>
     <div class="kpi"><span>Ventes attribuées</span><strong>${tot('ventes')}</strong>${publiees.some(p => p.stats && p.stats.simulees) ? '<span class="evol neutre">statistiques simulées</span>' : ''}</div>
   </div>
 

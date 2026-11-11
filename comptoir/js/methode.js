@@ -190,7 +190,7 @@ function vueTests() {
       </section>
     </div>
   </div>
-  <p class="note">Les chiffres de démo sont fictifs. Les seuils publiés (taux d’accroche, taux de clic, apprentissage) sont des repères, pas des garanties.</p>`;
+  <p class="note">${connecteAuServeur() ? '' : 'Les chiffres de démo sont fictifs. '}Les seuils publiés (taux d’accroche, taux de clic, apprentissage) sont des repères, pas des garanties.</p>`;
 }
 
 /* ---------- 3. Micro-influenceurs (réseaux sociaux) ---------- */

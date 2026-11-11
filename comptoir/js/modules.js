@@ -39,7 +39,7 @@ function vueCopilote() {
       </div>
       <div class="bloc"><h3>Stock et délais face à la demande prévue</h3>
         ${camp.ruptures.length ? `<ul class="todo">${camp.ruptures.map(x => `<li class="alerte"><a href="#produits"><span class="todo-n">+${x.manque}</span><span class="todo-t">${esc(x.p.nom)} à commander : ${x.prevision} ventes prévues, ${x.p.stock} en stock</span><span class="todo-fl" aria-hidden="true">›</span></a></li>`).join('')}</ul>`
-          : '<p class="sous">Votre stock couvre la demande prévue.</p>'}
+          : camp.caPrevu === null ? '<p class="sous">La demande sera prévue à partir de vos premières ventes.</p>' : '<p class="sous">Votre stock couvre la demande prévue.</p>'}
         ${camp.dateLimite ? `<p class="encart">Dropshipping : vos fournisseurs livrent en ${Math.max(...camp.vedettes.filter(x => x.p.delai).map(x => x.p.delai[1]))} jours au plus. Date limite de commande affichée aux clients : <strong>${camp.dateLimite.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</strong>.</p>` : ''}
         ${camp.delaiLong.length ? `<p class="encart alerte-encart">${camp.delaiLong.map(p => esc(p.nom)).join(', ')} : livraison en plus de 10 jours. Retirez-le de la campagne ou passez à un fournisseur européen.</p>` : ''}
       </div>

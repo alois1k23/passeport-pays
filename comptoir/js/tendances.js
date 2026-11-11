@@ -48,7 +48,9 @@
     const concurrence = 1 - borne((p.concurrence || 50) / 100);
     const dmax = p.delai ? p.delai[1] : 7;
     // Chine : délai long et, en Suisse comme dans l'UE, TVA d'importation à la charge du client.
-    const delai = p.entrepot === 'CN' ? (o.pays === 'ch' ? 0.25 : 0.35) : dmax <= 4 ? 1 : dmax <= 7 ? 0.85 : 0.45;
+    const delaiBrut = p.entrepot === 'CN' ? (o.pays === 'ch' ? 0.25 : 0.35) : dmax <= 4 ? 1 : dmax <= 7 ? 0.85 : 0.45;
+    // Boutique de l'UE servie depuis la Suisse : rapide, mais hors UE (TVA d'importation pour le client).
+    const delai = o.pays !== 'ch' && p.entrepot === 'CH' ? Math.min(delaiBrut, 0.55) : delaiBrut;
     const note = borne(((p.note || 4.3) - 3.8) / 1.1);
     const score = Math.round(100 * (0.26 * saison + 0.3 * demande + 0.2 * marge + 0.1 * concurrence + 0.1 * delai + 0.04 * note));
 
@@ -60,6 +62,7 @@
     else if (dansMois > 0 && dansMois <= 2 && idx[pic] >= 130) raisons.unshift(`Pic de demande en ${MOIS[pic]} : lancez maintenant`);
     else if (dansMois === 3 && idx[pic] >= 170) raisons.unshift(`Grand pic en ${MOIS[pic]} : testez dès maintenant (fiches, photos et publicités se préparent 2 à 3 mois avant)`);
     if (o.marge) raisons.push(o.marge.taux < 0.15 ? `Marge faible (${Math.round(o.marge.taux * 100)} %)` : `Marge nette ${Math.round(o.marge.taux * 100)} %`);
+    if (o.pays !== 'ch' && p.entrepot === 'CH') raisons.push('Envoi depuis la Suisse, hors UE : TVA d’importation à la charge du client');
     if (p.entrepot === 'CN') raisons.push(o.pays === 'ch' ? 'Envoi de Chine : délai long, TVA d’importation et frais de dédouanement possibles pour le client' : 'Envoi de Chine : délai long et TVA d’importation à la charge du client (sauf IOSS)');
     else if (dmax <= 4) raisons.push(`Livré en ${p.delai[0]} à ${dmax} jours`);
     if ((p.concurrence || 0) >= 80) raisons.push('Marché très concurrentiel');
