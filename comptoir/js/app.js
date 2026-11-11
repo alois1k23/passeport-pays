@@ -222,6 +222,7 @@ function pagination(total, page, parPage, action) {
     <div class="rangee"><button class="btn petit fantome" data-action="${action}" data-d="-1" ${page <= 1 ? 'disabled' : ''}>Précédente</button><span class="sous">Page ${page} / ${pages}</span><button class="btn petit fantome" data-action="${action}" data-d="1" ${page >= pages ? 'disabled' : ''}>Suivante</button></div></div>`;
 }
 
+function caDouzeMois() { const d = Date.now() - 365 * JOUR; return etat.commandes.filter(c => c.date >= d && compteVentes(c)).reduce((s, c) => s + c.total, 0); }
 function connecteAuServeur() { return typeof SERVEUR !== 'undefined' && !!SERVEUR.connecte; }
 
 function vueFonctionVerrouillee(route, ab) {
@@ -275,7 +276,7 @@ function vueTableau() {
   ${blocLancement()}
   <div class="kpis">
     ${tuile({ nom: 'Chiffre d’affaires', valeur: euros(cur.ca), actuel: cur.ca, precedent: prev.ca, tendance: jours.map(j => j.v) })}
-    ${tuile({ nom: 'Bénéfice net (estimé)', valeur: euros(bCur), actuel: bCur, precedent: bPrev, tendance: jours.map(j => j.net) })}
+    ${tuile({ nom: 'Bénéfice avant publicité (estimé)', valeur: euros(bCur), actuel: bCur, precedent: bPrev, tendance: jours.map(j => j.net) })}
     ${tuile({ nom: 'Commandes', valeur: cur.n.toLocaleString('fr-FR'), actuel: cur.n, precedent: prev.n, tendance: jours.map(j => j.n) })}
     ${tuile({ nom: 'Panier moyen', valeur: euros(cur.panier), actuel: cur.panier, precedent: prev.panier, tendance: jours.map(j => j.panier) })}
   </div>
@@ -315,6 +316,7 @@ function vueTableau() {
           etat.boutique.domaine ? '' : item(null, 'Choisir un domaine personnalisé', 'domaines', { alerte: true }),
           etat.entreprise.mediateur || estSuisse() ? '' : item(null, 'Indiquer votre médiateur de la consommation (obligatoire)', 'conformite', { alerte: true }),
           etat.entreprise.adresse ? '' : item(null, `Indiquer l’adresse de l’entreprise (${estSuisse() ? 'Impressum' : 'mentions légales'}, obligatoire : sans elle, votre boutique n’accepte pas de commandes)`, 'conformite', { alerte: true }),
+          estSuisse() && etat.entreprise.regime !== 'ch-assujetti' && caDouzeMois() >= 80000 ? item(null, `Chiffre d’affaires sur 12 mois : ${euros(caDouzeMois())}, plus de 80 % du seuil de CHF 100 000 : préparez votre inscription à la TVA auprès de l’AFC`, 'conformite', { alerte: true }) : '',
           (() => { if (!connecteAuServeur() || SERVEUR.fournisseurDemoVendable !== false) return ''; const n = etat.produits.filter(p => p.actif && p.codeFournisseur === 'demo').length; return n ? item(n, `produit${n > 1 ? 's' : ''} du fournisseur de démonstration, invisible${n > 1 ? 's' : ''} pour vos clients : il n’expédie rien réellement. Remplacez-le${n > 1 ? 's' : ''} par un fournisseur réel ou vos propres produits`, 'produits', { alerte: true }) : ''; })(),
           (() => { const t = JSON.stringify((etat.boutique.sections || []).map(x => x.props)); const anciens = ['Fabriqué en France', 'Expédié sous 48 h', 'expédiés depuis notre atelier', 'Retours gratuits 30 jours', 'Produit superbe et livraison rapide', 'Livraison offerte dès 60', '48 à 72 h en France']; const trouves = anciens.filter(x => t.includes(x)); return trouves.length ? item(null, `Vérifier les textes d’exemple de votre page d’accueil (« ${esc(trouves[0])} »…) : chaque promesse doit être vraie pour votre boutique`, 'editeur', { alerte: true }) : ''; })(),
           (() => { const n = etat.produits.filter(p => p.aVerifier).length; return n ? item(n, `produit${n > 1 ? 's' : ''} d’exemple à vérifier avant la mise en ligne`, 'produits', { alerte: true }) : ''; })(),

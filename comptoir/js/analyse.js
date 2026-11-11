@@ -22,9 +22,10 @@ function tranches(periode, decalage = 0) {
     }
   } else {
     const pas = periode > 30 ? 7 : 1, n = Math.ceil(periode / pas);
-    const finP = fin.getTime() - decalage * periode * JOUR;
+    // Bornes en jours du calendrier (et non en pas de 24 h), pour rester à minuit au changement d'heure.
+    const jour = k => new Date(fin.getFullYear(), fin.getMonth(), fin.getDate() - k).getTime();
     for (let i = n - 1; i >= 0; i--) {
-      const f = finP - i * pas * JOUR, d = f - pas * JOUR;
+      const kf = decalage * periode + i * pas, f = jour(kf), d = jour(kf + pas);
       out.push({ debut: d, fin: f, label: dateCourte(d) });
     }
   }
@@ -52,6 +53,23 @@ function decomposer(c) {
   const paiement = c.moyen === 'especes' ? 0 : c.canal === 'magasin' ? ttc * 0.017 : ttc * 0.025 + 0.3;
   const port = c.canal === 'magasin' || c.livraison === 'retrait' || estDropship(c) ? 0 : 7;
   return { ttc, tva, achat, douane, paiement, port, net: ttc - tva - achat - douane - paiement - port };
+}
+
+/* Part de chaque ligne dans le bénéfice avant publicité de sa commande : la somme par produit retombe exactement sur le compte de résultat. */
+function contributionsLignes(c) {
+  const d = decomposer(c);
+  const base = c.lignes.reduce((a, l) => a + l.prix * l.qte, 0) || 1;
+  return c.lignes.map(l => {
+    const p = etat.produits.find(x => x.id === l.produitId);
+    const cout = p ? (() => { const m = margeProduit(p, { prix: l.prix, cpa: 0 }); return (m.achat + m.importTva + m.douane) * l.qte; })() : l.prix * 0.4 * l.qte;
+    const part = l.prix * l.qte / base;
+    return { produitId: l.produitId, qte: l.qte, v: part * (d.ttc - d.tva - d.paiement - d.port) - cout };
+  });
+}
+function contributionPeriode(liste, id) {
+  let v = 0, u = 0;
+  for (const c of liste) for (const x of contributionsLignes(c)) if (x.produitId === id) { v += x.v; u += x.qte; }
+  return { v, u };
 }
 
 function mesures(liste) {
@@ -111,7 +129,7 @@ function ongletVentes(t, tp, d0, f0, d1, f1) {
   return `
   <div class="kpis">
     ${tuile({ nom: 'Chiffre d’affaires', valeur: euros(cur.ca), actuel: cur.ca, precedent: comparaisonPossible ? prev.ca : null, tendance: parT.map(x => x.ca) })}
-    ${tuile({ nom: 'Bénéfice net (estimé)', valeur: euros(cur.net), actuel: cur.net, precedent: comparaisonPossible ? prev.net : null, tendance: parT.map(x => x.net) })}
+    ${tuile({ nom: 'Bénéfice avant publicité (estimé)', valeur: euros(cur.net), actuel: cur.net, precedent: comparaisonPossible ? prev.net : null, tendance: parT.map(x => x.net) })}
     ${tuile({ nom: 'Commandes', valeur: cur.n.toLocaleString('fr-FR'), actuel: cur.n, precedent: comparaisonPossible ? prev.n : null, tendance: parT.map(x => x.n) })}
     ${tuile({ nom: 'Panier moyen', valeur: euros(cur.panier), actuel: cur.panier, precedent: comparaisonPossible ? prev.panier : null, tendance: parT.map(x => x.panier) })}
     ${tuile({ nom: 'Visites', valeur: compact(cur.visites), actuel: cur.visites, precedent: comparaisonPossible ? prev.visites : null, tendance: parT.map(x => x.visites), note: 'estimées' })}
@@ -137,8 +155,8 @@ function ongletProduits(t, tp, d0, f0, d1, f1) {
   const total = Object.values(a).reduce((s, x) => s + x.ca, 0) || 1;
   const lignes = etat.produits.map(p => {
     const v = a[p.id] || { u: 0, ca: 0 }, w = b[p.id] || { u: 0, ca: 0 };
-    const m = margeProduit(p, { cpa: 0 });
-    return { p, ...v, prec: w.ca, margeU: m.avantPub, marge: m.avantPub * v.u, tendance: t.map(x => vendues(x.debut, x.fin).reduce((s, c) => s + c.lignes.filter(l => l.produitId === p.id).reduce((q, l) => q + l.qte, 0), 0)) };
+    const m = margeProduit(p, { cpa: 0 }), contrib = contributionPeriode(liste, p.id);
+    return { p, ...v, prec: w.ca, margeU: contrib.u ? contrib.v / contrib.u : m.avantPub, marge: contrib.v, tendance: t.map(x => vendues(x.debut, x.fin).reduce((s, c) => s + c.lignes.filter(l => l.produitId === p.id).reduce((q, l) => q + l.qte, 0), 0)) };
   }).sort((x, y) => y.ca - x.ca);
   const parCat = {}; lignes.forEach(l => { parCat[l.p.categorie] = (parCat[l.p.categorie] || 0) + l.ca; });
   const parType = { 'Dropshipping': 0, 'Mon stock': 0 }; lignes.forEach(l => { parType[l.p.type === 'drop' ? 'Dropshipping' : 'Mon stock'] += l.ca; });
@@ -256,11 +274,10 @@ function ongletRentabilite(t, tp, d0, f0, d1, f1) {
   const netPrev = prevListe.reduce((s, c) => s + decomposer(c).net, 0) - depensePub(d1, f1);
   const lignesPL = [['Chiffre d’affaires TTC', ca], ['TVA', -tva], ['Coût des produits (fournisseur, port)', -achat], ['TVA d’import et dédouanement', -douane], ['Frais de paiement', -paiement], ['Envois de votre stock', -port], ['Publicité (tests)', -pub], ['Bénéfice net', net]];
   const parProduit = etat.produits.map(p => {
-    let n = 0;
-    for (const c of liste) for (const l of c.lignes) if (l.produitId === p.id) { const m = margeProduit(p, { prix: l.prix, cpa: 0 }); n += m.avantPub * l.qte; }
-    return { nom: p.nom, v: n };
+    return { nom: p.nom, v: contributionPeriode(liste, p.id).v };
   }).filter(x => x.v !== 0).sort((a, b) => b.v - a.v);
-  const ca12 = vendues(Date.now() - 365 * JOUR, Date.now() + 1).reduce((s, c) => s + c.total, 0);
+  // Seuil de TVA : tout le chiffre d'affaires, quel que soit le filtre de canal affiché.
+  const ca12 = caDouzeMois();
   const etapes = [{ nom: 'Chiffre d’affaires', v: ca, total: true }, { nom: 'TVA', v: -tva }, { nom: 'Coût produits', v: -achat }, { nom: 'Import et douane', v: -douane }, { nom: 'Frais paiement', v: -paiement }, { nom: 'Envois', v: -port }, { nom: 'Publicité', v: -pub }, { nom: 'Bénéfice net', v: net, total: true }].filter(e => e.total || Math.abs(e.v) >= 0.01);
   return `
   <div class="kpis">
@@ -295,13 +312,13 @@ function blocEntonnoir(d0, f0, cur, visites) {
   const pertes = etapes.slice(1).map((e, i) => ({ de: etapes[i].nom, vers: e.nom, perdus: Math.max(0, etapes[i].v - e.v), taux: etapes[i].v ? 1 - e.v / etapes[i].v : 0 }));
   const pire = pertes.slice(1).sort((a, b) => b.taux - a.taux)[0];
   const conseils = {
-    'Saisie de la livraison': 'Beaucoup quittent le panier : affichez plus tôt le coût total et la date de livraison. Les coûts additionnels sont la 1re cause d’abandon (40 %, Baymard).',
-    'Paiement commencé': 'Le formulaire de livraison freine : gardez 7 à 8 champs au plus, pas de compte obligatoire (Baymard). Le NPA remplit déjà la localité.',
-    'Commande payée': 'Des paiements sont abandonnés : la relance automatique en récupère une partie. Vérifiez que TWINT est bien proposé : 70 % des acheteurs suisses abandonnent sans leur moyen de paiement (La Poste et HWZ 2024).'
+    'Saisie de la livraison': 'Beaucoup quittent le panier : affichez plus tôt le coût total et la date de livraison. Les frais imprévus sont la première cause d’abandon citée par les acheteurs (Baymard Institute).',
+    'Paiement commencé': `Le formulaire de livraison freine : gardez 7 à 8 champs au plus, pas de compte obligatoire (Baymard Institute).${estSuisse() ? ' Le NPA remplit déjà la localité.' : ''}`,
+    'Commande payée': `Des paiements sont abandonnés : la relance automatique en récupère une partie.${estSuisse() ? ' Vérifiez que TWINT est bien proposé : c’est le moyen de paiement mobile le plus utilisé en Suisse.' : ' Vérifiez que les moyens de paiement habituels de vos clients sont proposés.'}`
   };
   return `${entonnoir(etapes)}
     <table class="table compacte abandons"><thead><tr><th>Abandon entre</th><th class="num">Perdus</th><th class="num">Taux</th></tr></thead><tbody>${pertes.map(p => `<tr><td>${esc(p.de)} → ${esc(p.vers)}</td><td class="num">${Math.round(p.perdus).toLocaleString('fr-FR')}</td><td class="num">${fmtPct(p.taux)}</td></tr>`).join('')}</tbody></table>
-    ${pire && conseils[pire.vers] ? `<p class="encart"><b>Fuite principale : ${esc(pire.de.toLowerCase())} → ${esc(pire.vers.toLowerCase())}.</b> ${conseils[pire.vers]}</p>` : ''}
+    ${r && pire && conseils[pire.vers] ? `<p class="encart"><b>Fuite principale : ${esc(pire.de.toLowerCase())} → ${esc(pire.vers.toLowerCase())}.</b> ${conseils[pire.vers]}</p>` : ''}
     <p class="sous">${r ? 'Mesure réelle, sans cookie ni adresse IP : une session par onglet, comptée une fois par jour et par étape.' : 'Estimation : la mesure réelle démarre dès que la boutique est en ligne sur le serveur Comptoir (sans cookie). Seules les commandes sont réelles ici.'} Abandons par moyen de paiement : disponibles quand le prestataire de paiement est branché.</p>`;
 }
 

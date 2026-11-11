@@ -49,7 +49,7 @@ function tempsFortsAnnee(an, pays = (typeof etat !== 'undefined' && etat ? etat.
     { id: 'soldes-ete', nom: 'Soldes d’été', kw: 'soldes', date: soldesEte, duree: 28, remise: 30, cadeau: false, angle: 'Faites de la place pour la rentrée' },
     { id: 'rentree', nom: 'Rentrée', kw: 'rentree', date: new Date(an, 8, 1), duree: 14, remise: 10, cadeau: false, angle: 'Nouvelle saison, nouvelles envies' },
     { id: 'halloween', nom: 'Halloween', kw: 'halloween', date: new Date(an, 9, 31), duree: 10, remise: 10, cadeau: false, angle: 'Soirées d’automne' },
-    { id: 'black-friday', nom: 'Black Friday', kw: 'black-friday', date: ajouterJours(thanksgiving, 1), duree: 4, remise: 20, cadeau: false, angle: 'Notre seule grosse remise de l’année' },
+    { id: 'black-friday', nom: 'Black Friday', kw: 'black-friday', date: ajouterJours(thanksgiving, 1), duree: 4, remise: 20, cadeau: false, angle: 'Notre plus belle remise de l’automne' },
     ...(be ? [{ id: 'saint-nicolas', nom: 'Saint-Nicolas', kw: 'saint-nicolas', date: new Date(an, 11, 6), duree: 14, remise: 0, cadeau: true, angle: 'Les petits cadeaux du 6 décembre' }] : []),
     { id: 'noel', nom: 'Noël', kw: 'noel', date: new Date(an, 11, 25), duree: 24, remise: 0, cadeau: true, angle: 'Des cadeaux qui ont une histoire' }
   ].sort((x, y) => x.date - y.date).map(e => ({ ...e, cle: `${e.id}-${an}`, debut: ajouterJours(e.date, -e.duree), annee: an }));
@@ -69,7 +69,7 @@ function tempsFortsSuisse(an) {
     { id: 'rentree', nom: 'Rentrée scolaire (Vaud)', kw: 'rentree', date: nieme(an, 7, 1, 4), duree: 14, remise: 10, cadeau: false, angle: 'Nouvelle saison, nouvelles envies' },
     { id: 'halloween', nom: 'Halloween', kw: 'halloween', date: new Date(an, 9, 31), duree: 10, remise: 10, cadeau: false, angle: 'Soirées d’automne' },
     { id: 'singles-day', nom: 'Singles Day', kw: 'singles-day', date: new Date(an, 10, 11), duree: 3, remise: 15, cadeau: false, angle: 'Faites-vous plaisir, rien que pour vous' },
-    { id: 'black-friday', nom: 'Black Friday', kw: 'black-friday', date: ajouterJours(thanksgiving, 1), duree: 4, remise: 20, cadeau: false, angle: 'Notre seule grosse remise de l’année' },
+    { id: 'black-friday', nom: 'Black Friday', kw: 'black-friday', date: ajouterJours(thanksgiving, 1), duree: 4, remise: 20, cadeau: false, angle: 'Notre plus belle remise de l’automne' },
     { id: 'noel', nom: 'Noël', kw: 'noel', date: new Date(an, 11, 25), duree: 24, remise: 0, cadeau: true, angle: 'Des cadeaux livrés à temps' },
     { id: 'soldes-hiver', nom: 'Soldes d’après-Noël', kw: 'soldes', date: new Date(an, 11, 26), duree: 21, remise: 30, cadeau: false, angle: 'Dernières pièces de la saison à prix doux' }
   ].map(e => ({ ...e, cle: `${e.id}-${an}`, debut: ajouterJours(e.date, -e.duree), annee: an }));
@@ -121,19 +121,21 @@ function genererCampagne(etat, evt) {
 
   // Dropshipping : date limite de commande pour que le client reçoive à temps
   const drops = vedettesDrop(produits);
-  const delaiMax = drops.length ? Math.max(...drops.map(x => x.p.delai[1])) : 0;
+  // Date limite : sur le délai le plus long de tous les produits de la campagne expédiés par un fournisseur (pas seulement les vedettes).
+  const tousDrops = produits.filter(x => x.p.type === 'drop' && x.p.delai);
+  const delaiMax = tousDrops.length ? Math.max(...tousDrops.map(x => x.p.delai[1])) : 0;
   const dateLimite = delaiMax && (evt.cadeau || evt.id === 'noel') ? ajouterJours(evt.date, -(delaiMax + 1)) : null;
   const racines = { soldes: 'SOLDES', 'saint-valentin': 'VALENTIN', paques: 'PAQUES', 'fete-des-meres': 'MAMAN', 'fete-des-peres': 'PAPA', rentree: 'RENTREE', halloween: 'HALLOWEEN', 'black-friday': 'BLACKFRIDAY', noel: 'NOEL', 'singles-day': 'SINGLES', '1er-aout': 'AOUT' };
   const code = evt.remise ? (racines[evt.kw] || racines[evt.id] || evt.kw.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 12)) + evt.remise : '';
-  const offre = evt.remise ? `-${evt.remise} % avec le code ${code}` : 'Emballage cadeau offert et livraison garantie avant le 24';
+  const offre = evt.remise ? `-${evt.remise} % avec le code ${code}` : evt.id === 'noel' ? 'Emballage cadeau offert, livraison prévue avant Noël pour toute commande passée à temps' : 'Emballage cadeau offert';
   const delaiLong = produits.filter(x => x.p.type === 'drop' && x.p.delai && x.p.delai[1] > 10).map(x => x.p);
   const dateTxt = evt.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-  const finCampagne = evt.id === 'noel' ? ajouterJours(evt.date, -5) : ['soldes-hiver', 'soldes-ete'].includes(evt.id) ? ajouterJours(evt.date, evt.duree) : evt.id === 'black-friday' ? ajouterJours(evt.date, 3) : evt.date;
+  const finCampagne = evt.id === 'noel' ? (dateLimite || ajouterJours(evt.date, -5)) : ['soldes-hiver', 'soldes-ete'].includes(evt.id) ? ajouterJours(evt.date, evt.duree) : evt.id === 'black-friday' ? ajouterJours(evt.date, 3) : evt.date;
   const fmt = d => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   const lancement = ['soldes-hiver', 'soldes-ete', 'black-friday'].includes(evt.id) ? evt.date : evt.debut;
 
   return {
-    evt, vedettes, ruptures, caPrevu, code, offre, dateLimite, delaiLong,
+    evt, vedettes, ruptures, caPrevu, code, offre, dateLimite, delaiLong, lancement, finCampagne,
     banniere: { titre: evt.nom, texte: `${evt.angle}. ${offre}.` },
     email: {
       objet: evt.remise ? `${evt.nom} : -${evt.remise} % chez ${b.nom}` : `${evt.nom} : nos idées cadeaux`,
@@ -155,7 +157,9 @@ function vedettesDrop(produits) { return produits.slice(0, 3).filter(x => x.p.ty
 
 /* Bilan d’un temps fort passé : CA des N jours avant l’événement vs les N jours précédents. */
 function bilanCampagne(etat, evt) {
-  const fin = evt.date.getTime() + 86400000, n = Math.min(evt.duree, 14) * 86400000;
+  // Fenêtre mesurée : celle de la campagne (soldes : les semaines qui suivent l'ouverture ; Black Friday : jusqu'au Cyber Monday).
+  const apres = ['soldes-hiver', 'soldes-ete'].includes(evt.id) ? Math.min(evt.duree, 14) : evt.id === 'black-friday' ? 4 : 1;
+  const fin = evt.date.getTime() + apres * 86400000, n = (['soldes-hiver', 'soldes-ete', 'black-friday'].includes(evt.id) ? apres : Math.min(evt.duree, 14)) * 86400000;
   const ca = (d, f) => etat.commandes.filter(c => c.date >= d && c.date < f && !['annulee', 'remboursee', 'attente'].includes(c.statut)).reduce((a, c) => a + c.total, 0);
   const pendant = ca(fin - n, fin), avant = ca(fin - 2 * n, fin - n);
   const v = ventesParProduit(etat, fin - n, fin);
@@ -174,5 +178,8 @@ function appliquerCampagne(etat, camp) {
     b.sections.splice(iHero >= 0 ? iHero + 1 : 0, 0, s);
   }
   s.props = { titre: camp.banniere.titre, texte: camp.banniere.texte.replace(/ avec le code \w+/, ''), code: camp.code };
-  etat.campagnes[camp.evt.cle] = { statut: 'programmee', le: Date.now(), code: camp.code, domaine: camp.domaine };
+  // Le code ne vaut que pendant la campagne : pas avant le lancement (en France, des soldes hors période légale sont interdites), plus après la fin.
+  const debut = new Date(camp.lancement); debut.setHours(0, 0, 0, 0);
+  const fin = new Date(camp.finCampagne); fin.setHours(24, 0, 0, 0);
+  etat.campagnes[camp.evt.cle] = { statut: 'programmee', le: Date.now(), code: camp.code, domaine: camp.domaine, debut: debut.getTime(), expire: fin.getTime() };
 }

@@ -84,9 +84,9 @@ function analyseTest(t) {
   } else if (!jours) { verdict = 'À lancer'; ton = 'muted'; raison = canal.regle; }
   else if (!ventes && depense >= SEUIL_COUPE * mb && impressions >= IMPRESSIONS_MIN) { verdict = 'Couper'; ton = 'bad'; raison = `${euros(depense)} dépensés sans vente, soit plus de ${SEUIL_COUPE} fois le coût d’acquisition d’équilibre (${euros(mb)}).`; }
   else if (cpa !== null && jours >= canal.jours && cpa > mb) { verdict = hook !== null && hook < HOOK_CIBLE[0] ? 'Changer l’accroche' : 'Couper'; ton = 'bad'; raison = `Coût par vente ${euros(cpa)} au-dessus du seuil d’équilibre ${euros(mb)} : chaque vente coûte de l’argent.${hook !== null && hook < HOOK_CIBLE[0] ? ` L’accroche retient peu (${fmtPct(hook)} regardent 3 s, cible 30–40 %) : testez de nouvelles premières secondes avant d’abandonner le produit.` : ''}`; }
-  else if (cpa !== null && jours >= canal.jours && cpa <= mb * 0.7) {
+  else if (cpa !== null && depense > 0 && jours >= canal.jours && cpa <= mb * 0.7) {
     verdict = 'Augmenter'; ton = 'good';
-    raison = `Coût par vente ${euros(cpa)}, soit ${Math.round(cpa / mb * 100)} % du seuil d’équilibre. Rendement pub ${roas.toFixed(2).replace('.', ',')} pour un seuil d’équilibre de ${roasEq.toFixed(2).replace('.', ',')}.`;
+    raison = `Coût par vente ${euros(cpa)}, soit ${Math.round(cpa / mb * 100)} % du seuil d’équilibre. Rendement pub ${roas === null ? '—' : roas.toFixed(2).replace('.', ',')} pour un seuil d’équilibre de ${roasEq.toFixed(2).replace('.', ',')}.`;
     conseil = enApprentissage && canal.gel && ventes7 < canal.gel ? `Ne touchez à rien avant ${canal.gel} conversions (TikTok).` : 'Deux options : ajouter 2 ou 3 nouvelles publicités sur le même angle (horizontal), ou augmenter le budget puis attendre environ 7 jours avant de juger.';
   } else if (jours >= canal.jours) { verdict = 'Garder et itérer'; ton = 'info'; raison = 'Rentable mais sans marge de sécurité : changez les 3 premières secondes ou testez un nouvel angle avant d’augmenter le budget.'; }
   else { verdict = 'Attendre'; ton = 'info'; raison = `Jour ${jours} sur ${canal.jours}. Jugez après ${canal.jours} jours, sauf si la dépense sans vente dépasse ${SEUIL_COUPE} × ${euros(mb)}.`; }

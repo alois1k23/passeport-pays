@@ -174,6 +174,13 @@ function renduFiche(etat, p, qte = 1) {
       ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
       ${p.description ? `<p class="sf-fiche-desc">${esc(p.description)}</p>` : ''}
       <p class="sf-fiche-delai">${esc(fenetreLivraison(delaiProduit(p)))}</p>
+      ${(() => {
+        // Pays d'expédition (les CGV y renvoient) et, hors du pays du client, frais d'importation possibles.
+        if (p.type !== 'drop' || !p.entrepot) return '';
+        const ch = etat.boutique.pays === 'ch', nom = { CH: 'Suisse', UE: 'Union européenne', CN: 'Chine' }[p.entrepot] || p.entrepot;
+        const etranger = ch ? p.entrepot !== 'CH' : p.entrepot !== 'UE';
+        return `<p class="sf-fiche-note">Expédié depuis : ${esc(nom)}.${etranger ? (ch ? ' TVA d’importation et frais de dédouanement possibles à la livraison (au-delà de CHF 5 de TVA par envoi).' : ' Envoi de l’extérieur de l’UE : TVA d’importation et frais du transporteur possibles à la livraison.') : ''}</p>`;
+      })()}
       <div class="sf-fiche-achat">
         <label class="sf-qte"><span>Quantité</span><select data-sf-qte aria-label="Quantité">${Array.from({ length: max }, (_, i) => `<option ${i + 1 === qte ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
         <button class="sf-btn" data-sf="ajouter" data-id="${esc(p.id)}" ${epuise ? 'disabled' : ''}>${epuise ? 'Épuisé' : 'Ajouter au panier'}</button>

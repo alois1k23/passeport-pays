@@ -69,6 +69,24 @@ function reglages() {
   return etat.reglages;
 }
 function estSuisse() { return etat.boutique.pays === 'ch'; }
+/* Estimation de ce que le client paie à la livraison pour un article envoyé seul depuis l'étranger.
+   Suisse : TVA d'importation 8,1 % perçue seulement au-delà de CHF 5 d'impôt par envoi (≈ CHF 62 de marchandise), plus les frais
+   de dédouanement de La Poste (dès CHF 13 depuis l'UE, CHF 16 d'ailleurs). UE : depuis juillet 2021, TVA due dès le premier euro
+   sur les envois venant de hors UE, plus des frais du transporteur, sauf si le fournisseur la perçoit à la vente (guichet IOSS). */
+function fraisImportClient(p, prix = p.prix) {
+  if (!p.entrepot) return null;
+  if (estSuisse()) {
+    if (p.entrepot === 'CH') return null;
+    const tva = prix * TVA_CH;
+    if (tva <= 5) return null;
+    const frais = p.entrepot === 'UE' ? 13 : 16;
+    return { montant: tva + frais, texte: `TVA d’importation (≈ ${euros(tva)}) et frais de dédouanement de La Poste (dès ${euros(frais)}) réclamés au client à la livraison.` };
+  }
+  if (p.entrepot === 'UE') return null;
+  const tva = prix * droitPays().tva;
+  return { montant: tva, texte: `Envoi depuis l’extérieur de l’UE : TVA d’importation (≈ ${euros(tva)}) et frais du transporteur réclamés au client à la livraison, sauf si le fournisseur utilise le guichet IOSS.` };
+}
+
 function tauxTvaVente() {
   const r = etat.entreprise.regime;
   return r === 'ch-assujetti' ? TVA_CH : r === 'normal' ? droitPays().tva : 0;
@@ -78,18 +96,17 @@ function tauxTvaVente() {
 function margeProduit(p, { prix = p.prix, cpa = reglages().cpa } = {}) {
   const ht = prix / (1 + tauxTvaVente());
   const achat = p.type === 'drop' ? p.cout + (p.portF || 0) : (p.cout || prix * 0.35);
-  let importTva = 0, douane = 0;
-  if (p.type === 'drop' && estSuisse() && p.entrepot && p.entrepot !== 'CH') {
-    importTva = (p.cout + p.portF) * TVA_CH;
-    if (importTva <= 5) importTva = 0; // montant d’impôt de CHF 5 ou moins : pas perçu
-    douane = ENTREPOTS[p.entrepot].fraisDouane;
-  }
+  // Envoi direct du fournisseur au client, droits non payés (le cas habituel du dropshipping) : la TVA d'importation et les frais
+  // de dédouanement sont réclamés au CLIENT à la livraison, pas au marchand. Ils ne sortent donc pas de la marge, mais ils
+  // pèsent sur la vente : ils sont estimés (fraisClient) et signalés au marchand comme au client.
+  const importTva = 0, douane = 0;
+  const fraisClient = p.type === 'drop' ? fraisImportClient(p, prix) : null;
   const paiement = prix * 0.025 + 0.3;
   const avantPub = ht - achat - importTva - douane - paiement;
   const nette = avantPub - cpa;
   return {
-    ht, achat, importTva, douane, paiement, cpa, avantPub, nette,
-    taux: nette / prix,
+    ht, achat, importTva, douane, paiement, cpa, avantPub, nette, fraisClient,
+    taux: prix > 0 ? nette / prix : null,
     roasSeuil: avantPub > 0 ? prix / avantPub : Infinity
   };
 }
@@ -110,7 +127,7 @@ function potentielProduit(f) {
   if (m.nette < 0) raisons.push('perte après publicité');
   if (indice >= 1.2) raisons.push(`demande +${Math.round((indice - 1) * 100)} % en ${MOIS_LONG[mois]}`);
   if (f.concurrence >= 85) raisons.push('marché saturé');
-  if (f.entrepot === 'CN') raisons.push(`livraison lente (${f.delai[0]}–${f.delai[1]} j) et frais de douane pour le client`);
+  if (f.entrepot === 'CN') raisons.push(`livraison lente (${f.delai[0]}–${f.delai[1]} j) et TVA d’importation à la charge du client`);
   if (f.entrepot === 'CH') raisons.push('expédié depuis la Suisse');
   return { score, marge: m, raisons };
 }
@@ -138,7 +155,7 @@ function vueSourcing() {
     .sort((a, b) => b.score - a.score);
   return `
   <div class="tete"><div><h1>Trouver des produits</h1><p class="sous">Catalogue fournisseurs classé selon votre marge nette réelle, la saison, la concurrence et le délai de livraison.</p></div></div>
-  ${estSuisse() ? `<p class="encart">Pour vendre en Suisse, privilégiez les entrepôts suisses et européens. Vos clients attendent un colis en 2 à 7 jours. Avec un envoi de Chine, ils risquent de payer eux-mêmes la TVA d’importation et des frais de dédouanement à la livraison : c’est la première cause de mauvais avis.</p>` : ''}
+  ${estSuisse() ? `<p class="encart">Pour vendre en Suisse, privilégiez les entrepôts suisses et européens. Vos clients attendent un colis en 2 à 7 jours. Avec un envoi de Chine, ils risquent de payer eux-mêmes la TVA d’importation et des frais de dédouanement à la livraison : c’est la première cause de mauvais avis.</p>` : '<p class="encart">Privilégiez les entrepôts européens : livraison en quelques jours et aucune formalité. Depuis juillet 2021, les envois venant de l’extérieur de l’UE paient la TVA dès le premier euro ; si le fournisseur n’utilise pas le guichet IOSS, c’est votre client qui la paie à la livraison, avec des frais du transporteur.</p>'}
   <section class="carte barre-sourcing">
     <label class="champ"><span>Niche</span><select id="sc-niche" data-sourcing="niche"><option value="">Toutes</option>${niches.map(n => `<option value="${n}" ${s.niche === n ? 'selected' : ''}>${esc(SECTEURS[n].nom)}</option>`).join('')}</select></label>
     <fieldset class="champ"><legend>Entrepôt</legend><div class="puces">${Object.entries(ENTREPOTS).map(([k, e]) => `<label class="puce"><input type="checkbox" data-entrepot="${k}" ${s.entrepots.includes(k) ? 'checked' : ''}><span>${e.nom}</span></label>`).join('')}</div></fieldset>
@@ -154,7 +171,7 @@ function vueSourcing() {
       <dl class="marge">
         <div><dt>Prix conseillé</dt><dd>${euros(f.prix)}</dd></div>
         <div><dt>Coût + port fournisseur</dt><dd>${euros(f.cout + f.portF)}</dd></div>
-        <div><dt>Douane et TVA import</dt><dd>${marge.importTva + marge.douane ? euros(marge.importTva + marge.douane) : '—'}</dd></div>
+        <div><dt>À payer par le client à la livraison</dt><dd>${marge.fraisClient ? '≈ ' + euros(marge.fraisClient.montant) : '—'}</dd></div>
         <div><dt>Marge nette après pub</dt><dd class="${marge.nette >= 0 ? 'up' : 'down'}">${euros(marge.nette)} · ${Math.round(marge.taux * 100)} %</dd></div>
       </dl>
       ${blocCriteres(f)}
@@ -172,10 +189,10 @@ function blocMarge(p) {
     ${ligne('Prix de vente TTC', p.prix, false)}
     ${tauxTvaVente() ? ligne(`TVA ${Math.round(tauxTvaVente() * 1000) / 10} %`, p.prix - m.ht) : ''}
     ${ligne(p.type === 'drop' ? 'Fournisseur + port' : 'Coût d’achat', m.achat)}
-    ${m.importTva || m.douane ? ligne('TVA import + dédouanement', m.importTva + m.douane) : ''}
+    ${m.fraisClient ? `<p class="encart">${esc(m.fraisClient.texte)} Cela freine l’achat : préférez un entrepôt ${estSuisse() ? 'suisse' : 'européen'} ou un fournisseur qui livre droits payés.</p>` : ''}
     ${ligne('Frais de paiement', m.paiement)}
     ${ligne('Publicité par vente', m.cpa)}
-    <div class="total ${m.nette >= 0 ? 'up' : 'down'}"><span>Marge nette</span><span>${euros(m.nette)} (${Math.round(m.taux * 100)} %)</span></div>
+    <div class="total ${m.nette >= 0 ? 'up' : 'down'}"><span>Marge nette</span><span>${euros(m.nette)}${m.taux === null ? '' : ` (${Math.round(m.taux * 100)} %)`}</span></div>
     <p class="sous">Seuil de rentabilité publicitaire (ROAS) : ${isFinite(m.roasSeuil) ? m.roasSeuil.toFixed(1).replace('.', ',') : '∞'}. En dessous, chaque vente issue de la pub vous coûte de l’argent.</p></div>`;
 }
 

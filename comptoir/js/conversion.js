@@ -187,7 +187,7 @@ function assistantSeuil(o) {
   const propose = Math.ceil(p75 / 5) * 5;
   return `<div class="assistant-seuil">
     <label class="champ"><span>Livraison offerte dès (${devise()}, 0 = jamais)</span><input type="number" min="0" max="1000" step="5" value="${o.seuilPort}" data-seuil></label>
-    ${paniers.length >= 10 ? `<p class="sous">Sur 90 jours : panier médian <b>${euros(med)}</b>, 3 commandes sur 4 sous <b>${euros(p75)}</b>. Avec le seuil actuel, ${fmtPct(au(o.seuilPort))} des commandes ont la livraison offerte.
+    ${paniers.length >= 10 ? `<p class="sous">Sur 90 jours : panier médian <b>${euros(med)}</b>, 3 commandes sur 4 sous <b>${euros(p75)}</b>. ${Number(o.seuilPort) > 0 ? `Avec le seuil actuel, ${fmtPct(au(o.seuilPort))} des commandes ont la livraison offerte.` : 'Aucune commande n’a la livraison offerte (seuil à 0).'}
       Un seuil un peu au-dessus du panier habituel incite à ajouter un article ; ${o.seuilPort !== propose ? `<button type="button" class="bouton-lien" data-action="seuil-propose" data-v="${propose}">essayer ${euros(propose)}</button>` : 'c’est le cas ici'}. Vérifiez l’effet sur la marge dans Analyse › Rentabilité.</p>` : '<p class="sous">L’assistant proposera un seuil à partir de vos paniers réels dès 10 commandes.</p>'}
   </div>`;
 }

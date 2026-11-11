@@ -417,3 +417,30 @@ Tests : 43 (boutique avec une clé de production : produit du marchand visible, 
 - tarifs et page d'accueil : « Calendrier et textes des réseaux sociaux préparés pour vous ».
 
 La démo garde la simulation, signalée comme telle.
+
+### Cycle 22 — Simulation des 100 boutiques, puis relecture des calculs métier
+
+**Simulation complète des 100 boutiques sur le code à jour** (adresse obligatoire, consentement, nouveaux textes) : 100 boutiques créées, 100 commandes payées et expédiées, aucune anomalie, en 22 minutes.
+
+**Relecture des calculs** : 15 points relevés et corrigés.
+
+1. **Test produit à dépense nulle avec une vente** : plantage de trois écrans (Tests, tableau de bord, Analyse › Marketing). Pas de verdict « Augmenter » sans dépense, et affichage protégé.
+2. **Codes promo de campagne actifs dès la validation et pour toujours**. En France, des soldes hors des périodes légales sont interdites. Chaque code n'est valable que du lancement à la fin de la campagne : vérifié avant, pendant et après le Black Friday.
+3. **Remise de bienvenue mise à 0 % qui accordait 10 %** (côté serveur aussi), et remise de 120 % qui donnait un prix négatif. 0 désactive le code, et toute remise est plafonnée à 50 %.
+4. **Douane suisse fausse** : franchise appliquée article par article, frais de La Poste sous-estimés (3.50 au lieu de 13 dès l'UE), frais retirés de la marge du marchand, et CGV affirmant « aucun frais de douane à la livraison ». En dropshipping, le fournisseur envoie au client droits non payés :
+   - la marge du marchand n'est plus amputée ;
+   - ce que le client paiera est estimé et affiché au marchand (fiche produit, sourcing) ;
+   - l'acheteur en est informé (fiche produit, CGV), avec le pays d'expédition.
+5. **France et Belgique : importations de Chine ignorées**. Depuis juillet 2021, la TVA est due dès le premier euro, et le client la paie sans le guichet IOSS du fournisseur. Ajouté partout : avertissement de sourcing, fiche, CGV, et pénalité dans le classement des produits stars.
+6. **Deux « bénéfices nets » différents** pour la même période (l'écart était la publicité). La tuile s'appelle « Bénéfice avant publicité ».
+7. **La marge par produit ne retombait pas sur le compte de résultat** (2’098 contre 2’385). Elle est répartie depuis le calcul de chaque commande ; vérifié : la somme est égale au centime.
+8. **Entonnoir estimé** : il donnait la même « fuite principale » partout, avec un conseil TWINT pour une boutique française. Pas de diagnostic sans mesure réelle, et des conseils adaptés au pays.
+9. **« 100 % des commandes ont la livraison offerte »** affiché avec un seuil à 0 (jamais).
+10. **Noël** : deux dates limites de commande différentes sur le même écran. Une seule, calculée sur le délai le plus long de tous les produits. « Livraison garantie avant le 24 » s'affichait même pour la Saint-Nicolas : remplacé par « prévue », et seulement pour Noël.
+11. **Jauge du seuil de TVA suisse** faussée par le filtre de canal ; l'alerte promise à 80 % n'existait pas. Elle existe désormais dans la liste de tâches.
+12. **Produit à prix 0** : « −Infinity % ».
+13. **Bilan des campagnes passées** mesuré sur la mauvaise période (les jours avant les soldes) ; et le slogan « notre seule grosse remise de l'année » côtoyait des soldes à −30 %.
+14. **Graphiques jour par jour décalés d'une heure** avant le passage à l'heure d'hiver : les jours suivent le calendrier.
+15. Conseils d'abandon de panier : chiffres non vérifiables retirés, sources citées sans pourcentage inventé.
+
+Tests : 43 ; démo sans erreur ni débordement.

@@ -34,12 +34,15 @@
     for (const [cle, c] of Object.entries((config && config.campagnes) || {})) {
       if (!c || !c.code) continue;
       const m = /(\d{1,2})$/.exec(c.code);
-      if (m && (!c.expire || c.expire > t)) codes.push({ code: c.code.toUpperCase(), remise: Number(m[1]), source: 'Campagne ' + cle.replace(/-\d{4}$/, '').replace(/-/g, ' ') });
+      if (m && (!c.debut || c.debut <= t) && (!c.expire || c.expire > t)) codes.push({ code: c.code.toUpperCase(), remise: Number(m[1]), source: 'Campagne ' + cle.replace(/-\d{4}$/, '').replace(/-/g, ' ') });
     }
     const a = (config && config.automatisations) || {};
-    if (a.bienvenue && a.bienvenue.actif && a.bienvenue.code) codes.push({ code: a.bienvenue.code, remise: Number(a.bienvenue.remise) || 10, source: 'E-mail de bienvenue' });
-    if (a.reconquete && a.reconquete.actif && a.reconquete.code) codes.push({ code: a.reconquete.code, remise: Number(a.reconquete.remise) || 15, source: 'E-mail de reconquête' });
-    if (a.paiement && a.paiement.actif && a.paiement.code) codes.push({ code: a.paiement.code, remise: Number(a.paiement.remise) || 10, source: 'Relance de paiement' });
+    // Remise saisie : 0 reste 0 (le code n'est alors pas proposé), bornée à 50 % ; absente : valeur par défaut.
+    const taux = (v, defaut) => v === undefined || v === null || v === '' || !Number.isFinite(Number(v)) ? defaut : Math.max(0, Math.min(50, Number(v)));
+    for (const [cle, defaut, source] of [['bienvenue', 10, 'E-mail de bienvenue'], ['reconquete', 15, 'E-mail de reconquête'], ['paiement', 10, 'Relance de paiement']]) {
+      const x = a[cle];
+      if (x && x.actif && x.code && taux(x.remise, defaut) > 0) codes.push({ code: x.code, remise: taux(x.remise, defaut), source });
+    }
     return codes;
   }
 
