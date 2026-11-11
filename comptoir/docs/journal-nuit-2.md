@@ -196,7 +196,7 @@ Une revue indépendante des cycles 3 à 8 a relevé 15 points. Tous sont corrig�
 - **Réinitialisation du mot de passe** : la même politique qu'ailleurs s'applique, y compris le refus d'un mot de passe qui reprend l'e-mail.
 - Tests : 86 sur 86. Le test du relevé couvre maintenant tous les cas de la revue.
 
-## Cycle 11 (00 h 55) : score de risque des commandes (anti-fraude)
+## Cycle 11 (00 h 45) : score de risque des commandes (anti-fraude)
 
 - Chaque commande en ligne reçoit un score de risque de 0 à 100 (`server/src/risque.js`). Les règles sont explicables : chaque point vient avec sa raison, en clair. Signaux pris en compte :
   - adresse e-mail jetable ou générée ;
@@ -214,3 +214,26 @@ Une revue indépendante des cycles 3 à 8 a relevé 15 points. Tous sont corrig�
 - Protection des données : aucune adresse IP n'est gardée dans la commande. Les compteurs de rafale restent en mémoire, sur 24 heures au plus.
 - Tests : règles, et parcours complet (commande suspecte payée, transmission retenue, marchand prévenu). 88 tests sur 88.
 - Simulation de 30 marchands sur 20 jours : 0 anomalie, aucune fausse alerte bloquante. Une simulation complète est en cours. Le simulateur gardait les connexions inactives trop peu longtemps lors de ses longues vérifications : corrigé.
+
+## Cycle 12 (01 h 00) : audit de sécurité (clés d'accès et surface publique), prévision de rupture
+
+Un audit indépendant a examiné les clés d'accès et toutes les routes publiques. Ses 7 points sont corrigés :
+1. **Grave : mode de livraison pris dans le prototype.** Une commande envoyée avec `livraison: "toString"` passait le contrôle, et son montant devenait vide. Sur facture QR, un virement de CHF 0.01 suffisait alors à la marquer payée. Corrections :
+   - modes de livraison sans prototype, et `Object.hasOwn` ;
+   - total refusé s'il n'est pas un nombre positif ;
+   - l'import du relevé refuse une commande au montant invalide.
+2. **Clés d'accès** :
+   - avec la double authentification active, ajouter une clé exige aussi le code ;
+   - une réinitialisation du mot de passe par e-mail retire toutes les clés d'accès : une clé ajoutée par un tiers ne survit pas ;
+   - supprimer une clé déconnecte les appareils connectés avec elle.
+3. **Newsletter** : la confirmation d'inscription utilise désormais son propre jeton, aléatoire, à usage unique, valable 7 jours et gardé en empreinte. Avant, le jeton de désinscription servait aussi, si bien que le marchand pouvait inscrire ou réinscrire n'importe qui. Les liens personnels sont aussi masqués dans la liste des e-mails visible par le marchand.
+4. **Commandes sur facture** : limites plus serrées, car un numéro de facture et un e-mail partent tout de suite. Il y en a trois : 5 par heure et par réseau, 3 par jour et par adresse, 200 par jour et par boutique.
+5. **Nom de boutique contenant `$'`** : la page de la boutique n'est plus corrompue (remplacement par fonction).
+6. **Webhook fournisseur** : il ne peut plus agir que sur les commandes transmises à ce même fournisseur.
+7. **Divers** : clé de démonstration comparée en temps constant, et plafond quotidien des événements statistiques par boutique.
+
+Le reste a été vérifié et jugé solide : WebAuthn conforme, signatures Stripe, jetons des factures et du suivi, prix recalculés côté serveur, fichiers statiques, protection contre le CSRF.
+
+**Prévision de rupture** : le rythme de vente des 28 derniers jours donne le nombre de jours de stock restant (« ≈ 12 j » dans Produits). Le tableau de bord signale les ruptures prévues sous 14 jours, avec la quantité à commander pour tenir 30 jours. Aucune prévision n'est faite sous 2 ventes, pour rester honnête.
+
+Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anomalie. Tests : 88 sur 88.

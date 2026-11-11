@@ -11,8 +11,8 @@ const ClesAcces = (() => {
     const r = cred.response;
     return api('POST', '/api/auth/cle-acces/connexion', { reponse: { id: cred.id, clientDataJSON: depuis(r.clientDataJSON), authenticatorData: depuis(r.authenticatorData), signature: depuis(r.signature), userHandle: r.userHandle ? depuis(r.userHandle) : null } });
   }
-  async function enregistrer(motDePasse, nom) {
-    const { publicKey } = await api('POST', '/api/admin/compte/cles-acces/options', { motDePasse });
+  async function enregistrer(motDePasse, nom, code) {
+    const { publicKey } = await api('POST', '/api/admin/compte/cles-acces/options', { motDePasse, code });
     const cred = await navigator.credentials.create({ publicKey: { ...publicKey, challenge: vers(publicKey.challenge), user: { ...publicKey.user, id: vers(publicKey.user.id) }, excludeCredentials: publicKey.excludeCredentials.map(c => ({ ...c, id: vers(c.id) })) } });
     return api('POST', '/api/admin/compte/cles-acces', { nom, reponse: { id: cred.id, clientDataJSON: depuis(cred.response.clientDataJSON), attestationObject: depuis(cred.response.attestationObject) } });
   }

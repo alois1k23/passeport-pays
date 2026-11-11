@@ -283,7 +283,9 @@ test('codes promo, newsletter et e-mail de bienvenue', async () => {
   assert.equal((await marchand('GET', '/api/admin/etat')).json.abonnes, 0);
   let mails = (await marchand('GET', '/api/admin/emails')).json.filter(m => m.destinataire === 'nouveau@exemple.ch');
   assert.equal(mails.length, 1); assert.match(mails[0].sujet, /Confirmez/); assert.doesNotMatch(mails[0].corps, /BIENVENUE10/);
-  const lien = /\/reinscription\?j=([\w.-]+)/.exec(mails[0].corps)[0];
+  assert.doesNotMatch(mails[0].corps, /reinscription\?j=[\w-]{10}/, 'jeton masqué pour le marchand');
+  const lien = /\/reinscription\?j=([\w.-]+)/.exec(db.prepare("SELECT corps FROM emails WHERE destinataire = 'nouveau@exemple.ch' AND sujet LIKE 'Confirmez%' ORDER BY id DESC").get().corps)[0];
+  assert.equal((await fetch(base + lien.replace(/j=.*/, 'j=' + 'x'.repeat(32)), { method: 'POST' })).status, 400, 'jeton inventé refusé');
   assert.equal((await fetch(base + lien, { method: 'POST' })).status, 200);
   assert.equal((await fetch(base + lien, { method: 'POST' })).status, 200);   // second clic : pas de second e-mail de bienvenue
   await acheteur('POST', `/api/public/${slug}/newsletter`, { email: 'nouveau@exemple.ch' });   // déjà inscrit : rien de plus
@@ -608,7 +610,7 @@ test('e-mails : identité de la boutique en pied, lien de désinscription sur le
   const a = client();
   assert.equal((await a('POST', `/api/public/${r.json.slug}/newsletter`, { email: 'lecteur@exemple.ch', consentement: true })).statut, 200);
   const demande = (await c('GET', '/api/admin/emails')).json.find(m => /Confirmez votre inscription/.test(m.sujet));
-  await fetch(/(http\S+\/reinscription\?j=\S+)/.exec(demande.corps)[1], { method: 'POST' });   // le lecteur confirme son inscription
+  await fetch(/(http\S+\/reinscription\?j=\S+)/.exec(db.prepare("SELECT corps FROM emails WHERE sujet = ? AND destinataire = 'lecteur@exemple.ch' ORDER BY id DESC").get(demande.sujet).corps)[1], { method: 'POST' });   // le lecteur confirme son inscription
   const cmd = await a('POST', `/api/public/${r.json.slug}/commandes`, { lignes: [{ produitId: pid, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Léa', email: 'lecteur@exemple.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
   await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
   const mails = (await c('GET', '/api/admin/emails')).json;
@@ -617,7 +619,8 @@ test('e-mails : identité de la boutique en pied, lien de désinscription sur le
   const confirmation = mails.find(m => /confirmée/.test(m.sujet));
   assert.ok(bienvenue && confirmation);
   for (const m of [bienvenue, confirmation]) assert.match(m.corps, /Courriels Sàrl · Rue du Lac 3, 1003 Lausanne · Contact : contact@courriels\.ch/);
-  const lien = /(http\S+\/desinscription\?j=\S+)/.exec(bienvenue.corps);
+  assert.match(bienvenue.corps, /desinscription\?j=…/, 'jeton masqué pour le marchand');
+  const lien = /(http\S+\/desinscription\?j=\S+)/.exec(db.prepare('SELECT corps FROM emails WHERE sujet = ? ORDER BY id DESC').get(bienvenue.sujet).corps);
   assert.ok(lien, 'lien de désinscription dans l’e-mail commercial');
   assert.ok(!/desinscription/.test(confirmation.corps), 'pas de désinscription sur un e-mail de commande');
   // Le lien ouvre une page de confirmation ; seul le clic désinscrit (les robots qui ouvrent les liens ne désinscrivent pas)

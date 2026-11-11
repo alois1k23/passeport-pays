@@ -485,3 +485,19 @@ function droitPays(pays) {
   if (!p) { try { p = etat.boutique.pays; } catch { p = 'fr'; } }
   return DROIT_PAYS[p] || DROIT_PAYS.fr;
 }
+
+/* Prévision de rupture : rythme de vente des 28 derniers jours (commandes payées, en ligne et en magasin) → jours de
+   stock restants et quantité à recommander pour couvrir 30 jours. null si le produit ne se vend pas (pas de prévision). */
+function previsionStock(p, commandes = etat.commandes, maintenant = Date.now()) {
+  if (!p || p.type === 'drop' || typeof p.stock !== 'number') return null;
+  const depuis = maintenant - 28 * 86400000;
+  let vendus = 0;
+  for (const c of commandes) {
+    if (c.date < depuis || ['annulee', 'remboursee', 'attente'].includes(c.statut)) continue;
+    for (const l of c.lignes || []) if (l.produitId === p.id) vendus += l.qte || 0;
+  }
+  if (vendus < 2) return null;   // trop peu de ventes pour une prévision honnête
+  const parJour = vendus / 28;
+  const jours = Math.max(0, Math.floor(p.stock / parJour));
+  return { parJour, jours, aCommander: Math.max(0, Math.ceil(parJour * 30) - p.stock) };
+}

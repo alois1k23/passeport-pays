@@ -270,6 +270,8 @@ function vueTableau() {
   const secteur = SECTEURS[etat.boutique.secteur];
   const indice = secteur.courbe[mois];
   const stockBas = etat.produits.filter(p => p.actif && p.stock <= 5);
+  // Rupture prévue sous 14 jours au rythme actuel (et pas déjà signalée en stock bas).
+  const ruptures = etat.produits.filter(p => p.actif && p.stock > 5).map(p => ({ p, f: previsionStock(p) })).filter(x => x.f && x.f.jours <= 14).sort((a, b) => a.f.jours - b.f.jours).slice(0, 5);
   const prochain = prochainsTempsForts(1)[0];
   const campProchain = genererCampagne(etat, prochain);
   const retraits = etat.commandes.filter(c => c.livraison === 'retrait' && c.canal === 'web' && ['payee', 'preparation', 'prete'].includes(c.statut)).length;
@@ -319,6 +321,7 @@ function vueTableau() {
           item(aExpedier.length, `commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier`, 'commandes', { alerte: aExpedier.length > 0, filtre: 'payee' }),
           item(attente, `paiement${attente > 1 ? 's' : ''} en attente`, 'commandes', { alerte: attente > 0, filtre: 'attente' }),
           ...stockBas.map(p => item(p.stock, `Stock bas : ${esc(p.nom)}`, 'produits', { alerte: true })),
+          ...ruptures.map(({ p, f }) => item(`${f.jours} j`, `Rupture prévue : ${esc(p.nom)} (au rythme de ${f.parJour >= 1 ? Math.round(f.parJour) : f.parJour.toFixed(1).replace('.', ',')} par jour ; commandez-en ${f.aCommander} pour tenir 30 jours)`, 'produits', { alerte: f.jours <= 7 })),
           ...etat.produits.filter(p => p.actif !== false && typeof margeProduit === 'function' && margeProduit(p).nette < 0).slice(0, 3).map(p => item('!', `Vendu à perte : ${esc(p.nom)} (${euros(margeProduit(p).nette)} par vente)`, 'produits', { alerte: true })),
           nFour ? item(nFour, `commande${nFour > 1 ? 's' : ''} chez le fournisseur (suivi automatique)`, 'commandes', { filtre: 'fournisseur' }) : '',
           retraits ? item(retraits, `retrait${retraits > 1 ? 's' : ''} en magasin en cours`, 'magasin', { alerte: true }) : '',
@@ -577,7 +580,7 @@ function vueProduits() {
           <td data-label="Approvisionnement">${x.type === 'drop' ? `<span class="pill ${ENTREPOTS[x.entrepot] ? ENTREPOTS[x.entrepot].ton : 'info'}">Dropshipping ${x.entrepot || ''}</span>` : '<span class="pill muted">Mon stock</span>'}</td>
           <td class="num" data-label="Prix">${euros(x.prix)}</td>
           <td class="num ${margeProduit(x).nette < 0 ? 'neg' : ''}" data-label="Marge nette">${euros(margeProduit(x).nette)}</td>
-          <td class="num" data-label="Stock">${x.type === 'drop' ? '<span class="sous" title="Stock géré par le fournisseur">—</span>' : x.stock <= 5 ? `<span class="stock-bas ${x.stock <= 0 ? 'rupture' : ''}" title="${x.stock <= 0 ? 'Rupture de stock' : 'Stock bas'}">${x.stock}</span>` : x.stock}</td>
+          <td class="num" data-label="Stock">${x.type === 'drop' ? '<span class="sous" title="Stock géré par le fournisseur">—</span>' : x.stock <= 5 ? `<span class="stock-bas ${x.stock <= 0 ? 'rupture' : ''}" title="${x.stock <= 0 ? 'Rupture de stock' : 'Stock bas'}">${x.stock}</span>` : x.stock}${(f => f && x.stock > 0 && f.jours <= 30 ? `<div class="sous" title="Au rythme des 28 derniers jours">≈ ${f.jours} j</div>` : '')(previsionStock(x))}</td>
           <td data-label="Statut">${x.aVerifier ? '<span class="pill warn">À vérifier</span>' : x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}</td></tr>`).join('')}
       </tbody></table></div>${produitsFiltres().length ? '' : etatVide('produits', etat.produits.length ? 'Aucun produit ne correspond' : 'Aucun produit', etat.produits.length ? 'Modifiez la recherche ou le filtre.' : 'Importez un produit du catalogue fournisseurs ou créez le vôtre.', '<a class="btn petit" href="#sourcing">Trouver des produits</a>')}</section>
     ${p ? `<aside class="carte detail"><form data-form="produit">

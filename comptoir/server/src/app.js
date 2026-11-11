@@ -270,7 +270,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
     CREATE INDEX IF NOT EXISTS journal_compte_marchand ON journal_compte(marchand_id, date);`);
-  for (const sql of ['ALTER TABLE sessions ADD COLUMN cree_le INTEGER', 'ALTER TABLE sessions ADD COLUMN vu_le INTEGER', 'ALTER TABLE sessions ADD COLUMN appareil TEXT', 'ALTER TABLE sessions ADD COLUMN reseau TEXT']) { try { db.exec(sql); } catch { /* déjà là */ } }
+  for (const sql of ['ALTER TABLE sessions ADD COLUMN cree_le INTEGER', 'ALTER TABLE sessions ADD COLUMN vu_le INTEGER', 'ALTER TABLE sessions ADD COLUMN appareil TEXT', 'ALTER TABLE sessions ADD COLUMN reseau TEXT', 'ALTER TABLE sessions ADD COLUMN cle_acces TEXT']) { try { db.exec(sql); } catch { /* déjà là */ } }
   // Description sobre de l'appareil (navigateur et système), sans empreinte détaillée.
   const decrireAppareil = ua => {
     const u = String(ua || '');
@@ -290,6 +290,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Connexion depuis un appareil jamais vu : le marchand est prévenu (un mot de passe volé se voit tout de suite).
     if (nouvelAppareil) envoyerEmail(null, m.email, 'Nouvelle connexion à votre compte Comptoir',
       `Bonjour,\n\nUne connexion à votre compte vient d’avoir lieu depuis un nouvel appareil :\n- ${appareil}\n- le ${new Date(maintenant).toLocaleString('fr-CH')}\n\nC’était vous ? Rien à faire.\nSinon : changez votre mot de passe tout de suite et déconnectez les autres appareils (Paramètres > Sécurité), puis activez la double authentification.\n${urlPublique}/app\n\nL’équipe Comptoir`);
+    return jeton;
   }
   // Défi de double authentification : signé, valable 5 minutes, lié au compte et à son mot de passe actuel.
   const signerDefi = (mid, expire) => crypto.createHmac('sha256', cleDesinscription).update(`2fa|${mid}|${expire}|${(db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(mid) || {}).mot_de_passe}`).digest('base64url');
@@ -752,6 +753,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, ligne.marchand_id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(ligne.marchand_id);
+      // Compte peut-être compromis : une clé d'accès ajoutée par un tiers ne doit pas survivre à la réinitialisation.
+      db.prepare('DELETE FROM cles_acces WHERE marchand_id = ?').run(ligne.marchand_id);
     });
     // Connexion directe après la réinitialisation, sauf double authentification : un accès à la boîte e-mail ne suffit pas.
     { const mr = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(ligne.marchand_id); const df = deuxFacteursDe(mr.id); if (!(df && df.actif)) ouvrirSession(ctx, mr); }
@@ -921,6 +924,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/compte/cles-acces/options', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    // Double authentification active : une clé d'accès ne s'ajoute qu'avec le code (sinon mot de passe + session volée suffiraient).
+    const df = deuxFacteursDe(m.id);
+    if (df && df.actif) {
+      auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
+      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa');
+    }
     if (clesAccesDe(m.id).length >= 10) throw erreur(409, '10 clés d’accès au plus : supprimez-en une.', 'trop_de_cles');
     return { publicKey: { challenge: nouveauDefi('create', m.id), rp: { id: rpId, name: 'Comptoir' }, user: { id: WebAuthn.b64u(m.id), name: m.email, displayName: m.email },
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }], timeout: 300000, attestation: 'none',
@@ -945,6 +954,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
     const c = db.prepare('DELETE FROM cles_acces WHERE id = ? AND marchand_id = ? RETURNING nom').get(String(ctx.params.id), m.id);
     if (!c) throw erreur(404, 'Clé d’accès inconnue.', 'introuvable');
+    db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND cle_acces = ?').run(m.id, String(ctx.params.id));   // appareils connectés avec cette clé
     noterActivite(m.id, 'cle-acces-supprimee', c.nom, ctx);
     return { ok: true };
   });
@@ -969,7 +979,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(cred.marchand_id);
     if (!m) refus('Compte introuvable.');
     const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(String(m.email).toLowerCase());
-    ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
+    const jeton = ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
+    db.prepare('UPDATE sessions SET cle_acces = ? WHERE jeton_hash = ?').run(cred.id, auth.sha256(jeton));   // révoquée avec la clé
     noterActivite(m.id, 'cle-acces', cred.nom, ctx);
     return { ok: true };
   });
@@ -1330,7 +1341,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // La liste de désinscription garde l'adresse : elle sert justement à ne plus lui écrire.
     return { ok: true, commandes: commandes.length };
   });
-  r.get('/api/admin/emails', exigerMarchand, ctx => db.prepare('SELECT destinataire, sujet, corps, cree_le FROM emails WHERE boutique_id = ? ORDER BY id DESC LIMIT 50').all(ctx.boutique.id));
+  // Liens personnels des clients (confirmation d'inscription, désinscription) masqués : le marchand voit l'e-mail, pas le jeton.
+  r.get('/api/admin/emails', exigerMarchand, ctx => db.prepare('SELECT destinataire, sujet, corps, cree_le FROM emails WHERE boutique_id = ? ORDER BY id DESC LIMIT 50').all(ctx.boutique.id)
+    .map(e => ({ ...e, corps: String(e.corps || '').replace(/(\/(?:reinscription|desinscription)\?j=)[^\s"'<>]+/g, '$1…') })));
 
   /* ---------- Boutique publique ---------- */
   r.get('/api/public/:slug', ctx => {
@@ -1387,7 +1400,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const produits = listerProduits(b.id).filter(vendable);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
     const modes = prix.modesLivraison(config);
-    const mode = modes[ctx.corps.livraison];
+    const mode = typeof ctx.corps.livraison === 'string' && Object.hasOwn(modes, ctx.corps.livraison) ? modes[ctx.corps.livraison] : null;
     if (!mode) throw erreur(400, 'Mode de livraison indisponible.', 'livraison_invalide');
     const cl = ctx.corps.client || {};
     const client = {
@@ -1412,10 +1425,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const sousTotal = calcul.sousTotal, remise = calcul.remise;
     const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);
     const total = prix.arrondi(calcul.apresRemise + port);
+    if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(port)) throw erreur(400, 'Montant de la commande invalide.', 'montant_invalide');
     const devise = config.boutique.devise || 'EUR';
     // Paiement sur facture QR : pas de paiement en ligne ; facture émise tout de suite, payable à l'échéance.
     const parFacture = ctx.corps.moyen === 'facture';
     if (parFacture && !factureQrPossible(config)) throw erreur(400, 'Le paiement sur facture n’est pas proposé par cette boutique.', 'moyen_invalide');
+    // Facture QR : numéro de facture et e-mail envoyés tout de suite, d'où des limites plus serrées (comptabilité, e-mails à des tiers).
+    if (parFacture) {
+      auth.limiter(`facture-ip:${b.id}:${ctx.ip}`, 5 * facteurLimites, 3600000, 'Trop de commandes sur facture en peu de temps. Réessayez plus tard ou payez en ligne.');
+      auth.limiter(`facture-email:${b.id}:${String(client.email || '').toLowerCase()}`, 3 * facteurLimites, 86400000, 'Trop de commandes sur facture pour cette adresse aujourd’hui.');
+      auth.limiter(`facture-boutique:${b.id}`, 200 * facteurLimites, 86400000, 'Commandes sur facture momentanément indisponibles : payez en ligne.');
+    }
     const compte = parFacture ? null : compteVente(b);   // avant toute écriture : sans compte de paiement actif, aucune commande n'est créée
     const { commande, pmt } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
@@ -1565,6 +1585,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       const deja = vue.get(ctx.boutique.id, e.cle);
       if (deja) { if (deja.numero) resultat.deja.push(deja.numero); continue; }       // relevé (ou même transaction) déjà importé
       const row = parRef.get(e.ref);
+      if (row && !(Number.isFinite(row.total) && row.total > 0)) { resultat.ecarts.push({ numero: row.numero, recu: e.montant, motif: 'commande-invalide' }); continue; }
       if (!row) { resultat.inconnues.push(e.ref); noter(e.cle, null, e.montant); continue; }
       const statut = db.prepare('SELECT statut FROM commandes WHERE id = ?').get(row.id).statut;
       if (statut !== 'attente') {
@@ -1770,6 +1791,8 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const type = String(ctx.corps.type || ''), session = String(ctx.corps.session || '').replace(/[^\w-]/g, '').slice(0, 40);
     if (!TYPES_EVENEMENTS.includes(type) || session.length < 8) throw erreur(400, 'Événement invalide.', 'invalide');
     const n = db.prepare('SELECT COUNT(*) AS n FROM evenements WHERE boutique_id = ? AND session = ?').get(b.id, session).n;
+    // Plafond quotidien par boutique : un identifiant de session inventé à chaque appel ne remplit pas la base.
+    try { auth.limiter('evenements-boutique:' + b.id, 50000 * facteurLimites, 86400000, ''); } catch { return { ok: true }; }
     if (n < 300) db.prepare('INSERT INTO evenements (boutique_id, type, session, produit_id, valeur, date) VALUES (?, ?, ?, ?, ?, ?)').run(b.id, type, session, String(ctx.corps.produitId || '').slice(0, 40) || null, String(ctx.corps.valeur || '').slice(0, 40) || null, Date.now());
     return { ok: true };
   });
@@ -1793,7 +1816,11 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     // Même réponse dans tous les cas (déjà inscrit, trop de demandes) : le formulaire ne révèle pas qui est abonné.
     try { auth.limiter(`newsletter-adresse:${b.id}|${email.toLowerCase()}`, 3, 24 * 3600000, ''); } catch { return { ok: true, confirmation: true }; }
     if (db.prepare('SELECT 1 FROM abonnes WHERE boutique_id = ? AND email = ?').get(b.id, email)) return { ok: true, confirmation: true };
-    const nom = lireConfig(b).boutique.nom, lien = `${urlPublique}/reinscription?j=${jetonDesinscription(b.id, email)}`;
+    // Jeton propre à la confirmation : aléatoire, à usage unique, valable 7 jours, gardé en empreinte seulement.
+    const jetonOptin = crypto.randomBytes(24).toString('base64url');
+    db.prepare('DELETE FROM optins WHERE expire_le < ?').run(Date.now());
+    db.prepare('INSERT INTO optins (jeton_hash, boutique_id, email, expire_le) VALUES (?, ?, ?, ?)').run(auth.sha256(jetonOptin), b.id, email.toLowerCase(), Date.now() + 7 * 86400000);
+    const nom = lireConfig(b).boutique.nom, lien = `${urlPublique}/reinscription?j=${jetonOptin}`;
     envoyerEmail(b.id, email, `Confirmez votre inscription chez ${nom}`, `Bonjour,\n\nVous (ou quelqu'un d'autre) avez demandé à recevoir les nouvelles et offres de ${nom}. Pour confirmer, cliquez ici :\n${lien}\n\nSi ce n'est pas vous, ignorez cet e-mail : vous ne recevrez rien d'autre.\n\n${nom}`);
     return { ok: true, confirmation: true };
   });
@@ -1933,7 +1960,8 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const f = db.prepare('SELECT * FROM fournisseurs WHERE code = ?').get(ctx.params.code);
     if (!f || !fournisseurs.verifierSignature(ctx.corpsBrut, ctx.req.headers['x-signature'], f.secret_webhook)) throw erreur(401, 'Signature invalide.', 'signature');
     const ev = JSON.parse(ctx.corpsBrut);
-    const row = db.prepare("SELECT * FROM commandes WHERE json_extract(donnees, '$.refFournisseur') = ?").get(String(ev.ref));
+    // Seulement une commande transmise à CE fournisseur : un fournisseur ne peut pas agir sur les commandes d'un autre.
+    const row = db.prepare("SELECT * FROM commandes WHERE json_extract(donnees, '$.refFournisseur') = ? AND json_extract(donnees, '$.codeFournisseur') = ?").get(String(ev.ref), f.code);
     if (!row) throw erreur(404, 'Commande inconnue.', 'commande_introuvable');
     const c = lireCommande(row);
     if (ev.statut === 'expediee' && estDrop(c) && !c.suivi) {
@@ -2069,7 +2097,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     ].join('\n');
     // Contenu lisible sans JavaScript (robots, aperçus) ; remplacé par la boutique interactive au chargement.
     const sansJs = `<noscript><main class="page-erreur"><h1>${escHtml(p ? p.nom : nom)}</h1>${p ? `<p>${escHtml(court(p.description))}</p><p><strong>${escHtml(formatMontant(p.prix, config))}</strong></p>` : `<p>${escHtml(description)}</p><ul>${produits.slice(0, 60).map(x => `<li><a href="${escHtml(urlProduit(x))}">${escHtml(x.nom)}</a> · ${escHtml(formatMontant(x.prix, config))}</li>`).join('')}</ul>`}<p>Activez JavaScript pour commander.</p></main></noscript>`;
-    return fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace(/<title>[^<]*<\/title>/, '').replace('<head>', `<head>\n${tete}`).replace('<div id="app"></div>', `<div id="app"></div>${sansJs}`);
+    return fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace(/<title>[^<]*<\/title>/, '').replace('<head>', () => `<head>\n${tete}`).replace('<div id="app"></div>', () => `<div id="app"></div>${sansJs}`);   // fonctions : « $' » ou « $& » dans un nom de boutique restent du texte
   }
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
@@ -2135,14 +2163,19 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (estDesinscrit(d.boutiqueId, d.email)) return { html: pageSimple('Vous êtes déjà désinscrit', `${d.email} ne reçoit plus les nouvelles et offres de ${nom}.`) };
     return { html: pageSimple(`Ne plus recevoir les e-mails de ${nom}`, `Confirmez pour ${d.email}. Vous recevrez toujours les e-mails liés à vos commandes (confirmation, expédition).`, `<form method="post" action="/desinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Me désinscrire</button></form>`) };
   });
+  db.exec('CREATE TABLE IF NOT EXISTS optins (jeton_hash TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, email TEXT NOT NULL, expire_le INTEGER NOT NULL, utilise INTEGER NOT NULL DEFAULT 0)');
+  const lireOptin = j => { const o = db.prepare('SELECT * FROM optins WHERE jeton_hash = ? AND expire_le > ?').get(auth.sha256(String(j || '')), Date.now()); return o ? { boutiqueId: o.boutique_id, email: o.email, utilise: !!o.utilise } : null; };
   r.get('/reinscription', ctx => {
-    const d = lireJetonDesinscription(ctx.query.get('j'));
+    const d = lireOptin(ctx.query.get('j'));
     if (!d) return { html: pageSimple('Lien invalide', 'Ce lien est incomplet ou a été modifié.') };
     return { html: pageSimple('Recevoir les nouvelles de la boutique', `Confirmez l’inscription de ${d.email}.`, `<form method="post" action="/reinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Confirmer mon inscription</button></form>`) };
   });
   r.post('/reinscription', ctx => {
-    const d = lireJetonDesinscription(ctx.query.get('j'));
-    if (!d) throw erreur(400, 'Lien invalide.', 'invalide');
+    const d = lireOptin(ctx.query.get('j'));
+    if (!d) throw erreur(400, 'Lien invalide ou expiré.', 'invalide');
+    // Usage unique : un second clic confirme sans rien refaire (le marchand ne peut pas réinscrire quelqu'un avec un vieux lien).
+    if (d.utilise) return { html: pageSimple('Déjà confirmé', `${d.email} est déjà inscrit.`) };
+    db.prepare('UPDATE optins SET utilise = 1 WHERE jeton_hash = ?').run(auth.sha256(String(ctx.query.get('j') || '')));
     db.prepare('DELETE FROM desinscriptions WHERE boutique_id = ? AND email = ?').run(d.boutiqueId, d.email);
     const nouveau = db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(d.boutiqueId, d.email, Date.now()).changes > 0;
     const bq = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(d.boutiqueId);
@@ -2218,7 +2251,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   /* ---------- Faux fournisseur de démonstration ---------- */
   const exigerCleDemo = ctx => {
     const f = db.prepare("SELECT cle_api FROM fournisseurs WHERE code = 'demo'").get();
-    if (ctx.req.headers.authorization !== `Bearer ${f.cle_api}`) throw erreur(401, 'Clé API invalide.', 'cle_api');
+    if (!auth.egal(String(ctx.req.headers.authorization || ''), `Bearer ${f.cle_api}`)) throw erreur(401, 'Clé API invalide.', 'cle_api');
   };
   async function expedierDemo(ref) {
     const cmd = db.prepare('SELECT * FROM demo_fournisseur_commandes WHERE ref = ?').get(ref);

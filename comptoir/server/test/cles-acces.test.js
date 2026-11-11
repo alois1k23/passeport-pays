@@ -90,7 +90,16 @@ test('clés d’accès de bout en bout : enregistrement, connexion sans mot de p
     const sec = await a('GET', '/api/admin/compte/securite');
     assert.equal(sec.j.clesAcces.length, 1); assert.equal(sec.j.clesAcces[0].nom, 'iPhone');
     assert.ok(sec.j.journal.some(x => x.type === 'cle-acces'));
-    assert.equal((await a('POST', `/api/admin/compte/cles-acces/${encodeURIComponent(tel.credId)}/supprimer`, { motDePasse: 'un mot de passe solide' })).s, 200);
+    // Réinitialisation du mot de passe par e-mail : les clés d'accès sont retirées (une clé ajoutée par un tiers ne survit pas)
+    const autreCle = authentificateur(base, '127.0.0.1');
+    const o6 = (await a('POST', '/api/admin/compte/cles-acces/options', { motDePasse: 'un mot de passe solide' })).j.publicKey;
+    assert.equal((await a('POST', '/api/admin/compte/cles-acces', { reponse: autreCle.creer(o6) })).s, 201);
+    const crypto2 = require('node:crypto'), jeton = crypto2.randomBytes(16).toString('base64url');
+    db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le) SELECT ?, id, ? FROM marchands').run(crypto2.createHash('sha256').update(jeton).digest('hex'), Date.now() + 3600000);
+    assert.equal((await client()('POST', '/api/auth/reinitialiser', { jeton, motDePasse: 'un mot de passe solide' })).s, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM cles_acces').get().n, 0, 'clés d’accès retirées');
+    const o7 = (await client()('POST', '/api/auth/cle-acces/options')).j.publicKey;
+    assert.equal((await client()('POST', '/api/auth/cle-acces/connexion', { reponse: autreCle.signer(o7) })).s, 401);
     const o5 = (await b('POST', '/api/auth/cle-acces/options')).j.publicKey;
     assert.equal((await client()('POST', '/api/auth/cle-acces/connexion', { reponse: tel.signer(o5) })).s, 401, 'clé supprimée');
   } finally { s.close(); }

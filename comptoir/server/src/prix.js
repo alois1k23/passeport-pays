@@ -29,7 +29,8 @@ const SEUIL_PORT_OFFERT = 60;
 
 function modesLivraison(config) {
   const pays = config.boutique.pays === 'ch' ? 'ch' : config.boutique.pays === 'be' ? 'be' : 'fr';
-  const modes = { ...LIVRAISONS[pays] };
+  // Objet sans prototype : une clé comme « toString » ou « __proto__ » envoyée par un client n'est jamais un mode.
+  const modes = Object.assign(Object.create(null), LIVRAISONS[pays]);
   // Retrait proposé seulement avec une adresse de magasin (sinon le client ne saurait pas où aller).
   if (!config.magasin || !config.magasin.clickCollect || !String(config.magasin.adresse || '').trim()) delete modes.retrait;
   return modes;

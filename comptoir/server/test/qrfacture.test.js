@@ -121,6 +121,8 @@ test('paiement sur facture QR de bout en bout : commande, facture, relevé banca
     assert.deepEqual((await c('POST', '/api/admin/paiements/camt', { xml: docSimple([brut(k4.d.referenceQr, reste).replace('NOTPROVIDED', 'V2')]) })).j.payees, [k4.numero], 'versements partiels additionnés');
     // Adresse avec nom d'entreprise en tête : la rue est gardée
     assert.deepEqual(Q.decouperAdresse('Atelier Bleu, Rue du Lac 12, 1003 Lausanne').rue, 'Rue du Lac');
+    // Mode de livraison pris dans le prototype (« toString ») : refusé, plus de commande à montant vide
+    for (const livraison of ['toString', '__proto__', 'constructor']) assert.equal((await c('POST', `/api/public/${ins.j.slug}/commandes`, { lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison, moyen: 'facture', client: { nom: 'A B', email: 'proto@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } })).s, 400, livraison);
     // Boutique sans IBAN valable : moyen refusé
     db.prepare("UPDATE boutiques SET config = json_set(config, '$.entreprise.iban', 'CH00 1234') WHERE slug = ?").run(ins.j.slug);
     assert.equal((await c('POST', `/api/public/${ins.j.slug}/commandes`, { lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', moyen: 'facture', client: { nom: 'A B', email: 'ab@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } })).s, 400);

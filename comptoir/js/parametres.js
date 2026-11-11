@@ -278,6 +278,7 @@ function vueSecurite() {
     ${ClesAcces.disponible() ? `<details${cles.length ? '' : ' open'}><summary>Ajouter une clé d’accès sur cet appareil</summary><form data-form="cle-ajouter" class="grille-form">
       <label class="champ"><span>Nom (pour la reconnaître)</span><input name="nom" maxlength="60" placeholder="iPhone de Marie, MacBook…"></label>
       <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>
+      ${d.deuxFacteurs ? '<label class="champ"><span>Code de l’application ou code de secours</span><input name="code" required autocomplete="one-time-code" maxlength="12"></label>' : ''}
       <div class="rangee"><button class="btn">Créer la clé d’accès</button></div></form></details>` : '<p class="sous">Ce navigateur ne gère pas les clés d’accès.</p>'}</section>`;
   const appareils = `<section class="carte"><div class="carte-tete"><h2>Appareils connectés</h2></div>
     <div class="table-wrap"><table class="table compacte"><thead><tr><th>Appareil</th><th>Dernière activité</th><th>Réseau</th><th></th></tr></thead><tbody>
@@ -310,7 +311,7 @@ document.addEventListener('submit', async e => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f));
   try {
-    if (f.dataset.form === 'cle-ajouter') { const r = await ClesAcces.enregistrer(d.motDePasse, d.nom); toast(`Clé d’accès « ${r.nom} » ajoutée.`); }
+    if (f.dataset.form === 'cle-ajouter') { const r = await ClesAcces.enregistrer(d.motDePasse, d.nom, d.code); toast(`Clé d’accès « ${r.nom} » ajoutée.`); }
     else { await api('POST', `/api/admin/compte/cles-acces/${encodeURIComponent(f.dataset.id)}/supprimer`, { motDePasse: d.motDePasse }); toast('Clé d’accès supprimée.'); }
     SECURITE.donnees = null;
   } catch (err) { toast(ClesAcces.messageErreur(err)); }
