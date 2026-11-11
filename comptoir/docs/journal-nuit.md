@@ -620,3 +620,9 @@ Tests : 51 ; démo sans erreur ni débordement ; audit d'accessibilité propre.
 - **quand un produit tombe à zéro** après une vente (il s'affiche alors « Épuisé »).
 
 Tests : 53 (e-mail de commande, alerte de stock).
+
+**Contrôles sur le code à jour (après le cycle 32)** :
+- 100 boutiques en dropshipping : 100 commandes, aucune anomalie ;
+- 100 utilisateurs par l'API : aucune anomalie ;
+- injections : aucune exécutée ;
+- pannes et doubles clics : aucun problème.
