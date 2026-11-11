@@ -626,3 +626,32 @@ Tests : 53 (e-mail de commande, alerte de stock).
 - 100 utilisateurs par l'API : aucune anomalie ;
 - injections : aucune exécutée ;
 - pannes et doubles clics : aucun problème.
+
+### Cycle 33 — Relecture des cycles 30 à 32 : 11 défauts corrigés
+
+**Graves**
+
+1. **N'importe qui pouvait verrouiller le compte d'un marchand** : dix mauvais mots de passe, envoyés depuis dix adresses, bloquaient sa connexion (et même le changement de son mot de passe) pour un quart d'heure, renouvelable à volonté. Désormais :
+   - le blocage vaut par compte *et* par adresse ; le compte seul n'est bloqué qu'à un seuil vingt fois plus haut ;
+   - une connexion réussie remet le compteur à zéro ;
+   - le changement de mot de passe a sa propre limite.
+
+   Test ajouté : le marchand se connecte malgré l'attaque.
+2. **La bannière d'une campagne disparaissait dès sa deuxième année** : le même code (BLACKFRIDAY20) revient chaque année et l'ancienne campagne, terminée, était retenue. C'est la campagne en cours (sinon la prochaine) qui compte.
+
+**Moyens**
+
+3. Changer de formule après avoir demandé la résiliation : Stripe résiliait quand même, et le marchand recevait un nouvel e-mail « résiliation enregistrée ». La résiliation est annulée chez Stripe aussi, et l'e-mail ne part que lorsque la résiliation vient d'être demandée.
+4. Supprimer son compte effaçait aussi les e-mails reçus comme client d'autres boutiques, y compris une confirmation de commande en attente d'envoi.
+5. Alerte « stock épuisé » envoyée en double, et « à préparer et expédier » pour une commande en rupture : une seule alerte, et l'e-mail dit « rupture : réapprovisionnez ou remboursez ».
+6. La table des échecs de connexion n'était jamais purgée (mémoire sans limite).
+
+**Mineurs**
+
+7. Factures Stripe au nom de l'ancienne formule après un changement : elles portent le nom de la nouvelle.
+8. Complément ajouté après achat : l'e-mail au marchand le présente comme complément de la commande d'origine, « à joindre au même colis ».
+9. L'e-mail au marchand recopiait le nom du client, qui restait après un effacement de ses données : seule la ville de livraison y figure.
+10. Entonnoir : « commande payée » recomptée à chaque ouverture du lien de suivi. Elle est comptée une fois, dans l'onglet du paiement.
+11. Photo de la fiche produit inaccessible au clavier : vrai bouton, et le focus revient après l'ajout ou le retrait.
+
+Tests : 55.

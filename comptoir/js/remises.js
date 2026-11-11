@@ -30,8 +30,12 @@
   /* Campagne liée à un code et hors de sa période (pas encore lancée, ou terminée) : sa bannière ne doit pas s'afficher. */
   function periodeCampagne(config, code, maintenant) {
     const t = maintenant || Date.now();
-    const c = Object.values((config && config.campagnes) || {}).find(x => x && x.code && String(x.code).toUpperCase() === String(code || '').toUpperCase());
-    if (!c) return null;
+    // Le même code revient chaque année (BLACKFRIDAY20) : on retient la campagne en cours, sinon la prochaine, sinon la dernière.
+    const liste = Object.values((config && config.campagnes) || {}).filter(x => x && x.code && String(x.code).toUpperCase() === String(code || '').toUpperCase());
+    if (!liste.length) return null;
+    const c = liste.find(x => (!x.debut || x.debut <= t) && (!x.expire || x.expire > t))
+      || liste.filter(x => x.debut && x.debut > t).sort((a, b) => a.debut - b.debut)[0]
+      || liste.sort((a, b) => (b.expire || 0) - (a.expire || 0))[0];
     return { debut: c.debut || null, expire: c.expire || null, avant: !!(c.debut && c.debut > t), apres: !!(c.expire && c.expire <= t) };
   }
   function codesValables(config, maintenant) {

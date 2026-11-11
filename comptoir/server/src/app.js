@@ -376,12 +376,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     {
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
       const drop = res.c.lignes.every(l => l.type === 'drop'), auto = config.reglages.autoTransmission;
-      const quoiFaire = res.c.livraison === 'retrait' ? 'À préparer pour un retrait en magasin.' : drop && auto ? 'Rien à faire : la commande part automatiquement chez le fournisseur.' : drop ? 'À transmettre au fournisseur depuis Commandes.' : 'À préparer et expédier.';
+      const quoiFaire = res.c.alerteStock ? 'Attention : rupture de stock pour cette commande. Réapprovisionnez, ou remboursez le client depuis Commandes.' : res.c.parent ? `Complément de la commande n° ${(lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.parent)) || {}).numero || ''} : à joindre au même colis.` : res.c.livraison === 'retrait' ? 'À préparer pour un retrait en magasin.' : drop && auto ? 'Rien à faire : la commande part automatiquement chez le fournisseur.' : drop ? 'À transmettre au fournisseur depuis Commandes.' : 'À préparer et expédier.';
       // Produits en stock tombés à zéro avec cette vente : ils s'affichent « Épuisé » ; le marchand doit le savoir.
-      const epuises = res.c.lignes.filter(l => l.type !== 'drop').map(l => listerProduits(res.boutique.id).find(p => p.id === l.produitId)).filter(p => p && p.type !== 'drop' && p.stock <= 0);
+      // Une seule alerte, au passage à zéro : le stock d'avant cette vente était positif (pas de doublon à chaque vente suivante).
+      const vendus = {}; for (const l of res.c.lignes) if (l.type !== 'drop') vendus[l.produitId] = (vendus[l.produitId] || 0) + l.qte;
+      const epuises = res.c.alerteStock ? [] : listerProduits(res.boutique.id).filter(p => vendus[p.id] && p.type !== 'drop' && p.stock <= 0 && p.stock + vendus[p.id] > 0);   // en rupture, l'e-mail de commande le dit déjà
       if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
-      if (mch) envoyerEmail(null, mch.email, `Nouvelle commande n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
-        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\nClient : ${res.c.client.nom}${res.c.client.ville ? `, ${res.c.client.ville}` : ''}\n${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
+      if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
+        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
     }
     if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop')) {
       try { await transmettreAuFournisseur(res.boutique, res.c, true); } catch (e) {
@@ -442,10 +444,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
   r.post('/api/auth/connexion', ctx => {
     const email = valider.email(ctx.corps.email);
-    const cles = ['ip:' + ctx.ip, 'compte:' + email.toLowerCase()];
-    auth.verifierEchecs(cles, Number(env.LIMITE_ESSAIS) || 10);
+    // Limites par adresse, et par compte depuis cette adresse : un tiers ne peut pas verrouiller le compte d'un marchand
+    // depuis d'autres adresses. Le compte seul n'est bloqué qu'à un seuil très élevé (attaque distribuée massive).
+    const max = Number(env.LIMITE_ESSAIS) || 10, e = email.toLowerCase();
+    const parIp = ['ip:' + ctx.ip, `compte-ip:${e}|${ctx.ip}`];
+    auth.verifierEchecs(parIp, max);
+    auth.verifierEchecs(['compte:' + e], max * 20);
     const m = db.prepare('SELECT * FROM marchands WHERE email = ?').get(email);
-    if (!m || !auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) { auth.noterEchec(cles); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
+    if (!m || !auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
+    auth.oublierEchecs([`compte-ip:${e}|${ctx.ip}`]);
     ctx.entetes['Set-Cookie'] = auth.cookieSession(auth.creerSession(db, m.id), securise);
     return { ok: true };
   });
@@ -543,7 +550,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Mot de passe : l'actuel est exigé ; les autres sessions sont fermées. */
   r.post('/api/admin/compte/mot-de-passe', exigerCompte, ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
-    const cles = ['compte:' + String(m.email).toLowerCase()];
+    const cles = ['mdp:' + m.id];   // clé propre : une attaque sur la page de connexion ne bloque pas un marchand déjà connecté
     auth.verifierEchecs(cles, Number(env.LIMITE_ESSAIS) || 10);
     if (!auth.verifierMotDePasse(String(ctx.corps.actuel || ''), m.mot_de_passe)) { auth.noterEchec(cles); throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants'); }
     const nouveau = valider.texte(ctx.corps.nouveau, 'Le nouveau mot de passe', { min: 10, max: 200 });
@@ -567,7 +574,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
-      db.prepare('DELETE FROM emails WHERE lower(destinataire) = ?').run(String(m.email).toLowerCase());   // e-mails de compte (réinitialisation, abonnement)
+      db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
       db.prepare('DELETE FROM marchands WHERE id = ?').run(m.id); // boutiques, produits, commandes, sessions : suppression en cascade
     });
     ctx.entetes['Set-Cookie'] = auth.cookieSession(null, securise);

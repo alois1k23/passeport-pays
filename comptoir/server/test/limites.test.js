@@ -24,3 +24,13 @@ test('connexion : les réussites ne comptent pas, les échecs sont limités par 
   assert.equal((await appel('/api/auth/connexion', { email: 'autre2@exemple.ch', motDePasse: 'x' }, '1.2.3.4, 198.51.100.7')).status, 429);
   s.close();
 });
+
+test('un tiers ne peut pas verrouiller le compte d’un marchand depuis d’autres adresses', async () => {
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db: ouvrir(':memory:'), env: { LIMITE_ESSAIS: '5' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const appel = (chemin, corps, ip) => fetch(base + chemin, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip }, body: JSON.stringify(corps) });
+  await appel('/api/auth/inscription', { email: 'victime@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Victime' } } }, '203.0.113.50');
+  for (let k = 0; k < 10; k++) await appel('/api/auth/connexion', { email: 'victime@exemple.ch', motDePasse: 'mauvais' }, `198.51.100.${k + 1}`);
+  assert.equal((await appel('/api/auth/connexion', { email: 'victime@exemple.ch', motDePasse: 'un mot de passe solide' }, '203.0.113.50')).status, 200);
+  s.close();
+});

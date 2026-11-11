@@ -203,6 +203,7 @@ async function envoyerCommande(form) {
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
+    try { if (json.commandeId) sessionStorage.setItem('comptoir-paiement-' + json.commandeId, '1'); } catch { /* ignoré */ }
     location.href = json.paiementUrl;
   } catch (e) {
     vue.envoi = false; rendre();
@@ -241,7 +242,8 @@ async function suivreCommande(id, jeton, annule) {
         ${c.offreApres ? `<div class="offre-apres">${visuelProduit({ nom: c.offreApres.nom, teinte: c.offreApres.teinte, image: c.offreApres.image })}<div><small>Uniquement maintenant</small><strong>${esc(c.offreApres.nom)}</strong><span><s>${euros(c.offreApres.prix)}</s> <b>${euros(c.offreApres.prixOffre)}</b> (−${c.offreApres.remise} %), livré dans le même colis, sans frais de port.</span>
           <button class="sf-btn" data-c="complement" data-commande="${esc(id)}" data-jeton="${esc(jeton)}" data-regle="${esc(c.offreApres.regle)}">Ajouter à ma commande</button><button class="bouton-lien" data-c="refuser-offre">Non merci</button></div></div>` : ''}`;
       if (c.offreApres) mesurer('offre_vue', { valeur: c.offreApres.regle });
-      if (c.statut !== 'attente' && !['annulee'].includes(c.statut)) mesurer('payee');   // même session que les étapes précédentes (avec accord)
+      // Une seule fois par commande, et seulement dans l'onglet où le paiement a été commencé (sinon un lien d'e-mail recompterait).
+      if (!['attente', 'annulee', 'remboursee'].includes(c.statut)) { try { if (sessionStorage.getItem('comptoir-paiement-' + id) && !sessionStorage.getItem('comptoir-payee-' + id)) { sessionStorage.setItem('comptoir-payee-' + id, '1'); mesurer('payee'); } } catch { /* stockage indisponible */ } }
       rendre();
       if (['expediee', 'livree', 'retiree', 'annulee', 'remboursee'].includes(c.statut)) break;
     } catch { break; }

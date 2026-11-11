@@ -116,9 +116,12 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
       const sub = await appelerStripe('GET', `subscriptions/${encodeURIComponent(a.ref_externe)}`);
       const item = sub.items && sub.items.data && sub.items.data[0];
       if (!item) throw erreur(502, 'Stripe : abonnement sans ligne de prix.', 'stripe');
+      // Produit au nom de la nouvelle formule : les factures Stripe affichent « Comptoir Pro », pas l'ancien nom.
+      const produit = await appelerStripe('POST', 'products', [['name', `Comptoir ${FORMULES[formule].nom}`], ['metadata[formule]', formule]]);
       await appelerStripe('POST', `subscriptions/${encodeURIComponent(a.ref_externe)}`, [
         ['items[0][id]', item.id], ['items[0][price_data][currency]', item.price.currency],
-        ['items[0][price_data][product]', typeof item.price.product === 'string' ? item.price.product : item.price.product.id],
+        ['items[0][price_data][product]', produit.id],
+        ['cancel_at_period_end', 'false'],   // changer de formule annule une résiliation demandée, chez Stripe comme ici
         ['items[0][price_data][unit_amount]', Math.round(FORMULES[formule].prix * 100)], ['items[0][price_data][recurring][interval]', 'month'],
         ['proration_behavior', 'create_prorations'], ['metadata[formule]', formule]
       ]);
@@ -167,7 +170,9 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
       // Formule changée ailleurs (tableau de bord Stripe) : les droits suivent.
       const f = o.metadata && o.metadata.formule;
       if (f && FORMULES[f] && f !== a.formule) maj(a.marchand_id, { formule: f });
-      maj(a.marchand_id, { fin_demandee: o.cancel_at_period_end ? 1 : 0 }); if (o.cancel_at_period_end) return { marchandId: a.marchand_id, evenement: 'resiliation' }; }
+      maj(a.marchand_id, { fin_demandee: o.cancel_at_period_end ? 1 : 0 });
+      // E-mail de résiliation seulement quand elle vient d'être demandée (pas à chaque mise à jour de la souscription).
+      if (o.cancel_at_period_end && !a.fin_demandee) return { marchandId: a.marchand_id, evenement: 'resiliation' }; }
     return true;
   }
 

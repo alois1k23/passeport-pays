@@ -812,3 +812,17 @@ test('alerte de stock épuisé envoyée au marchand après la dernière vente', 
   assert.ok(mail, 'alerte de stock');
   assert.match(mail.sujet, /Dernier vase/);
 });
+
+test('stock 1, deux commandes payées : une seule alerte « épuisé », la seconde signalée en rupture', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'rupture@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Rupture', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Rupture', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Pièce unique', prix: 40, stock: 1, type: 'stock' }] });
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const commander = n => a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C ' + n, email: `c${n}@exemple.ch`, adresse: 'Rue 2', npa: '1006', ville: 'Lausanne' } });
+  const c1 = await commander(1), c2 = await commander(2);
+  await fetch(c1.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  await fetch(c2.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const alertes = db.prepare("SELECT sujet FROM emails WHERE destinataire = 'rupture@exemple.ch' AND sujet LIKE 'Stock épuisé%'").all();
+  assert.equal(alertes.length, 1);
+  const seconde = db.prepare("SELECT corps FROM emails WHERE destinataire = 'rupture@exemple.ch' AND sujet LIKE 'Nouvelle commande%' ORDER BY id DESC LIMIT 1").get();
+  assert.match(seconde.corps, /rupture de stock/);
+});

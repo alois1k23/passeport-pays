@@ -559,7 +559,7 @@ function vueProduits() {
     ${p ? `<aside class="carte detail"><form data-form="produit">
       <div class="carte-tete"><h2>${etat.produits.find(x => x.id === p.id) ? 'Modifier le produit' : 'Nouveau produit'}</h2><button type="button" class="icone" data-action="fermer-produit">Fermer</button></div>
       ${visuelProduit(p, true)}
-      <div class="rangee"><label class="btn petit fantome">${p.image ? 'Changer la photo' : 'Ajouter une photo'}<input id="pf-photo" type="file" accept="image/jpeg,image/png,image/webp" hidden></label>${p.image ? '<button type="button" class="btn petit fantome danger-doux" data-action="retirer-photo">Retirer la photo</button>' : ''}<span class="sous">JPEG, PNG ou WebP, réduite automatiquement.</span></div>
+      <div class="rangee"><button type="button" id="pf-photo-btn" class="btn petit fantome" data-action="choisir-photo">${p.image ? 'Changer la photo' : 'Ajouter une photo'}</button><input id="pf-photo" type="file" accept="image/jpeg,image/png,image/webp" hidden>${p.image ? '<button type="button" class="btn petit fantome danger-doux" data-action="retirer-photo">Retirer la photo</button>' : ''}<span class="sous">JPEG, PNG ou WebP, réduite automatiquement.</span></div>
       <label class="champ"><span>Nom</span><input id="pf-nom" name="nom" required value="${esc(p.nom)}"></label>
       <label class="champ"><span>Description <button type="button" class="lien bouton-lien" data-action="rediger">Rédiger pour moi</button></span><textarea id="pf-desc" name="description" rows="4">${esc(p.description)}</textarea></label>
       <div class="deux"><label class="champ"><span>Prix TTC (${devise()})</span><input id="pf-prix" name="prix" type="number" min="0" step="0.01" required value="${p.prix}"></label>
@@ -1014,7 +1014,7 @@ document.addEventListener('change', async e => {
   if (e.target.id !== 'pf-photo' || !ui.produitEdite) return;
   const f = e.target.files[0];
   if (!f) return;
-  try { ui.produitEdite.image = await reduireImage(f, 640); rendreEnGardantProduit(); toast('Photo prête : enregistrez le produit pour la publier.'); }
+  try { ui.produitEdite.image = await reduireImage(f, 640); rendreEnGardantProduit(); setTimeout(() => document.getElementById('pf-photo-btn')?.focus(), 0); toast('Photo prête : enregistrez le produit pour la publier.'); }
   catch { toast(`${f.name} : format non lisible. Exportez la photo en JPEG ou PNG.`); }
 });
 function rendreEnGardantSaisie() {
@@ -1085,7 +1085,8 @@ document.addEventListener('click', e => {
     case 'page-client': ui.pageClient = (ui.pageClient || 1) + Number(el.dataset.d); rendre(); break;
     case 'ouvrir-client': ui.client = id; rendre(); break;
     case 'fermer-client': ui.client = null; rendre(); break;
-    case 'retirer-photo': if (ui.produitEdite) { ui.produitEdite.image = undefined; rendreEnGardantProduit(); } break;
+    case 'choisir-photo': document.getElementById('pf-photo')?.click(); break;
+    case 'retirer-photo': if (ui.produitEdite) { ui.produitEdite.image = undefined; rendreEnGardantProduit(); setTimeout(() => document.getElementById('pf-photo-btn')?.focus(), 0); } break;
     case 'exporter-client': exporterClient(el.dataset.email); break;
     case 'effacer-client': effacerClient(el.dataset.email); break;
     case 'export-clients': exporterClientsCsv(); break;

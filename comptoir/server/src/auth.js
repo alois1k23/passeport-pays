@@ -68,8 +68,11 @@ function compteEchecs(cle) {
 function verifierEchecs(cles, max) {
   if (cles.some(c => compteEchecs(c) >= max)) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
 }
+function oublierEchecs(cles) { for (const c of cles) echecs.delete(c); }
 function noterEchec(cles) {
   const maintenant = Date.now();
+  // Purge : la table ne grossit pas sans limite (adresses et e-mails choisis par un attaquant).
+  if (echecs.size > 20000) for (const [k, e] of echecs) if (maintenant - e.depuis > 15 * 60 * 1000) echecs.delete(k);
   for (const c of cles) { const e = echecs.get(c); if (!e || maintenant - e.depuis > 15 * 60 * 1000) echecs.set(c, { n: 1, depuis: maintenant }); else e.n++; }
 }
 
@@ -85,4 +88,4 @@ function limiter(cle, max, fenetreMs, message) {
   if (e.n > max) throw erreur(429, message, 'trop_de_requetes');
 }
 
-module.exports = { limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, nouvelId, sha256, COOKIE };
+module.exports = { limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };
