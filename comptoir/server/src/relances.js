@@ -63,7 +63,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
         const derniere = i === a.paiement.etapes.length - 1;
         const offre = derniere && a.paiement.remise && a.paiement.code ? `\n\nPour vous aider à vous décider : -${a.paiement.remise} % avec le code ${a.paiement.code}.` : '';
         envoyerEmail(boutique.id, c.client.email, i === 0 ? `Votre commande chez ${nom} vous attend` : `Votre panier chez ${nom} vous attend toujours`,
-          `Bonjour ${c.client.nom},\n\nVotre commande n° ${c.numero} (${formatMontant(c.total, config)}) n’a pas été finalisée. Un souci au moment de payer ? Vous pouvez la reprendre ici :\n${lien}${offre}\n\nL’équipe ${nom}`);
+          `Bonjour ${c.client.nom},\n\nVotre commande n° ${c.numero} (${formatMontant(c.total, config)}) n’a pas été finalisée. Un souci au moment de payer ? Vous pouvez la reprendre ici :\n${lien}${offre}\n\nL’équipe ${nom}`, { marketing: true });   // relance commerciale : lien de désinscription, désinscrits respectés
         c.relances = i + 1;
         c.historique.push({ date: maintenant, texte: `Relance de paiement n° ${i + 1} envoyée par e-mail` });
         enregistrerCommande(c);
@@ -81,7 +81,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       if (maintenant - depuis < a.avis.jours * JOUR || maintenant - depuis > 60 * JOUR) continue;
       if (!reserver(db, boutique.id, `avis:${c.id}`, maintenant)) continue;
       envoyerEmail(boutique.id, c.client.email, `Votre avis sur votre commande ${nom}`,
-        `Bonjour ${c.client.nom},\n\nVous avez reçu ${c.lignes.map(l => l.nom).join(', ')}. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir, et nous à nous améliorer. Il prend 30 secondes :\n${base}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}\n\nMerci,\nL’équipe ${nom}`);
+        `Bonjour ${c.client.nom},\n\nVous avez reçu ${c.lignes.map(l => l.nom).join(', ')}. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir, et nous à nous améliorer. Il prend 30 secondes :\n${base}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}\n\nMerci,\nL’équipe ${nom}`, { marketing: true });
       c.avisDemande = maintenant;
       enregistrerCommande(c);
       n++;
