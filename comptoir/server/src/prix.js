@@ -30,7 +30,8 @@ const SEUIL_PORT_OFFERT = 60;
 function modesLivraison(config) {
   const pays = config.boutique.pays === 'ch' ? 'ch' : config.boutique.pays === 'be' ? 'be' : 'fr';
   const modes = { ...LIVRAISONS[pays] };
-  if (!config.magasin || !config.magasin.clickCollect) delete modes.retrait;
+  // Retrait proposé seulement avec une adresse de magasin (sinon le client ne saurait pas où aller).
+  if (!config.magasin || !config.magasin.clickCollect || !String(config.magasin.adresse || '').trim()) delete modes.retrait;
   return modes;
 }
 
@@ -62,7 +63,7 @@ function tauxTva(config) {
 }
 
 /* Construit les lignes d'une commande à partir des produits en base. */
-function construireLignes(produits, demandes) {
+function construireLignes(produits, demandes, { qteMax = 20 } = {}) {
   if (!Array.isArray(demandes) || !demandes.length || demandes.length > 50) throw erreur(400, 'Le panier est vide ou invalide.', 'panier_invalide');
   const lignes = [];
   for (const d of demandes) {
@@ -70,7 +71,7 @@ function construireLignes(produits, demandes) {
     const p = produits.find(x => x.id === d.produitId);
     if (!p || !p.actif || p.aVerifier) throw erreur(400, 'Un produit du panier n’est plus disponible.', 'produit_indisponible');
     const qte = Number(d.qte);
-    if (!Number.isInteger(qte) || qte < 1 || qte > 20) throw erreur(400, 'Quantité invalide.', 'quantite_invalide');
+    if (!Number.isInteger(qte) || qte < 1 || qte > qteMax) throw erreur(400, `Quantité invalide (${qteMax} au maximum par article).`, 'quantite_invalide');
     if (p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');
     const offre = typeof d.offre === 'string' ? d.offre.slice(0, 20) : undefined;
     const ex = !offre && lignes.find(l => l.produitId === p.id && !l.offre);
@@ -81,7 +82,7 @@ function construireLignes(produits, demandes) {
   for (const l of lignes) totaux[l.produitId] = (totaux[l.produitId] || 0) + l.qte;
   for (const [id, qte] of Object.entries(totaux)) {
     const p = produits.find(x => x.id === id);
-    if (qte > 20) throw erreur(400, 'Quantité invalide.', 'quantite_invalide');
+    if (qte > qteMax) throw erreur(400, `Quantité invalide (${qteMax} au maximum par article).`, 'quantite_invalide');
     if (p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');
   }
   return lignes;

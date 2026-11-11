@@ -165,7 +165,7 @@ function rendre() {
   $('#mode-badge').classList.toggle('reel', enLigne);
   document.title = `${t || 'Comptoir'} · ${etat.boutique.nom}`;
   $('#nom-boutique').textContent = etat.boutique.nom;
-  $('#domaine-actuel').textContent = etat.boutique.domaine ? etat.boutique.domaine.domaine : (typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? location.host + '/s/' + SERVEUR.slug : slugifier(etat.boutique.nom) + '.comptoir.shop');
+  $('#domaine-actuel').textContent = adresseBoutique();
   const vues = { stars: vueStars, tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, parametres: vueParametres, fournisseurs: vueFournisseurs, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
   // Le champ actif (par son id) retrouve le focus après le rendu : Tab après une modification ne renvoie plus au début de la page.
   // Si l'on quitte un champ avec Tab, son « change » redessine la vue avant que le focus n'arrive au champ suivant : on l'y amène.
@@ -751,7 +751,7 @@ function vueEditeur() {
       <label class="champ"><span>Secteur</span><select id="in-secteur" data-boutique="secteur">${Object.entries(SECTEURS).map(([k, v]) => `<option value="${k}" ${b.secteur === k ? 'selected' : ''}>${v.nom}</option>`).join('')}</select></label>
       <fieldset class="champ"><legend>Langues de la boutique</legend><div class="rangee">${[['fr', 'Français'], ['de', 'Deutsch'], ['it', 'Italiano'], ['en', 'English']].map(([k, n]) => `<label class="case"><input type="checkbox" data-langue="${k}" ${b.langues.includes(k) ? 'checked' : ''} ${k === 'fr' ? 'disabled' : ''}> ${n}</label>`).join('')}</div>
         <span class="sous">Traduction automatique des pages et fiches produits (simulée), relisible avant publication.</span></fieldset>
-      <div class="bloc"><h3>Adresse</h3><p class="mono">${esc(b.domaine ? b.domaine.domaine : slugifier(b.nom) + '.comptoir.shop')}</p><a href="#domaines" class="lien">Changer de domaine</a></div>`;
+      <div class="bloc"><h3>Adresse</h3><p class="mono">${esc(adresseBoutique())}</p><a href="#domaines" class="lien">Changer de domaine</a></div>`;
   }
   return `
   <div class="tete"><div><h1>Éditeur du site</h1><p class="sous">Cliquez sur une section de l’aperçu pour la modifier.</p></div>
@@ -771,7 +771,7 @@ function vueEditeur() {
       <div class="onglets plein">${onglets.map(([id, n]) => `<button class="${ui.ongletEditeur === id ? 'actif' : ''}" data-action="onglet-editeur" data-id="${id}">${n}</button>`).join('')}</div>
       <div class="panneau-corps">${panneau}</div>
     </aside>
-    <div class="scene"><div class="appareil ${ui.appareil}"><div class="barre-url"><span></span><span></span><span></span><em class="mono">${esc(b.domaine ? b.domaine.domaine : slugifier(b.nom) + '.comptoir.shop')}</em></div><div id="apercu"></div></div></div>
+    <div class="scene"><div class="appareil ${ui.appareil}"><div class="barre-url"><span></span><span></span><span></span><em class="mono">${esc(adresseBoutique())}</em></div><div id="apercu"></div></div></div>
   </div>`;
 }
 
@@ -873,7 +873,7 @@ function vueBoutique() {
   const ch = etat.boutique.pays === 'ch';
   const port = total ? fraisPort(ui.livraison, total) : 0;
   return `
-  <div class="bandeau-client"><span>Vous voyez <b class="mono">${esc(etat.boutique.domaine ? etat.boutique.domaine.domaine : slugifier(etat.boutique.nom) + '.comptoir.shop')}</b> comme un client. Passez une commande : elle apparaîtra dans l’admin.</span><a href="#tableau" class="btn petit">Retour à l’admin</a></div>
+  <div class="bandeau-client"><span>Vous voyez <b class="mono">${esc(adresseBoutique())}</b> comme un client. Passez une commande : elle apparaîtra dans l’admin.</span><a href="#tableau" class="btn petit">Retour à l’admin</a></div>
   <div class="boutique-live">${renduBoutique(etat, { mode: 'live', panier: ui.panier, fiche: ui.fiche })}</div>
   ${etat.cookies ? '' : `<div class="cookies" role="region" aria-label="Cookies"><p>${esc(etat.boutique.nom)} utilise des cookies de mesure d’audience pour améliorer le site. Vous pouvez les accepter ou les refuser.</p><div class="rangee"><button class="btn petit fantome" data-action="cookies" data-choix="refus">Refuser</button><button class="btn petit fantome" data-action="cookies" data-choix="accord">Accepter</button></div></div>`}
   <div class="tiroir ${ui.panierOuvert ? 'ouvert' : ''}" aria-hidden="${!ui.panierOuvert}">

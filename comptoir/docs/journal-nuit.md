@@ -699,3 +699,39 @@ Une relecture des modules de gestion quotidienne a relevé 15 défauts.
 15. Clients sans aucune vente valide comptés comme clients ; produits « à vérifier » comptés « en ligne » ; fournisseurs crédités de commandes jamais transmises.
 
 Tests : 57.
+
+### Cycle 37 — Conversion, caisse, paramètres et copilote : 15 défauts corrigés
+
+**Graves**
+
+1. **Le QR code de vitrine menait à une adresse inexistante** (`<nom>.comptoir.shop`, ou un domaine pas encore vérifié). Une seule règle donne désormais l'adresse réelle, la même que celle du serveur : le domaine s'il est vérifié, sinon `/s/<boutique>`. Elle sert au QR code, à l'éditeur, au bandeau « vous voyez la boutique » et au menu.
+2. **Valider une deuxième campagne effaçait la bannière de la première**, alors que son code restait valable. Chaque campagne a sa propre bannière, affichée pendant sa période ; la bannière générique s'efface pendant ce temps.
+3. **Une campagne sans code (Noël, Saint-Nicolas) s'affichait aussitôt et ne disparaissait jamais.** Sa bannière suit maintenant la période de la campagne. Vérifié : Singles Day visible, Black Friday et Noël masqués avant leur début, Noël masqué en janvier.
+4. **Caisse** : au-delà de 20 unités d'un même produit, le ticket s'affichait mais l'encaissement échouait. Les ventes en magasin acceptent jusqu'à 999 unités par article.
+
+**Moyens**
+
+5. **Réglages hors limites** (remise de 100 %, délai de 0 jour, seuil de 5000) affichés tels quels, puis corrigés en silence par le serveur. L'écran applique les mêmes limites et prévient quand une valeur est ramenée. Les plafonds du navigateur et du serveur sont alignés (relance de paiement : 30 %).
+6. **Relances de paiement saisies dans le désordre** (72 h, 24 h, 1 h) : une seule partait. Elles sont triées dans l'ordre chronologique, à l'écran comme sur le serveur.
+7. **Paliers de quantité incohérents** (2 articles à −10 %, 3 articles à −5 % : acheter plus coûtait plus cher). Le second palier doit demander plus d'articles et donner plus de remise.
+8. **Campagne impossible à annuler**, et message trompeur (« e-mail et publication planifiés » : rien n'est envoyé automatiquement). Bouton « Annuler la campagne » (bannière retirée, code désactivé) ; le message dit ce qui est réellement fait, les dates et « prêt à copier ».
+9. « Contenus modifiables avant envoi » : faux, ils sont à copier ; le texte le dit.
+10. **Codes promo** :
+    - « été 20 » devenait « T20 » ;
+    - un code vide ne disait rien ;
+    - un code manuel pouvait écraser en silence le code de bienvenue ;
+    - aucune date d'expiration possible.
+
+    Désormais, les accents sont retirés (ETE20), un message s'affiche, un code déjà utilisé est refusé, et une date d'expiration peut être saisie.
+11. **Retrait en boutique proposé sans adresse de magasin** : refusé à l'écran, et non proposé par le serveur.
+12. Offre complémentaire dont le produit est hors ligne : la liste affichait un autre produit ; elle indique « (hors ligne) » et l'offre est signalée inopérante.
+
+**Mineurs**
+
+13. Une campagne en cours (soldes, Black Friday) disparaissait du copilote dès le jour de l'événement ; elle reste visible jusqu'à sa fin.
+14. Restauration d'un fichier incomplet acceptée (« données restaurées »), puis l'éditeur plantait : le fichier est vérifié et complété.
+15. Caisse :
+    - rendu de monnaie ajouté (« espèces reçues », « à rendre ») ;
+    - « Fiche Google synchronisée » ne s'affiche plus sur un compte réel, où rien n'est synchronisé (annoncée « bientôt disponible »).
+
+Tests : 57 ; démo sans erreur.

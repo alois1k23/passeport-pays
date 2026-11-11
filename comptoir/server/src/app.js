@@ -724,7 +724,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
   function encaisserCaisse(ctx) {
     const produits = listerProduits(ctx.boutique.id);
-    const lignes = prix.construireLignes(produits, ctx.corps.lignes);
+    const lignes = prix.construireLignes(produits, ctx.corps.lignes, { qteMax: 999 });   // vente en magasin : quantités de marché ou de gros
     if (lignes.some(l => l.type === 'drop')) throw erreur(400, 'La caisse n’accepte que les produits en stock.', 'caisse_drop');
     const total = prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
     const moyen = ctx.corps.moyen === 'especes' ? 'espèces' : ctx.corps.moyen === 'twint' ? 'TWINT' : 'carte';
@@ -842,7 +842,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Un code promo affiché dans la bannière doit exister au paiement ; un contact d'exemple est remplacé par l'e-mail de l'entreprise.
     const codesOk = new Set(Remises.codesValables(config).map(c => c.code.toUpperCase()));
     const sectionsPubliques = (config.boutique.sections || []).map(s => {
-      if (s.type === 'saison' && s.props && s.props.code) { const per = Remises.periodeCampagne(config, s.props.code); if (per && (per.avant || per.apres)) return null; }   // campagne pas encore lancée ou terminée
+      if (s.type === 'saison' && !Remises.banniereVisible(config, s.props)) return null;   // campagne pas encore lancée ou terminée
       if (s.type === 'saison' && s.props && s.props.code && !codesOk.has(String(s.props.code).toUpperCase())) return { ...s, props: { ...s.props, code: '' } };
       if (s.type === 'pied' && s.props && (!s.props.contact || /@exemple\./i.test(s.props.contact))) return { ...s, props: { ...s.props, contact: config.entreprise.email || '' } };
       return s;

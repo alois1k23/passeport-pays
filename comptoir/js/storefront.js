@@ -105,11 +105,15 @@ function renduSection(s, etat, mode) {
       </section>`;
     }
     case 'saison': {
-      // Bannière d'une campagne hors de sa période : invisible en ligne (une remise ne s'annonce pas avant que son code marche).
-      const per = p.code && typeof Remises !== 'undefined' && Remises.periodeCampagne ? Remises.periodeCampagne(etat, p.code) : null;
-      if (per && (per.avant || per.apres)) {
+      // Bannière hors de sa période : invisible en ligne (une remise ne s'annonce pas avant que son code marche, et s'efface après).
+      // Côté public, le serveur a déjà retiré les bannières hors période (l'état public ne contient pas les campagnes).
+      if (typeof etat.campagnes !== 'undefined' && typeof Remises !== 'undefined' && Remises.banniereVisible && !Remises.banniereVisible(etat, p)) {
         if (mode !== 'edition') return '';
-        return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${per.avant ? `Programmée : visible à partir du ${new Date(per.debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : 'Campagne terminée : cette bannière n’est plus affichée.'}</span></div></section>`;
+        const c = p.campagne ? etat.campagnes[p.campagne] : null;
+        const per = !c && p.code ? Remises.periodeCampagne(etat, p.code) : null;
+        const debut = c ? c.debut : per && per.debut, avant = debut && debut > Date.now();
+        const quoi = avant ? `Programmée : visible à partir du ${new Date(debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : p.campagne || p.code ? 'Campagne terminée : cette bannière n’est plus affichée.' : 'Masquée pendant qu’une bannière de campagne est affichée.';
+        return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${quoi}</span></div></section>`;
       }
       // Côté admin, on vérifie que le code existe vraiment (Conversion ou campagne) ; côté public, le serveur a déjà retiré les codes inconnus.
       const connu = !p.code || typeof etat.campagnes === 'undefined' || typeof Remises === 'undefined' || Remises.codesValables(etat).some(c => c.code === String(p.code).toUpperCase());

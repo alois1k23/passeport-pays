@@ -386,6 +386,16 @@ function completerEtat(e) {
   }
   return e;
 }
+/* Adresse publique réelle de la boutique (même règle que le serveur) : le domaine seulement s'il est vérifié ;
+   en compte réel sinon l'adresse /s/<slug> ; en démo, l'adresse fictive de la démo. Sans « https:// ». */
+function adresseBoutique() {
+  const b = etat.boutique, d = b.domaine;
+  const reel = typeof SERVEUR !== 'undefined' && SERVEUR.connecte;
+  if (reel) return d && d.domaine && d.actif ? d.domaine : location.host + '/s/' + SERVEUR.slug;
+  return d && d.domaine ? d.domaine : slugifier(b.nom) + '.comptoir.shop';
+}
+function urlBoutiquePublique() { const a = adresseBoutique(); return (/^localhost|^127\./.test(a) ? location.protocol + '//' : 'https://') + a; }
+
 /* Actions irréversibles (remboursement, annulation, suppression) : une confirmation explicite avant d'agir. */
 function confirmerAction(el) {
   const { action, id, statut } = el.dataset;

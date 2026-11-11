@@ -45,14 +45,14 @@ function vueCopilote() {
       </div>
       <div class="bloc"><h3>Planning</h3><ol class="frise">${camp.planning.map(p => `<li class="${p.passe ? 'passe' : ''}"><span>${esc(p.texte)}</span><time>${p.label}</time></li>`).join('')}</ol></div>
       <div class="rangee">
-        <button class="btn" data-action="valider-campagne">${etatCamp ? 'Mettre à jour la campagne' : 'Valider et programmer'}</button>
+        <button class="btn" data-action="valider-campagne">${etatCamp ? 'Mettre à jour la campagne' : 'Valider et programmer'}</button>${etatCamp ? '<button class="btn fantome danger-doux" data-action="annuler-campagne">Annuler la campagne</button>' : ''}
         <a class="btn fantome" href="#editeur">Voir la bannière dans l’éditeur</a>
       </div>
     </section>
 
     <div class="pile">
       <section class="carte">
-        <div class="carte-tete"><h2>Contenus rédigés</h2><span class="sous">Modifiables avant envoi</span></div>
+        <div class="carte-tete"><h2>Contenus rédigés</h2><span class="sous">À copier : l’e-mail et la publication s’envoient depuis votre messagerie et vos réseaux</span></div>
         <div class="bloc"><h3>Bannière du site</h3><p><strong>${esc(camp.banniere.titre)}</strong> · ${esc(camp.banniere.texte)}</p></div>
         <div class="bloc"><h3>E-mail aux clients</h3><p class="sous">Objet : ${esc(camp.email.objet)}</p><pre class="brouillon">${esc(camp.email.corps)}</pre></div>
         <div class="bloc"><h3>Publication Instagram</h3><pre class="brouillon">${esc(camp.post)}</pre></div>
@@ -73,7 +73,7 @@ function vueCopilote() {
 /* ---------- Magasin, caisse et retrait ---------- */
 function vueMagasin() {
   const m = etat.magasin;
-  const url = 'https://' + (etat.boutique.domaine ? etat.boutique.domaine.domaine : slugifier(etat.boutique.nom) + '.comptoir.shop');
+  const url = urlBoutiquePublique();   // l'adresse où la boutique répond vraiment
   const retraits = etat.commandes.filter(c => c.livraison === 'retrait' && c.canal === 'web' && ['payee', 'preparation', 'prete'].includes(c.statut)).sort((a, b) => a.date - b.date);
   const ventesMag = etat.commandes.filter(c => c.canal === 'magasin' && c.date > Date.now() - 30 * 86400000);
   const totalCaisse = ui.caisse.reduce((a, l) => a + l.prix * l.qte, 0);
@@ -91,6 +91,7 @@ function vueMagasin() {
           : '<p class="sous ticket-vide">Touchez un produit pour l’ajouter au ticket.</p>'}
         <div class="ticket-total"><span>Total TTC</span><strong>${euros(totalCaisse)}</strong></div>
         ${estSuisse() && ui.caisse.length && Math.round(totalCaisse * 20) / 20 !== Math.round(totalCaisse * 100) / 100 ? `<p class="sous">En espèces : ${euros(Math.round(totalCaisse * 20) / 20)} (arrondi aux 5 centimes).</p>` : ''}
+        ${ui.caisse.length ? (() => { const du = estSuisse() ? Math.round(totalCaisse * 20) / 20 : Math.round(totalCaisse * 100) / 100, recu = Number(ui.recuCaisse) || 0; return `<label class="champ rendu-monnaie"><span>Espèces reçues</span><input id="cs-recu" type="number" min="0" step="0.05" inputmode="decimal" value="${ui.recuCaisse || ''}" data-caisse="recu" placeholder="${du.toFixed(2)}"></label>${recu ? `<p class="${recu < du ? 'alerte-texte' : ''}">${recu < du ? `Il manque ${euros(du - recu)}.` : `À rendre : <strong>${euros(recu - du)}</strong>`}</p>` : ''}`; })() : ''}
         <div class="rangee">${estSuisse() ? `<button class="btn" data-action="encaisser" data-moyen="twint" ${ui.caisse.length ? '' : 'disabled'}>TWINT</button>` : ''}<button class="btn${estSuisse() ? ' fantome' : ''}" data-action="encaisser" data-moyen="carte" ${ui.caisse.length ? '' : 'disabled'}>Carte</button><button class="btn fantome" data-action="encaisser" data-moyen="especes" ${ui.caisse.length ? '' : 'disabled'}>Espèces</button></div>
       </div>
     </section>
@@ -111,8 +112,8 @@ function vueMagasin() {
         <label class="champ"><span>Adresse</span><input id="mg-adresse" value="${esc(m.adresse)}" data-magasin="adresse"></label>
         <label class="champ"><span>Horaires</span><input id="mg-horaires" value="${esc(m.horaires)}" data-magasin="horaires"></label>
         <label class="case"><input id="mg-cc" type="checkbox" data-magasin="clickCollect" ${m.clickCollect ? 'checked' : ''}> Proposer le retrait en boutique</label>
-        <label class="case"><input id="mg-g" type="checkbox" data-magasin="googleSync" ${m.googleSync ? 'checked' : ''}> Synchroniser la fiche Google (horaires et stock)</label>
-        ${m.googleSync ? `<p class="sous"><span class="pill good">Synchronisée</span> ${visibles} produits en stock visibles sur Google (simulé)</p>` : ''}
+        ${connecteAuServeur() ? '<p class="sous">Synchronisation avec votre fiche Google (horaires et stock) : bientôt disponible.</p>' : `<label class="case"><input id="mg-g" type="checkbox" data-magasin="googleSync" ${m.googleSync ? 'checked' : ''}> Synchroniser la fiche Google (horaires et stock)</label>
+        ${m.googleSync ? `<p class="sous"><span class="pill good">Synchronisée</span> ${visibles} produits en stock visibles sur Google (simulé)</p>` : ''}`}
       </section>
     </div>
   </div>`;
@@ -135,7 +136,7 @@ function encaisser(moyen) {
   if (moyen === 'especes' && estSuisse()) { c.encaisse = Math.round(c.total * 20) / 20; c.arrondi = Math.round((c.encaisse - c.total) * 100) / 100; }
   etat.commandes.push(c);
   for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); l.type = p ? p.type : l.type; if (p) { l.retireStock = Math.min(l.qte, Math.max(0, p.stock)); p.stock -= l.retireStock; } }
-  ui.caisse = [];
+  ui.caisse = []; ui.recuCaisse = '';
   sauver();
   toast(`Vente de ${euros(total)} encaissée. Ticket ${c.facture}, stock du site mis à jour.`);
   rendre();
@@ -438,11 +439,16 @@ document.addEventListener('click', e => {
   const { action, id } = el.dataset;
   switch (action) {
     case 'campagne': ui.campagne = id; rendre(); break;
+    case 'annuler-campagne': {
+      const evt = prochainsTempsForts(6).find(x => x.cle === ui.campagne);
+      if (!evt || !confirm(`Annuler la campagne ${evt.nom} ? Sa bannière est retirée et son code ne fonctionnera plus.`)) break;
+      annulerCampagne(etat, evt.cle); sauver(); toast(`Campagne ${evt.nom} annulée.`); rendre(); break;
+    }
     case 'valider-campagne': {
       const evt = prochainsTempsForts(4).find(x => x.cle === ui.campagne);
       const camp = genererCampagne(etat, evt);
       appliquerCampagne(etat, camp); etat.boutique.modifie = false; sauver();
-      toast(`Campagne ${evt.nom} programmée : bannière, code ${camp.code || 'cadeau'}, e-mail et publication planifiés.`, ['boutique', 'Voir la boutique']);
+      toast(`Campagne ${evt.nom} programmée : bannière${camp.code ? ` et code ${camp.code}` : ''} du ${new Date(camp.lancement).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} au ${new Date(camp.finCampagne).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}. L’e-mail et la publication sont prêts à copier.`, ['boutique', 'Voir la boutique']);
       rendre(); break;
     }
     case 'mois-domaine': ui.dom.mois = Number(el.dataset.mois); break;
@@ -475,7 +481,10 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'photo-input') { importerPhotos(t.files); t.value = ''; }
-  else if (t.dataset.magasin) { etat.magasin[t.dataset.magasin] = t.type === 'checkbox' ? t.checked : t.value; sauver(); if (t.type === 'checkbox') rendre(); }
+  else if (t.dataset.magasin) {
+    if (t.dataset.magasin === 'clickCollect' && t.checked && !String(etat.magasin.adresse || '').trim()) { t.checked = false; toast('Indiquez d’abord l’adresse du magasin : vos clients doivent savoir où retirer leur commande.'); return; }
+    etat.magasin[t.dataset.magasin] = t.type === 'checkbox' ? t.checked : t.value; sauver(); if (t.type === 'checkbox') rendre();
+  }
   else if (t.dataset.entreprise) { etat.entreprise[t.dataset.entreprise] = t.value; sauver(); rendre(); }
 });
 document.addEventListener('keydown', e => {
@@ -499,3 +508,9 @@ function dessinerQR() {
   // Texte alternatif de l'image générée (lecteurs d'écran) ; le canvas de secours est masqué pour eux.
   setTimeout(() => { z.querySelectorAll('img').forEach(i => i.setAttribute('alt', `QR code vers ${z.dataset.url}`)); z.querySelectorAll('canvas').forEach(c => c.setAttribute('aria-hidden', 'true')); z.setAttribute('role', 'img'); z.setAttribute('aria-label', `QR code vers ${z.dataset.url}`); }, 0);
 }
+
+/* Caisse : montant reçu en espèces et monnaie à rendre, recalculés à la frappe. */
+document.addEventListener('input', e => {
+  if (!e.target.dataset || e.target.dataset.caisse !== 'recu') return;
+  ui.recuCaisse = e.target.value; rendre();
+});

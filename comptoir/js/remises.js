@@ -38,6 +38,17 @@
       || liste.sort((a, b) => (b.expire || 0) - (a.expire || 0))[0];
     return { debut: c.debut || null, expire: c.expire || null, avant: !!(c.debut && c.debut > t), apres: !!(c.expire && c.expire <= t) };
   }
+  /* Bannière de saison visible maintenant ? Celle d'une campagne suit la période de sa campagne (avec ou sans code) ;
+     la bannière générique s'efface pendant qu'une bannière de campagne est affichée. */
+  function banniereVisible(config, props, maintenant) {
+    const t = maintenant || Date.now();
+    const camps = (config && config.campagnes) || {};
+    const dansPeriode = c => c && (!c.debut || c.debut <= t) && (!c.expire || c.expire > t);
+    if (props && props.campagne) return dansPeriode(camps[props.campagne]);
+    if (props && props.code) { const per = periodeCampagne(config, props.code, t); if (per && (per.avant || per.apres)) return false; }
+    const sections = (config && config.boutique && config.boutique.sections) || [];
+    return !sections.some(s => s.type === 'saison' && s.props && s.props.campagne && dansPeriode(camps[s.props.campagne]));
+  }
   function codesValables(config, maintenant) {
     const t = maintenant || Date.now();
     const o = offresDe(config);
@@ -50,9 +61,10 @@
     const a = (config && config.automatisations) || {};
     // Remise saisie : 0 reste 0 (le code n'est alors pas proposé), bornée à 50 % ; absente : valeur par défaut.
     const taux = (v, defaut) => v === undefined || v === null || v === '' || !Number.isFinite(Number(v)) ? defaut : Math.max(0, Math.min(50, Number(v)));
-    for (const [cle, defaut, source] of [['bienvenue', 10, 'E-mail de bienvenue'], ['reconquete', 15, 'E-mail de reconquête'], ['paiement', 10, 'Relance de paiement']]) {
+    for (const [cle, defaut, source, max] of [['bienvenue', 10, 'E-mail de bienvenue', 50], ['reconquete', 15, 'E-mail de reconquête', 50], ['paiement', 10, 'Relance de paiement', 30]]) {
       const x = a[cle];
-      if (x && x.actif && x.code && taux(x.remise, defaut) > 0) codes.push({ code: x.code, remise: taux(x.remise, defaut), source });
+      const r = Math.min(max, taux(x && x.remise, defaut));   // mêmes plafonds que le serveur (relances.js)
+      if (x && x.actif && x.code && r > 0) codes.push({ code: x.code, remise: r, source });
     }
     return codes;
   }
@@ -98,7 +110,7 @@
     };
   }
 
-  const api = { OFFRES_DEFAUT, offresDe, codesValables, periodeCampagne, appliquer, regleApplicable };
+  const api = { OFFRES_DEFAUT, offresDe, codesValables, periodeCampagne, banniereVisible, appliquer, regleApplicable };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else racine.Remises = api;
 })(typeof window !== 'undefined' ? window : globalThis);

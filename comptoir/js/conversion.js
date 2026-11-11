@@ -172,7 +172,7 @@ function vueConversion() {
       <div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th class="num">Remise</th><th>Origine</th><th></th></tr></thead><tbody>
         ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}</td><td class="num">${c.source === 'Code manuel' ? `<button class="btn petit fantome danger-doux" data-action="suppr-code" data-code="${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
       </tbody></table></div>
-      <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="70" value="10" required aria-label="Remise en %"><button class="btn">Ajouter</button></form>
+      <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="50" value="10" required aria-label="Remise en %"><label class="sous">Jusqu’au <input name="expire" type="date" aria-label="Date d’expiration (facultative)"></label><button class="btn">Ajouter</button></form>
     </section>
   </div>
   ${blocAvis()}`;
@@ -202,14 +202,14 @@ function statsRegle(r) {
   return { vues, acceptees: nAcc, taux: vues ? nAcc / vues : 0, ca };
 }
 function blocRegles(o) {
-  const opts = (sel, avecTout) => `${avecTout ? `<option value="*" ${sel === '*' ? 'selected' : ''}>N’importe quel panier</option>` : ''}${etat.produits.filter(p => p.actif).map(p => `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(p.nom)}</option>`).join('')}`;
+  const opts = (sel, avecTout) => `${avecTout ? `<option value="*" ${sel === '*' ? 'selected' : ''}>N’importe quel panier</option>` : ''}${(() => { const hors = sel && sel !== '*' && !etat.produits.some(p => p.actif && p.id === sel) ? etat.produits.find(p => p.id === sel) : null; return hors ? `<option value="${esc(hors.id)}" selected>${esc(hors.nom)} (hors ligne)</option>` : sel && sel !== '*' && !etat.produits.some(p => p.id === sel) ? `<option value="${esc(sel)}" selected>Produit supprimé</option>` : ''; })()}${etat.produits.filter(p => p.actif).map(p => `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(p.nom)}</option>`).join('')}`;
   return `<section class="carte sans-pad regles">
     <div class="carte-tete pad"><h2>Offres complémentaires</h2><span class="sous">dans le panier ou juste après l’achat (même colis, pendant 2 heures)</span></div>
     <p class="sous pad-x">Proposez un produit lié, pas n’importe lequel : une offre sans rapport avec l’achat est souvent ignorée. Les taux d’acceptation très élevés cités par certains vendeurs d’applications sont des cas isolés ; une moyenne publiée tourne autour de 5 %.</p>
     <div class="table-wrap"><table class="table"><thead><tr><th>Si le panier contient</th><th>Proposer</th><th class="num">Remise</th><th>Moment</th><th class="num">Vues</th><th class="num">Acceptées</th><th class="num">Chiffre d’affaires</th><th></th></tr></thead><tbody>
     ${o.regles.map((r, i) => { const s = statsRegle(r); return `<tr class="${r.actif ? '' : 'inactif'}">
       <td><select data-regle="${i}.si" aria-label="Condition">${opts(r.si, true)}</select></td>
-      <td><select data-regle="${i}.alors" aria-label="Produit proposé">${opts(r.alors, false)}</select>${r.si === r.alors ? '<div class="sous">Choisissez un autre produit.</div>' : ''}</td>
+      <td><select data-regle="${i}.alors" aria-label="Produit proposé">${opts(r.alors, false)}</select>${r.si === r.alors ? '<div class="sous">Choisissez un autre produit.</div>' : ''}${!etat.produits.some(p => p.actif && p.id === r.alors) ? '<div class="sous alerte-texte">Produit hors ligne : cette offre n’est plus proposée.</div>' : ''}</td>
       <td class="num"><input type="number" min="0" max="50" value="${r.remise}" data-regle="${i}.remise" class="mini-nombre" aria-label="Remise en %"> %</td>
       <td><select data-regle="${i}.type" aria-label="Moment"><option value="panier" ${r.type === 'panier' ? 'selected' : ''}>Dans le panier</option><option value="apres" ${r.type === 'apres' ? 'selected' : ''}>Après l’achat</option></select></td>
       <td class="num">${s.vues}</td><td class="num">${s.acceptees}<div class="sous">${fmtPct(s.taux)}</div></td><td class="num">${euros(s.ca)}</td>
@@ -231,8 +231,18 @@ document.addEventListener('change', e => {
   if (!etat) return;
   if (t.dataset.auto) {
     const { a } = etatConversion();
-    const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Number(t.value) : t.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    let v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Number(t.value) : t.value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Mêmes bornes que le serveur : l'écran ne montre jamais une valeur que le serveur corrigerait en silence.
+    const chemin = t.dataset.auto.replace(/\.\d+\./, '.N.');
+    const BORNES = { 'bienvenue.remise': [0, 50], 'paiement.remise': [0, 30], 'paiement.etapes.N.heures': [0.25, 168], 'avis.jours': [1, 60], 'reconquete.jours': [30, 365], 'reconquete.remise': [0, 50] };
+    if (t.type === 'number' && BORNES[chemin]) {
+      const [min, max] = BORNES[chemin], brut = Number.isFinite(v) ? v : min;
+      v = Math.max(min, Math.min(max, brut));
+      if (v !== brut || t.value === '') toast(`Valeur ramenée à ${String(v).replace('.', ',')} (entre ${String(min).replace('.', ',')} et ${max}).`);
+    }
     majChemin(a, t.dataset.auto, v);
+    // Relances de paiement dans l'ordre chronologique (sinon seule la dernière partirait).
+    if (/^paiement\.etapes/.test(t.dataset.auto) && a.paiement && Array.isArray(a.paiement.etapes)) a.paiement.etapes.sort((x, y) => x.heures - y.heures);
     sauver(); rendre();
   } else if (t.dataset.regle) {
     const { o } = etatConversion();
@@ -240,14 +250,22 @@ document.addEventListener('change', e => {
     o.regles[i][k] = k === 'actif' ? t.checked : k === 'remise' ? Math.max(0, Math.min(50, Number(t.value) || 0)) : t.value;
     sauver(); rendre();
   } else if (t.dataset.seuil !== undefined) {
-    etatConversion(); etat.offres.seuilPort = Math.max(0, Number(t.value) || 0); sauver(); rendre();
+    const brut = Number(t.value) || 0, v = Math.max(0, Math.min(1000, brut));
+    if (v !== brut) toast(`Seuil ramené à ${v} (1000 au maximum).`);
+    etatConversion(); etat.offres.seuilPort = v; sauver(); rendre();
   } else if (t.dataset.offre) {
     etatConversion(); etat.offres[t.dataset.offre] = t.checked; sauver(); rendre();
   } else if (t.dataset.palier) {
     const { o } = etatConversion();
     const [i, k] = t.dataset.palier.split('.');
-    o.paliers = [0, 1].map(j => ({ ...(o.paliers[j] || { qte: j + 2, remise: 0 }) }));
-    o.paliers[i][k] = Number(t.value);
+    const avant = [0, 1].map(j => ({ ...(o.paliers[j] || { qte: j + 2, remise: 0 }) }));
+    const apres = avant.map(x => ({ ...x }));
+    apres[i][k] = k === 'qte' ? Math.max(2, Math.min(99, Math.round(Number(t.value) || 2))) : Math.max(0, Math.min(50, Number(t.value) || 0));
+    // Le second palier demande plus d'articles et donne plus de remise : acheter plus ne coûte jamais plus cher.
+    if (apres[1].qte <= apres[0].qte || (apres[1].remise && apres[1].remise <= apres[0].remise)) {
+      toast('Le second palier doit demander plus d’articles et donner une remise plus forte que le premier.'); rendre(); return;
+    }
+    o.paliers = apres;
     sauver(); rendre();
   }
 });
@@ -264,10 +282,17 @@ document.addEventListener('submit', e => {
   e.preventDefault();
   const d = new FormData(e.target);
   const { o } = etatConversion();
-  const code = String(d.get('code')).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (!code) return;
-  o.codes = [...(o.codes || []).filter(c => c.code !== code), { code, remise: Number(d.get('remise')) }];
-  sauver(); toast(`Code ${code} ajouté.`); rendre();
+  // Accents retirés (« été 20 » devient ETE20), pas supprimés ; code vide ou déjà pris refusé avec un message.
+  const code = String(d.get('code')).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+  if (!code) { toast('Code vide : utilisez des lettres et des chiffres.'); return; }
+  const pris = Remises.codesValables(etat).find(c => c.code === code && c.source !== 'Code manuel');
+  if (pris) { toast(`${code} est déjà utilisé (${pris.source}) : choisissez un autre code.`); return; }
+  const remise = Math.max(1, Math.min(50, Math.round(Number(d.get('remise')) || 0)));
+  const exp = d.get('expire') ? new Date(d.get('expire') + 'T23:59:59').getTime() : null;
+  if (exp && exp < Date.now()) { toast('La date d’expiration est déjà passée.'); return; }
+  const remplace = (o.codes || []).some(c => c.code === code);
+  o.codes = [...(o.codes || []).filter(c => c.code !== code), { code, remise, ...(exp ? { expire: exp } : {}) }];
+  sauver(); toast(`Code ${code} ${remplace ? 'mis à jour' : 'ajouté'} : −${remise} %${exp ? ` jusqu’au ${new Date(exp).toLocaleDateString('fr-FR')}` : ''}.`); rendre();
 });
 document.addEventListener('click', e => {
   if (e.target.closest('[data-action="ajout-regle"]')) {

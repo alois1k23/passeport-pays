@@ -79,7 +79,8 @@ function prochainsTempsForts(n = 4, depuis = new Date()) {
   const an = depuis.getFullYear();
   const auj = new Date(depuis); auj.setHours(0, 0, 0, 0);
   return [...tempsFortsAnnee(an), ...tempsFortsAnnee(an + 1)]
-    .filter(e => e.date >= auj)
+    // Une campagne validée reste consultable tant qu'elle tourne (soldes, Black Friday jusqu'au Cyber Monday).
+    .filter(e => e.date >= auj || (typeof etat !== 'undefined' && etat && etat.campagnes && etat.campagnes[e.cle] && etat.campagnes[e.cle].expire > auj.getTime()))
     .sort((a, b) => a.date - b.date)
     .slice(0, n);
 }
@@ -172,15 +173,21 @@ function bilanCampagne(etat, evt) {
 }
 
 /* Applique une campagne validée à la boutique : bannière saisonnière mise à jour ou créée. */
+/* Annuler une campagne : son code ne vaut plus et sa bannière est retirée. */
+function annulerCampagne(etat, cle) {
+  delete etat.campagnes[cle];
+  etat.boutique.sections = etat.boutique.sections.filter(x => !(x.type === 'saison' && x.props && x.props.campagne === cle));
+}
 function appliquerCampagne(etat, camp) {
   const b = etat.boutique;
-  let s = b.sections.find(x => x.type === 'saison');
+  // Une bannière par campagne, rattachée à sa clé : deux campagnes ne s'écrasent plus, et chacune n'apparaît que pendant sa période.
+  let s = b.sections.find(x => x.type === 'saison' && x.props && x.props.campagne === camp.evt.cle);
   if (!s) {
     s = { id: 's' + Math.random().toString(36).slice(2, 9), type: 'saison', props: {} };
     const iHero = b.sections.findIndex(x => x.type === 'hero');
     b.sections.splice(iHero >= 0 ? iHero + 1 : 0, 0, s);
   }
-  s.props = { titre: camp.banniere.titre, texte: camp.banniere.texte.replace(/ avec le code \w+/, ''), code: camp.code };
+  s.props = { titre: camp.banniere.titre, texte: camp.banniere.texte.replace(/ avec le code \w+/, ''), code: camp.code, campagne: camp.evt.cle };
   // Le code ne vaut que pendant la campagne : pas avant le lancement (en France, des soldes hors période légale sont interdites), plus après la fin.
   const debut = new Date(camp.lancement); debut.setHours(0, 0, 0, 0);
   const fin = new Date(camp.finCampagne); fin.setHours(24, 0, 0, 0);

@@ -137,6 +137,16 @@ document.addEventListener('change', e => {
       const d = JSON.parse(r.result);
       if (!d.boutique || !Array.isArray(d.produits) || !Array.isArray(d.commandes)) throw new Error('Ce fichier n’est pas un export Comptoir.');
       const { exporteLe, application, ...reste } = d;
+      // Fichier incomplet : on refuse ce qui ne peut pas être une boutique, et on complète le reste (sinon l'éditeur planterait).
+      if (!reste.boutique || typeof reste.boutique !== 'object' || !String(reste.boutique.nom || '').trim()) throw new Error('Ce fichier ne contient pas de boutique Comptoir.');
+      const b = reste.boutique;
+      b.secteur = SECTEURS[b.secteur] ? b.secteur : 'maison';
+      b.pays = ['ch', 'fr', 'be', 'ca'].includes(b.pays) ? b.pays : 'ch';
+      b.theme = b.theme && typeof b.theme === 'object' && b.theme.bg ? b.theme : { ...THEMES.leman, id: 'leman' };
+      if (!Array.isArray(b.sections)) b.sections = sectionsParDefaut(b.nom, b.secteur, b.pays);
+      b.sections = b.sections.filter(x => x && TYPES_SECTIONS[x.type]).map(x => ({ ...x, props: { ...TYPES_SECTIONS[x.type].defaut, ...(x.props || {}) } }));
+      reste.produits = Array.isArray(reste.produits) ? reste.produits.filter(x => x && x.id && x.nom) : [];
+      reste.commandes = Array.isArray(reste.commandes) ? reste.commandes.filter(x => x && x.id && Array.isArray(x.lignes) && x.client) : [];
       etat = completerEtat(reste); sauver(); toast('Données restaurées.'); location.hash = 'tableau'; rendre();
     } catch (err) { toast(err.message || 'Fichier illisible.'); }
   };
