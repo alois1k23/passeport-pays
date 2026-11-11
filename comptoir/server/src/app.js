@@ -31,6 +31,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const securise = urlPublique.startsWith('https://');
   const paiement = choisirPrestataire(env, urlPublique);
   const simulationAutorisee = paiement.nom === 'simulation' && env.NODE_ENV !== 'production';
+  // Le fournisseur de démonstration n'expédie rien : ses produits ne se vendent jamais contre de l'argent réel
+  // (seulement en paiement simulé ou avec une clé Stripe de test).
+  const fournisseurDemoVendable = paiement.nom === 'simulation' || /^sk_test_/.test(env.STRIPE_SECRET_KEY || '');
+  const vendable = p => p.actif && !p.aVerifier && (fournisseurDemoVendable || p.codeFournisseur !== 'demo');
   // Délai avant que le faux fournisseur expédie (2 min par défaut ; négatif = jamais, pour tester à la main).
   const delaiExpeditionDemo = env.DEMO_DELAI_EXPEDITION_MS === undefined ? 120000 : Number(env.DEMO_DELAI_EXPEDITION_MS);
   const secretsDemo = { cleApiDemo: crypto.randomBytes(24).toString('hex'), secretWebhookDemo: crypto.randomBytes(24).toString('hex') };
@@ -389,7 +393,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/api/session', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     const b = m && db.prepare('SELECT slug FROM boutiques WHERE marchand_id = ?').get(m.id);
-    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(m.id) : null };
+    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, fournisseurDemoVendable, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(m.id) : null };
   });
   r.post('/api/auth/inscription', ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
@@ -717,7 +721,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const config = lireConfig(b);
     const notes = statsAvis(b.id);
     const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
-    const produits = listerProduits(b.id).filter(p => p.actif && !p.aVerifier).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
+    const produits = listerProduits(b.id).filter(vendable).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
       const pb = PrixBarres.verifier({ prix: p.prix, prixReference, historiquePrix }, regime);
       return { ...p, avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };
     });
@@ -748,7 +752,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const config = lireConfig(b);
     // Vendre à distance sans adresse du vendeur est interdit (CH : LCD art. 3 s ; FR : LCEN art. 6 ; BE : CDE art. VI.45).
     if (!String((config.entreprise || {}).adresse || '').trim()) throw erreur(409, 'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.', 'boutique_incomplete');
-    const produits = listerProduits(b.id);
+    const produits = listerProduits(b.id).filter(vendable);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
     const modes = prix.modesLivraison(config);
     const mode = modes[ctx.corps.livraison];
@@ -839,7 +843,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const config = lireConfig(b);
     const r = Remises.regleApplicable(config, c.lignes, 'apres');
     if (!r) return null;
-    const p = listerProduits(b.id).find(x => x.id === r.alors && x.actif && (x.type === 'drop' || x.stock > 0));
+    const p = listerProduits(b.id).find(x => x.id === r.alors && vendable(x) && (x.type === 'drop' || x.stock > 0));
     return p ? { regle: r.id, produitId: p.id, nom: p.nom, prix: p.prix, prixOffre: prix.arrondi(p.prix * (1 - r.remise / 100)), remise: r.remise, teinte: p.teinte, image: p.image || null } : null;
   }
   const verifierJeton = (row, jeton) => row && String(jeton || '').length === row.jeton_client.length && crypto.timingSafeEqual(Buffer.from(String(jeton)), Buffer.from(row.jeton_client));
@@ -854,6 +858,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!o || o.regle !== ctx.corps.regle) throw erreur(409, 'Cette offre n’est plus disponible.', 'offre_expiree');
     const config = lireConfig(b);
     const p = listerProduits(b.id).find(x => x.id === o.produitId);
+    if (!p || !vendable(p)) throw erreur(409, 'Cette offre n’est plus disponible.', 'offre_expiree');
     const devise = config.boutique.devise || 'EUR';
     const { commande, pmt } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
@@ -1019,7 +1024,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   function pageBoutique(b, { racine, produitId = null }) {
     const config = lireConfig(b);
     const ouverte = abo.etat(b.marchand_id).actif;
-    const produits = ouverte ? listerProduits(b.id).filter(p => p.actif && !p.aVerifier) : [];
+    const produits = ouverte ? listerProduits(b.id).filter(vendable) : [];
     const p = produitId ? produits.find(x => x.id === produitId) : null;
     const nom = config.boutique.nom;
     const hero = (config.boutique.sections || []).find(s => s.type === 'hero');
@@ -1051,7 +1056,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
-    const produits = abo.etat(b.marchand_id).actif ? listerProduits(b.id).filter(p => p.actif && !p.aVerifier) : [];
+    const produits = abo.etat(b.marchand_id).actif ? listerProduits(b.id).filter(vendable) : [];
     const urls = [`${base}/`, ...produits.map(p => `${base}/p/${encodeURIComponent(p.id)}`)];
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u => `  <url><loc>${escHtml(u)}</loc></url>`).join('\n')}\n</urlset>\n`;
   }

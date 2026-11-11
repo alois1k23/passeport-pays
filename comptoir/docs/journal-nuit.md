@@ -386,3 +386,17 @@ Contrôles de non-régression sur la démo : aucune erreur, aucun débordement �
 - les prix sont marqués « indicatifs » et la réservation se fait chez le registrar choisi ; la démo garde ses données simulées, signalées comme telles.
 
 Tests : 42 (registre simulé : libre, pris, injoignable, saisie invalide, cache).
+
+### Cycle 20 — Argent réel, colis fictif : le risque le plus grave de la nuit
+
+**Défaut** : le seul fournisseur de dropshipping branché est un fournisseur de démonstration. Il « expédie » tout seul au bout de deux minutes, avec un faux numéro de suivi. Avec de vrais paiements Stripe, un acheteur réel aurait payé un produit qui ne serait jamais parti, et reçu un e-mail « commande expédiée » avec un suivi inventé.
+
+**Correction** :
+- dès que les paiements sont réels (clé Stripe de production), les produits du fournisseur de démonstration ne sont plus affichés : ni dans la boutique, ni dans la page vue par les moteurs de recherche, ni dans le plan du site ;
+- ils ne peuvent pas être commandés (« produit plus disponible »), ni proposés en offre complémentaire ;
+- le marchand voit une alerte : ces produits sont invisibles pour ses clients et doivent être remplacés par un fournisseur réel ou par ses propres produits ;
+- en paiement simulé et avec une clé Stripe de test, tout reste utilisable pour essayer le parcours.
+
+Tests : 43 (boutique avec une clé de production : produit du marchand visible, produit de démonstration masqué et refusé à la commande).
+
+**À faire avant l'ouverture** : brancher au moins un vrai fournisseur. Le contrat d'API est décrit dans `server/src/fournisseurs.js`.

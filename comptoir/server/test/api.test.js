@@ -653,3 +653,32 @@ test('boutique sans adresse du vendeur : commandes refusées, ouvertes dès l’
   assert.equal((await c('PUT', '/api/admin/config', { config: conf })).statut, 200);
   assert.equal((await commande()).statut, 201);
 });
+
+test('paiements réels : les produits du fournisseur de démonstration ne sont ni affichés ni vendus', async () => {
+  const { creerApp } = require('../src/app');
+  const { ouvrir } = require('../src/db');
+  const http = require('node:http');
+  const srv = http.createServer();
+  await new Promise(ok => srv.listen(0, '127.0.0.1', ok));
+  const b2 = `http://127.0.0.1:${srv.address().port}`;
+  const appReel = creerApp({ db: ouvrir(':memory:'), env: { LIMITES_FACTEUR: '1000', LIMITE_ESSAIS: '1000', STRIPE_SECRET_KEY: 'sk_live_factice', STRIPE_WEBHOOK_SECRET: 'whsec_factice', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: b2, journal: { log() {}, error() {} } });
+  srv.on('request', appReel);
+  try {
+    let cookie = '';
+    const c = async (m, chemin, corps) => { const r = await fetch(b2 + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0]; const t = await r.text(); return { statut: r.status, json: t ? JSON.parse(t) : null }; };
+    const ins = await c('POST', '/api/auth/inscription', { email: 'reel@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Vraie', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Vraie', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase à moi', prix: 30, stock: 3, type: 'stock' }], importer: ['f01'] });
+    assert.equal(ins.statut, 201);
+    const pub = await c('GET', `/api/public/${ins.json.slug}`);
+    assert.equal(pub.statut, 200);
+    assert.ok(pub.json.produits.some(p => p.nom === 'Vase à moi'), 'les produits du marchand restent visibles');
+    assert.ok(!pub.json.produits.some(p => p.type === 'drop'), 'produit de démonstration visible');
+    const etat = await c('GET', '/api/admin/etat');
+    const demo = etat.json.produits.find(p => p.codeFournisseur === 'demo');
+    assert.ok(demo, 'le produit importé existe côté marchand');
+    const cmd = await c('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: demo.id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'A B', email: 'a@exemple.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
+    assert.equal(cmd.statut, 400);
+    assert.equal(cmd.json.code, 'produit_indisponible');
+    const html = await (await fetch(`${b2}/s/${ins.json.slug}`)).text();
+    assert.ok(!/Expédié par notre partenaire/.test(html));
+  } finally { srv.close(); }
+});
