@@ -1095,3 +1095,28 @@ Tests : 64.
 Vérifié dans un vrai navigateur, en mode connecté : « Annuler » laisse la commande en préparation, et un numéro saisi est bien celui enregistré et envoyé au client.
 
 Tests : 64.
+
+### Cycle 49 — La documentation de l'exploitant correspond-elle au code ? (06 h 10 – 06 h 20)
+
+Après une nuit de changements, `server/README.md`, `.env.example` et le README principal ont été relus ligne à ligne contre le code. 12 écarts ont été corrigés.
+
+**Stripe**
+- Stripe Connect est décrit ; il était encore présenté comme une étape future.
+- Pour chaque webhook, la liste exacte des événements traités ; le webhook de la plateforme ne sert qu'aux abonnements.
+- La version d'API à choisir pour les webhooks est indiquée.
+
+**Domaines**
+- La preuve TXT exigée pour activer un domaine est décrite.
+
+**Variables d'environnement**
+- `TENDANCES_MIN_BOUTIQUES` : 3 au minimum (et non 2).
+- `LOG_EMAILS` n'empêche pas l'envoi ; il était activé à tort dans le modèle de production.
+- Variables ajoutées, qui n'étaient documentées nulle part :
+  - `LIMITE_COMMANDES` ;
+  - les intervalles d'envoi ;
+  - `PROXY_DE_CONFIANCE` ;
+  - `DOMAINES_SANS_VERIFICATION`, avec l'avertissement « jamais en production ».
+
+**Exploitation**
+- Sauvegarde d'une base SQLite en mode WAL : `.backup` ou `VACUUM INTO`, pas une simple copie du fichier.
+- Comportements en production : les pages simulées sont refusées, et un abonnement sans clé Stripe répond 503.
