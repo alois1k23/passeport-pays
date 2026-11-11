@@ -1090,5 +1090,8 @@ Tests : 64.
 3. **Commande expédiée par le fournisseur.** Le marchand n'a plus à donner de numéro de suivi : c'est le fournisseur qui le transmet.
 4. **Lien de suivi La Poste suisse.** Pour une boutique suisse, tout numéro (par exemple un recommandé RR…CH) mène au suivi de La Poste suisse, et non plus au site de La Poste française.
 5. **Une seule règle pour « adresse renseignée »**, la même pour le serveur, la boutique, le badge et le message de bienvenue. Le modèle « (adresse à compléter) » ne compte plus comme une adresse.
+6. **Expédition groupée.** Elle prévient maintenant que les colis partent sans numéro de suivi, et indique comment en ajouter un.
+
+Vérifié dans un vrai navigateur, en mode connecté : « Annuler » laisse la commande en préparation, et un numéro saisi est bien celui enregistré et envoyé au client.
 
 Tests : 64.

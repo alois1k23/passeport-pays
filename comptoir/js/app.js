@@ -477,6 +477,8 @@ async function changerStatutGroupe(ids, statut) {
   const possibles = ids.map(id => etat.commandes.find(c => c.id === id)).filter(c => c && fluxPour(c).some(([s]) => s === statut));
   if (!possibles.length) { toast('Aucune des commandes sélectionnées ne peut passer à cette étape.'); return; }
   if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte) {
+    // Expédition groupée : pas de numéro de suivi par colis ; le marchand le sait avant (les clients reçoivent un e-mail sans suivi).
+    if (statut === 'expediee' && !confirm(`Marquer ${possibles.length} commande${possibles.length > 1 ? 's' : ''} comme expédiée${possibles.length > 1 ? 's' : ''}, sans numéro de suivi ? Les clients reçoivent l’e-mail d’expédition sans suivi. Pour ajouter un numéro, expédiez chaque commande depuis sa fiche.`)) return;
     // Réussites et refus comptés à part : on n'annonce pas un succès que le serveur a refusé.
     let ok = 0; const refus = [];
     for (const c of possibles) { try { await api('POST', `/api/admin/commandes/${encodeURIComponent(c.id)}/statut`, { statut }); ok++; } catch (e) { refus.push(`n° ${c.numero} : ${e.message}`); } }
