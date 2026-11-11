@@ -72,7 +72,8 @@ function fenetreLivraison(delai, maintenant = new Date()) {
   const a = ajouterJoursOuvrables(depart, Math.max(1, delai[0])), b = ajouterJoursOuvrables(depart, Math.max(1, delai[1]));
   return a.toDateString() === b.toDateString() ? `Livré le ${fmt(a)}` : `Livré entre le ${fmt(a)} et le ${fmt(b)}`;
 }
-function delaiProduit(p) { return p && p.type === 'drop' && p.delai ? p.delai : [1, 2]; }
+// Même délai que l'envoi standard proposé par défaut dans le panier (la fiche ne promet pas plus vite que le panier).
+function delaiProduit(p) { return p && p.type === 'drop' && p.delai ? p.delai : [2, 3]; }
 
 function varsTheme(t) {
   // Chaque valeur est échappée : le thème vient de la configuration du marchand.

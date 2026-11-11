@@ -1029,11 +1029,11 @@ Parcours complet sur iPhone 13, Pixel 7 et un écran de 360 × 640 :
 8. **Cibles tactiles agrandies** (40 px) : boutons − et + du panier, Fermer, menu, cases à cocher et boutons radio.
 9. **Pages de paiement simulé** : un débordement de 14 px est corrigé.
 10. « 1 étapes » devient « 1 étape ».
+11. **Délai de livraison.** La fiche produit promettait une livraison plus rapide que l'envoi standard proposé dans le panier. Elle annonce maintenant le même délai.
+12. **Encadré de marge.** Sans coût d'achat saisi, la marge reposait sur une estimation non signalée. L'encadré indique maintenant « estimé à 35 % du prix : saisissez le vôtre ».
 
 **Non traité cette nuit** (pour la suite) :
-- dates de livraison différentes entre la fiche produit et le panier ;
-- encadré de marge calculé sur des valeurs par défaut ;
 - bascule « Mobile » de l'aperçu sans effet sur téléphone ;
-- fournisseurs marqués « (démo) ».
+- fournisseurs du catalogue de démonstration marqués « (démo) » : ils disparaissent avec un vrai fournisseur.
 
 Tests : 64.

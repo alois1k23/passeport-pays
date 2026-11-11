@@ -196,7 +196,7 @@ function blocMarge(p) {
   return `<div class="bloc calcul-marge"><h3>Marge nette par vente</h3>
     ${ligne('Prix de vente TTC', p.prix, false)}
     ${tauxTvaProduit(p) ? ligne(`TVA ${Math.round(tauxTvaProduit(p) * 1000) / 10} %`, p.prix - m.ht) : ''}
-    ${ligne(p.type === 'drop' ? 'Fournisseur + port' : 'Coût d’achat', m.achat)}
+    ${ligne(p.type === 'drop' ? 'Fournisseur + port' : (p.cout ? 'Coût d’achat' : 'Coût d’achat (estimé à 35 % du prix : saisissez le vôtre)'), m.achat)}
     ${m.fraisClient ? `<p class="encart">${esc(m.fraisClient.texte)} Cela freine l’achat : préférez un entrepôt ${estSuisse() ? 'suisse' : 'européen'} ou un fournisseur qui livre droits payés.</p>` : ''}
     ${ligne('Frais de paiement', m.paiement)}
     ${ligne('Publicité par vente', m.cpa)}
