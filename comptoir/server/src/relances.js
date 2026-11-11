@@ -13,7 +13,7 @@ const DEFAUT = {
 };
 const HEURE = 3600 * 1000, JOUR = 24 * HEURE;
 
-const nettoyerCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+const nettoyerCode = c => String(c || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
 function nettoyer(a) {
   a = a && typeof a === 'object' ? a : {};
   const n = (v, d, min, max) => { const x = Number(v); return Number.isFinite(x) ? Math.max(min, Math.min(max, x)) : d; };

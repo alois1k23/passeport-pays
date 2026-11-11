@@ -750,3 +750,30 @@ Tests : 57 ; démo sans erreur.
 6. Fournisseurs : le taux de remboursement et les délais sont calculés sur les seules commandes transmises, comme le nombre affiché.
 
 Tests : 58.
+
+### Cycle 39 — Relecture des cycles 37 et 38 : 11 défauts corrigés
+
+**Graves**
+
+1. **Caisse, « Espèces reçues » : les chiffres s'inscrivaient à l'envers** (« 100 » devenait « 001 », la monnaie à rendre était fausse). Chaque frappe redessinait la page et replaçait le curseur au début. Seule la ligne « À rendre » se met à jour désormais.
+2. **Annuler une campagne validée avant cette nuit laissait en ligne une bannière « −20 % » sans code valable.** Les anciennes bannières sont rattachées à leur campagne (par leur code, ou par leur titre pour celles sans code), côté navigateur comme côté serveur. L'annulation les retire, et une bannière dont le code n'existe plus n'est jamais affichée.
+
+**Moyens**
+
+3. Anciennes bannières sans code (Noël) toujours visibles hors saison, et doublon quand on revalidait la campagne : réglé par le même rattachement.
+4. **QR code** : son adresse dépendait de celle utilisée pour ouvrir l'administration (adresse IP locale, alias) et imposait https. L'adresse publique vient maintenant du serveur, qui la connaît exactement. Paramètres l'affiche aussi et signale un domaine en attente de vérification.
+
+**Mineurs**
+
+5. Palier à « dès 25 articles » accepté puis appliqué dès 20 : l'écran plafonne à 20.
+6. Code « ÉTÉ20 » tapé par un client refusé alors que l'administration l'avait enregistré en ETE20 : les accents sont retirés partout où un code est lu.
+7. Codes promo :
+   - un code manuel pouvait reprendre le code d'une campagne programmée (non encore lancée) ;
+   - les codes expirés disparaissaient sans pouvoir être retirés ;
+   - la date d'expiration n'était affichée nulle part.
+8. Retrait en boutique : la même règle (activé et adresse renseignée) partout, avec un avertissement si l'adresse manque.
+9. **Cookie d'appareil reconnu** : il restait valable pour toujours. Il est lié au mot de passe actuel (un changement ou une réinitialisation révoque les autres appareils) et effacé à la suppression du compte.
+10. Adresses IPv6 en majuscules (`::FFFF:1.2.3.4`) : toutes les adresses IPv4 auraient partagé un même compteur d'essais.
+11. La restauration d'une sauvegarde ajoutait un faux code « SAISON15 » à la bannière saisonnière.
+
+Le client utilisé par les tests garde désormais chaque cookie sous son nom, comme un navigateur. Tests : 58.

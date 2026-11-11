@@ -871,7 +871,7 @@ function vueBoutique() {
   etat.produits.forEach(p => { p.prixBarre = p.prixReference && PrixBarres.verifier(p, estSuisse() ? 'ch' : 'ue').ok ? p.prixReference : undefined; });
   const calc = Remises.appliquer(ui.panier, etat, ui.codePromo || '');
   const total = calc.apresRemise;
-  const modes = Object.entries(livraisonsPays(etat.boutique.pays)).filter(([k]) => k !== 'retrait' || etat.magasin.clickCollect);
+  const modes = Object.entries(livraisonsPays(etat.boutique.pays)).filter(([k]) => k !== 'retrait' || retraitPossible());
   if (!modes.find(([k]) => k === ui.livraison)) ui.livraison = modes[0][0];
   const delaisDrop = ui.panier.map(l => etat.produits.find(p => p.id === l.produitId)).filter(p => p && p.type === 'drop' && p.delai);
   const delaiMax = delaisDrop.length ? [Math.max(...delaisDrop.map(p => p.delai[0])), Math.max(...delaisDrop.map(p => p.delai[1]))] : null;

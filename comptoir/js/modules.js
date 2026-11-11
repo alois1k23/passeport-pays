@@ -91,7 +91,7 @@ function vueMagasin() {
           : '<p class="sous ticket-vide">Touchez un produit pour l’ajouter au ticket.</p>'}
         <div class="ticket-total"><span>Total TTC</span><strong>${euros(totalCaisse)}</strong></div>
         ${estSuisse() && ui.caisse.length && Math.round(totalCaisse * 20) / 20 !== Math.round(totalCaisse * 100) / 100 ? `<p class="sous">En espèces : ${euros(Math.round(totalCaisse * 20) / 20)} (arrondi aux 5 centimes).</p>` : ''}
-        ${ui.caisse.length ? (() => { const du = estSuisse() ? Math.round(totalCaisse * 20) / 20 : Math.round(totalCaisse * 100) / 100, recu = Number(ui.recuCaisse) || 0; return `<label class="champ rendu-monnaie"><span>Espèces reçues</span><input id="cs-recu" type="number" min="0" step="0.05" inputmode="decimal" value="${ui.recuCaisse || ''}" data-caisse="recu" placeholder="${du.toFixed(2)}"></label>${recu ? `<p class="${recu < du ? 'alerte-texte' : ''}">${recu < du ? `Il manque ${euros(du - recu)}.` : `À rendre : <strong>${euros(recu - du)}</strong>`}</p>` : ''}`; })() : ''}
+        ${ui.caisse.length ? (() => { const du = estSuisse() ? Math.round(totalCaisse * 20) / 20 : Math.round(totalCaisse * 100) / 100, recu = Number(ui.recuCaisse) || 0; return `<label class="champ rendu-monnaie"><span>Espèces reçues</span><input id="cs-recu" type="number" min="0" step="0.05" inputmode="decimal" value="${ui.recuCaisse || ''}" data-caisse="recu" data-du="${du}" placeholder="${du.toFixed(2)}"></label><p id="cs-rendu" aria-live="polite">${texteRendu(du, recu)}</p>`; })() : ''}
         <div class="rangee">${estSuisse() ? `<button class="btn" data-action="encaisser" data-moyen="twint" ${ui.caisse.length ? '' : 'disabled'}>TWINT</button>` : ''}<button class="btn${estSuisse() ? ' fantome' : ''}" data-action="encaisser" data-moyen="carte" ${ui.caisse.length ? '' : 'disabled'}>Carte</button><button class="btn fantome" data-action="encaisser" data-moyen="especes" ${ui.caisse.length ? '' : 'disabled'}>Espèces</button></div>
       </div>
     </section>
@@ -111,7 +111,7 @@ function vueMagasin() {
         <div class="carte-tete"><h2>Infos du magasin</h2></div>
         <label class="champ"><span>Adresse</span><input id="mg-adresse" value="${esc(m.adresse)}" data-magasin="adresse"></label>
         <label class="champ"><span>Horaires</span><input id="mg-horaires" value="${esc(m.horaires)}" data-magasin="horaires"></label>
-        <label class="case"><input id="mg-cc" type="checkbox" data-magasin="clickCollect" ${m.clickCollect ? 'checked' : ''}> Proposer le retrait en boutique</label>
+        <label class="case"><input id="mg-cc" type="checkbox" data-magasin="clickCollect" ${m.clickCollect ? 'checked' : ''}> Proposer le retrait en boutique</label>${m.clickCollect && !String(m.adresse || '').trim() ? '<p class="sous alerte-texte">Sans adresse de magasin, le retrait n’est pas proposé aux clients.</p>' : ''}
         ${connecteAuServeur() ? '<p class="sous">Synchronisation avec votre fiche Google (horaires et stock) : bientôt disponible.</p>' : `<label class="case"><input id="mg-g" type="checkbox" data-magasin="googleSync" ${m.googleSync ? 'checked' : ''}> Synchroniser la fiche Google (horaires et stock)</label>
         ${m.googleSync ? `<p class="sous"><span class="pill good">Synchronisée</span> ${visibles} produits en stock visibles sur Google (simulé)</p>` : ''}`}
       </section>
@@ -267,7 +267,7 @@ function texteMentions() {
 }
 function texteCGV() {
   const e = etat.entreprise, b = etat.boutique;
-  const modes = Object.values(livraisonsPays(b.pays)).filter(l => l.transporteur || etat.magasin.clickCollect);
+  const modes = Object.values(livraisonsPays(b.pays)).filter(l => l.transporteur || retraitPossible());
   if (estSuisse()) {
     const drops = etat.produits.filter(p => p.type === 'drop' && p.delai);
     return `<h2>Conditions générales de vente</h2>
@@ -509,8 +509,15 @@ function dessinerQR() {
   setTimeout(() => { z.querySelectorAll('img').forEach(i => i.setAttribute('alt', `QR code vers ${z.dataset.url}`)); z.querySelectorAll('canvas').forEach(c => c.setAttribute('aria-hidden', 'true')); z.setAttribute('role', 'img'); z.setAttribute('aria-label', `QR code vers ${z.dataset.url}`); }, 0);
 }
 
-/* Caisse : montant reçu en espèces et monnaie à rendre, recalculés à la frappe. */
+/* Caisse : montant reçu en espèces et monnaie à rendre, recalculés à la frappe sans redessiner la vue
+   (un rendu complet replaçait le curseur au début du champ : « 100 » devenait « 001 »). */
+function texteRendu(du, recu) {
+  if (!recu) return '';
+  return recu < du ? `<span class="alerte-texte">Il manque ${euros(du - recu)}.</span>` : `À rendre : <strong>${euros(recu - du)}</strong>`;
+}
 document.addEventListener('input', e => {
   if (!e.target.dataset || e.target.dataset.caisse !== 'recu') return;
-  ui.recuCaisse = e.target.value; rendre();
+  ui.recuCaisse = e.target.value;
+  const z = document.getElementById('cs-rendu');
+  if (z) z.innerHTML = texteRendu(Number(e.target.dataset.du) || 0, Number(e.target.value) || 0);
 });

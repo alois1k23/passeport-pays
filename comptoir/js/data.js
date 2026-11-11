@@ -364,6 +364,7 @@ function completerEtat(e) {
   e.entreprise = e.entreprise || { raison: e.boutique.nom, forme: 'Micro-entreprise', siret: '', tvaIntra: '', adresse: '', email: '', regime: 'franchise', mediateur: '' };
   e.magasin = e.magasin || { actif: false, adresse: '', horaires: '', clickCollect: false, googleSync: false };
   e.campagnes = e.campagnes || {};
+  if (typeof Remises !== 'undefined' && Remises.migrerBannieres && e.boutique) Remises.migrerBannieres(e);   // anciennes bannières rattachées à leur campagne
   e.version = 2;
   e.boutique.devise = e.boutique.devise || (e.boutique.pays === 'ch' ? 'CHF' : 'EUR');
   e.boutique.modele = e.boutique.modele || 'stock';
@@ -391,10 +392,17 @@ function completerEtat(e) {
 function adresseBoutique() {
   const b = etat.boutique, d = b.domaine;
   const reel = typeof SERVEUR !== 'undefined' && SERVEUR.connecte;
-  if (reel) return d && d.domaine && d.actif ? d.domaine : location.host + '/s/' + SERVEUR.slug;
+  // Compte réel : l'adresse publique calculée par le serveur (domaine vérifié, sinon /s/<boutique> sur son adresse officielle).
+  if (reel) return SERVEUR.urlBoutique ? SERVEUR.urlBoutique.replace(/^https?:\/\//, '').replace(/\/$/, '') : d && d.domaine && d.actif ? d.domaine : location.host + '/s/' + SERVEUR.slug;
   return d && d.domaine ? d.domaine : slugifier(b.nom) + '.comptoir.shop';
 }
-function urlBoutiquePublique() { const a = adresseBoutique(); return (/^localhost|^127\./.test(a) ? location.protocol + '//' : 'https://') + a; }
+function urlBoutiquePublique() {
+  if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.urlBoutique) return SERVEUR.urlBoutique;
+  return 'https://' + adresseBoutique();
+}
+
+/* Retrait en boutique réellement proposé : activé ET avec une adresse de magasin (même règle que le serveur). */
+function retraitPossible() { try { return !!(etat.magasin && etat.magasin.clickCollect && String(etat.magasin.adresse || '').trim()); } catch { return false; } }
 
 /* Actions irréversibles (remboursement, annulation, suppression) : une confirmation explicite avant d'agir. */
 function confirmerAction(el) {

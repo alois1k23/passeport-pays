@@ -22,15 +22,16 @@ after(() => serveur.close());
 
 /* Petit client qui garde le cookie de session. */
 function client() {
-  let cookie = '';
+  let cookie = ''; const jar = {};
   return async (methode, chemin, corps, { brut = false, sansPaiement = false } = {}) => {
     const rep = await fetch(base + chemin, {
       method: methode, redirect: 'manual',
       headers: { ...(corps ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
       body: corps ? JSON.stringify(corps) : undefined
     });
-    const sc = rep.headers.get('set-cookie');
-    if (sc) cookie = sc.split(';')[0];
+    // Comme un navigateur : chaque cookie est gardé sous son nom (session et appareil reconnu).
+    for (const c of rep.headers.getSetCookie()) { const [nv] = c.split(';'); const nom = nv.split('=')[0]; jar[nom] = nv; }
+    cookie = Object.values(jar).filter(v => !/=$/.test(v)).join('; ');
     if (brut) return rep;
     const texte = await rep.text();
     const resultat = { statut: rep.status, json: texte ? JSON.parse(texte) : null };

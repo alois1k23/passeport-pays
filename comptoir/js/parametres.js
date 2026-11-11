@@ -33,7 +33,7 @@ function vueParametres() {
     const modes = Object.values(livraisonsPays(b.pays));
     corps = `<section class="carte sans-pad"><div class="carte-tete pad"><h2>Modes de livraison</h2><span class="sous">tarifs TTC facturés au client</span></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Mode</th><th>Délai (stock propre)</th><th class="num">Prix</th></tr></thead><tbody>
-      ${modes.filter(m => m.transporteur || (etat.magasin && etat.magasin.clickCollect)).map(m => `<tr><td>${esc(m.nom)}</td><td class="sous">${esc(m.delai)}</td><td class="num">${m.prix ? euros(m.prix) : 'Gratuit'}</td></tr>`).join('')}
+      ${modes.filter(m => m.transporteur || retraitPossible()).map(m => `<tr><td>${esc(m.nom)}</td><td class="sous">${esc(m.delai)}</td><td class="num">${m.prix ? euros(m.prix) : 'Gratuit'}</td></tr>`).join('')}
       </tbody></table></div>
       <div class="pad-x pad-b"><p class="sous">Livraison offerte dès <b>${seuilPort() > 0 ? euros(seuilPort()) : 'jamais'}</b> (hors envoi express) : réglable dans <a class="lien" href="#conversion">Conversion</a>. Commandes passées après 14 h : expédiées le jour ouvrable suivant. Pour les produits en dropshipping, le délai affiché est celui du fournisseur.</p></div></section>`;
   } else if (s === 'emails') {
@@ -45,7 +45,7 @@ function vueParametres() {
   } else if (s === 'domaine') {
     const d = b.domaine;
     corps = `<section class="carte"><div class="carte-tete"><h2>Adresse de la boutique</h2>${d && d.actif ? statut(true, 'Domaine actif', '') : d ? statut(false, '', 'DNS à configurer') : '<span class="pill muted">Adresse Comptoir</span>'}</div>
-      <p class="mono">${esc(d && d.domaine ? d.domaine : (enLigne() ? location.host + '/s/' + SERVEUR.slug : slugifier(b.nom) + '.comptoir.shop'))}</p>
+      <p class="mono">${esc(adresseBoutique())}</p>${d && d.domaine && enLigne() && !d.actif ? `<p class="sous">${esc(d.domaine)} : en attente de la vérification DNS.</p>` : ''}
       <div class="rangee"><a class="btn petit" href="#domaines">${d ? 'Gérer le domaine' : 'Choisir un domaine'}</a></div></section>`;
   } else if (s === 'abonnement') {
     const a = enLigne() && SERVEUR.abonnement;
@@ -144,7 +144,7 @@ document.addEventListener('change', e => {
       b.pays = ['ch', 'fr', 'be', 'ca'].includes(b.pays) ? b.pays : 'ch';
       b.theme = b.theme && typeof b.theme === 'object' && b.theme.bg ? b.theme : { ...THEMES.leman, id: 'leman' };
       if (!Array.isArray(b.sections)) b.sections = sectionsParDefaut(b.nom, b.secteur, b.pays);
-      b.sections = b.sections.filter(x => x && TYPES_SECTIONS[x.type]).map(x => ({ ...x, props: { ...TYPES_SECTIONS[x.type].defaut, ...(x.props || {}) } }));
+      b.sections = b.sections.filter(x => x && TYPES_SECTIONS[x.type]).map(x => { const def = { ...TYPES_SECTIONS[x.type].defaut }; if (x.type === 'saison') delete def.code; return { ...x, props: { ...def, ...(x.props || {}) } }; });   // jamais de code promo d'exemple
       reste.produits = Array.isArray(reste.produits) ? reste.produits.filter(x => x && x.id && x.nom) : [];
       reste.commandes = Array.isArray(reste.commandes) ? reste.commandes.filter(x => x && x.id && Array.isArray(x.lignes) && x.client) : [];
       etat = completerEtat(reste); sauver(); toast('Données restaurées.'); location.hash = 'tableau'; rendre();

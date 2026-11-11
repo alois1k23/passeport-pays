@@ -129,11 +129,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return sig.length === attendu.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(attendu)) ? { boutiqueId, email } : null;
   };
   // Appareil où le marchand s'est connecté : cookie signé, valable un an, qui ne contient que l'empreinte de l'e-mail.
-  const jetonAppareil = email => crypto.createHmac('sha256', cleDesinscription).update(`appareil|${email}`).digest('base64url').slice(0, 32);
+  // Lié à l'empreinte du mot de passe actuel : un changement ou une réinitialisation du mot de passe révoque tous les appareils.
+  const jetonAppareil = email => { const m = db.prepare('SELECT mot_de_passe FROM marchands WHERE lower(email) = ?').get(email); return crypto.createHmac('sha256', cleDesinscription).update(`appareil|${email}|${m ? m.mot_de_passe : ''}`).digest('base64url').slice(0, 32); };
   const cookieAppareil = email => `comptoir_appareil=${jetonAppareil(email)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${365 * 86400}${securise ? '; Secure' : ''}`;
   // IPv6 : une personne dispose d'un réseau /64 entier ; les limites comptent par réseau, pas par adresse.
   const reseauIp = ip => {
-    const a = String(ip || '').replace(/^::ffff:/, '');
+    const a = String(ip || '').toLowerCase().replace(/%.*$/, '').replace(/^::ffff:/, '');
     if (!a.includes(':')) return a;
     const [g, d] = a.split('::'), gauche = g ? g.split(':') : [], droite = d !== undefined && d ? d.split(':') : [];
     const groupes = d === undefined ? gauche : [...gauche, ...Array(Math.max(0, 8 - gauche.length - droite.length)).fill('0'), ...droite];
@@ -496,7 +497,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(ligne.marchand_id);
     });
-    ctx.entetes['Set-Cookie'] = auth.cookieSession(auth.creerSession(db, ligne.marchand_id), securise);
+    { const mr = db.prepare('SELECT email FROM marchands WHERE id = ?').get(ligne.marchand_id); ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, ligne.marchand_id), securise), cookieAppareil(String(mr.email).toLowerCase())]; }
     return { ok: true };
   });
 
@@ -577,6 +578,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, actuelle);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);
     });
+    ctx.entetes['Set-Cookie'] = cookieAppareil(String(m.email).toLowerCase());   // cet appareil reste reconnu ; les autres ne le sont plus
     return { ok: true };
   });
   r.post('/api/admin/compte/deconnecter-autres', exigerCompte, ctx => {
@@ -594,7 +596,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
       db.prepare('DELETE FROM marchands WHERE id = ?').run(m.id); // boutiques, produits, commandes, sessions : suppression en cascade
     });
-    ctx.entetes['Set-Cookie'] = auth.cookieSession(null, securise);
+    ctx.entetes['Set-Cookie'] = [auth.cookieSession(null, securise), `comptoir_appareil=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${securise ? '; Secure' : ''}`];
     return { ok: true };
   });
 
@@ -616,7 +618,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id) } };
+    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id), urlBoutique: urlBoutique(ctx.boutique) } };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -858,6 +860,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     });
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
     // Un code promo affiché dans la bannière doit exister au paiement ; un contact d'exemple est remplacé par l'e-mail de l'entreprise.
+    Remises.migrerBannieres(config);   // anciennes bannières de campagne (avant leur rattachement)
     const codesOk = new Set(Remises.codesValables(config).map(c => c.code.toUpperCase()));
     const sectionsPubliques = (config.boutique.sections || []).map(s => {
       if (s.type === 'saison' && !Remises.banniereVisible(config, s.props)) return null;   // campagne pas encore lancée ou terminée
@@ -1027,7 +1030,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/public/:slug/code', ctx => {
     auth.limiter('code:' + ctx.ip, 40 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
-    const saisi = String(ctx.corps.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const saisi = String(ctx.corps.code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const c = Remises.codesValables(lireConfig(b)).find(x => x.code === saisi);
     if (!c) throw erreur(404, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
     // Le code de bienvenue ne vaut que pour une première commande : on le dit dès sa saisie (contrôlé au paiement avec l'e-mail).

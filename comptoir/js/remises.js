@@ -22,7 +22,7 @@
       si: String(r.si || '*').slice(0, 40), alors: String(r.alors || '').slice(0, 40),
       remise: Math.max(0, Math.min(50, Number(r.remise) || 0)), type: r.type === 'apres' ? 'apres' : 'panier', actif: r.actif !== false
     })).filter(r => r.alors && r.si !== r.alors);
-    o.codes = (Array.isArray(o.codes) ? o.codes : []).filter(x => x && typeof x === 'object').slice(0, 50).map(c => ({ code: String(c.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), remise: Math.max(1, Math.min(70, Number(c.remise) || 0)), expire: Number(c.expire) || null })).filter(c => c.code);
+    o.codes = (Array.isArray(o.codes) ? o.codes : []).filter(x => x && typeof x === 'object').slice(0, 50).map(c => ({ code: String(c.code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), remise: Math.max(1, Math.min(70, Number(c.remise) || 0)), expire: Number(c.expire) || null })).filter(c => c.code);
     return o;
   }
 
@@ -40,12 +40,32 @@
   }
   /* Bannière de saison visible maintenant ? Celle d'une campagne suit la période de sa campagne (avec ou sans code) ;
      la bannière générique s'efface pendant qu'une bannière de campagne est affichée. */
+  /* Bannières écrites avant le rattachement aux campagnes : rattachées par leur code, ou par leur titre (« Noël » → noel-2026). */
+  function migrerBannieres(config) {
+    const camps = (config && config.campagnes) || {}, cles = Object.keys(camps);
+    const sections = (config && config.boutique && config.boutique.sections) || [];
+    const slug = t => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const plusRecente = liste => liste.sort((a, b) => ((camps[b] || {}).debut || 0) - ((camps[a] || {}).debut || 0))[0];
+    for (const s of sections) {
+      if (s.type !== 'saison' || !s.props || s.props.campagne) continue;
+      const parCode = s.props.code ? cles.filter(k => camps[k] && camps[k].code && String(camps[k].code).toUpperCase() === String(s.props.code).toUpperCase()) : [];
+      const parTitre = !parCode.length && s.props.titre ? cles.filter(k => k.replace(/-\d{4}$/, '') === slug(s.props.titre)) : [];
+      const k = plusRecente(parCode.length ? parCode : parTitre);
+      if (k) s.props.campagne = k;
+    }
+    return config;
+  }
   function banniereVisible(config, props, maintenant) {
     const t = maintenant || Date.now();
     const camps = (config && config.campagnes) || {};
     const dansPeriode = c => c && (!c.debut || c.debut <= t) && (!c.expire || c.expire > t);
     if (props && props.campagne) return dansPeriode(camps[props.campagne]);
-    if (props && props.code) { const per = periodeCampagne(config, props.code, t); if (per && (per.avant || per.apres)) return false; }
+    if (props && props.code) {
+      const per = periodeCampagne(config, props.code, t);
+      if (per && (per.avant || per.apres)) return false;
+      // Code qui n'existe plus (campagne annulée, code supprimé) : la remise annoncée serait impossible à obtenir.
+      if (!per && !codesValables(config, t).some(c => c.code === String(props.code).toUpperCase())) return false;
+    }
     const sections = (config && config.boutique && config.boutique.sections) || [];
     return !sections.some(s => s.type === 'saison' && s.props && s.props.campagne && dansPeriode(camps[s.props.campagne]));
   }
@@ -93,7 +113,7 @@
     const qte = base.reduce((a, l) => a + l.qte, 0);
     const sousTotal = arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
     const palier = o.paliersActifs ? o.paliers.filter(p => qte >= p.qte).pop() : null;
-    const saisi = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const saisi = String(code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const trouve = saisi ? codesValables(config, maintenant).find(c => c.code === saisi) : null;
     let taux = 0, motif = null;
     if (palier) { taux = palier.remise; motif = { type: 'palier', libelle: `${palier.remise} % dès ${palier.qte} articles` }; }
@@ -110,7 +130,7 @@
     };
   }
 
-  const api = { OFFRES_DEFAUT, offresDe, codesValables, periodeCampagne, banniereVisible, appliquer, regleApplicable };
+  const api = { OFFRES_DEFAUT, offresDe, codesValables, periodeCampagne, banniereVisible, migrerBannieres, appliquer, regleApplicable };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else racine.Remises = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -175,8 +175,10 @@ function bilanCampagne(etat, evt) {
 /* Applique une campagne validée à la boutique : bannière saisonnière mise à jour ou créée. */
 /* Annuler une campagne : son code ne vaut plus et sa bannière est retirée. */
 function annulerCampagne(etat, cle) {
+  const code = etat.campagnes[cle] && etat.campagnes[cle].code;
   delete etat.campagnes[cle];
-  etat.boutique.sections = etat.boutique.sections.filter(x => !(x.type === 'saison' && x.props && x.props.campagne === cle));
+  // Bannière rattachée à la campagne, ou ancienne bannière portant son code.
+  etat.boutique.sections = etat.boutique.sections.filter(x => !(x.type === 'saison' && x.props && (x.props.campagne === cle || (!x.props.campagne && code && String(x.props.code || '').toUpperCase() === String(code).toUpperCase()))));
 }
 function appliquerCampagne(etat, camp) {
   const b = etat.boutique;

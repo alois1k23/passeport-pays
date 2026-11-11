@@ -119,7 +119,9 @@ function vueConversion() {
   if (!etat.avis && !connecteServeur()) { semerAvis(); sauver(); }
   const { a, o } = etatConversion();
   const s = statsConversion();
-  const codes = Remises.codesValables(etat);
+  const manuels = (etat.offres && etat.offres.codes) || [];
+  const codes = [...Remises.codesValables(etat).map(c => ({ ...c, expire: c.source === 'Code manuel' ? (manuels.find(x => x.code === c.code) || {}).expire : null })),
+    ...manuels.filter(x => x.expire && x.expire <= Date.now()).map(x => ({ ...x, source: 'Code manuel', expire: x.expire, expireDeja: true }))];
   const interrupteur = (cle, actif) => `<label class="interrupteur petit"><input type="checkbox" data-auto="${cle}.actif" ${actif ? 'checked' : ''}><span>${actif ? 'Actif' : 'Désactivé'}</span></label>`;
   const flux = [
     { cle: 'paiement', titre: 'Relance de paiement abandonné', quand: `${a.paiement.etapes.map(e => e.heures < 1 ? `${Math.round(e.heures * 60)} min` : `${e.heures} h`).join(' puis ')} après une commande non payée`, envoyes: s.envois.paiement || 0,
@@ -170,7 +172,7 @@ function vueConversion() {
     <section class="carte sans-pad">
       <div class="carte-tete pad"><h2>Codes promo valables</h2><span class="sous">${codes.length} code${codes.length > 1 ? "s" : ""}</span></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th class="num">Remise</th><th>Origine</th><th></th></tr></thead><tbody>
-        ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}</td><td class="num">${c.source === 'Code manuel' ? `<button class="btn petit fantome danger-doux" data-action="suppr-code" data-code="${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
+        ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}${c.expire ? ` · ${c.expireDeja ? 'expiré le' : 'jusqu’au'} ${new Date(c.expire).toLocaleDateString('fr-FR')}` : ''}</td><td class="num">${c.source === 'Code manuel' ? `<button class="btn petit fantome danger-doux" data-action="suppr-code" data-code="${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
       </tbody></table></div>
       <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="50" value="10" required aria-label="Remise en %"><label class="sous">Jusqu’au <input name="expire" type="date" aria-label="Date d’expiration (facultative)"></label><button class="btn">Ajouter</button></form>
     </section>
@@ -260,7 +262,7 @@ document.addEventListener('change', e => {
     const [i, k] = t.dataset.palier.split('.');
     const avant = [0, 1].map(j => ({ ...(o.paliers[j] || { qte: j + 2, remise: 0 }) }));
     const apres = avant.map(x => ({ ...x }));
-    apres[i][k] = k === 'qte' ? Math.max(2, Math.min(99, Math.round(Number(t.value) || 2))) : Math.max(0, Math.min(50, Number(t.value) || 0));
+    apres[i][k] = k === 'qte' ? Math.max(2, Math.min(20, Math.round(Number(t.value) || 2))) : Math.max(0, Math.min(50, Number(t.value) || 0));
     // Le second palier demande plus d'articles et donne plus de remise : acheter plus ne coûte jamais plus cher.
     if (apres[1].qte <= apres[0].qte || (apres[1].remise && apres[1].remise <= apres[0].remise)) {
       toast('Le second palier doit demander plus d’articles et donner une remise plus forte que le premier.'); rendre(); return;
@@ -286,7 +288,8 @@ document.addEventListener('submit', e => {
   const code = String(d.get('code')).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
   if (!code) { toast('Code vide : utilisez des lettres et des chiffres.'); return; }
   const pris = Remises.codesValables(etat).find(c => c.code === code && c.source !== 'Code manuel');
-  if (pris) { toast(`${code} est déjà utilisé (${pris.source}) : choisissez un autre code.`); return; }
+  const campagne = Object.values(etat.campagnes || {}).find(c => c && c.code && String(c.code).toUpperCase() === code && (!c.expire || c.expire > Date.now()));
+  if (pris || campagne) { toast(`${code} est déjà utilisé (${pris ? pris.source : 'campagne programmée'}) : choisissez un autre code.`); return; }
   const remise = Math.max(1, Math.min(50, Math.round(Number(d.get('remise')) || 0)));
   const exp = d.get('expire') ? new Date(d.get('expire') + 'T23:59:59').getTime() : null;
   if (exp && exp < Date.now()) { toast('La date d’expiration est déjà passée.'); return; }
