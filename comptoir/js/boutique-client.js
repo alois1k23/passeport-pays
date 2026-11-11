@@ -163,6 +163,9 @@ function rendreBrut() {
             ${retrait ? '' : `<label class="champ"><span>Adresse</span><input name="adresse" required autocomplete="street-address"></label>
             <div class="deux"><label class="champ"><span>${ch ? 'NPA' : 'Code postal'}</span><input name="npa" required inputmode="numeric" autocomplete="postal-code" ${ch ? 'pattern="[0-9]{4}" maxlength="4"' : ''}></label>`}
             <label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}
+            ${donnees.factureQr ? `<fieldset class="moyens-sf"><legend>Paiement</legend>
+              <label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>
+              <label class="case-sf"><input type="radio" name="moyen" value="facture"> Facture QR, payable sous ${donnees.factureQr.echeanceJours} jours (expédition dès réception du paiement)</label></fieldset>` : ''}
             <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
             <p class="erreur-form" id="erreur" hidden></p>
             ${!adresseVendeur() ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
@@ -199,11 +202,12 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, client: { ...Object.fromEntries(d), consentement: d.get('consentement') === 'on' } })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
     try { if (json.commandeId) sessionStorage.setItem('comptoir-paiement-' + json.commandeId, '1'); } catch { /* ignoré */ }
+    if (json.factureUrl) { vue.panier = []; try { localStorage.removeItem('comptoir-panier-' + slug); } catch { /* ignoré */ } location.href = json.factureUrl; return; }   // facture QR : la facture s'ouvre, à payer avec l'application bancaire
     location.href = json.paiementUrl;
   } catch (e) {
     vue.envoi = false; rendre();

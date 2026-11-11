@@ -1381,3 +1381,4 @@ html, body { overflow-x: clip; }
 .qr-2fa img, .qr-2fa canvas { display: block; }
 .journal-compte { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: .9rem; }
 .etapes-texte { padding-left: 18px; }
+.moyens-sf { border: 0; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; } .moyens-sf legend { font-weight: 600; margin-bottom: 4px; }

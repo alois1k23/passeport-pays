@@ -39,6 +39,17 @@ function vueParametres() {
              <div class="rangee"><button class="btn" data-action="activer-paiements">${pb.compte ? 'Terminer l’activation chez Stripe' : 'Activer les paiements avec Stripe'}</button></div>`;
       })() : ''}
       <p class="sous">${stripe ? '' : 'Le paiement en ligne n’est pas encore branché sur cette installation : il est simulé et aucun montant n’est débité. Il s’active quand l’exploitant de la plateforme relie Stripe (cartes, TWINT en Suisse, Bancontact en Belgique).'}</p></section>`;
+    if (b.pays === 'ch') {
+      const e = etat.entreprise || {}, ibanOk = typeof QrFacture !== 'undefined' && QrFacture.ibanValide(e.iban), qr = ibanOk && typeof QrFacture !== 'undefined' && QrFacture.estQrIban(e.iban);
+      const actif = !!(etat.reglages && etat.reglages.factureQr);
+      corps += `<section class="carte"><div class="carte-tete"><h2>Paiement sur facture QR</h2>${statut(actif && ibanOk, 'Proposé aux clients', actif ? 'IBAN à corriger' : 'Désactivé')}</div>
+        <p class="sous">Vos clients suisses peuvent aussi payer sur facture : Comptoir émet une QR-facture (norme SIX), payable avec n’importe quelle application bancaire. Votre commande part dès réception du paiement ; importez votre relevé (camt.054) et les commandes payées se mettent à jour toutes seules.</p>
+        <div class="grille-form"><label class="champ"><span>IBAN ou QR-IBAN de l’entreprise</span><input value="${esc(e.iban || '')}" data-entreprise="iban" placeholder="CH44 3199 9123 0008 8901 2" autocomplete="off" spellcheck="false"></label>
+          <label class="champ"><span>Délai de paiement</span><select data-reglage="echeanceJours">${[10, 20, 30, 45, 60].map(n => `<option value="${n}" ${(etat.reglages && etat.reglages.echeanceJours || 30) === n ? 'selected' : ''}>${n} jours</option>`).join('')}</select></label></div>
+        ${e.iban && !ibanOk ? '<p class="sous erreur-champ">IBAN invalide : vérifiez-le (21 caractères, commençant par CH ou LI).</p>' : ibanOk ? `<p class="sous">${qr ? 'QR-IBAN : références QR (QRR) que la banque rapproche automatiquement.' : 'IBAN : références créancier (RF…) ; pour un rapprochement automatique par la banque, demandez-lui un QR-IBAN.'}</p>` : ''}
+        <label class="case"><input type="checkbox" data-reglage="factureQr" ${actif ? 'checked' : ''} ${ibanOk ? '' : 'disabled'}> Proposer le paiement sur facture QR</label>
+        ${enLigne() ? '<div class="rangee"><label class="btn fantome petit importer">Importer un relevé bancaire (camt.054)<input type="file" id="import-camt" accept=".xml,application/xml,text/xml" hidden></label></div>' : ''}</section>`;
+    }
   } else if (s === 'livraison') {
     const modes = Object.values(livraisonsPays(b.pays));
     corps = `<section class="carte sans-pad"><div class="carte-tete pad"><h2>Modes de livraison</h2><span class="sous">tarifs TTC facturés au client</span></div>
@@ -289,4 +300,18 @@ document.addEventListener('submit', async e => {
     else { await api('POST', '/api/admin/compte/2fa/desactiver', d); toast('Double authentification désactivée.'); SECURITE.donnees = null; }
   } catch (err) { SECURITE.erreur = err.message; }
   rendre();
+});
+
+/* Import du relevé bancaire camt.054 : les factures QR payées passent en « payée ». */
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'import-camt' || !e.target.files[0]) return;
+  const f = e.target.files[0]; e.target.value = '';
+  try {
+    const r = await api('POST', '/api/admin/paiements/camt', { xml: await f.text() });
+    const parts = [`${r.payees.length} facture${r.payees.length > 1 ? 's' : ''} payée${r.payees.length > 1 ? 's' : ''}`];
+    if (r.deja.length) parts.push(`${r.deja.length} déjà enregistrée(s)`);
+    if (r.ecarts.length) parts.push(`${r.ecarts.length} montant(s) à vérifier (n° ${r.ecarts.map(x => x.numero).join(', ')})`);
+    if (r.inconnues.length) parts.push(`${r.inconnues.length} paiement(s) sans commande correspondante`);
+    toast(parts.join(' · ')); if (typeof rechargerEtat === 'function') { await rechargerEtat(); rendre(); }
+  } catch (err) { toast(err.message || 'Relevé illisible.'); }
 });

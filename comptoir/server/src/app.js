@@ -19,10 +19,11 @@ const social = require('./social');
 const relances = require('./relances');
 const Remises = require('../../js/remises.js');
 const PrixBarres = require('../../js/prix-barres.js');
+const QrFacture = require('../../js/qrfacture.js');
 const courriel = require('./courriel');
 
 const RACINE_FRONT = path.resolve(__dirname, '..', '..');
-const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|accueil\.html|css\/[\w.-]+\.css|js\/[\w.-]+\.js|img\/[\w.-]+\.(jpg|png|svg))$/;
+const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|accueil\.html|css\/[\w.-]+\.css|js\/(vendor\/)?[\w.-]+\.js|img\/[\w.-]+\.(jpg|png|svg))$/;
 const POLICES = ["'Fraunces', Georgia, serif", "'DM Serif Display', Georgia, serif", "'Syne', system-ui, sans-serif", "'Bricolage Grotesque', system-ui, sans-serif", "'Outfit', system-ui, sans-serif", "'IBM Plex Sans', system-ui, sans-serif"];
 const COULEUR = /^#[0-9a-f]{6}$/i;
 const IMAGE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
@@ -114,6 +115,19 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const c = compteStripe(b.id);
     if (!c || !c.pret) throw erreur(409, 'Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.', 'paiements_inactifs');
     return c.compte;
+  }
+  /* Paiement sur facture QR (Suisse) : activé par le marchand, IBAN suisse valable, boutique en CHF. */
+  const factureQrPossible = config => !!(config.reglages && config.reglages.factureQr && config.boutique.pays === 'ch' && QrFacture.ibanValide((config.entreprise || {}).iban));
+  // Référence de paiement unique par commande : QRR avec un QR-IBAN, référence créancier (RF…) sinon.
+  function referencePaiement(b, numero, iban) {
+    if (QrFacture.estQrIban(iban)) return QrFacture.referenceQrr(`${parseInt(crypto.createHash('sha256').update(b.id).digest('hex').slice(0, 8), 16) % 1e9}`.padStart(9, '0') + String(numero).padStart(8, '0'));
+    return QrFacture.referenceScor(`${numero}C${crypto.createHash('sha256').update(b.id).digest('hex').slice(0, 6)}`);
+  }
+  function donneesQr(b, c, config) {
+    const e = config.entreprise || {};
+    return { iban: e.iban, creancier: { nom: e.raison || config.boutique.nom, ...QrFacture.decouperAdresse(e.adresse, 'CH') }, montant: c.total, devise: 'CHF',
+      debiteur: c.client.adresse ? { nom: c.client.nom, ...QrFacture.decouperAdresse(`${c.client.adresse}, ${c.client.npa} ${c.client.ville}`, 'CH') } : null,
+      reference: c.referenceQr, message: `Commande n° ${c.numero}${c.facture ? ` · facture ${c.facture}` : ''}` };
   }
   function configVente(b) {
     const config = lireConfig(b);
@@ -350,7 +364,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       boutique: b,
       entreprise: config.entreprise || {},
       magasin: config.magasin || {},
-      reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8 },
+      reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8, factureQr: !!(config.reglages && config.reglages.factureQr), echeanceJours: Math.max(10, Math.min(60, Math.round(Number(config.reglages && config.reglages.echeanceJours) || 30))) },
       campagnes: config.campagnes || {},
       rdv: config.rdv || null,
       cookies: config.cookies || null,
@@ -1038,7 +1052,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     }
     if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
     // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
-    if (cible === 'remboursee' && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
+    if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
     if (c.statut === 'attente' && (cible === 'payee' || cible === 'annulee')) {
       // Paiement reçu hors ligne (virement, espèces) ou commande annulée : les liens de paiement en ligne sont fermés.
       for (const p of db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id)) {
@@ -1213,7 +1227,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       offres: (({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles }) => ({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles: regles.filter(r => r.actif && r.type === 'panier') }))(Remises.offresDe(config)),
       newsletter: relances.nettoyer(config.automatisations).bienvenue,
       paiement: paiement.nom,
-      paiementsActifs: paiementsActifs(b),
+      paiementsActifs: paiementsActifs(b) || factureQrPossible(config),
+      factureQr: factureQrPossible(config) ? { echeanceJours: config.reglages.echeanceJours } : null,
       moyens: paiement.nom === 'stripe' ? (moyensDe(b.id) || {}) : null,   // TWINT ou Bancontact : annoncés seulement s'ils sont activés   // sinon la boutique prévient avant que le client remplisse le panier
       hebergeur: env.HEBERGEUR || null   // identité de l'hébergeur (obligatoire dans les mentions légales en France)
     };
@@ -1255,19 +1270,35 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);
     const total = prix.arrondi(calcul.apresRemise + port);
     const devise = config.boutique.devise || 'EUR';
-    const compte = compteVente(b);   // avant toute écriture : sans compte de paiement actif, aucune commande n'est créée
+    // Paiement sur facture QR : pas de paiement en ligne ; facture émise tout de suite, payable à l'échéance.
+    const parFacture = ctx.corps.moyen === 'facture';
+    if (parFacture && !factureQrPossible(config)) throw erreur(400, 'Le paiement sur facture n’est pas proposé par cette boutique.', 'moyen_invalide');
+    const compte = parFacture ? null : compteVente(b);   // avant toute écriture : sans compte de paiement actif, aucune commande n'est créée
     const { commande, pmt } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
       const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes, sousTotal, remise, motifRemise: calcul.motif ? calcul.motif.libelle : null, port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${calcul.motif.libelle})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
+      if (parFacture) {
+        c.moyen = 'facture'; c.facture = prochaineFacture(b.id, now); c.dateFacture = now;
+        c.echeance = now + config.reglages.echeanceJours * 86400000; c.referenceQr = referencePaiement(b, numero, config.entreprise.iban);
+        c.historique = [...(c.historique || []), { date: now, texte: `Facture QR ${c.facture} émise, payable jusqu’au ${new Date(c.echeance).toLocaleDateString('fr-CH')}` }];
+      }
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
+      if (parFacture) return { commande: { ...c, jeton }, pmt: null };
       const p = { id: auth.nouvelId('pay_'), commande_id: c.id };
       db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le, compte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(p.id, c.id, paiement.nom, Math.round(total * 100), devise, 'cree', now, compte);
       return { commande: { ...c, jeton }, pmt: p };
     });
+    if (parFacture) {
+      const factureUrl = `${urlPublique}/facture/${encodeURIComponent(b.slug)}/${commande.id}?jeton=${commande.jeton}`;
+      envoyerEmail(b.id, client.email, `Commande n° ${commande.numero} : votre facture QR`, `Bonjour ${client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(commande, config)}\n\nVotre facture QR (à payer avec l’application de votre banque, en scannant le QR code) :\n${factureUrl}\n\nMontant : ${formatMontant(total, config)} · à payer jusqu’au ${new Date(commande.echeance).toLocaleDateString('fr-CH')}.\nVotre commande est préparée dès réception du paiement.\n\n${config.boutique.nom}`);
+      const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+      if (mch) envoyerEmail(null, mch.email, `Nouvelle commande n° ${commande.numero} sur facture QR : ${formatMontant(total, config)}`, `Bonjour,\n\nNouvelle commande sur ${config.boutique.nom}, payable sur facture QR (référence ${commande.referenceQr}). Elle passe en « payée » quand vous importez votre relevé bancaire (Paramètres > Paiements) ou que vous la marquez payée.\n\n${recapitulatif(commande, config)}\n\nComptoir`);
+      return { statut: 201, corps: { commandeId: commande.id, numero: commande.numero, jeton: commande.jeton, total, factureUrl } };
+    }
     const retour = `${urlBoutique(b)}?commande=${commande.id}&jeton=${commande.jeton}`;
     let session;
     try { session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1`, compte, moyens: moyensDe(b.id) }); }
@@ -1278,6 +1309,63 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     }
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { commandeId: commande.id, numero: commande.numero, jeton: commande.jeton, total, paiementUrl: session.url } };
+  });
+  /* ---------- Facture QR : page imprimable (client, avec son jeton ; marchand, connecté) ---------- */
+  function pageFactureQr(b, c, config) {
+    const e = config.entreprise || {}, d = donneesQr(b, c, config);
+    const lignes = c.lignes.map(l => `<tr><td>${escHtml(l.nom)}</td><td class="n">${l.qte}</td><td class="n">${formatMontant(l.prix, config)}</td><td class="n">${formatMontant(l.prix * l.qte, config)}</td></tr>`).join('');
+    return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Facture ${escHtml(c.facture || '')} · ${escHtml(config.boutique.nom)}</title>
+<style>body{margin:0;background:#eee;font:10pt/1.45 Helvetica,Arial,sans-serif;color:#111}.page{background:#fff;width:210mm;min-height:297mm;margin:12px auto;box-sizing:border-box;position:relative;padding:18mm 18mm 112mm}
+h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;margin:6mm 0}td,th{padding:2mm 1mm;border-bottom:1px solid #ddd;text-align:left}.n{text-align:right;white-space:nowrap}.tot td{font-weight:700;border:0}
+.haut{display:flex;justify-content:space-between;gap:10mm}.bas{position:absolute;left:0;bottom:0}.imp{position:fixed;top:8px;right:12px;margin:0;background:#fff;padding:6px 10px;border-radius:6px;font-size:9pt}
+@media print{body{background:#fff}.page{margin:0;box-shadow:none}.imp{display:none}@page{size:A4;margin:0}}${QrFacture.CSS}</style></head><body>
+<p class="imp">Imprimer ou enregistrer en PDF : Ctrl + P (⌘ + P sur Mac)</p>
+<div class="page"><div class="haut"><div><b>${escHtml(e.raison || config.boutique.nom)}</b><br>${escHtml(e.adresse || '')}${e.email ? `<br>${escHtml(e.email)}` : ''}${e.siret ? `<br>IDE ${escHtml(e.siret)}` : ''}${e.tvaIntra ? `<br>TVA ${escHtml(e.tvaIntra)}` : ''}</div>
+<div>${escHtml(c.client.nom)}<br>${escHtml(c.client.adresse || '')}<br>${escHtml(`${c.client.npa || ''} ${c.client.ville || ''}`)}</div></div>
+<h1>Facture ${escHtml(c.facture || '')}</h1><p>Commande n° ${c.numero} du ${new Date(c.date).toLocaleDateString('fr-CH')} · payable jusqu’au <b>${new Date(c.echeance || c.date).toLocaleDateString('fr-CH')}</b></p>
+<table><thead><tr><th>Article</th><th class="n">Qté</th><th class="n">Prix</th><th class="n">Total</th></tr></thead><tbody>${lignes}
+${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.remise, config)}</td></tr>` : ''}<tr><td colspan="3">Livraison</td><td class="n">${formatMontant(c.port || 0, config)}</td></tr>
+<tr class="tot"><td colspan="3">Total</td><td class="n">${formatMontant(c.total, config)}</td></tr></tbody></table>
+<p>${config.entreprise.regime === 'ch-non' ? 'Entreprise non assujettie à la TVA.' : 'TVA incluse selon le taux applicable.'} ${c.statut === 'attente' ? 'Merci de payer avec la section paiement ci-dessous (application bancaire : scanner le QR code).' : `<b>Payée.</b>`}</p>
+<div class="bas">${c.statut === 'attente' ? QrFacture.sectionPaiement(d) : ''}</div></div></body></html>`;
+  }
+  r.get('/facture/:slug/:id', ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
+    if (!row || !auth.egal(String(ctx.query.get('jeton') || ''), row.jeton_client)) throw erreur(404, 'Facture introuvable.', 'introuvable');
+    const c = lireCommande(row);
+    if (c.moyen !== 'facture') throw erreur(404, 'Facture introuvable.', 'introuvable');
+    return { html: pageFactureQr(b, c, lireConfig(b)) };
+  });
+  r.get('/api/admin/commandes/:id/facture-qr', exigerMarchand, ctx => {
+    const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
+    if (c.moyen !== 'facture') throw erreur(404, 'Cette commande n’a pas de facture QR.', 'introuvable');
+    return { html: pageFactureQr(ctx.boutique, c, lireConfig(ctx.boutique)) };
+  });
+  /* Relevé bancaire ISO 20022 camt.054 (avis de crédit) : chaque référence reconnue marque la commande payée. */
+  r.post('/api/admin/paiements/camt', exigerMarchand, ctx => {
+    const xml = String(ctx.corps.xml || '');
+    if (xml.length > 3 * 1024 * 1024 || !/<Document[\s>]/.test(xml) || !/camt\.05[34]/.test(xml)) throw erreur(400, 'Fichier non reconnu : importez un relevé camt.054 (XML) de votre banque.', 'camt_invalide');
+    const config = lireConfig(ctx.boutique), resultat = { payees: [], deja: [], inconnues: [], ecarts: [] };
+    const attente = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND statut IN ('attente', 'annulee')").all(ctx.boutique.id).map(lireCommande).filter(c => c.moyen === 'facture');
+    const parRef = new Map(attente.map(c => [c.referenceQr, c]));
+    const blocs = xml.match(/<TxDtls>[\s\S]*?<\/TxDtls>/g) || [];
+    for (const t of blocs) {
+      if (/<CdtDbtInd>\s*DBIT\s*<\/CdtDbtInd>/.test(t)) continue;   // débit : pas un paiement reçu
+      const ref = ((/<CdtrRefInf>[\s\S]*?<Ref>\s*([^<]+?)\s*<\/Ref>/.exec(t) || [])[1] || '').replace(/\s/g, '').toUpperCase();
+      const montantRecu = Number((/<Amt[^>]*>\s*([\d.]+)\s*<\/Amt>/.exec(t) || [])[1] || 0);
+      if (!ref) continue;
+      const c = parRef.get(ref);
+      if (!c) { const dejaPayee = db.prepare("SELECT numero FROM commandes WHERE boutique_id = ? AND json_extract(donnees, '$.referenceQr') = ?").get(ctx.boutique.id, ref); (dejaPayee ? resultat.deja : resultat.inconnues).push(dejaPayee ? dejaPayee.numero : ref); continue; }
+      if (c.statut === 'annulee' || Math.round(montantRecu * 100) < Math.round(c.total * 100)) { resultat.ecarts.push({ numero: c.numero, recu: montantRecu, du: c.total, annulee: c.statut === 'annulee' }); continue; }
+      c.statut = 'payee';
+      historique(c, `Paiement de la facture QR reçu (${formatMontant(montantRecu, config)}, relevé bancaire importé)`);
+      ajusterStock(ctx.boutique.id, c.lignes, -1);
+      enregistrerCommande(c); parRef.delete(ref);
+      resultat.payees.push(c.numero);
+      envoyerEmail(ctx.boutique.id, c.client.email, `Paiement reçu pour la commande n° ${c.numero}`, `Bonjour ${c.client.nom},\n\nNous avons bien reçu votre paiement de ${formatMontant(montantRecu, config)}. Votre commande est en préparation.\n\n${config.boutique.nom}`);
+    }
+    return resultat;
   });
   /* Avis vérifiés : seul un client ayant reçu sa commande peut noter, une fois par produit. */
   const statsAvis = boutiqueId => Object.fromEntries(db.prepare('SELECT produit_id, AVG(note) AS m, COUNT(*) AS n FROM avis WHERE boutique_id = ? GROUP BY produit_id').all(boutiqueId).map(x => [x.produit_id, { moyenne: x.m, n: x.n }]));
@@ -1798,7 +1886,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   async function gerer(req, res) {
     // En-têtes de sécurité sur toutes les réponses : pas de chargement de script étranger (hors cdnjs pour le QR code),
     // pas d'affichage dans un cadre d'un autre site (clickjacking), pas de devinette du type de fichier.
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'");
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
