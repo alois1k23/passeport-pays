@@ -5,7 +5,7 @@ Chaque cycle : un domaine, des tests réels (navigateur, serveur, scripts), les 
 
 ## Synthèse de la nuit (0 h 10 – 6 h 50)
 
-47 cycles, environ 65 commits poussés sur `claude/nice-mccarthy-59mfb5`. Tests du serveur : 64, tous verts.
+49 cycles, environ 74 commits poussés sur `claude/nice-mccarthy-59mfb5`. Tests du serveur : 64, tous verts.
 
 À chaque cycle : un domaine testé pour de vrai (navigateur, serveur, scripts de simulation), les corrections, puis une relecture indépendante des corrections elles-mêmes. Ces relectures ont trouvé plusieurs régressions introduites pendant la nuit ; elles sont toutes corrigées et décrites dans leur cycle.
 
