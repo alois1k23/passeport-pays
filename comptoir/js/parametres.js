@@ -1,6 +1,6 @@
 /* Comptoir — paramètres : tout ce qui configure la boutique et le compte, au même endroit. */
 
-const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['sensible', 'Zone sensible']];
+const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['securite', 'Sécurité'], ['sensible', 'Zone sensible']];
 
 function enLigne() { return typeof SERVEUR !== 'undefined' && SERVEUR.connecte; }
 
@@ -92,6 +92,9 @@ function vueParametres() {
       <div class="rangee"><button class="btn" data-action="export-complet">Exporter tout (JSON)</button><button class="btn fantome" data-action="export-commandes">Commandes (CSV)</button><button class="btn fantome" data-action="export-clients">Clients (CSV)</button></div></section>
       ${enLigne() ? '' : `<section class="carte"><div class="carte-tete"><h2>Restaurer une démo</h2></div><p class="sous">Importez un export JSON pour retrouver une boutique de démonstration dans ce navigateur.</p>
       <label class="btn fantome petit importer">Choisir un fichier<input type="file" id="import-json" accept="application/json" hidden></label></section>`}`;
+  } else if (s === 'securite') {
+    corps = enLigne() ? vueSecurite() : `<section class="carte"><div class="carte-tete"><h2>Sécurité du compte</h2><span class="pill muted">Démo</span></div>
+      <p class="sous">Sur Comptoir : double authentification (application Google Authenticator, 1Password, Bitwarden…), codes de secours, liste des appareils connectés avec déconnexion à distance, journal d’activité et alerte par e-mail à chaque connexion depuis un nouvel appareil.</p></section>`;
   } else if (s === 'sensible') {
     corps = enLigne()
       ? `<section class="carte"><div class="carte-tete"><h2>Mot de passe et appareils</h2></div>
@@ -213,3 +216,75 @@ document.addEventListener('submit', async e => {
     location.href = '/';
   } catch (err) { toast(err.message); }
 }, true);
+
+
+/* ---------- Sécurité du compte (mode connecté) ---------- */
+const SECURITE = { donnees: null, chargement: false, mise: null, codes: null, erreur: '' };
+const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié' };
+function chargerSecurite() {
+  if (SECURITE.chargement) return;
+  SECURITE.chargement = true;
+  api('GET', '/api/admin/compte/securite').then(d => { SECURITE.donnees = d; }).catch(e => { SECURITE.erreur = e.message; }).finally(() => { SECURITE.chargement = false; rendre(); });
+}
+function vueSecurite() {
+  const d = SECURITE.donnees;
+  if (!d) { chargerSecurite(); return '<section class="carte"><p class="sous">Chargement…</p></section>'; }
+  const date = t => t ? new Date(t).toLocaleString('fr-CH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+  const erreur = SECURITE.erreur ? `<p class="encart alerte-encart" role="alert">${esc(SECURITE.erreur)}</p>` : '';
+  let df;
+  if (SECURITE.codes) df = `<section class="carte"><div class="carte-tete"><h2>Codes de secours</h2><span class="pill good">Double authentification active</span></div>
+      <p class="sous">Gardez ces codes en lieu sûr (gestionnaire de mots de passe, papier). Chacun remplace une fois le code de l’application si vous perdez votre téléphone. Ils ne seront plus affichés.</p>
+      <div class="codes-secours mono">${SECURITE.codes.map(c => `<span>${esc(c)}</span>`).join('')}</div>
+      <div class="rangee"><button class="btn" data-action="secours-telecharger">Télécharger (.txt)</button><button class="btn fantome" data-action="secours-fini">C’est noté</button></div></section>`;
+  else if (SECURITE.mise) df = `<section class="carte"><div class="carte-tete"><h2>Activer la double authentification</h2></div>
+      <ol class="sous etapes-texte"><li>Ouvrez votre application d’authentification et scannez ce code (ou saisissez la clé).</li><li>Saisissez le code à 6 chiffres affiché, et votre mot de passe.</li></ol>
+      <div class="qr-2fa" id="qr-2fa" aria-label="QR code à scanner"></div>
+      <p class="sous">Clé : <span class="mono">${esc(SECURITE.mise.secret.replace(/(.{4})/g, '$1 ').trim())}</span></p>
+      <form data-form="2fa-activer" class="grille-form"><label class="champ"><span>Code à 6 chiffres</span><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
+        <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>
+        ${erreur}<div class="rangee"><button class="btn">Activer</button><button type="button" class="btn fantome" data-action="2fa-annuler">Annuler</button></div></form></section>`;
+  else if (d.deuxFacteurs) df = `<section class="carte"><div class="carte-tete"><h2>Double authentification</h2><span class="pill good">Active</span></div>
+      <p class="sous">Un code de votre application est demandé à chaque connexion. Codes de secours restants : <b>${d.codesSecoursRestants}</b>${d.codesSecoursRestants <= 3 ? ' (pensez à la désactiver puis réactiver pour en obtenir de nouveaux)' : ''}.</p>
+      <details><summary>Désactiver</summary><form data-form="2fa-desactiver" class="grille-form"><label class="champ"><span>Code à 6 chiffres</span><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
+        <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>${erreur}<div class="rangee"><button class="btn fantome danger">Désactiver</button></div></form></details></section>`;
+  else df = `<section class="carte"><div class="carte-tete"><h2>Double authentification</h2><span class="pill warn">Inactive</span></div>
+      <p class="sous">Recommandée : même avec votre mot de passe, personne ne peut se connecter sans le code de votre téléphone. Compatible Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden, Proton Pass.</p>
+      ${erreur}<div class="rangee"><button class="btn" data-action="2fa-preparer">Activer la double authentification</button></div></section>`;
+  const appareils = `<section class="carte"><div class="carte-tete"><h2>Appareils connectés</h2></div>
+    <div class="table-wrap"><table class="table compacte"><thead><tr><th>Appareil</th><th>Dernière activité</th><th>Réseau</th><th></th></tr></thead><tbody>
+    ${d.sessions.map(x => `<tr><td>${esc(x.appareil)}${x.actuelle ? ' <span class="pill info">Cet appareil</span>' : ''}</td><td>${date(x.vuLe || x.creeLe)}</td><td class="mono sous">${esc(x.reseau || '—')}</td><td class="num">${x.actuelle ? '' : `<button class="btn petit fantome" data-action="session-revoquer" data-id="${esc(x.id)}">Déconnecter</button>`}</td></tr>`).join('')}
+    </tbody></table></div></section>`;
+  const journal = `<section class="carte"><div class="carte-tete"><h2>Activité du compte</h2><span class="sous">50 derniers événements</span></div>
+    ${d.journal.length ? `<ul class="journal-compte">${d.journal.map(x => `<li><span class="sous">${date(x.date)}</span> <b>${esc(LIBELLES_ACTIVITE[x.type] || x.type)}</b>${x.detail ? ` · ${esc(x.detail)}` : ''}${x.reseau ? ` <span class="mono sous">${esc(x.reseau)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="sous">Aucun événement pour l’instant.</p>'}</section>`;
+  return df + appareils + journal;
+}
+// Le QR code est dessiné après le rendu (bibliothèque qrcodejs déjà chargée par l'application).
+const rendreQr2fa = () => { const el = document.getElementById('qr-2fa'); if (el && SECURITE.mise && !el.childElementCount && typeof QRCode !== 'undefined') new QRCode(el, { text: SECURITE.mise.uri, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M }); };
+new MutationObserver(rendreQr2fa).observe(document.documentElement, { childList: true, subtree: true });
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action]'); if (!el) return;
+  const a = el.dataset.action;
+  if (!['2fa-preparer', '2fa-annuler', 'secours-telecharger', 'secours-fini', 'session-revoquer'].includes(a)) return;
+  SECURITE.erreur = '';
+  try {
+    if (a === '2fa-preparer') { SECURITE.mise = await api('POST', '/api/admin/compte/2fa/preparer'); }
+    else if (a === '2fa-annuler') SECURITE.mise = null;
+    else if (a === 'secours-telecharger') {
+      const url = URL.createObjectURL(new Blob([`Codes de secours Comptoir (${SERVEUR.email || ''})\n\n${SECURITE.codes.join('\n')}\n\nChaque code ne sert qu'une fois.\n`], { type: 'text/plain' }));
+      const lien = Object.assign(document.createElement('a'), { href: url, download: 'comptoir-codes-de-secours.txt' }); lien.click(); URL.revokeObjectURL(url); return;
+    }
+    else if (a === 'secours-fini') { SECURITE.codes = null; SECURITE.donnees = null; }
+    else if (a === 'session-revoquer') { await api('POST', `/api/admin/compte/sessions/${encodeURIComponent(el.dataset.id)}/revoquer`); toast('Appareil déconnecté.'); SECURITE.donnees = null; }
+  } catch (err) { SECURITE.erreur = err.message; }
+  rendre();
+});
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('[data-form="2fa-activer"], [data-form="2fa-desactiver"]'); if (!f) return;
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(f)); SECURITE.erreur = '';
+  try {
+    if (f.dataset.form === '2fa-activer') { const r = await api('POST', '/api/admin/compte/2fa/activer', d); SECURITE.mise = null; SECURITE.codes = r.codesSecours; toast('Double authentification activée.'); }
+    else { await api('POST', '/api/admin/compte/2fa/desactiver', d); toast('Double authentification désactivée.'); SECURITE.donnees = null; }
+  } catch (err) { SECURITE.erreur = err.message; }
+  rendre();
+});

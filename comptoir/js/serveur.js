@@ -145,6 +145,19 @@ function installerConnexion() {
   };
   const rendreFormAuth = function () {
     const ins = etatForm.onglet === 'inscription';
+    if (etatForm.onglet === '2fa') {
+      // Second facteur : code de l'application d'authentification, ou code de secours.
+      $('#vue').innerHTML = `<div class="assistant carte connexion">
+        <span class="eyebrow">Comptoir</span><h1>Code de vérification</h1>
+        <p class="sous">Saisissez le code à 6 chiffres de votre application d’authentification, ou un code de secours.</p>
+        <form id="form-auth" class="assistant-corps">
+          <label class="champ"><span>Code</span><input name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="12" autofocus></label>
+          ${etatForm.erreur ? `<p class="encart alerte-encart" role="alert">${esc(etatForm.erreur)}</p>` : ''}
+          <button class="btn" ${etatForm.envoi ? 'disabled' : ''}>Vérifier</button>
+        </form>
+        <button class="bouton-lien" data-cx="connexion">Retour</button></div>`;
+      return;
+    }
     if (etatForm.onglet === 'oubli' || etatForm.onglet === 'reinit') {
       const oubli = etatForm.onglet === 'oubli';
       $('#vue').innerHTML = `<div class="assistant carte connexion">
@@ -194,8 +207,11 @@ function installerConnexion() {
       } else if (etatForm.onglet === 'reinit') {
         await api('POST', '/api/auth/reinitialiser', { jeton: jetonReinit, motDePasse: d.motDePasse });
         history.replaceState(null, '', location.pathname);
+      } else if (etatForm.onglet === '2fa') {
+        await api('POST', '/api/auth/connexion/2fa', { defi: etatForm.defi, code: d.code });
       } else if (etatForm.onglet === 'connexion') {
-        await api('POST', '/api/auth/connexion', { email: d.email, motDePasse: d.motDePasse });
+        const r = await api('POST', '/api/auth/connexion', { email: d.email, motDePasse: d.motDePasse });
+        if (r.deuxFacteurs) { etatForm.defi = r.defi; etatForm.onglet = '2fa'; etatForm.envoi = false; rendre(); document.querySelector('input[name="code"]')?.focus(); return; }
       } else {
         const nom = d.nom.trim();
         const pays = d.pays;

@@ -10,6 +10,7 @@ const Formules = require('../../js/formules.js');
 const tendances = require('./tendances');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
+const totp = require('./totp');
 const { transaction } = require('./db');
 const prix = require('./prix');
 const { choisirPrestataire, etatDepuisCompte } = require('./paiements');
@@ -207,6 +208,39 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   // Appareil où le marchand s'est connecté : cookie signé, valable un an, qui ne contient que l'empreinte de l'e-mail.
   // Lié à l'empreinte du mot de passe actuel : un changement ou une réinitialisation du mot de passe révoque tous les appareils.
   const jetonAppareil = email => { const m = db.prepare('SELECT mot_de_passe FROM marchands WHERE lower(email) = ?').get(email); return crypto.createHmac('sha256', cleDesinscription).update(`appareil|${email}|${m ? m.mot_de_passe : ''}`).digest('base64url').slice(0, 32); };
+  /* ---------- Sécurité du compte : double authentification, appareils, journal d'activité ---------- */
+  if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'chiffrement'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('chiffrement', ?)").run(crypto.randomBytes(32).toString('hex'));
+  // Clé de chiffrement des secrets (TOTP) : SECRET_CHIFFREMENT (64 caractères hexadécimaux) si l'exploitant la garde hors de la base.
+  const cleChiffrement = Buffer.from(/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? env.SECRET_CHIFFREMENT : db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
+  db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
+    CREATE INDEX IF NOT EXISTS journal_compte_marchand ON journal_compte(marchand_id, date);`);
+  for (const sql of ['ALTER TABLE sessions ADD COLUMN cree_le INTEGER', 'ALTER TABLE sessions ADD COLUMN vu_le INTEGER', 'ALTER TABLE sessions ADD COLUMN appareil TEXT', 'ALTER TABLE sessions ADD COLUMN reseau TEXT']) { try { db.exec(sql); } catch { /* déjà là */ } }
+  // Description sobre de l'appareil (navigateur et système), sans empreinte détaillée.
+  const decrireAppareil = ua => {
+    const u = String(ua || '');
+    const nav = /Edg\//.test(u) ? 'Edge' : /Firefox\//.test(u) ? 'Firefox' : /Chrome\//.test(u) ? 'Chrome' : /Safari\//.test(u) ? 'Safari' : 'Navigateur';
+    const os = /iPhone|iPad/.test(u) ? 'iPhone / iPad' : /Android/.test(u) ? 'Android' : /Mac OS X/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : /Linux/.test(u) ? 'Linux' : 'appareil';
+    return `${nav} sur ${os}`;
+  };
+  const noterActivite = (marchandId, type, detail, ctx) => {
+    db.prepare('INSERT INTO journal_compte (marchand_id, date, type, detail, reseau) VALUES (?, ?, ?, ?, ?)').run(marchandId, Date.now(), type, detail ? String(detail).slice(0, 200) : null, ctx ? reseauIp(ctx.ip) : null);
+  };
+  // Ouvre une session (cookie) et la décrit pour la liste des appareils connectés.
+  function ouvrirSession(ctx, m, { nouvelAppareil = false } = {}) {
+    const jeton = auth.creerSession(db, m.id), maintenant = Date.now(), appareil = decrireAppareil(ctx.req.headers['user-agent']);
+    db.prepare('UPDATE sessions SET cree_le = ?, vu_le = ?, appareil = ?, reseau = ? WHERE jeton_hash = ?').run(maintenant, maintenant, appareil, reseauIp(ctx.ip), auth.sha256(jeton));
+    ctx.entetes['Set-Cookie'] = [auth.cookieSession(jeton, securise), cookieAppareil(String(m.email).toLowerCase())];
+    noterActivite(m.id, 'connexion', appareil, ctx);
+    // Connexion depuis un appareil jamais vu : le marchand est prévenu (un mot de passe volé se voit tout de suite).
+    if (nouvelAppareil) envoyerEmail(null, m.email, 'Nouvelle connexion à votre compte Comptoir',
+      `Bonjour,\n\nUne connexion à votre compte vient d’avoir lieu depuis un nouvel appareil :\n- ${appareil}\n- le ${new Date(maintenant).toLocaleString('fr-CH')}\n\nC’était vous ? Rien à faire.\nSinon : changez votre mot de passe tout de suite et déconnectez les autres appareils (Paramètres > Sécurité), puis activez la double authentification.\n${urlPublique}/app\n\nL’équipe Comptoir`);
+  }
+  // Défi de double authentification : signé, valable 5 minutes, lié au compte et à son mot de passe actuel.
+  const signerDefi = (mid, expire) => crypto.createHmac('sha256', cleDesinscription).update(`2fa|${mid}|${expire}|${(db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(mid) || {}).mot_de_passe}`).digest('base64url');
+  const creerDefi = mid => { const expire = Date.now() + 5 * 60000; return `${mid}.${expire}.${signerDefi(mid, expire)}`; };
+  const lireDefi = d => { const [mid, expire, sig] = String(d || '').split('.'); return mid && Number(expire) > Date.now() && auth.egal(sig, signerDefi(mid, Number(expire))) ? mid : null; };
+  const deuxFacteursDe = mid => db.prepare('SELECT * FROM deux_facteurs WHERE marchand_id = ?').get(mid) || null;
   const cookieAppareil = email => `comptoir_appareil=${jetonAppareil(email)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${365 * 86400}${securise ? '; Secure' : ''}`;
   // IPv6 : une personne dispose d'un réseau /64 entier ; les limites comptent par réseau, pas par adresse.
   const reseauIp = ip => {
@@ -510,6 +544,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     ctx.marchand = auth.marchandDepuisRequete(db, ctx.cookies);
     if (!ctx.marchand) throw erreur(401, 'Connectez-vous pour continuer.', 'non_connecte');
     renouvelerCookie(ctx, ctx.marchand);
+    const h = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
+    db.prepare('UPDATE sessions SET vu_le = ? WHERE jeton_hash = ? AND (vu_le IS NULL OR vu_le < ?)').run(Date.now(), h, Date.now() - 300000);
     ctx.boutique = boutiqueDuMarchand(ctx.marchand.id);
   };
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
@@ -559,7 +595,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const sources = Array.isArray(ctx.corps.importer) ? ctx.corps.importer.slice(0, 12).map(String) : [];
       for (const src of fournisseurs.CATALOGUE_DEMO.filter(x => sources.includes(x.id))) importerProduit(boutiqueId, src, 'demo');
     });
-    ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, marchandId), securise), cookieAppareil(email.toLowerCase())];
+    ouvrirSession(ctx, { id: marchandId, email });
     return { statut: 201, corps: { ok: true, slug } };
   });
   r.post('/api/auth/connexion', async ctx => {
@@ -582,7 +618,34 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const actuel = m && db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(m.id);
     if (!ok || !actuel || actuel.mot_de_passe !== m.mot_de_passe) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
     auth.oublierEchecs([`compte-ip:${e}|${reseau}`, `compte-ip-cours:${e}|${reseau}`]);
-    ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, m.id), securise), cookieAppareil(e)];
+    const df = deuxFacteursDe(m.id);
+    if (df && df.actif) return { deuxFacteurs: true, defi: creerDefi(m.id) };   // second facteur demandé, aucune session encore
+    ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
+    return { ok: true };
+  });
+  /* Second facteur : code de l'application (TOTP) ou code de secours (usage unique). */
+  r.post('/api/auth/connexion/2fa', async ctx => {
+    const mid = lireDefi(ctx.corps.defi);
+    if (!mid) throw erreur(401, 'Délai dépassé : reconnectez-vous avec votre mot de passe.', 'defi_expire');
+    const cles = ['2fa:' + mid];
+    auth.verifierEchecs(cles, 5);
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(mid), df = deuxFacteursDe(mid);
+    if (!m || !df || !df.actif) throw erreur(401, 'Reconnectez-vous avec votre mot de passe.', 'defi_expire');
+    const saisi = String(ctx.corps.code || '').trim();
+    let ok = false;
+    const pas = totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), saisi, { dernierPas: df.dernier_pas });
+    if (pas !== null) { db.prepare('UPDATE deux_facteurs SET dernier_pas = ? WHERE marchand_id = ?').run(pas, mid); ok = true; }
+    else {
+      const secours = JSON.parse(df.secours), emp = totp.empreinteSecours(saisi), i = secours.indexOf(emp);
+      if (i >= 0 && saisi.replace(/[^a-z0-9]/gi, '').length === 10) {
+        secours.splice(i, 1); db.prepare('UPDATE deux_facteurs SET secours = ? WHERE marchand_id = ?').run(JSON.stringify(secours), mid); ok = true;
+        noterActivite(mid, 'code-secours', `${secours.length} code(s) de secours restant(s)`, ctx);
+      }
+    }
+    if (!ok) { auth.noterEchec(cles); noterActivite(mid, 'echec-2fa', null, ctx); throw erreur(401, 'Code incorrect.', 'code_2fa'); }
+    auth.oublierEchecs(cles);
+    const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(String(m.email).toLowerCase());
+    ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
     return { ok: true };
   });
   /* Mot de passe oublié : lien valable 1 heure, réponse identique que le compte existe ou non. */
@@ -609,7 +672,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(ligne.marchand_id);
     });
-    { const mr = db.prepare('SELECT email FROM marchands WHERE id = ?').get(ligne.marchand_id); ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, ligne.marchand_id), securise), cookieAppareil(String(mr.email).toLowerCase())]; }
+    // Connexion directe après la réinitialisation, sauf double authentification : un accès à la boîte e-mail ne suffit pas.
+    { const mr = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(ligne.marchand_id); const df = deuxFacteursDe(mr.id); if (!(df && df.actif)) ouvrirSession(ctx, mr); }
+    noterActivite(ligne.marchand_id, 'mot-de-passe', 'réinitialisé par lien e-mail', ctx);
     return { ok: true };
   });
 
@@ -691,6 +756,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, actuelle);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);
     });
+    noterActivite(m.id, 'mot-de-passe', 'changé depuis l’espace', ctx);
     ajouterCookie(ctx, cookieAppareil(String(m.email).toLowerCase()));   // cet appareil reste reconnu ; les autres ne le sont plus
     return { ok: true };
   });
@@ -730,8 +796,58 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     }
     return { mode: 'stripe', pret: !!c.pret, compte: true };
   });
+  /* Sécurité du compte : état, appareils connectés, journal d'activité */
+  r.get('/api/admin/compte/securite', exigerCompte, ctx => {
+    const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
+    const df = deuxFacteursDe(ctx.marchand.id);
+    return {
+      deuxFacteurs: !!(df && df.actif), codesSecoursRestants: df && df.actif ? JSON.parse(df.secours).length : 0,
+      sessions: db.prepare('SELECT jeton_hash, cree_le, vu_le, appareil, reseau FROM sessions WHERE marchand_id = ? AND expire_le > ? ORDER BY vu_le DESC').all(ctx.marchand.id, Date.now())
+        .map(x => ({ id: x.jeton_hash.slice(0, 16), appareil: x.appareil || 'Appareil', reseau: x.reseau, creeLe: x.cree_le, vuLe: x.vu_le, actuelle: x.jeton_hash === actuelle })),
+      journal: db.prepare('SELECT date, type, detail, reseau FROM journal_compte WHERE marchand_id = ? ORDER BY date DESC LIMIT 50').all(ctx.marchand.id)
+    };
+  });
+  r.post('/api/admin/compte/sessions/:id/revoquer', exigerCompte, ctx => {
+    const id = String(ctx.params.id).replace(/[^0-9a-f]/g, '').slice(0, 16);
+    if (id.length !== 16) throw erreur(400, 'Session inconnue.', 'session');
+    const n = db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND substr(jeton_hash, 1, 16) = ?').run(ctx.marchand.id, id).changes;
+    if (!n) throw erreur(404, 'Session inconnue.', 'session');
+    noterActivite(ctx.marchand.id, 'session-revoquee', null, ctx);
+    return { ok: true };
+  });
+  /* Double authentification : préparation (secret en attente), activation avec un premier code, désactivation */
+  r.post('/api/admin/compte/2fa/preparer', exigerCompte, ctx => {
+    const df = deuxFacteursDe(ctx.marchand.id);
+    if (df && df.actif) throw erreur(409, 'La double authentification est déjà active.', 'deja_actif');
+    const secret = totp.nouveauSecret();
+    db.prepare('INSERT OR REPLACE INTO deux_facteurs (marchand_id, secret, actif, dernier_pas, secours, cree_le) VALUES (?, ?, 0, -1, ?, ?)').run(ctx.marchand.id, totp.chiffrer(cleChiffrement, secret), '[]', Date.now());
+    return { secret, uri: totp.uri(secret, ctx.marchand.email) };
+  });
+  r.post('/api/admin/compte/2fa/activer', exigerCompte, async ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
+    if (!df || df.actif) throw erreur(409, 'Recommencez la mise en place.', 'etat_2fa');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    const pas = totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), ctx.corps.code);
+    if (pas === null) throw erreur(400, 'Code incorrect : vérifiez l’heure de votre téléphone et saisissez le code affiché maintenant.', 'code_2fa');
+    const { codes, empreintes } = totp.codesSecours();
+    db.prepare('UPDATE deux_facteurs SET actif = 1, dernier_pas = ?, secours = ? WHERE marchand_id = ?').run(pas, JSON.stringify(empreintes), m.id);
+    noterActivite(m.id, '2fa-activee', null, ctx);
+    envoyerEmail(null, m.email, 'Double authentification activée', `Bonjour,\n\nLa double authentification est maintenant active sur votre compte Comptoir. À chaque connexion, le code de votre application vous sera demandé.\n\nGardez vos codes de secours en lieu sûr : ils remplacent le téléphone en cas de perte.\n\nCe n’était pas vous ? Écrivez-nous immédiatement.\n\nL’équipe Comptoir`);
+    return { ok: true, codesSecours: codes };
+  });
+  r.post('/api/admin/compte/2fa/desactiver', exigerCompte, async ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
+    if (!df || !df.actif) return { ok: true };
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), ctx.corps.code, { dernierPas: df.dernier_pas }) === null) throw erreur(400, 'Code incorrect.', 'code_2fa');
+    db.prepare('DELETE FROM deux_facteurs WHERE marchand_id = ?').run(m.id);
+    noterActivite(m.id, '2fa-desactivee', null, ctx);
+    envoyerEmail(null, m.email, 'Double authentification désactivée', `Bonjour,\n\nLa double authentification vient d’être désactivée sur votre compte Comptoir.\n\nCe n’était pas vous ? Changez votre mot de passe tout de suite et réactivez-la : ${urlPublique}/app\n\nL’équipe Comptoir`);
+    return { ok: true };
+  });
   r.post('/api/admin/compte/deconnecter-autres', exigerCompte, ctx => {
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
+    noterActivite(ctx.marchand.id, 'autres-deconnectes', null, ctx);
     return { ok: true, n: db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(ctx.marchand.id, actuelle).changes };
   });
   /* Suppression définitive d'un compte marchand et de tout ce qui lui appartient (demande du marchand, ou fin de conservation). */
