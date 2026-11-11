@@ -857,3 +857,32 @@ test('commande mixte : la partie fournisseur se transmet à la main, sans change
   assert.equal(r.json.commande.statut, 'payee', 'le statut ne change pas : le marchand prépare encore sa partie');
   assert.equal((await m('POST', `/api/admin/commandes/${cmd.json.commandeId}/transmettre`, {})).statut, 409, 'pas deux fois');
 });
+
+test('sécurité : domaine non vérifié à l’inscription, fonctions de formule appliquées côté serveur, origine fournisseur non déclarable', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'formule-lancement@exemple.ch', motDePasse: 'un mot de passe solide',
+    config: { boutique: { nom: 'Petite Lancement', pays: 'ch', secteur: 'maison', sections: [], domaine: { domaine: 'victime.ch', actif: true, verifieLe: Date.now() } },
+      entreprise: { raison: 'Petite', adresse: 'Rue 2, 1003 Lausanne' }, magasin: { clickCollect: true, adresse: 'Rue 2, 1003 Lausanne' },
+      offres: { paliersActifs: true, paliers: [{ qte: 2, remise: 30 }], codes: [{ code: 'MOINS40', remise: 40 }] } },
+    produits: [{ nom: 'Vase', prix: 50, stock: 5, type: 'stock' }, { nom: 'Faux drop', prix: 20, type: 'drop', source: 'inventee', codeFournisseur: 'autre' }] }, { sansPaiement: true });
+  assert.equal(ins.statut, 201);
+  const { url } = (await m('POST', '/api/abonnement/commencer', { formule: 'lancement' })).json;
+  await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(ins.json.slug);
+  const conf = JSON.parse(b.config);
+  assert.equal(conf.boutique.domaine.actif, false); assert.equal(conf.boutique.domaine.verifieLe, null);
+  const drop = db.prepare('SELECT donnees FROM produits WHERE boutique_id = ?').all(b.id).map(r => JSON.parse(r.donnees)).find(p => p.type === 'drop');
+  assert.equal(drop.source, ''); assert.equal(drop.codeFournisseur, 'demo');
+  // Formule Lancement : ni code, ni palier, ni retrait en magasin
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  assert.equal(pub.json.offres.paliersActifs, false);
+  assert.ok(!pub.json.livraisons.retrait);
+  const vase = pub.json.produits.find(p => p.nom === 'Vase');
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: vase.id, qte: 2 }], livraison: 'poste-eco', code: 'MOINS40', client: { nom: 'A B', email: 'ab@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
+  assert.equal(cmd.statut, 400); assert.equal(cmd.json.code, 'code_invalide');
+  const cmd2 = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: vase.id, qte: 2 }], livraison: 'poste-eco', client: { nom: 'A B', email: 'ab@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
+  assert.equal(cmd2.statut, 201, JSON.stringify(cmd2.json));
+  const c = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(cmd2.json.commandeId).donnees);
+  assert.equal(c.total - c.port, 100);   // aucun palier appliqué
+  assert.equal((await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: vase.id, qte: 1 }], livraison: 'retrait', client: { nom: 'A B', email: 'ab@x.ch' } })).statut, 400);
+});

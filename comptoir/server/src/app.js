@@ -61,6 +61,29 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 
   /* ---------- Accès aux données ---------- */
   const lireConfig = b => JSON.parse(b.config);
+  /* Configuration telle qu'elle s'applique aux ventes : les fonctions que la formule n'inclut pas sont éteintes
+     (codes, paliers, offres, campagnes et e-mails automatiques : Croissance ; retrait en magasin : Pro).
+     Les réglages du marchand restent enregistrés : ils reviennent s'il change de formule. */
+  // Ancienne faille (avant le cycle 40) : un domaine pouvait être déclaré actif dès l'inscription, sans vérification.
+  for (const b of db.prepare('SELECT id, config FROM boutiques').all()) {
+    try {
+      const conf = JSON.parse(b.config), d = conf.boutique && conf.boutique.domaine;
+      if (d && d.actif && !d.verifieLe) { d.actif = false; db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(conf), b.id); }
+    } catch { /* configuration illisible : laissée telle quelle */ }
+  }
+  function configVente(b) {
+    const config = lireConfig(b);
+    if (!b.marchand_id) return config;
+    const e = abo.etat(b.marchand_id);
+    if (!e.obligatoire) return config;
+    if (!Formules.permet(e.formule, 'conversion')) {
+      config.offres = { ...(config.offres || {}), paliersActifs: false, paliers: [], regles: [], codes: [] };
+      config.campagnes = {};
+      config.automatisations = Object.fromEntries(Object.entries(config.automatisations || {}).map(([k, v]) => [k, { ...(v || {}), actif: false }]));
+    }
+    if (!Formules.permet(e.formule, 'magasin') && config.magasin) config.magasin = { ...config.magasin, clickCollect: false };
+    return config;
+  }
   /* Adresse publique d’une boutique : son domaine personnalisé s’il est actif, sinon /s/<slug>. */
   const domaineDe = b => { const d = lireConfig(b).boutique.domaine; return d && d.actif && d.domaine ? String(d.domaine).toLowerCase() : null; };
   const urlBoutique = b => domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}`;
@@ -262,6 +285,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (type === 'drop') Object.assign(propre, { portF: Number(p.portF) || 0, entrepot: ['CH', 'UE', 'CN'].includes(p.entrepot) ? p.entrepot : 'UE', delai: Array.isArray(p.delai) ? p.delai.slice(0, 2).map(Number) : [3, 7], fournisseur: String(p.fournisseur || '').slice(0, 80), source: String(p.source || '').slice(0, 40), codeFournisseur: p.codeFournisseur || 'demo' });
     return propre;
   }
+  /* Produit envoyé par le navigateur : l'origine fournisseur ne se déclare pas, elle vient du catalogue.
+     Sans cela, un faux « source » gonflerait les tendances et un faux code fournisseur contournerait « vendable ». */
+  function produitDuNavigateur(p, historiqueAvant) {
+    const src = p && p.type === 'drop' && fournisseurs.CATALOGUE_DEMO.find(x => x.id === p.source);
+    return nettoyerProduit({ ...p, source: src ? src.id : '', codeFournisseur: 'demo' }, historiqueAvant);
+  }
   /* Ajoute un produit du catalogue fournisseur à une boutique (une seule fois par produit source). */
   function importerProduit(boutiqueId, src, codeFournisseur) {
     const deja = listerProduits(boutiqueId).find(p => p.source === src.id);
@@ -279,7 +308,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
   function insererProduits(boutiqueId, produits) {
     (Array.isArray(produits) ? produits : []).filter(p => p && typeof p === 'object').slice(0, 200).forEach((p, i) => {
-      db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(auth.nouvelId('p_'), boutiqueId, JSON.stringify(nettoyerProduit(p)), i);
+      db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(auth.nouvelId('p_'), boutiqueId, JSON.stringify(produitDuNavigateur(p)), i);
     });
   }
 
@@ -441,7 +470,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const email = valider.email(ctx.corps.email);
     const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
-    const config = nettoyerConfig(ctx.corps.config);
+    // Un domaine choisi à l'inscription n'est jamais actif : il faut d'abord prouver qu'on le possède (DNS + TXT).
+    const config = garderDomaine(nettoyerConfig(ctx.corps.config), { boutique: {} });
     if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(email)) throw erreur(409, 'Un compte existe déjà avec cet e-mail. Connectez-vous.', 'email_pris');
     const marchandId = auth.nouvelId('m_');
     const boutiqueId = auth.nouvelId('b_');
@@ -645,7 +675,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/produits', exigerMarchand, ctx => {
     const id = auth.nouvelId('p_');
     const ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) + 1 AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
-    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, JSON.stringify(nettoyerProduit(ctx.corps.produit || {})), ordre);
+    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, JSON.stringify(produitDuNavigateur(ctx.corps.produit || {})), ordre);
     return { statut: 201, corps: { id } };
   });
   r.put('/api/admin/produits/:id', exigerMarchand, ctx => {
@@ -851,7 +881,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* ---------- Boutique publique ---------- */
   r.get('/api/public/:slug', ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
-    const config = lireConfig(b);
+    const config = configVente(b);
     const notes = statsAvis(b.id);
     const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
     const produits = listerProduits(b.id).filter(vendable).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
@@ -884,7 +914,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/public/:slug/commandes', async ctx => {
     auth.limiter('commande:' + ctx.ip, (Number(env.LIMITE_COMMANDES) || 30) * facteurLimites, 15 * 60000, 'Trop de commandes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueOuverte(ctx.params.slug);
-    const config = lireConfig(b);
+    const config = configVente(b);
     // Vendre à distance sans adresse du vendeur est interdit (CH : LCD art. 3 s ; FR : LCEN art. 6 ; BE : CDE art. VI.45).
     if (!String((config.entreprise || {}).adresse || '').trim()) throw erreur(409, 'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.', 'boutique_incomplete');
     const produits = listerProduits(b.id).filter(vendable);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
@@ -976,7 +1006,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!['payee', 'fournisseur', 'preparation'].includes(c.statut) || c.parent || (c.complements || []).length) return null;
     const paye = (c.historique || []).find(h => /^Paiement/.test(h.texte));
     if (!paye || Date.now() - paye.date > DELAI_COMPLEMENT) return null;
-    const config = lireConfig(b);
+    const config = configVente(b);
     const r = Remises.regleApplicable(config, c.lignes, 'apres');
     if (!r) return null;
     const p = listerProduits(b.id).find(x => x.id === r.alors && vendable(x) && (x.type === 'drop' || x.stock > 0));
@@ -992,7 +1022,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (dejaLa) throw erreur(409, 'Le complément a déjà été ajouté à cette commande.', 'complement_existant');
     const o = offreApres(b, parent);
     if (!o || o.regle !== ctx.corps.regle) throw erreur(409, 'Cette offre n’est plus disponible.', 'offre_expiree');
-    const config = lireConfig(b);
+    const config = configVente(b);
     const p = listerProduits(b.id).find(x => x.id === o.produitId);
     if (!p || !vendable(p)) throw erreur(409, 'Cette offre n’est plus disponible.', 'offre_expiree');
     const devise = config.boutique.devise || 'EUR';
@@ -1031,10 +1061,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     auth.limiter('code:' + ctx.ip, 40 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
     const saisi = String(ctx.corps.code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const c = Remises.codesValables(lireConfig(b)).find(x => x.code === saisi);
+    const c = Remises.codesValables(configVente(b)).find(x => x.code === saisi);
     if (!c) throw erreur(404, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
     // Le code de bienvenue ne vaut que pour une première commande : on le dit dès sa saisie (contrôlé au paiement avec l'e-mail).
-    const bv = ((lireConfig(b).automatisations || {}).bienvenue || {});
+    const bv = ((configVente(b).automatisations || {}).bienvenue || {});
     return { code: c.code, remise: c.remise, ...(bv.code && String(bv.code).toUpperCase() === c.code ? { condition: 'Valable sur une première commande.' } : {}) };
   });
   r.post('/api/public/:slug/newsletter', ctx => {
@@ -1048,7 +1078,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       return { ok: true, confirmation: true };
     }
     db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(b.id, email, Date.now());
-    relances.emailBienvenue({ db, boutique: b, config: lireConfig(b), email, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail });
+    relances.emailBienvenue({ db, boutique: b, config: configVente(b), email, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail });
     return { ok: true };
   });
   r.post('/api/public/:slug/commandes/:id/reprendre', async ctx => {
@@ -1076,7 +1106,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     let n = 0;
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {
       const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));
-      n += relances.executer({ db, boutique: b, config: lireConfig(b), commandes, maintenant, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail, formatMontant,
+      n += relances.executer({ db, boutique: b, config: configVente(b), commandes, maintenant, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail, formatMontant,
         enregistrerCommande: c => { const { jeton, ...reste } = c; enregistrerCommande(reste); } });
     }
     return n;
@@ -1162,7 +1192,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* ---------- Boutique publique : page rendue par le serveur pour les moteurs de recherche et le partage ---------- */
   const produitVisible = (b, id) => abo.etat(b.marchand_id).actif && listerProduits(b.id).some(x => x.id === id && vendable(x));
   function pageBoutique(b, { racine, produitId = null }) {
-    const config = lireConfig(b);
+    const config = configVente(b);
     const ouverte = abo.etat(b.marchand_id).actif;
     const produits = ouverte ? listerProduits(b.id).filter(vendable) : [];
     const p = produitId ? produits.find(x => x.id === produitId) : null;
