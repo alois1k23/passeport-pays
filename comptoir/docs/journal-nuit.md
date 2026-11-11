@@ -444,3 +444,20 @@ La démo garde la simulation, signalée comme telle.
 15. Conseils d'abandon de panier : chiffres non vérifiables retirés, sources citées sans pourcentage inventé.
 
 Tests : 43 ; démo sans erreur ni débordement.
+
+### Cycle 23 — Droits des acheteurs sur leurs données
+
+**Manque** : un acheteur peut exiger une copie de ses données ou leur effacement (RGPD art. 15 et 17 ; nLPD art. 25 et 32). Les mentions légales le promettaient, mais le marchand n'avait aucun moyen de le faire.
+
+**Ajouté** dans la fiche client :
+- **Exporter ses données** : un fichier JSON avec ses commandes, ses avis et son inscription à la newsletter ;
+- **Effacer ses données**, avec confirmation en deux clics :
+  - nom, e-mail et adresse sont remplacés par « Client effacé » ;
+  - montants, numéros et factures restent pour la comptabilité (conservation légale) ;
+  - ses avis deviennent anonymes et il est retiré de la newsletter ;
+  - les e-mails enregistrés à son nom sont supprimés ;
+  - son adresse reste seulement dans la liste de désinscription, qui sert à ne plus lui écrire ;
+- refus tant qu'une commande est en cours, car l'adresse sert à la livraison ;
+- un marchand ne peut agir que sur les clients de sa boutique.
+
+Vérifié dans la démo (export téléchargé ; 7 commandes anonymisées) et par un test serveur. Tests : 44.

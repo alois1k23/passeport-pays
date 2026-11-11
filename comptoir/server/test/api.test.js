@@ -682,3 +682,29 @@ test('paiements réels : les produits du fournisseur de démonstration ne sont n
     assert.ok(!/Expédié par notre partenaire/.test(html));
   } finally { srv.close(); }
 });
+
+test('droits du client : export puis effacement de ses données (montants conservés)', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'rgpd@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Données', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Données', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Léa Durand', email: 'Lea.Durand@exemple.ch', adresse: 'Rue du Lac 3', npa: '1006', ville: 'Lausanne', consentement: true } });
+  assert.equal(cmd.statut, 201);
+  // Commande encore en attente : effacement refusé (l'adresse sert à la livraison)
+  assert.equal((await m('POST', '/api/admin/clients/effacer', { email: 'lea.durand@exemple.ch' })).statut, 409);
+  const etat = await m('GET', '/api/admin/etat');
+  const c = etat.json.commandes.find(x => x.client.email.toLowerCase() === 'lea.durand@exemple.ch');
+  assert.equal((await m('POST', `/api/admin/commandes/${c.id}/statut`, { statut: 'annulee' })).statut, 200);
+  const exp = await m('GET', '/api/admin/clients/export?email=lea.durand%40exemple.ch');
+  assert.equal(exp.statut, 200);
+  assert.equal(exp.json.commandes[0].client.nom, 'Léa Durand');
+  const ef = await m('POST', '/api/admin/clients/effacer', { email: 'lea.durand@exemple.ch' });
+  assert.equal(ef.statut, 200); assert.equal(ef.json.commandes, 1);
+  const apres = (await m('GET', '/api/admin/etat')).json.commandes.find(x => x.id === c.id);
+  assert.equal(apres.client.nom, 'Client effacé'); assert.equal(apres.client.email, ''); assert.equal(apres.client.adresse, '');
+  assert.equal(apres.total, c.total);
+  assert.equal((await m('GET', '/api/admin/clients/export?email=lea.durand%40exemple.ch')).statut, 404);
+  // Un autre marchand ne peut rien effacer chez celui-ci
+  const autre = client();
+  await autre('POST', '/api/auth/inscription', { email: 'autre-rgpd@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Autre', pays: 'ch', secteur: 'maison', sections: [] } } });
+  assert.equal((await autre('POST', '/api/admin/clients/effacer', { email: 'lea.durand@exemple.ch' })).json.commandes, 0);
+});

@@ -564,6 +564,7 @@ function listeClients() {
   const par = {};
   for (const c of etat.commandes) {
     if (c.canal === 'magasin' && !c.client.email) continue;
+    if (!c.client.email && c.client.nom === 'Client effacé') continue;   // données effacées à la demande du client
     const k = (c.client.email || c.client.nom).toLowerCase();
     const x = par[k] = par[k] || { cle: k, nom: c.client.nom, email: c.client.email, ville: c.client.ville, commandes: [], total: 0, premiere: c.date, derniere: 0, consentement: false };
     x.commandes.push(c);
@@ -621,6 +622,34 @@ function vueClients() {
   </div>`;
 }
 
+/* Export (droit d'accès) et effacement (droit à l'effacement) des données d'un client. */
+function telechargerJson(nom, donnees) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(donnees, null, 2)], { type: 'application/json' }));
+  a.download = nom; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+async function exporterClient(email) {
+  const cle = email.toLowerCase();
+  try {
+    const donnees = connecteAuServeur() ? await api('GET', `/api/admin/clients/export?email=${encodeURIComponent(email)}`)
+      : { exporteLe: new Date().toISOString(), boutique: etat.boutique.nom, email, commandes: etat.commandes.filter(c => (c.client.email || '').toLowerCase() === cle).map(c => ({ numero: c.numero, date: new Date(c.date).toISOString(), statut: c.statut, client: c.client, lignes: c.lignes.map(l => ({ nom: l.nom, qte: l.qte, prix: l.prix })), total: c.total })) };
+    telechargerJson(`donnees-client-${cle.replace(/[^a-z0-9]+/g, '-')}.json`, donnees);
+    toast('Export téléchargé : transmettez-le au client.');
+  } catch (e) { toast(e.message); }
+}
+async function effacerClient(email) {
+  if (ui.confirmerEffacer !== email) { ui.confirmerEffacer = email; rendre(); setTimeout(() => { if (ui.confirmerEffacer === email) { ui.confirmerEffacer = null; rendre(); } }, 5000); return; }
+  ui.confirmerEffacer = null;
+  const cle = email.toLowerCase();
+  try {
+    if (connecteAuServeur()) { await api('POST', '/api/admin/clients/effacer', { email }); location.reload(); return; }
+    const ouverte = etat.commandes.find(c => (c.client.email || '').toLowerCase() === cle && ['attente', 'payee', 'preparation', 'fournisseur'].includes(c.statut));
+    if (ouverte) { toast(`Commande n° ${ouverte.numero} encore en cours : effacez les données une fois qu’elle est expédiée.`); rendre(); return; }
+    for (const c of etat.commandes) if ((c.client.email || '').toLowerCase() === cle) { c.client = { nom: 'Client effacé', email: '', adresse: '', npa: '', ville: '', consentement: null }; (c.historique = c.historique || []).push({ date: Date.now(), texte: 'Données personnelles du client effacées à sa demande' }); }
+    ui.client = null; sauver(); toast('Données du client effacées.'); rendre();
+  } catch (e) { toast(e.message); rendre(); }
+}
+
 function ficheClient(c) {
   const segs = { meilleurs: 'Meilleur client', fideles: 'Fidèle', nouveaux: 'Nouveau', inactifs: 'Inactif', abonnes: 'Accepte les e-mails' };
   const delai = c.n > 1 ? (c.derniere - c.premiere) / JOUR / (c.n - 1) : null;
@@ -635,6 +664,8 @@ function ficheClient(c) {
       <div><span class="sous">Panier moyen</span><strong>${euros(c.panier)}</strong></div>
     </div>
     <p class="sous">Client depuis le ${new Date(c.premiere).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}${delai ? ` · une commande tous les ${Math.round(delai)} jours en moyenne` : ''}.</p>
+    ${c.email ? `<div class="bloc"><h3>Données personnelles</h3><p class="sous">À la demande du client (droit d’accès et d’effacement) : l’export contient ses commandes et ses avis ; l’effacement anonymise ses commandes, garde les montants pour la comptabilité et le retire de la newsletter.</p>
+      <div class="rangee"><button class="btn petit fantome" data-action="exporter-client" data-email="${esc(c.email)}">Exporter ses données</button><button class="btn petit fantome danger-doux" data-action="effacer-client" data-email="${esc(c.email)}">${ui.confirmerEffacer === c.email ? 'Confirmer l’effacement' : 'Effacer ses données'}</button></div></div>` : ''}
     <div class="bloc"><h3>Commandes</h3><table class="table compacte"><tbody>${[...c.commandes].sort((a, b) => b.date - a.date).map(o => `<tr data-action="ouvrir-commande" data-id="${o.id}" tabindex="0"><td class="mono">#${o.numero}</td><td class="sous">${dateCourte(o.date)}</td><td class="num">${euros(o.total)}</td><td>${pill(o.statut)}</td></tr>`).join('')}</tbody></table></div>
   </aside>`;
 }
@@ -990,6 +1021,8 @@ document.addEventListener('click', e => {
     case 'page-client': ui.pageClient = (ui.pageClient || 1) + Number(el.dataset.d); rendre(); break;
     case 'ouvrir-client': ui.client = id; rendre(); break;
     case 'fermer-client': ui.client = null; rendre(); break;
+    case 'exporter-client': exporterClient(el.dataset.email); break;
+    case 'effacer-client': effacerClient(el.dataset.email); break;
     case 'export-clients': exporterClientsCsv(); break;
     case 'copier': try { navigator.clipboard.writeText(el.dataset.texte).then(() => toast('Copié.'), () => toast(el.dataset.texte)); } catch { toast(el.dataset.texte); } break;
     case 'imprimer': window.print(); break;

@@ -716,6 +716,41 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return n;
   }
 
+  /* Droits des acheteurs (RGPD art. 15 et 17, nLPD art. 25 et 32) : le marchand exporte ou efface les données d'un client.
+     L'effacement anonymise les commandes : montants, numéros et factures restent pour la comptabilité (conservation légale). */
+  const commandesDuClient = (boutiqueId, email) => db.prepare('SELECT * FROM commandes WHERE boutique_id = ?').all(boutiqueId).map(lireCommande)
+    .filter(c => String(c.client && c.client.email || '').toLowerCase() === email);
+  r.get('/api/admin/clients/export', exigerMarchand, ctx => {
+    const email = valider.email(ctx.query.get('email') || '').toLowerCase();
+    const commandes = commandesDuClient(ctx.boutique.id, email);
+    if (!commandes.length) throw erreur(404, 'Aucune commande avec cette adresse.', 'introuvable');
+    const ids = new Set(commandes.map(c => c.id));
+    return {
+      exporteLe: new Date().toISOString(), boutique: lireConfig(ctx.boutique).boutique.nom, email,
+      commandes: commandes.map(c => ({ numero: c.numero, date: new Date(c.date).toISOString(), statut: c.statut, client: c.client, lignes: c.lignes.map(l => ({ nom: l.nom, qte: l.qte, prix: l.prix })), total: c.total, livraison: c.livraison, suivi: c.suivi || null })),
+      avis: db.prepare('SELECT commande_id, note, texte, prenom, ville, cree_le FROM avis WHERE boutique_id = ?').all(ctx.boutique.id).filter(a => ids.has(a.commande_id)),
+      newsletter: !!db.prepare('SELECT 1 FROM abonnes WHERE boutique_id = ? AND email = ?').get(ctx.boutique.id, email)
+    };
+  });
+  r.post('/api/admin/clients/effacer', exigerMarchand, ctx => {
+    const email = valider.email(ctx.corps.email).toLowerCase();
+    const commandes = commandesDuClient(ctx.boutique.id, email);
+    const ouvertes = commandes.filter(c => ['attente', 'payee', 'preparation', 'fournisseur'].includes(c.statut));
+    if (ouvertes.length) throw erreur(409, `Commande n° ${ouvertes[0].numero} encore en cours : effacez les données une fois qu’elle est expédiée ou annulée (l’adresse sert à la livraison).`, 'commande_en_cours');
+    transaction(db, () => {
+      for (const c of commandes) {
+        c.client = { nom: 'Client effacé', email: '', adresse: '', npa: '', ville: '', consentement: null };
+        historique(c, 'Données personnelles du client effacées à sa demande');
+        enregistrerCommande(c);
+        db.prepare("UPDATE avis SET prenom = 'Client', ville = '' WHERE boutique_id = ? AND commande_id = ?").run(ctx.boutique.id, c.id);
+      }
+      db.prepare('DELETE FROM abonnes WHERE boutique_id = ? AND email = ?').run(ctx.boutique.id, email);
+      db.prepare("DELETE FROM emails WHERE boutique_id = ? AND lower(destinataire) = ?").run(ctx.boutique.id, email);
+      db.prepare("DELETE FROM envois_auto WHERE boutique_id = ? AND lower(cle) LIKE ?").run(ctx.boutique.id, `%:${email}%`);
+    });
+    // La liste de désinscription garde l'adresse : elle sert justement à ne plus lui écrire.
+    return { ok: true, commandes: commandes.length };
+  });
   r.get('/api/admin/emails', exigerMarchand, ctx => db.prepare('SELECT destinataire, sujet, corps, cree_le FROM emails WHERE boutique_id = ? ORDER BY id DESC LIMIT 50').all(ctx.boutique.id));
 
   /* ---------- Boutique publique ---------- */
