@@ -85,6 +85,8 @@ function prixBarreAffiche(p, etat) {
   if (!('prixReference' in p)) return p.prixBarre || 0;
   return p.prixReference && typeof PrixBarres !== 'undefined' && PrixBarres.verifier(p, etat.boutique.pays === 'ch' ? 'ch' : 'ue').ok ? p.prixReference : 0;
 }
+/* Affichage de la vitrine (pas enregistré avec la boutique) : « Voir tous les produits » et catégorie choisie. */
+const vueVitrine = { tout: null, cat: '' };
 function renduSection(s, etat, mode) {
   const p = s.props;
   const prods = etat.produits.filter(x => x.actif);
@@ -115,9 +117,15 @@ function renduSection(s, etat, mode) {
       return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${esc(p.texte)}</span></div>${code}</section>`;
     }
     case 'produits': {
-      const liste = prods.filter(x => !p.categorie || x.categorie === p.categorie).slice(0, Number(p.nombre) || 4);
+      // « Voir tous les produits » : sans lui, les produits au-delà des 4 à 8 de la vitrine seraient introuvables.
+      const tout = mode !== 'edition' && vueVitrine.tout === s.id;
+      const dispo = prods.filter(x => !p.categorie || x.categorie === p.categorie);
+      const cats = [...new Set(dispo.map(x => x.categorie).filter(Boolean))];
+      const filtres = tout ? dispo.filter(x => !vueVitrine.cat || x.categorie === vueVitrine.cat) : dispo;
+      const liste = tout ? filtres : dispo.slice(0, Number(p.nombre) || 4);
       return `<section class="sf-produits" id="sf-collection">
-        <h2>${esc(p.titre)}</h2>
+        <h2>${esc(tout ? 'Tous nos produits' : p.titre)}</h2>
+        ${tout && cats.length > 1 ? `<div class="sf-cats" role="group" aria-label="Catégories"><button type="button" class="${!vueVitrine.cat ? 'actif' : ''}" data-sf="cat" data-v="" aria-pressed="${!vueVitrine.cat}">Tout (${dispo.length})</button>${cats.map(c => `<button type="button" class="${vueVitrine.cat === c ? 'actif' : ''}" data-sf="cat" data-v="${esc(c)}" aria-pressed="${vueVitrine.cat === c}">${esc(c)}</button>`).join('')}</div>` : ''}
         <div class="sf-grille">${liste.map(x => `
           <article class="sf-carte">
             <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>
@@ -125,7 +133,7 @@ function renduSection(s, etat, mode) {
             ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}<small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}</small>
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
           </article>`).join('') || (prods.length ? '<p class="sf-vide">Aucun produit dans cette catégorie.</p>' : '<p class="sf-vide">Nos produits arrivent très bientôt.</p>')}
-        </div></section>`;
+        </div>${mode !== 'edition' && dispo.length > (Number(p.nombre) || 4) ? `<p class="sf-tout"><button type="button" class="sf-btn" data-sf="tout-voir" data-id="${esc(s.id)}">${tout ? 'Voir moins' : `Voir tous les produits (${dispo.length})`}</button></p>` : ''}</section>`;
     }
     case 'arguments':
       return `<section class="sf-arguments">${[p.a1, p.a2, p.a3].filter(Boolean).map(a => `<div>${esc(a)}</div>`).join('')}</section>`;

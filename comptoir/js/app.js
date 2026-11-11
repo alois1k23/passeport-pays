@@ -1054,6 +1054,8 @@ document.addEventListener('click', e => {
     else if (a === 'fermer-fiche') { ui.fiche = null; rendre(); }
     else if (a === 'nav') allerSection(document, sf.dataset.v);
     else if (a === 'defiler') { document.getElementById('sf-collection')?.scrollIntoView({ behavior: 'smooth' }); }
+    else if (a === 'tout-voir') { vueVitrine.tout = vueVitrine.tout === sf.dataset.id ? null : sf.dataset.id; vueVitrine.cat = ''; rendre(); }
+    else if (a === 'cat') { vueVitrine.cat = sf.dataset.v; rendre(); }
     return;
   }
   const el = e.target.closest('[data-action]');

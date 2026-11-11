@@ -661,3 +661,8 @@ Tests : 55.
 Parcours complet testé sur le serveur : commande en retrait, paiement, « en préparation », « prête » (e-mail au client avec l'adresse et les horaires du magasin), « remise au client ». Tout fonctionne. Deux textes corrigés :
 - le récapitulatif des e-mails affichait « Livraison (Retrait en boutique (click & collect)) : offerte » ; il affiche maintenant « Retrait en boutique : gratuit » ;
 - l'e-mail au marchand indiquait « Livraison : Lausanne » pour un retrait.
+
+### Cycle 35 — Produits introuvables dans la boutique
+
+1. **Les produits au-delà de la vitrine étaient introuvables** : la grille montre 4 à 8 produits, et rien ne menait aux autres (une boutique de 12 produits en cachait 8 aux acheteurs). Un bouton « Voir tous les produits (12) » affiche tout le catalogue, avec un filtre par catégorie. Vérifié sur téléphone : 4, puis 12 produits, 10 catégories, aucun débordement.
+2. **Le bandeau des cookies recouvrait la fin de la page** (et le nouveau bouton) tant que le visiteur n'avait pas répondu : la page garde maintenant un espace sous son contenu.

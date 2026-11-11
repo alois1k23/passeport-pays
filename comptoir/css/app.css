@@ -1311,3 +1311,10 @@ html, body { overflow-x: clip; }
 .sf-carte-infos h3 { overflow-wrap: anywhere; }
 .sf-newsletter input { flex: 1 1 140px; }
 .sf-newsletter p { overflow-wrap: anywhere; }
+/* Vitrine : « Voir tous les produits » et filtre par catégorie */
+.sf-tout { text-align: center; margin: 18px 0 0; }
+.sf-cats { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.sf-cats button { font: inherit; padding: 7px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--sf-text) 22%, transparent); background: transparent; color: var(--sf-text); cursor: pointer; }
+.sf-cats button.actif { background: var(--sf-primary); color: var(--sf-on-primary, #fff); border-color: var(--sf-primary); }
+/* Bandeau cookies affiché : la fin de la page reste accessible au-dessus de lui. */
+#app:has(> .cookies) { padding-bottom: 180px; }
