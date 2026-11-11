@@ -483,3 +483,4 @@ Chaque écran d'un compte réel tout neuf a été parcouru, à la recherche de c
 4. **Boutique française** :
    - « Impressum » (terme suisse) dans le plan de lancement : « mentions légales » ;
    - les produits d'entrepôts suisses étaient mis en tête avec « expédié depuis la Suisse » comme un atout. Or la Suisse est hors de l'UE : TVA d'importation pour l'acheteur. Ils sont désormais pénalisés dans le sourcing et les produits stars, avec l'explication, et les entrepôts européens sont signalés « sans formalité ».
+5. **Boutique belge** : le balayage ne trouve plus de terme français ou suisse déplacé, sauf le conseil sur les influenceurs, qui citait la loi française du 9 juin 2023. Il cite désormais le droit belge (Code de droit économique, livre VI) et la directive européenne.
