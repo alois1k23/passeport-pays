@@ -81,7 +81,7 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - Mise en page plus fidèle à la norme : tailles de police, mention « À détacher », cadre « Payable par » quand l'adresse manque.
 - Limite : le QR code n'a pas été relu par un lecteur indépendant. Le décodeur externe a été refusé par la politique de sécurité de la session. À tester avec une application bancaire avant la mise en production.
 
-## Cycle 4 (00 h 40) : écran Intégrations, documentation de l'API
+## Cycle 4 (00 h 10) : écran Intégrations, documentation de l'API
 
 - Nouvel écran **Paramètres > Intégrations**, pour la formule Croissance :
   - créer une clé d'API avec ses permissions (clé affichée une seule fois, bouton Copier) et la révoquer ;
@@ -91,3 +91,14 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - Tarifs (accueil, parcours) : « API et webhooks » ajouté à Croissance.
 - Honnêteté : le badge « Le plus choisi » devient « Conseillé pour démarrer ». Il n'y a encore aucun client, donc l'affirmation était fausse.
 - Le message après l'import d'un relevé bancaire signale les doublons à rembourser, les trop-perçus et les versements dans une autre devise.
+
+## Cycle 5 (00 h 25) : politique de mot de passe
+
+- Les mots de passe trop courants sont refusés, à l'inscription, à la réinitialisation et au changement de mot de passe. Sont concernés :
+  - les mots de passe des listes de fuites publiques, avec leurs variantes (« Lausanne2024 », « azerty123! ») ;
+  - les suites et les répétitions ;
+  - les mots de passe qui reprennent l'e-mail ou le nom de la boutique.
+- Les messages en français expliquent pourquoi et conseillent une phrase de quelques mots (recommandation NIST SP 800-63B).
+- En production, les mots de passe déjà parus dans une fuite de données sont refusés (Have I Been Pwned). Seuls 5 caractères de l'empreinte SHA-1 quittent le serveur (anonymat k), jamais le mot de passe. Si le service ne répond pas, l'inscription n'est pas bloquée. Réglage : `VERIFIER_FUITES`.
+- En-tête `Cross-Origin-Opener-Policy: same-origin` ajouté.
+- Tests : 80 sur 80.

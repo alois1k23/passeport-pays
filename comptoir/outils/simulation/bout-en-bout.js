@@ -29,7 +29,7 @@ async function jusqua(f, ms = 8000) { const fin = Date.now() + ms; while (Date.n
     STRIPE_SECRET_KEY: 'sk_live_essai', STRIPE_WEBHOOK_SECRET: secrets.secretWebhook, STRIPE_CONNECT_WEBHOOK_SECRET: secrets.secretWebhookConnect, STRIPE_API_URL: F,
     BREVO_API_KEY: 'cle-brevo-essai', BREVO_API_URL: F, EMAIL_EXPEDITEUR: 'Comptoir <envoi@comptoir.example>', EMAIL_INTERVALLE_MS: '400', AUTO_INTERVALLE_MS: '1000', SOCIAL_INTERVALLE_MS: '1000',
     FOURNISSEUR_URL_API: `${F}/fournisseur`, FOURNISSEUR_CLE_API: secrets.cleFournisseur, FOURNISSEUR_SECRET_WEBHOOK: secrets.secretFournisseur, FOURNISSEUR_NOM: 'Fournisseur partenaire',
-    EXPLOITANT_NOM: 'Comptoir Sàrl (essai)', EXPLOITANT_ADRESSE: 'Rue de Bourg 1, 1003 Lausanne', EXPLOITANT_EMAIL: 'contact@comptoir.example', EXPLOITANT_IDE: 'CHE-000.000.000', HEBERGEUR: 'Hébergeur (essai), Genève' };
+    VERIFIER_FUITES: 'non', EXPLOITANT_NOM: 'Comptoir Sàrl (essai)', EXPLOITANT_ADRESSE: 'Rue de Bourg 1, 1003 Lausanne', EXPLOITANT_EMAIL: 'contact@comptoir.example', EXPLOITANT_IDE: 'CHE-000.000.000', HEBERGEUR: 'Hébergeur (essai), Genève' };
   let serveur, journalServeur = '';
   const demarrerServeur = () => new Promise(okD => {
     serveur = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(__dirname, '../../server/server.js')], { env });

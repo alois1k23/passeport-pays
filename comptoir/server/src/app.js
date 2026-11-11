@@ -8,6 +8,7 @@ const path = require('node:path');
 const abonnements = require('./abonnements');
 const Formules = require('../../js/formules.js');
 const tendances = require('./tendances');
+const MotDePasse = require('./motdepasse');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
 const totp = require('./totp');
@@ -69,6 +70,16 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   relances.creerTables(db);
   courriel.creerTables(db);
   const serviceEmail = courriel.prestataire(env, fetchImpl);
+  // Mots de passe : politique locale toujours ; contrôle des fuites connues (anonymat k) en production ou si VERIFIER_FUITES=oui.
+  const verifierFuites = (env.VERIFIER_FUITES === 'oui' || (env.NODE_ENV === 'production' && env.VERIFIER_FUITES !== 'non')) ? MotDePasse.creerVerificationFuites({ url: env.FUITES_API_URL || undefined, fetchImpl }) : null;
+  async function exigerMotDePasseSolide(mdp, contexte) {
+    const pb = MotDePasse.evaluer(mdp, contexte);
+    if (pb) throw erreur(400, pb, 'mot_de_passe_faible');
+    if (verifierFuites) {
+      const n = await verifierFuites(mdp);
+      if (n > 0) throw erreur(400, 'Ce mot de passe apparaît dans des fuites de données connues : des pirates l’essaient en premier. Choisissez-en un autre.', 'mot_de_passe_fuite');
+    }
+  }
   const hotePrincipal = new URL(urlPublique).hostname.toLowerCase();
   // Facteur des limites de débit publiques (1 en production ; plus élevé pour les tests et simulations depuis une seule adresse).
   const facteurLimites = Math.max(1, Number(env.LIMITES_FACTEUR) || 1);
@@ -635,6 +646,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const email = valider.email(ctx.corps.email);
     const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
+    await exigerMotDePasseSolide(mdp, { email, noms: [((ctx.corps.config || {}).boutique || {}).nom || ''] });
     const hashMdp = await auth.hacherMotDePasse(mdp);
     // Un domaine choisi à l'inscription n'est jamais actif : il faut d'abord prouver qu'on le possède (DNS + TXT).
     const config = garderDomaine(nettoyerConfig(ctx.corps.config), { boutique: {} });
@@ -712,6 +724,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/auth/reinitialiser', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
+    await exigerMotDePasseSolide(mdp, {});
     const hashMdp = await auth.hacherMotDePasse(mdp);   // avant la lecture du lien : rien ne s'intercale entre sa vérification et son usage
     const ligne = db.prepare('SELECT * FROM reinitialisations WHERE jeton_hash = ?').get(auth.sha256(String(ctx.corps.jeton || '')));
     if (!ligne || ligne.expire_le < Date.now()) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau.', 'lien_expire');
@@ -796,6 +809,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const cles = ['mdp:' + m.id];   // clé propre : une attaque sur la page de connexion ne bloque pas un marchand déjà connecté
     if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.actuel || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants');
     const nouveau = valider.texte(ctx.corps.nouveau, 'Le nouveau mot de passe', { min: 10, max: 200 });
+    { const b = db.prepare('SELECT config FROM boutiques WHERE marchand_id = ?').get(m.id); await exigerMotDePasseSolide(nouveau, { email: m.email, noms: [b ? (JSON.parse(b.config).boutique || {}).nom || '' : ''] }); }
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
     const hashMdp = await auth.hacherMotDePasse(nouveau);
     if (db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(m.id).mot_de_passe !== m.mot_de_passe) throw erreur(409, 'Le mot de passe vient d’être modifié ailleurs. Rechargez la page et recommencez.', 'mdp_change');
@@ -2026,10 +2040,11 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
 
   /* ---------- Gestionnaire HTTP ---------- */
   async function gerer(req, res) {
-    // En-têtes de sécurité sur toutes les réponses : pas de chargement de script étranger (hors cdnjs pour le QR code),
+    // En-têtes de sécurité sur toutes les réponses : aucun script étranger (tout est servi par Comptoir),
     // pas d'affichage dans un cadre d'un autre site (clickjacking), pas de devinette du type de fichier.
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'");
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');   // une page ouverte depuis un autre site ne garde pas la main sur la nôtre
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(self)');
