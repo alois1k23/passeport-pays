@@ -127,7 +127,7 @@ function encaisser(moyen) {
     id: 'c' + numero, numero, date: now,
     client: { nom: 'Client en boutique', email: '', ville: etat.magasin.adresse.split(',').pop().trim() || '' },
     lignes: ui.caisse.map(l => ({ ...l })), sousTotal: total, port: 0, total: Math.round(total * 100) / 100,
-    statut: 'retiree', livraison: 'retrait', canal: 'magasin', suivi: '', note: '', tauxTva: tauxTvaVente(),
+    statut: 'retiree', livraison: 'retrait', canal: 'magasin', moyen: ['especes', 'twint', 'carte'].includes(moyen) ? moyen : 'carte', suivi: '', note: '', tauxTva: tauxTvaVente(),
     historique: [{ date: now, texte: `Vente encaissée en boutique (${moyen === 'especes' ? 'espèces' : moyen === 'twint' ? 'TWINT' : 'carte'})` }]
   };
   c.facture = numeroFactureSuivant(etat, now);

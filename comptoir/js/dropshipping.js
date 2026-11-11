@@ -182,16 +182,7 @@ function blocMarge(p) {
 /* Bénéfice estimé d’une commande. */
 function beneficeCommande(c) {
   if (['annulee', 'remboursee', 'attente'].includes(c.statut)) return 0;
-  const taux = tauxTvaVente();
-  let cout = 0;
-  for (const l of c.lignes) {
-    const p = etat.produits.find(x => x.id === l.produitId);
-    if (!p) { cout += l.prix * 0.4 * l.qte; continue; }
-    const m = margeProduit(p, { prix: l.prix, cpa: 0 });
-    cout += (m.achat + m.importTva + m.douane) * l.qte;
-  }
-  const portReel = c.canal === 'magasin' ? 0 : c.lignes.every(l => (etat.produits.find(x => x.id === l.produitId) || {}).type === 'drop') ? 0 : 7;
-  return c.total / (1 + taux) - cout - (c.total * 0.025 + 0.3) - portReel;
+  return decomposer(c).net;   // une seule formule pour le tableau de bord, l'analyse et les fiches
 }
 
 function estDropship(c) {

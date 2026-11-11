@@ -39,7 +39,8 @@ function vendues(debut, fin) {
 
 /* Décompose une commande : TVA, achat, import/douane, paiement, port, bénéfice. */
 function decomposer(c) {
-  const taux = tauxTvaVente(), ttc = c.total, tva = ttc - ttc / (1 + taux);
+  // Taux figé sur la commande (celui de la facture) ; à défaut, le taux actuel.
+  const taux = typeof c.tauxTva === 'number' ? c.tauxTva : tauxTvaVente(), ttc = c.total, tva = ttc - ttc / (1 + taux);
   let achat = 0, douane = 0;
   for (const l of c.lignes) {
     const p = etat.produits.find(x => x.id === l.produitId);
@@ -47,8 +48,9 @@ function decomposer(c) {
     const m = margeProduit(p, { prix: l.prix, cpa: 0 });
     achat += m.achat * l.qte; douane += (m.importTva + m.douane) * l.qte;
   }
-  const paiement = c.canal === 'magasin' ? ttc * 0.017 : ttc * 0.025 + 0.3;
-  const port = c.canal === 'magasin' || estDropship(c) ? 0 : 7;
+  // Frais de paiement estimés : aucun en espèces, terminal ou TWINT en boutique 1,7 %, en ligne 2,5 % + 0.30.
+  const paiement = c.moyen === 'especes' ? 0 : c.canal === 'magasin' ? ttc * 0.017 : ttc * 0.025 + 0.3;
+  const port = c.canal === 'magasin' || c.livraison === 'retrait' || estDropship(c) ? 0 : 7;
   return { ttc, tva, achat, douane, paiement, port, net: ttc - tva - achat - douane - paiement - port };
 }
 

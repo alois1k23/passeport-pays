@@ -626,7 +626,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const id = auth.nouvelId('c_');
       const now = Date.now();
       const config = lireConfig(ctx.boutique);
-      const donnees = { client: { nom: 'Client en boutique', email: '', ville: '' }, lignes, sousTotal: total, port: 0, total, tauxTva: prix.tauxTva(config), livraison: 'retrait', canal: 'magasin', suivi: '', note: '', facture: prochaineFacture(ctx.boutique.id, now), historique: [{ date: now, texte: `Vente encaissée en boutique (${moyen})` }] };
+      const donnees = { client: { nom: 'Client en boutique', email: '', ville: '' }, lignes, sousTotal: total, port: 0, total, tauxTva: prix.tauxTva(config), livraison: 'retrait', canal: 'magasin', moyen: ['especes', 'twint', 'carte'].includes(ctx.corps.moyen) ? ctx.corps.moyen : 'carte', suivi: '', note: '', facture: prochaineFacture(ctx.boutique.id, now), historique: [{ date: now, texte: `Vente encaissée en boutique (${moyen})` }] };
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, ctx.boutique.id, numero, now, 'retiree', auth.nouvelId(), JSON.stringify(donnees));
       ajusterStock(ctx.boutique.id, lignes, -1);
       return { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config) } };

@@ -295,3 +295,12 @@ Tests : 40 ; audits accessibilité et XSS propres.
    - fiches fournisseurs : les quatre chiffres restaient sur une ligne et le dernier sortait de l'écran (deux par ligne maintenant) ;
    - Réseaux sociaux : le tableau « Ce que le pilote a appris » élargissait toute la carte, coupée à droite (le tableau défile maintenant seul).
    - Correction générale : une carte ne peut plus être élargie par son contenu. Vérifié sans changement sur ordinateur.
+
+### Cycle 14 — Les chiffres concordent-ils d'un écran à l'autre ?
+
+**Défauts trouvés et corrigés**
+
+1. **Deux bénéfices différents pour la même période** : le tableau de bord et la page Analyse calculaient le bénéfice net avec deux formules (frais de paiement de 2,5 % + 0.30 partout d'un côté, 1,7 % en boutique de l'autre). Une seule formule désormais ; vérifié : CHF 2’335.65 sur les deux écrans pour 30 jours.
+2. **Ventes en espèces chargées de frais de carte** : le moyen de paiement est enregistré sur chaque vente en caisse (démo et serveur), et les espèces n'ont plus de frais.
+3. **Retrait en magasin compté avec 7 de frais d'envoi** dans le bénéfice : plus de port quand le client vient chercher sa commande.
+4. **Bénéfice recalculé avec le taux de TVA actuel** au lieu de celui de la commande (après un changement de régime, les anciens mois changeaient). Le taux figé sur la commande, celui de sa facture, est utilisé.
