@@ -24,7 +24,7 @@ const { creerIntegrations } = require('./integrations');
 const courriel = require('./courriel');
 
 const RACINE_FRONT = path.resolve(__dirname, '..', '..');
-const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|accueil\.html|css\/[\w.-]+\.css|js\/(vendor\/)?[\w.-]+\.js|img\/[\w.-]+\.(jpg|png|svg))$/;
+const FICHIERS_PUBLICS = /^\/(index\.html|boutique\.html|accueil\.html|css\/[\w.-]+\.css|js\/(vendor\/)?[\w.-]+\.js|img\/[\w.-]+\.(jpg|png|svg)|docs\/API\.md)$/;
 const POLICES = ["'Fraunces', Georgia, serif", "'DM Serif Display', Georgia, serif", "'Syne', system-ui, sans-serif", "'Bricolage Grotesque', system-ui, sans-serif", "'Outfit', system-ui, sans-serif", "'IBM Plex Sans', system-ui, sans-serif"];
 const COULEUR = /^#[0-9a-f]{6}$/i;
 const IMAGE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;

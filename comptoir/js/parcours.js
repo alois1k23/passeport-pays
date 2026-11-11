@@ -35,7 +35,7 @@ function installerParcours() {
     const plans = Formules.ORDRE.map(id => {
       const f = Formules.FORMULES[id];
       return `<article class="plan ${id === 'croissance' ? 'conseille' : ''}">
-        <span class="eyebrow">${id === 'croissance' ? 'Le plus choisi' : '&nbsp;'}</span><h3>${esc(f.nom)}</h3><p class="sous">${esc(f.resume)}</p>
+        <span class="eyebrow">${id === 'croissance' ? 'Conseillé pour démarrer' : '&nbsp;'}</span><h3>${esc(f.nom)}</h3><p class="sous">${esc(f.resume)}</p>
         <div class="prix"><strong>${prixParcours(id, devise())}</strong><span class="sous">par mois</span></div>
         <ul>${f.inclus.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
         <button class="btn ${id === 'croissance' ? '' : 'fantome'}" data-parcours="choisir" data-v="${id}">Choisir ${esc(f.nom)}</button></article>`;
@@ -61,7 +61,7 @@ function installerParcours() {
           <div><b>Dropshipping sans surprise</b><span>Catalogue de fournisseurs, délais et frais d'importation affichés, commandes transmises automatiquement.</span></div>
           <div><b>Marge nette réelle</b><span>Prix d'achat, port, frais de paiement et publicité déduits avant que vous fixiez un prix.</span></div>
           <div><b>Conformité par pays</b><span>Impressum suisse, mentions légales françaises et belges, factures et TVA selon votre régime.</span></div>
-          <div><b>Vendre plus (Croissance)</b><span>Codes promo, remises par quantité, e-mails automatiques, copilote de saison, publications préparées.</span></div>
+          <div><b>Vendre plus (Croissance)</b><span>Codes promo, remises par quantité, e-mails automatiques, copilote de saison, publications préparées, API et webhooks.</span></div>
           <div><b>Magasin et caisse (Pro)</b><span>Un seul stock pour le site et vos ventes en personne, retrait en magasin.</span></div>
         </div></section>
       <section class="parcours-bloc" id="formules"><h2>Les formules</h2>

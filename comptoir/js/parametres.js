@@ -1,6 +1,6 @@
 /* Comptoir — paramètres : tout ce qui configure la boutique et le compte, au même endroit. */
 
-const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['securite', 'Sécurité'], ['sensible', 'Zone sensible']];
+const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['securite', 'Sécurité'], ['integrations', 'Intégrations'], ['sensible', 'Zone sensible']];
 
 function enLigne() { return typeof SERVEUR !== 'undefined' && SERVEUR.connecte; }
 
@@ -106,6 +106,8 @@ function vueParametres() {
   } else if (s === 'securite') {
     corps = enLigne() ? vueSecurite() : `<section class="carte"><div class="carte-tete"><h2>Sécurité du compte</h2><span class="pill muted">Démo</span></div>
       <p class="sous">Sur Comptoir : double authentification (application Google Authenticator, 1Password, Bitwarden…), codes de secours, liste des appareils connectés avec déconnexion à distance, journal d’activité et alerte par e-mail à chaque connexion depuis un nouvel appareil.</p></section>`;
+  } else if (s === 'integrations') {
+    corps = vueIntegrations();
   } else if (s === 'sensible') {
     corps = enLigne()
       ? `<section class="carte"><div class="carte-tete"><h2>Mot de passe et appareils</h2></div>
@@ -231,7 +233,7 @@ document.addEventListener('submit', async e => {
 
 /* ---------- Sécurité du compte (mode connecté) ---------- */
 const SECURITE = { donnees: null, chargement: false, mise: null, codes: null, erreur: '' };
-const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié' };
+const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé' };
 function chargerSecurite() {
   if (SECURITE.chargement) return;
   SECURITE.chargement = true;
@@ -310,7 +312,8 @@ document.addEventListener('change', async e => {
     const r = await api('POST', '/api/admin/paiements/camt', { xml: await f.text() });
     const parts = [`${r.payees.length} facture${r.payees.length > 1 ? 's' : ''} payée${r.payees.length > 1 ? 's' : ''}`];
     if (r.deja.length) parts.push(`${r.deja.length} déjà enregistrée(s)`);
-    if (r.ecarts.length) parts.push(`${r.ecarts.length} montant(s) à vérifier (n° ${r.ecarts.map(x => x.numero).join(', ')})`);
+    if (r.ecarts.length) parts.push(`${r.ecarts.length} montant(s) à vérifier (${r.ecarts.map(x => x.numero ? `n° ${x.numero}${x.motif === 'trop-percu' ? ' trop-perçu' : x.annulee ? ' annulée' : ''}` : `réf. ${String(x.reference || '').slice(-6)} en ${x.devise}`).join(', ')})`);
+    if (r.doublons && r.doublons.length) parts.push(`${r.doublons.length} facture(s) payée(s) deux fois, à rembourser (n° ${r.doublons.map(x => x.numero).join(', ')})`);
     if (r.inconnues.length) parts.push(`${r.inconnues.length} paiement(s) sans commande correspondante`);
     toast(parts.join(' · ')); if (typeof rechargerEtat === 'function') { await rechargerEtat(); rendre(); }
   } catch (err) { toast(err.message || 'Relevé illisible.'); }

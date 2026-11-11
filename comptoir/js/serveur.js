@@ -262,7 +262,7 @@ function installerAbonnement(etatAbo, retour) {
       ${e.erreur ? `<p class="encart alerte-encart">${esc(e.erreur)}</p>` : ''}
       <div class="plans">${e.formules.map(f => `<label class="plan choix-plan ${e.choisie === f.id ? 'conseille' : ''}">
         <input type="radio" name="formule" value="${f.id}" ${e.choisie === f.id ? 'checked' : ''} data-abo="formule">
-        <span class="eyebrow">${f.id === 'croissance' ? 'Le plus choisi' : '&nbsp;'}</span><h2>${esc(f.nom)}</h2><p class="sous">${esc(f.resume)}</p>
+        <span class="eyebrow">${f.id === 'croissance' ? 'Conseillé pour démarrer' : '&nbsp;'}</span><h2>${esc(f.nom)}</h2><p class="sous">${esc(f.resume)}</p>
         <div class="prix"><strong>${prix(f)}</strong><span class="sous">par mois</span></div>
         <ul>${f.inclus.map(x => `<li>${esc(x)}</li>`).join('')}</ul></label>`).join('')}</div>
       <div class="abonnement-pied">

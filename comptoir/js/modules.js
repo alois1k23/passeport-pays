@@ -413,7 +413,7 @@ function vueOffre() {
   <div class="tete"><div><h1>Offre et tarifs</h1><p class="sous">Un prix fixe, tout compris. Pas d’applications payantes à empiler, pas de commission sur vos ventes (hors frais bancaires du paiement).</p></div></div>
   <div class="plans">${plans.map(([nom, prix, pour, inclus], i) => `
     <section class="plan ${i === 1 ? 'conseille' : ''}">
-      ${i === 1 ? '<span class="eyebrow">Le plus choisi</span>' : '<span class="eyebrow">&nbsp;</span>'}
+      ${i === 1 ? '<span class="eyebrow">Conseillé pour démarrer</span>' : '<span class="eyebrow">&nbsp;</span>'}
       <h2>${nom}</h2><p class="sous">${pour}</p>
       <div class="prix"><strong>${devise === 'CHF' ? 'CHF ' + prix + '.–' : prix + ' €'}</strong><span class="sous">par mois</span></div>
       <ul>${inclus.map(x => `<li>${x}</li>`).join('')}</ul>

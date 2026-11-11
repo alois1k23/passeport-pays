@@ -80,3 +80,14 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - QR code limité à la version 25, comme le veut la norme. Montant hors bornes laissé vide.
 - Mise en page plus fidèle à la norme : tailles de police, mention « À détacher », cadre « Payable par » quand l'adresse manque.
 - Limite : le QR code n'a pas été relu par un lecteur indépendant. Le décodeur externe a été refusé par la politique de sécurité de la session. À tester avec une application bancaire avant la mise en production.
+
+## Cycle 4 (00 h 40) : écran Intégrations, documentation de l'API
+
+- Nouvel écran **Paramètres > Intégrations**, pour la formule Croissance :
+  - créer une clé d'API avec ses permissions (clé affichée une seule fois, bouton Copier) et la révoquer ;
+  - ajouter un webhook en choisissant ses événements, voir les 5 derniers envois (reçu, nouvel essai, abandonné, code HTTP), envoyer un test, réactiver un webhook en pause, le supprimer.
+- Vérifié dans un vrai navigateur : la clé créée à l'écran fonctionne sur `/api/v1`, et une adresse interne est refusée.
+- `docs/API.md`, servi à `/docs/API.md` : authentification, permissions, points d'accès, format des commandes, webhooks, vérification de la signature (exemple Node), nouveaux essais, données personnelles.
+- Tarifs (accueil, parcours) : « API et webhooks » ajouté à Croissance.
+- Honnêteté : le badge « Le plus choisi » devient « Conseillé pour démarrer ». Il n'y a encore aucun client, donc l'affirmation était fausse.
+- Le message après l'import d'un relevé bancaire signale les doublons à rembourser, les trop-perçus et les versements dans une autre devise.
