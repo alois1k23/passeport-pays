@@ -19,13 +19,22 @@ function prestataireSimulation({ urlPublique }) {
   };
 }
 
-function prestataireStripe({ cleSecrete, secretWebhook, fetchImpl = fetch }) {
-  const appeler = async (chemin, params) => {
+/* Stripe Connect : chaque boutique encaisse sur SON compte Stripe (paiement « direct » sur le compte connecté,
+   en-tête Stripe-Account). La plateforme ne détient jamais l'argent des ventes des marchands, et ne prend aucune commission. */
+function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fetchImpl = fetch }) {
+  const entetes = compte => ({ Authorization: `Bearer ${cleSecrete}`, ...(compte ? { 'Stripe-Account': compte } : {}) });
+  const lire = async (chemin, compte) => {
+    const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, { headers: entetes(compte) });
+    const json = await rep.json();
+    if (!rep.ok) throw erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe');
+    return json;
+  };
+  const appeler = async (chemin, params, compte) => {
     const corps = new URLSearchParams();
     for (const [k, v] of params) corps.append(k, String(v));
     const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${cleSecrete}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { ...entetes(compte), 'Content-Type': 'application/x-www-form-urlencoded' },
       body: corps
     });
     const json = await rep.json();
@@ -34,7 +43,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, fetchImpl = fetch }) {
   };
   return {
     nom: 'stripe',
-    async creerSession({ paiement, commande, devise, urlRetour, urlAnnulation, pays }) {
+    async creerSession({ paiement, commande, devise, urlRetour, urlAnnulation, pays, compte }) {
       const d = devise.toLowerCase();
       const params = [
         ['mode', 'payment'],
@@ -59,25 +68,39 @@ function prestataireStripe({ cleSecrete, secretWebhook, fetchImpl = fetch }) {
         params.push([`line_items[${i}][quantity]`, 1], [`line_items[${i}][price_data][currency]`, d],
           [`line_items[${i}][price_data][unit_amount]`, centimes(commande.port)], [`line_items[${i}][price_data][product_data][name]`, 'Livraison']);
       }
-      const s = await appeler('checkout/sessions', params);
+      const s = await appeler('checkout/sessions', params, compte);
       return { url: s.url, refExterne: s.id };
     },
     async expirer(p) {
       if (!p.ref_externe || !/^cs_/.test(p.ref_externe)) return;
-      await appeler(`checkout/sessions/${p.ref_externe}/expire`, []);
+      await appeler(`checkout/sessions/${p.ref_externe}/expire`, [], p.compte || null);
     },
     async rembourser({ paiement }) {
       if (!paiement.ref_externe) return { ok: false };
-      // ref_externe = session Checkout ; le remboursement passe par le payment_intent.
-      const rep = await fetchImpl(`https://api.stripe.com/v1/checkout/sessions/${paiement.ref_externe}`, { headers: { Authorization: `Bearer ${cleSecrete}` } });
-      const s = await rep.json();
+      // ref_externe = session Checkout ; le remboursement passe par le payment_intent, sur le compte qui a encaissé.
+      const s = await lire(`checkout/sessions/${paiement.ref_externe}`, paiement.compte || null);
       if (!s.payment_intent) throw erreur(502, 'Stripe : paiement introuvable pour le remboursement.', 'stripe');
-      await appeler('refunds', [['payment_intent', s.payment_intent]]);
+      await appeler('refunds', [['payment_intent', s.payment_intent]], paiement.compte || null);
       return { ok: true };
     },
-    /* Vérifie l'en-tête Stripe-Signature (HMAC-SHA256, tolérance 5 minutes). */
+    /* Compte Stripe du marchand (Express) : créé par la plateforme, activé par le marchand chez Stripe (identité, IBAN). */
+    async creerCompte({ pays, email }) {
+      const params = [['type', 'express'], ['country', String(pays || 'ch').toUpperCase()], ['email', email || ''],
+        ['capabilities[card_payments][requested]', 'true'], ['capabilities[transfers][requested]', 'true']];
+      if (pays === 'ch') params.push(['capabilities[twint_payments][requested]', 'true']);
+      if (pays === 'be') params.push(['capabilities[bancontact_payments][requested]', 'true']);
+      return (await appeler('accounts', params)).id;
+    },
+    async lienActivation({ compte, urlRetour, urlRafraichir }) {
+      return (await appeler('account_links', [['account', compte], ['type', 'account_onboarding'], ['return_url', urlRetour], ['refresh_url', urlRafraichir]])).url;
+    },
+    async etatCompte(compte) {
+      const a = await lire(`accounts/${compte}`);
+      return { pret: !!(a.charges_enabled && a.details_submitted), detailsEnvoyes: !!a.details_submitted };
+    },
+    /* Vérifie l'en-tête Stripe-Signature (HMAC-SHA256, tolérance 5 minutes) : webhook de la plateforme, ou celui des comptes connectés. */
     verifierWebhook(corpsBrut, entete, maintenant = Date.now()) {
-      return verifierSignatureStripe(corpsBrut, entete, secretWebhook, maintenant);
+      return verifierSignatureStripe(corpsBrut, entete, secretWebhook, maintenant) || (!!secretWebhookConnect && verifierSignatureStripe(corpsBrut, entete, secretWebhookConnect, maintenant));
     }
   };
 }
@@ -92,8 +115,8 @@ function verifierSignatureStripe(corpsBrut, entete, secret, maintenant = Date.no
   return signatures.some(s => Buffer.byteLength(s) === Buffer.byteLength(attendu) && crypto.timingSafeEqual(Buffer.from(s), Buffer.from(attendu)));
 }
 
-function choisirPrestataire(env, urlPublique) {
-  if (env.STRIPE_SECRET_KEY) return prestataireStripe({ cleSecrete: env.STRIPE_SECRET_KEY, secretWebhook: env.STRIPE_WEBHOOK_SECRET });
+function choisirPrestataire(env, urlPublique, fetchImpl = fetch) {
+  if (env.STRIPE_SECRET_KEY) return prestataireStripe({ cleSecrete: env.STRIPE_SECRET_KEY, secretWebhook: env.STRIPE_WEBHOOK_SECRET, secretWebhookConnect: env.STRIPE_CONNECT_WEBHOOK_SECRET, fetchImpl });
   return prestataireSimulation({ urlPublique });
 }
 

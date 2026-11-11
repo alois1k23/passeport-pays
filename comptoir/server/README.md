@@ -65,9 +65,12 @@ Rafraîchissement : Google Trends et fichier au démarrage puis toutes les 6 heu
 ## Brancher les vrais services
 
 ### Paiement TWINT et cartes (Stripe)
-1. Créez un compte Stripe au nom de l'entreprise suisse et activez TWINT dans les moyens de paiement (CHF uniquement).
+1. Créez le compte Stripe de la plateforme, au nom de l'entreprise qui exploite Comptoir. Activez **Stripe Connect** (comptes Express) et, dans les moyens de paiement des comptes connectés, TWINT (CHF) et Bancontact (EUR, Belgique).
+   - Chaque boutique encaisse sur **son propre compte Stripe**, en paiement direct : la plateforme ne détient jamais l'argent des ventes et ne prend aucune commission. Le compte de la plateforme ne reçoit que les abonnements Comptoir.
+   - Le marchand active ses paiements dans Paramètres > Paiements : Stripe vérifie son identité et son IBAN. Tant que ce n'est pas fait, sa boutique n'accepte aucune commande.
 2. Définissez `STRIPE_SECRET_KEY` et `URL_PUBLIQUE`.
 3. Dans Stripe, ajoutez un webhook vers `https://<votre-domaine>/api/webhooks/stripe` pour les événements `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` et `customer.subscription.deleted` (commandes et abonnements), puis copiez son secret dans `STRIPE_WEBHOOK_SECRET`. Activez le portail client Stripe (changement de carte, de formule, résiliation).
+4. Ajoutez un second webhook, de type **Connect** (« événements des comptes connectés »), vers la même adresse, pour `checkout.session.completed`, `checkout.session.async_payment_succeeded` et `account.updated` ; son secret va dans `STRIPE_CONNECT_WEBHOOK_SECRET`.
 
 ### Un vrai fournisseur
 Tout fournisseur qui respecte ce contrat (ou un petit adaptateur devant son API) se branche sans changer le reste :

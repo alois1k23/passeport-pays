@@ -28,7 +28,14 @@ function vueParametres() {
         <div><strong>TWINT</strong><span class="sous">Paiement mobile le plus utilisé en Suisse, uniquement en CHF.</span>${statut(stripe && b.devise === 'CHF', 'Proposé', 'Inactif')}</div>
         <div><strong>Cartes</strong><span class="sous">Visa, Mastercard et autres cartes acceptées par Stripe.</span>${statut(stripe, 'Proposé', 'Inactif')}</div>
       </div>
-      <p class="sous">${stripe ? 'Les paiements passent par Stripe Checkout ; les remboursements partent depuis la fiche commande.' : 'Le paiement en ligne n’est pas encore branché sur cette installation : il est simulé et aucun montant n’est débité. Il s’active quand l’exploitant de la plateforme relie Stripe (cartes, TWINT en Suisse, Bancontact en Belgique).'}</p></section>`;
+      ${stripe ? (() => {
+        const pb = SERVEUR.paiementsBoutique || {};
+        return pb.pret
+          ? '<p class="sous">Votre compte Stripe est actif : chaque vente est versée directement sur votre compte (Comptoir ne prend aucune commission ; seuls les frais de Stripe s’appliquent). Les remboursements partent depuis la fiche commande.</p>'
+          : `<div class="alerte"><strong>Activez vos paiements pour ouvrir les commandes.</strong> Les ventes sont versées sur votre propre compte Stripe : Stripe vérifie votre identité et l’IBAN de votre entreprise (quelques minutes). Tant que ce n’est pas fait, la boutique est visible mais n’accepte pas de commande.</div>
+             <div class="rangee"><button class="btn" data-action="activer-paiements">${pb.compte ? 'Terminer l’activation chez Stripe' : 'Activer les paiements avec Stripe'}</button></div>`;
+      })() : ''}
+      <p class="sous">${stripe ? '' : 'Le paiement en ligne n’est pas encore branché sur cette installation : il est simulé et aucun montant n’est débité. Il s’active quand l’exploitant de la plateforme relie Stripe (cartes, TWINT en Suisse, Bancontact en Belgique).'}</p></section>`;
   } else if (s === 'livraison') {
     const modes = Object.values(livraisonsPays(b.pays));
     corps = `<section class="carte sans-pad"><div class="carte-tete pad"><h2>Modes de livraison</h2><span class="sous">tarifs TTC facturés au client</span></div>
@@ -107,6 +114,13 @@ document.addEventListener('click', async e => {
   if (a === 'section-param') { ui.sectionParam = el.dataset.v; rendre(); }
   else if (a === 'theme-choix') { try { localStorage.setItem('comptoir-theme', el.dataset.v); } catch { /* ignoré */ } appliquerTheme(); rendre(); }
   else if (a === 'export-complet') exporterTout();
+  else if (a === 'activer-paiements') {
+    el.disabled = true;
+    api('POST', '/api/admin/paiements/activer').then(r => {
+      if (r.url) { location.href = r.url; return; }   // page d'activation de Stripe (identité, IBAN) ; retour ici ensuite
+      SERVEUR.paiementsBoutique = { mode: 'stripe', pret: true, compte: true }; toast('Paiements actifs : votre boutique accepte les commandes.'); rendre();
+    }).catch(err => { el.disabled = false; toast(err.message || 'Activation impossible pour le moment.'); });
+  }
   else if (a === 'abo-changer' || a === 'abo-resilier' || a === 'abo-reprendre') {
     if (a === 'abo-resilier' && !confirm('Résilier l’abonnement ? Votre boutique reste ouverte jusqu’à la fin du mois payé.')) return;
     if (a === 'abo-changer') {

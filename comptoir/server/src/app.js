@@ -29,7 +29,7 @@ const IMAGE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = console }) {
   const r = creerRouteur();
   const securise = urlPublique.startsWith('https://');
-  const paiement = choisirPrestataire(env, urlPublique);
+  const paiement = choisirPrestataire(env, urlPublique, fetchImpl);
   const simulationAutorisee = paiement.nom === 'simulation' && env.NODE_ENV !== 'production';
   // Le fournisseur de démonstration n'expédie rien : ses produits ne se vendent jamais contre de l'argent réel
   // (seulement en paiement simulé ou avec une clé Stripe de test).
@@ -79,6 +79,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Configuration telle qu'elle s'applique aux ventes : les fonctions que la formule n'inclut pas sont éteintes
      (codes, paliers, offres, campagnes et e-mails automatiques : Croissance ; retrait en magasin : Pro).
      Les réglages du marchand restent enregistrés : ils reviennent s'il change de formule. */
+  /* Stripe Connect : compte Stripe de chaque boutique (l'argent des ventes va directement au marchand). */
+  db.exec('CREATE TABLE IF NOT EXISTS comptes_stripe (boutique_id TEXT PRIMARY KEY, compte TEXT NOT NULL, pret INTEGER NOT NULL DEFAULT 0, maj_le INTEGER NOT NULL);');
+  try { db.exec('ALTER TABLE paiements ADD COLUMN compte TEXT'); } catch { /* colonne déjà présente */ }
+  const compteStripe = boutiqueId => db.prepare('SELECT * FROM comptes_stripe WHERE boutique_id = ?').get(boutiqueId) || null;
+  // Compte qui encaisse une vente : null en simulation ; en mode Stripe, la boutique doit avoir activé son compte.
+  function compteVente(b) {
+    if (paiement.nom !== 'stripe') return null;
+    const c = compteStripe(b.id);
+    if (!c || !c.pret) throw erreur(409, 'Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.', 'paiements_inactifs');
+    return c.compte;
+  }
   function configVente(b) {
     const config = lireConfig(b);
     if (!b.marchand_id) return config;
@@ -622,6 +633,34 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     ctx.entetes['Set-Cookie'] = cookieAppareil(String(m.email).toLowerCase());   // cet appareil reste reconnu ; les autres ne le sont plus
     return { ok: true };
   });
+  /* Activation des paiements de la boutique (Stripe Connect) : la boutique encaisse sur son propre compte Stripe. */
+  r.post('/api/admin/paiements/activer', exigerMarchand, async ctx => {
+    if (paiement.nom !== 'stripe') return { pret: true, simulation: true };
+    let c = compteStripe(ctx.boutique.id);
+    if (!c) {
+      const config = lireConfig(ctx.boutique);
+      const compte = await paiement.creerCompte({ pays: config.boutique.pays, email: ctx.marchand.email });
+      db.prepare('INSERT OR IGNORE INTO comptes_stripe (boutique_id, compte, pret, maj_le) VALUES (?, ?, 0, ?)').run(ctx.boutique.id, compte, Date.now());
+      c = compteStripe(ctx.boutique.id);
+    }
+    const etatC = await paiement.etatCompte(c.compte);
+    db.prepare('UPDATE comptes_stripe SET pret = ?, maj_le = ? WHERE boutique_id = ?').run(etatC.pret ? 1 : 0, Date.now(), ctx.boutique.id);
+    if (etatC.pret) return { pret: true };
+    const url = await paiement.lienActivation({ compte: c.compte, urlRetour: `${urlPublique}/app#parametres`, urlRafraichir: `${urlPublique}/app#parametres` });
+    return { pret: false, url };
+  });
+  // Retour de Stripe : l'état du compte est relu (le webhook account.updated le met aussi à jour).
+  r.get('/api/admin/paiements/etat', exigerMarchand, async ctx => {
+    if (paiement.nom !== 'stripe') return { mode: paiement.nom, pret: true };
+    const c = compteStripe(ctx.boutique.id);
+    if (!c) return { mode: 'stripe', pret: false, compte: false };
+    if (!c.pret) {
+      const e = await paiement.etatCompte(c.compte).catch(() => null);
+      if (e && e.pret) db.prepare('UPDATE comptes_stripe SET pret = 1, maj_le = ? WHERE boutique_id = ?').run(Date.now(), ctx.boutique.id);
+      return { mode: 'stripe', pret: !!(e && e.pret), compte: true };
+    }
+    return { mode: 'stripe', pret: true, compte: true };
+  });
   r.post('/api/admin/compte/deconnecter-autres', exigerCompte, ctx => {
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
     return { ok: true, n: db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(ctx.marchand.id, actuelle).changes };
@@ -633,7 +672,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     await abo.arreterDefinitivement(m.id);   // sinon Stripe continuerait de prélever un compte supprimé
     transaction(db, () => {
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
-        for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
+        for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails', 'comptes_stripe']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
       db.prepare('DELETE FROM marchands WHERE id = ?').run(m.id); // boutiques, produits, commandes, sessions : suppression en cascade
@@ -660,7 +699,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id), urlBoutique: urlBoutique(ctx.boutique) } };
+    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id), paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id) } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -965,6 +1004,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);
     const total = prix.arrondi(calcul.apresRemise + port);
     const devise = config.boutique.devise || 'EUR';
+    const compte = compteVente(b);   // avant toute écriture : sans compte de paiement actif, aucune commande n'est créée
     const { commande, pmt } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
@@ -974,11 +1014,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const { id, numero: n, date, statut, ...donnees } = c;
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
       const p = { id: auth.nouvelId('pay_'), commande_id: c.id };
-      db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(p.id, c.id, paiement.nom, Math.round(total * 100), devise, 'cree', now);
+      db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le, compte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(p.id, c.id, paiement.nom, Math.round(total * 100), devise, 'cree', now, compte);
       return { commande: { ...c, jeton }, pmt: p };
     });
     const retour = `${urlBoutique(b)}?commande=${commande.id}&jeton=${commande.jeton}`;
-    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
+    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1`, compte });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { commandeId: commande.id, numero: commande.numero, jeton: commande.jeton, total, paiementUrl: session.url } };
   });
@@ -1045,6 +1085,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const p = listerProduits(b.id).find(x => x.id === o.produitId);
     if (!p || !vendable(p)) throw erreur(409, 'Cette offre n’est plus disponible.', 'offre_expiree');
     const devise = config.boutique.devise || 'EUR';
+    const compte = compteVente(b);
     const { commande, pmt } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
@@ -1055,11 +1096,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const { id, numero: n, date, statut, ...donnees } = c;
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
       const pp = { id: auth.nouvelId('pay_'), commande_id: c.id };
-      db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(pp.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', now);
+      db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le, compte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(pp.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', now, compte);
       return { commande: { ...c, jeton }, pmt: pp };
     });
     const retour = `${urlBoutique(b)}?commande=${commande.id}&jeton=${commande.jeton}`;
-    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${urlBoutique(b)}?commande=${parent.id}&jeton=${row.jeton_client}` });
+    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande, devise, urlRetour: retour, compte, urlAnnulation: `${urlBoutique(b)}?commande=${parent.id}&jeton=${row.jeton_client}` });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { paiementUrl: session.url } };
   });
@@ -1107,14 +1148,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (row.statut !== 'attente') throw erreur(409, 'Cette commande est déjà payée ou annulée.', 'deja_traitee');
     const c = lireCommande(row);
     const devise = lireConfig(b).boutique.devise || 'EUR';
+    const compte = compteVente(b);
     for (const ancien of db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id)) {
       db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(ancien.id);
       if (ancien.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(ancien).catch(e => journal.error('[paiement] expiration', e.message));
     }
     const pmt = { id: auth.nouvelId('pay_'), commande_id: c.id };
-    db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(pmt.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', Date.now());
+    db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le, compte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(pmt.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', Date.now(), compte);
     const retour = `${urlBoutique(b)}?commande=${c.id}&jeton=${row.jeton_client}`;
-    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande: c, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1` });
+    const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande: c, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1`, compte });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { paiementUrl: session.url };
   });
@@ -1143,6 +1185,16 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/webhooks/stripe', async ctx => {
     if (paiement.nom !== 'stripe' || !paiement.verifierWebhook(ctx.corpsBrut, ctx.req.headers['stripe-signature'])) throw erreur(400, 'Signature invalide.', 'signature');
     const ev = JSON.parse(ctx.corpsBrut);
+    // Événement d'un compte connecté (boutique) : jamais un abonnement Comptoir ; seuls l'état du compte et ses ventes comptent.
+    if (ev.account) {
+      const objet = (ev.data && ev.data.object) || {};
+      if (ev.type === 'account.updated') db.prepare('UPDATE comptes_stripe SET pret = ?, maj_le = ? WHERE compte = ?').run(objet.charges_enabled && objet.details_submitted ? 1 : 0, Date.now(), ev.account);
+      if (((ev.type === 'checkout.session.completed' && objet.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') && objet.metadata && objet.metadata.paiement_id) {
+        const p = db.prepare('SELECT compte FROM paiements WHERE id = ?').get(String(objet.metadata.paiement_id));
+        if (p && p.compte === ev.account) await paiementConfirme(objet.metadata.paiement_id, objet.id);   // la vente doit venir du compte de la boutique
+      }
+      return { recu: true };
+    }
     const evAbo = abo.evenementStripe(ev);
     if (evAbo) { if (evAbo.marchandId) emailAbonnement(evAbo.marchandId, evAbo.evenement); return { recu: true }; }
     const objet = (ev.data && ev.data.object) || {};

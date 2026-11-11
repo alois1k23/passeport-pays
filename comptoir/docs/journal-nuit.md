@@ -815,7 +815,7 @@ Une relecture indépendante du serveur a relevé 8 problèmes. Tous sont corrig�
 
 Tests : 60 (2 nouveaux, et le test de la newsletter suit le lien de confirmation).
 
-### Cycle 41 — Relecture des corrections du cycle 40 (04 h 35 – 05 h 00)
+### Cycle 41 — Relecture des corrections du cycle 40 (04 h 35 – 04 h 50)
 
 Une relecture indépendante des corrections du cycle 40 a trouvé une régression que j'avais introduite, et six points à compléter.
 
@@ -837,7 +837,7 @@ Une relecture indépendante des corrections du cycle 40 a trouvé une régressio
 
 Tests : 61.
 
-### Cycle 42 — Chaque formule dans un vrai navigateur (05 h 00 – 05 h 25)
+### Cycle 42 — Chaque formule dans un vrai navigateur (04 h 50 – 05 h 10)
 
 Les trois formules (Lancement, Croissance, Pro) ont été parcourues de bout en bout dans Chromium : inscription, paiement simulé, les 19 écrans, l'éditeur, la boutique publique, le panier et la page de paiement, plus des changements de formule à la hausse et à la baisse.
 
@@ -875,3 +875,31 @@ Les trois formules (Lancement, Croissance, Pro) ont été parcourues de bout en 
 Le code promo faux renvoie toujours une erreur 404. Le message affiché au client est juste ; ce n'est qu'une ligne dans la console du navigateur, laissée telle quelle.
 
 Tests : 62.
+
+### Cycle 43 — Chaque boutique encaisse sur son propre compte Stripe (05 h 10 – 05 h 20)
+
+**Défaut d'architecture.** Avec une clé Stripe, toutes les ventes de toutes les boutiques arrivaient sur l'unique compte Stripe de la plateforme. L'exploitant aurait détenu l'argent des marchands, puis aurait dû le leur reverser. C'est une activité d'intermédiaire de paiement : elle demande une autorisation (FINMA en Suisse, DSP2 dans l'Union européenne) et une comptabilité de tiers, et rien de cela n'existait.
+
+**Correction : Stripe Connect, paiement direct.**
+- Chaque boutique a son compte Stripe (Express). La session Checkout, l'annulation d'un lien et le remboursement passent tous par ce compte (en-tête `Stripe-Account`).
+- La plateforme ne touche jamais l'argent des ventes et ne prend aucune commission, comme annoncé. Son propre compte ne reçoit que les abonnements Comptoir.
+- Le marchand active ses paiements dans Paramètres > Paiements : Stripe vérifie son identité et son IBAN. Tant que ce n'est pas fait, la boutique reste visible mais refuse les commandes, avant toute écriture en base. Une alerte s'affiche aussi dans « À faire ».
+- Le compte encaisseur est enregistré sur chaque paiement. Un remboursement passe toujours par le compte qui a encaissé, même si la boutique change de compte plus tard.
+- Les webhooks des comptes connectés ont leur propre secret (`STRIPE_CONNECT_WEBHOOK_SECRET`).
+  - Une vente n'est confirmée que si l'événement vient du compte de cette boutique.
+  - `account.updated` ouvre ou ferme les commandes.
+  - Un événement d'un compte connecté n'est jamais lu comme un abonnement Comptoir.
+- La suppression du compte efface aussi la liaison Stripe.
+- Le mode simulation est inchangé.
+
+Nouveau test `connect.test.js`, avec un faux Stripe local. Il vérifie :
+- les commandes refusées avant l'activation ;
+- un seul compte créé, même si l'activation est demandée deux fois ;
+- la vente sur le compte de la boutique ;
+- le refus d'une confirmation venant d'un autre compte ;
+- le remboursement sur le bon compte ;
+- la fermeture après désactivation par Stripe.
+
+README et `.env.example` sont à jour (étape « webhook Connect »). Tests : 63.
+
+À faire par l'exploitant avant la mise en ligne, et non vérifiable ici sans vrai compte : activer Connect dans le tableau de bord Stripe, déclarer le webhook Connect, puis faire un essai réel en mode test de Stripe.

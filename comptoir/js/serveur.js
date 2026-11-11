@@ -83,7 +83,9 @@ async function rechargerEtat() {
   etat = completerEtat(e);
   SERVEUR.slug = e.serveur.slug;
   SERVEUR.paiement = e.serveur.paiement;
-  SERVEUR.emails = e.serveur.emails || null; SERVEUR.creeLe = e.serveur.creeLe || null; SERVEUR.abonnement = e.serveur.abonnement || null; SERVEUR.jetonDomaine = e.serveur.jetonDomaine || null; SERVEUR.urlBoutique = e.serveur.urlBoutique || null;
+  SERVEUR.emails = e.serveur.emails || null; SERVEUR.creeLe = e.serveur.creeLe || null; SERVEUR.abonnement = e.serveur.abonnement || null; SERVEUR.jetonDomaine = e.serveur.jetonDomaine || null; SERVEUR.paiementsBoutique = e.serveur.paiementsBoutique || null;
+  // Retour de la page d'activation Stripe : l'état du compte est relu une fois (le webhook peut arriver un peu plus tard).
+  { const pb = SERVEUR.paiementsBoutique; if (pb && pb.mode === 'stripe' && pb.compte && !pb.pret) api('GET', '/api/admin/paiements/etat').then(r => { if (r.pret) { SERVEUR.paiementsBoutique = r; rendre(); } }).catch(() => {}); } SERVEUR.urlBoutique = e.serveur.urlBoutique || null;
 }
 const urlBoutique = () => `${location.origin}/s/${SERVEUR.slug}`;
 const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, offres: etat.offres, lancement: etat.lancement || {}, fournisseursSuivi: etat.fournisseursSuivi || {} });
