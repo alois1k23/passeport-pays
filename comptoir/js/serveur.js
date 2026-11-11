@@ -26,7 +26,17 @@ async function initServeur() {
   if (!/^https?:$/.test(location.protocol) || location.pathname.startsWith('/demo')) return;
   let s;
   try {
-    const rep = await fetch('/api/session', { cache: 'no-store', credentials: 'same-origin' });
+    let rep;
+    try { rep = await fetch('/api/session', { cache: 'no-store', credentials: 'same-origin' }); }
+    catch (err) {
+      // Application installée ouverte hors connexion : on le dit, au lieu d'afficher la démo ou l'inscription.
+      if (location.pathname.startsWith('/app') && !navigator.onLine) {
+        document.body.innerHTML = '<main style="font:16px/1.5 system-ui;max-width:520px;margin:15vh auto;padding:0 20px;color:#111"><h1 style="font-size:1.4rem">Pas de connexion</h1><p>Comptoir a besoin d’Internet pour afficher vos commandes et vos produits. La page se recharge dès que la connexion revient.</p></main>';
+        addEventListener('online', () => location.reload());
+        await new Promise(() => {});   // rien d'autre ne démarre
+      }
+      throw err;
+    }
     if (!rep.ok || !(rep.headers.get('content-type') || '').includes('application/json')) return;
     s = await rep.json();
     if (typeof s.connecte !== 'boolean') return;
@@ -464,6 +474,7 @@ function installerModeConnecte() {
   // Les nouvelles commandes apparaissent toutes seules : flux en direct (Server-Sent Events), le serveur prévient dès
   // qu'une commande arrive ou change. Sans flux (proxy qui le coupe, navigateur ancien) : signature toutes les 15 s.
   let signature = null, enAttente = false, nonVues = 0;
+  const dejaNotifiees = new Set();   // hors de « etat », qui est remplacé à chaque rechargement
   const titreDeBase = document.title;
   const appliquer = async (nouvelles = []) => {
     if (ui.produitEdite || ['editeur', 'creer'].includes(ui.route)) { enAttente = true; return; }   // pas pendant une saisie
@@ -472,9 +483,9 @@ function installerModeConnecte() {
     try { await rechargerEtat(); } catch { return; }
     if (etat.commandes.length === avant && etat.commandes.map(c => c.statut).join() === statuts) return;
     rendre();
-    const payees = nouvelles.filter(n => !etat.commandes.some(c => c.numero === n.numero && c.vueEnDirect));
+    const payees = nouvelles.filter(n => !dejaNotifiees.has(n.numero));
     if (payees.length) {
-      payees.forEach(n => { const c = etat.commandes.find(x => x.numero === n.numero); if (c) c.vueEnDirect = true; });
+      payees.forEach(n => dejaNotifiees.add(n.numero));
       const texte = payees.length === 1 ? `Nouvelle commande n° ${payees[0].numero} : ${euros(Number(payees[0].total) || 0)}` : `${payees.length} nouvelles commandes payées`;
       toast(texte);
       if (document.hidden) {
@@ -500,11 +511,13 @@ function installerModeConnecte() {
     flux.addEventListener('maj', e => { let d = {}; try { d = JSON.parse(e.data); } catch { /* ignoré */ } appliquer(d.nouvelles || []); });
     flux.addEventListener('fin', () => { flux.close(); ui.enDirect = false; });   // session terminée
     flux.onerror = () => { ui.enDirect = false; if (++echecsFlux >= 5) { flux.close(); flux = null; } };
+    // Proxy qui retient le flux (le message « pret » n'arrive jamais) : on passe à l'interrogation régulière.
+    setTimeout(() => { if (flux && !ui.enDirect && flux.readyState !== 2) { flux.close(); flux = null; } }, 10000);
     return true;
   };
   ouvrirFlux();
   setInterval(async () => {
-    if (flux && flux.readyState !== 2) return;   // le flux en direct s'en charge
+    if (flux && flux.readyState === 1) return;   // le flux en direct s'en charge
     if (document.hidden) return;
     let s;
     try { s = JSON.stringify(await api('GET', '/api/admin/signature')); } catch { return; }

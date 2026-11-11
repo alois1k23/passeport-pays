@@ -100,6 +100,25 @@ test('paiement sur facture QR de bout en bout : commande, facture, relevé banca
     assert.equal((await c('POST', `/api/admin/commandes/${cmd3.j.commandeId}/statut`, { statut: 'annulee' })).s, 200);
     const html3 = await (await fetch(cmd3.j.factureUrl)).text();
     assert.match(html3, /Annulée : avoir AV-/); assert.doesNotMatch(html3, /Section paiement/);
+    // Cas de la revue : NOTPROVIDED sans référence d'écriture, frais au débit dans la transaction, camt.054 v2
+    // (montant dans AmtDtls), écriture en commentaire, versements partiels, même transaction en camt.053 puis camt.054.
+    const nouvelle = async nom => { const x = await c('POST', `/api/public/${ins.j.slug}/commandes`, { lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', moyen: 'facture', client: { nom, email: `${nom.split(' ')[0].toLowerCase()}@exemple.ch`, adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }); return { ...x.j, d: JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(x.j.commandeId).donnees) }; };
+    db.prepare("UPDATE produits SET donnees = json_set(donnees, '$.stock', 50)").run();
+    const [k1, k2, k3, k4, k5] = [await nouvelle('Karl Un'), await nouvelle('Karl Deux'), await nouvelle('Karl Trois'), await nouvelle('Karl Quatre'), await nouvelle('Karl Cinq')];
+    const brut = (ref, montant, extra = '') => `<Ntry><Amt Ccy="CHF">${montant}</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts><NtryDtls><TxDtls><Refs><EndToEndId>NOTPROVIDED</EndToEndId></Refs><Amt Ccy="CHF">${montant}</Amt>${extra}<RmtInf><Strd><CdtrRefInf><Ref>${ref}</Ref></CdtrRefInf></Strd></RmtInf></TxDtls></NtryDtls></Ntry>`;
+    const docSimple = e => `<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.04"><BkToCstmrDbtCdtNtfctn><Ntfctn>${e.join('')}</Ntfctn></BkToCstmrDbtCdtNtfctn></Document>`;
+    const r5 = await c('POST', '/api/admin/paiements/camt', { xml: docSimple([brut(k1.d.referenceQr, k1.d.total.toFixed(2)), brut(k2.d.referenceQr, k2.d.total.toFixed(2), '<Chrgs><Rcrd><Amt Ccy="CHF">0.50</Amt><CdtDbtInd>DBIT</CdtDbtInd></Rcrd></Chrgs>'), `<!-- ${brut(k5.d.referenceQr, k5.d.total.toFixed(2))} -->`]) });
+    assert.deepEqual(r5.j.payees.sort(), [k1.numero, k2.numero].sort(), 'NOTPROVIDED sans collision, frais non pris pour un débit : ' + JSON.stringify(r5.j));
+    assert.equal(db.prepare('SELECT statut FROM commandes WHERE numero = ?').get(k5.numero).statut, 'attente', 'écriture en commentaire ignorée');
+    const v2 = `<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.02"><BkToCstmrDbtCdtNtfctn><Ntfctn><Ntry><Amt Ccy="CHF">${(k3.d.total + 1).toFixed(2)}</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><AcctSvcrRef>LOT1</AcctSvcrRef><NtryDtls><TxDtls><Refs><AcctSvcrRef>T-K3</AcctSvcrRef></Refs><AmtDtls><TxAmt><Amt Ccy="CHF">${k3.d.total.toFixed(2)}</Amt></TxAmt></AmtDtls><RmtInf><Strd><CdtrRefInf><Ref>${k3.d.referenceQr}</Ref></CdtrRefInf></Strd></RmtInf></TxDtls><TxDtls><Refs><AcctSvcrRef>T-X</AcctSvcrRef></Refs><AmtDtls><TxAmt><Amt Ccy="CHF">1.00</Amt></TxAmt></AmtDtls></TxDtls></NtryDtls></Ntry></Ntfctn></BkToCstmrDbtCdtNtfctn></Document>`;
+    assert.deepEqual((await c('POST', '/api/admin/paiements/camt', { xml: v2 })).j.payees, [k3.numero], 'montant lu dans AmtDtls (camt.054 v2)');
+    const v2en053 = v2.replace('camt.054.001.02', 'camt.053.001.02').replace('LOT1', 'RELEVE-JOUR');
+    const r053 = (await c('POST', '/api/admin/paiements/camt', { xml: v2en053 })).j;
+    assert.deepEqual(r053.doublons, [], 'même transaction en camt.053 : pas un doublon'); assert.deepEqual(r053.deja, [k3.numero]);
+    const moitie = (k4.d.total / 2).toFixed(2), reste = (k4.d.total - Number(moitie)).toFixed(2);
+    const p1 = (await c('POST', '/api/admin/paiements/camt', { xml: docSimple([brut(k4.d.referenceQr, moitie).replace('NOTPROVIDED', 'V1')]) })).j;
+    assert.equal(p1.ecarts[0].motif, 'insuffisant');
+    assert.deepEqual((await c('POST', '/api/admin/paiements/camt', { xml: docSimple([brut(k4.d.referenceQr, reste).replace('NOTPROVIDED', 'V2')]) })).j.payees, [k4.numero], 'versements partiels additionnés');
     // Adresse avec nom d'entreprise en tête : la rue est gardée
     assert.deepEqual(Q.decouperAdresse('Atelier Bleu, Rue du Lac 12, 1003 Lausanne').rue, 'Rue du Lac');
     // Boutique sans IBAN valable : moyen refusé

@@ -103,17 +103,19 @@ function servirStatique(res, racine, chemin) {
     const type = TYPES[path.extname(fichier)] || 'application/octet-stream';
     const communs = { 'Content-Type': type, 'Cache-Control': 'no-cache', ETag: e.etag, Vary: 'Accept-Encoding', ...(path.basename(fichier) === 'sw.js' ? { 'Service-Worker-Allowed': '/app' } : {}) };
     const req = res.req;
-    if (req && String(req.headers['if-none-match'] || '').split(/,\s*/).includes(e.etag)) { res.writeHead(304, communs); res.end(); return true; }
+    // Une étiquette par encodage (« …-br », « …-gzip ») : deux réponses différentes n'ont jamais la même ETag.
+    const ae = String(req && req.headers['accept-encoding'] || '');
+    const compressible = (/^(text|application\/(json|manifest))/.test(type) || type.includes('svg')) && st.size >= 1024;
+    const algo = compressible ? (/\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : null) : null;
+    communs.ETag = algo ? e.etag.replace(/"$/, `-${algo}"`) : e.etag;
+    const base = e.etag.slice(1, -1);
+    if (req && String(req.headers['if-none-match'] || '').split(/,\s*/).some(x => x.replace(/^W\//, '').replace(/"/g, '').replace(/-(br|gzip)$/, '') === base)) { res.writeHead(304, communs); res.end(); return true; }
     const contenu = fs.readFileSync(fichier);
     // Fichiers texte : compressés une fois (Brotli, sinon gzip) puis gardés en mémoire jusqu'au prochain changement.
     let z = { corps: contenu, entetes: communs };
-    if ((/^(text|application\/(json|manifest))/.test(type) || type.includes('svg')) && contenu.length >= 1024) {
-      const ae = String(req && req.headers['accept-encoding'] || '');
-      const algo = /\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : null;
-      if (algo) {
-        if (!e[algo]) e[algo] = algo === 'br' ? zlib.brotliCompressSync(contenu, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } }) : zlib.gzipSync(contenu, { level: 9 });
-        z = { corps: e[algo], entetes: { ...communs, 'Content-Encoding': algo } };
-      }
+    if (algo) {
+      if (!e[algo]) e[algo] = algo === 'br' ? zlib.brotliCompressSync(contenu, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } }) : zlib.gzipSync(contenu, { level: 9 });
+      z = { corps: e[algo], entetes: { ...communs, 'Content-Encoding': algo } };
     }
     res.writeHead(200, z.entetes);
     res.end(z.corps);

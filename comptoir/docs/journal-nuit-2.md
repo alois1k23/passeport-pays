@@ -159,7 +159,7 @@ Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, 
   - compression Brotli, sinon gzip, faite une seule fois et gardée en mémoire. Avant, gzip était recalculé à chaque requête.
 - Vérifié dans un vrai navigateur : service worker actif, manifeste lu, application ouverte hors connexion, 304 sur un fichier inchangé, Brotli servi.
 
-## Cycle 9 (00 h 45) : clés d'accès (passkeys)
+## Cycle 9 (00 h 35) : clés d'accès (passkeys)
 
 - Connexion **sans mot de passe** avec une clé d'accès : visage, empreinte ou code de l'appareil (Face ID, Touch ID, Windows Hello, Android). La norme est W3C WebAuthn, implémentée sans dépendance dans `server/src/webauthn.js` :
   - lecture CBOR bornée ;
@@ -173,3 +173,25 @@ Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, 
   - automatiques, avec un authentificateur logiciel : enregistrement, connexion, rejeu refusé, faux site refusé, mauvaise clé refusée, clé clonée refusée, entrées CBOR piégées ;
   - dans un vrai Chromium, avec l'authentificateur virtuel du navigateur : clé créée depuis Paramètres, puis connexion sans mot de passe réussie.
 - Tests : 86 sur 86.
+
+## Cycle 10 (00 h 50) : corrections de la seconde revue (relevé bancaire, direct, PWA)
+
+Une revue indépendante des cycles 3 à 8 a relevé 15 points. Tous sont corrigés :
+- **Relevé bancaire** :
+  - Clé de déduplication : identifiant bancaire de la transaction (`NOTPROVIDED` ignoré), plus la référence et le montant. Sans cela, deux paiements sans identifiant se confondaient et le second était perdu.
+  - Les frais (`Chrgs`), le détail des montants et les parties sont mis de côté. Avant, un crédit avec frais était lu comme un débit.
+  - Le montant est lu dans `AmtDtls/TxAmt` (camt.054 version 2). Avant, il valait 0. Un montant illisible n'est plus mémorisé, et un import suivant peut le reprendre.
+  - Les commandes sont lues une seule fois par import. Avant, la base entière était parcourue à chaque écriture, ce qui pouvait bloquer le serveur plusieurs minutes.
+  - Les versements partiels s'additionnent.
+  - La même transaction importée en camt.053 puis en camt.054 n'est plus signalée comme un doublon à rembourser.
+  - Les commentaires XML et les balises auto-fermantes sont ignorés.
+  - Une erreur d'envoi d'e-mail ou de transmission sur une commande n'arrête plus les autres.
+- **Tableau de bord en direct** :
+  - Au repos, rien n'est lu (compteur d'écritures de la base). Sinon, la signature n'est lue que dans les index, sans JSON ni regroupement : le coût ne grandit plus avec le nombre de commandes.
+  - Plus de fausse alerte « Nouvelle commande » quand une commande est retirée ou modifiée : seul un paiement client (`payeLe`) déclenche la notification, et les numéros déjà notifiés sont gardés hors de l'état rechargé.
+  - Si un proxy retient le flux, l'onglet revient à l'interrogation régulière après 10 secondes.
+  - Le flux se ferme aussi quand l'abonnement prend fin.
+- **Application installée hors connexion** : un message « Pas de connexion » s'affiche, avec rechargement automatique au retour du réseau. Avant, elle affichait la démo ou l'inscription.
+- **ETag** : une étiquette distincte par encodage (Brotli, gzip, sans compression).
+- **Réinitialisation du mot de passe** : la même politique qu'ailleurs s'applique, y compris le refus d'un mot de passe qui reprend l'e-mail.
+- Tests : 86 sur 86. Le test du relevé couvre maintenant tous les cas de la revue.

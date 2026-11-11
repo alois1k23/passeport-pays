@@ -537,7 +537,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Commande payée (dans une transaction) : facture, complément rattaché, alerte de rupture, stock. */
   function marquerPayee(row, texte) {
     const c = lireCommande(row);
-    c.statut = 'payee';
+    c.statut = 'payee'; c.payeLe = Date.now();
     if (!c.facture) { c.facture = prochaineFacture(row.boutique_id, Date.now()); c.dateFacture = Date.now(); }   // facture QR : déjà émise
     if (c.relances) { c.recuperee = true; c.historique.push({ date: Date.now(), texte: 'Paiement récupéré après relance' }); }
     if (c.parent) {
@@ -739,7 +739,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/auth/reinitialiser', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
-    await exigerMotDePasseSolide(mdp, {});
+    { const lr = db.prepare('SELECT m.email FROM reinitialisations r JOIN marchands m ON m.id = r.marchand_id WHERE r.jeton_hash = ?').get(auth.sha256(String(ctx.corps.jeton || ''))); await exigerMotDePasseSolide(mdp, { email: lr ? lr.email : '' }); }
     const hashMdp = await auth.hacherMotDePasse(mdp);   // avant la lecture du lien : rien ne s'intercale entre sa vérification et son usage
     const ligne = db.prepare('SELECT * FROM reinitialisations WHERE jeton_hash = ?').get(auth.sha256(String(ctx.corps.jeton || '')));
     if (!ligne || ligne.expire_le < Date.now()) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau.', 'lien_expire');
@@ -1477,30 +1477,50 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
      comptabilisée (BOOK), au crédit, non contrepassée et en CHF. Chaque transaction est mémorisée : un relevé importé
      deux fois ne double rien, et un vrai second versement pour la même facture est signalé. */
   db.exec('CREATE TABLE IF NOT EXISTS camt_ecritures (boutique_id TEXT NOT NULL, cle TEXT NOT NULL, numero INTEGER, le INTEGER NOT NULL, PRIMARY KEY (boutique_id, cle))');
+  try { db.exec('ALTER TABLE camt_ecritures ADD COLUMN montant REAL'); } catch { /* déjà là */ }
   function lireCamt(xml) {
-    const sansPrefixe = xml.replace(/<(\/?)[A-Za-z][\w.-]*:/g, '<$1');   // <ns:Ntry> → <Ntry> (linéaire)
+    // Commentaires et CDATA retirés (une écriture « en commentaire » ne compte pas), préfixes d'espace de noms enlevés.
+    const propre = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '').replace(/<(\/?)[A-Za-z][\w.-]*:/g, '<$1');
+    // Blocs <nom …>…</nom> (pas <nomAutre>, pas <nom/>), en un seul passage.
     const blocs = (txt, nom) => { const out = []; const o = `<${nom}`, f = `</${nom}>`; let i = 0;
-      for (;;) { let d = txt.indexOf(o, i); if (d < 0) break; const car = txt[d + o.length]; if (car !== '>' && car !== ' ' && car !== '\t' && car !== '\n' && car !== '\r' && car !== '/') { i = d + o.length; continue; }
-        const e = txt.indexOf(f, d); if (e < 0) break; out.push(txt.slice(txt.indexOf('>', d) + 1, e)); i = e + f.length; }
+      for (;;) {
+        const d = txt.indexOf(o, i); if (d < 0) break;
+        const car = txt[d + o.length], finTete = txt.indexOf('>', d);
+        if (finTete < 0) break;
+        if (!(car === '>' || car === ' ' || car === '\t' || car === '\n' || car === '\r') || txt[finTete - 1] === '/') { i = finTete + 1; continue; }
+        const e = txt.indexOf(f, finTete); if (e < 0) break;
+        out.push(txt.slice(finTete + 1, e)); i = e + f.length;
+      }
       return out; };
     const premier = (txt, nom) => { const b = blocs(txt, nom); return b.length ? b[0] : null; };
-    const valeur = (txt, nom) => { const v = premier(txt, nom); return v == null ? '' : v.replace(/<[^>]*>/g, '').trim(); };
-    const montantDe = txt => { const d = txt.indexOf('<Amt'); if (d < 0) return null; const fin = txt.indexOf('>', d), e = txt.indexOf('</Amt>', fin);
-      const attrs = txt.slice(d, fin), ccy = (/Ccy="([A-Z]{3})"/.exec(attrs) || [])[1] || ''; const n = Number(txt.slice(fin + 1, e).trim()); return Number.isFinite(n) ? { montant: n, devise: ccy } : null; };
+    const valeur = (txt, nom) => { const v = premier(txt || '', nom); return v == null ? '' : v.replace(/<[^>]*>/g, '').trim(); };
+    // Retire des sous-blocs (frais, détail des montants, parties) pour ne lire que les éléments propres à la transaction.
+    const sans = (txt, noms) => noms.reduce((t, n) => { let r = t; for (const b of blocs(t, n)) r = r.replace(b, ''); return r; }, txt);
+    const montantDe = txt => { const v = premier(txt || '', 'Amt'); if (v == null) return null; const d = txt.indexOf('<Amt'); const tete = txt.slice(d, txt.indexOf('>', d));
+      const n = Number(v.trim()); return Number.isFinite(n) && n > 0 ? { montant: n, devise: (/Ccy="([A-Z]{3})"/.exec(tete) || [])[1] || '' } : null; };
     const ecritures = [];
-    for (const ntry of blocs(sansPrefixe, 'Ntry')) {
-      const sts = valeur(premier(ntry, 'Sts') || '', 'Cd') || valeur(ntry, 'Sts');
-      const sens = valeur(ntry, 'CdtDbtInd'), contrepasse = valeur(ntry, 'RvslInd') === 'true';
-      const refEcriture = valeur(ntry, 'AcctSvcrRef'), mNtry = montantDe(ntry);
+    for (const ntry of blocs(propre, 'Ntry')) {
+      const tete = sans(ntry, ['NtryDtls', 'Chrgs', 'AmtDtls', 'Intrst']);
+      const sts = valeur(premier(tete, 'Sts') || '', 'Cd') || valeur(tete, 'Sts');
+      const sens = valeur(tete, 'CdtDbtInd'), contrepasse = valeur(tete, 'RvslInd') === 'true';
+      const refEcriture = valeur(tete, 'AcctSvcrRef'), date = valeur(premier(tete, 'BookgDt') || '', 'Dt') || valeur(tete, 'BookgDt');
+      const mNtry = montantDe(tete);
       const txs = blocs(ntry, 'TxDtls');
-      const lots = txs.length ? txs : [ntry];
-      lots.forEach((t, k) => {
-        const m = txs.length ? (montantDe(t) || (txs.length === 1 ? mNtry : null)) : mNtry;
-        const sensTx = (txs.length && valeur(t, 'CdtDbtInd')) || sens;
-        const ref = valeur(premier(t, 'CdtrRefInf') || '', 'Ref').replace(/\s/g, '').toUpperCase();
-        const refTx = valeur(premier(t, 'Refs') || '', 'AcctSvcrRef') || valeur(premier(t, 'Refs') || '', 'EndToEndId');
-        ecritures.push({ statut: sts, sens: sensTx, contrepasse, ref, montant: m ? m.montant : 0, devise: m ? m.devise : '', cle: (refTx || refEcriture) ? `${refEcriture}|${refTx}|${k}` : null, sansDetail: !txs.length });
-      });
+      for (const t of (txs.length ? txs : [null])) {
+        const propreTx = t ? sans(t, ['Chrgs', 'AmtDtls', 'RltdPties', 'RltdAgts', 'Intrst', 'RmtInf']) : '';
+        // Montant : celui de la transaction ; sinon le détail (camt.054 v2 : AmtDtls/TxAmt) ; sinon celui de l'écriture s'il n'y a qu'une transaction.
+        const m = t ? (montantDe(propreTx) || montantDe(premier(premier(t, 'AmtDtls') || '', 'TxAmt') || '') || montantDe(premier(premier(t, 'AmtDtls') || '', 'InstdAmt') || '') || (txs.length === 1 ? mNtry : null)) : mNtry;
+        const sensTx = (t && valeur(propreTx, 'CdtDbtInd')) || sens;
+        const ref = valeur(premier(t || ntry, 'CdtrRefInf') || '', 'Ref').replace(/\s/g, '').toUpperCase();
+        const refs = t ? premier(t, 'Refs') || '' : '';
+        const e2e = valeur(refs, 'EndToEndId');
+        const idTx = valeur(refs, 'AcctSvcrRef') || (e2e && e2e !== 'NOTPROVIDED' ? e2e : '');
+        const centimes = m ? Math.round(m.montant * 100) : 0;
+        // Clé de déduplication : identifiant bancaire de la transaction (identique en camt.053 et camt.054), sinon
+        // celui de l'écriture et sa date ; toujours avec la référence et le montant (pas de collision entre paiements).
+        const cle = `${idTx || `${refEcriture}@${date}`}|${ref}|${centimes}`;
+        ecritures.push({ statut: sts, sens: sensTx, contrepasse, ref, montant: m ? m.montant : 0, devise: m ? m.devise : '', lisible: !!m, cle, sansDetail: !t });
+      }
     }
     return ecritures;
   }
@@ -1510,38 +1530,44 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const config = lireConfig(ctx.boutique), resultat = { payees: [], deja: [], inconnues: [], ecarts: [], doublons: [], ignorees: 0 };
     const ecritures = lireCamt(xml);
     if (ecritures.length > 20000) throw erreur(413, 'Relevé trop volumineux : importez-le par période.', 'camt_trop_grand');
+    // Commandes sur facture lues une seule fois (et non une recherche par écriture).
+    const parRef = new Map();
+    for (const row of db.prepare("SELECT id, numero, statut, json_extract(donnees, '$.referenceQr') AS ref, json_extract(donnees, '$.total') AS total FROM commandes WHERE boutique_id = ? AND json_extract(donnees, '$.moyen') = 'facture'").all(ctx.boutique.id)) if (row.ref) parRef.set(String(row.ref).toUpperCase(), row);
+    const vue = db.prepare('SELECT numero FROM camt_ecritures WHERE boutique_id = ? AND cle = ?');
+    const noter = (cle, numero, montant) => db.prepare('INSERT OR IGNORE INTO camt_ecritures (boutique_id, cle, numero, le, montant) VALUES (?, ?, ?, ?, ?)').run(ctx.boutique.id, cle, numero || null, Date.now(), montant);
     const aTraiter = [];
     for (const e of ecritures) {
       if (e.statut && e.statut !== 'BOOK') { resultat.ignorees++; continue; }        // en attente / informatif : pas encore crédité
       if (e.sens !== 'CRDT' || e.contrepasse) { resultat.ignorees++; continue; }     // débit ou contrepassation
       if (!e.ref) { if (e.sansDetail) resultat.ignorees++; continue; }
+      if (!e.lisible) { resultat.ecarts.push({ reference: e.ref, motif: 'montant-illisible' }); continue; }   // pas mémorisé : un prochain import pourra le lire
       if (e.devise && e.devise !== 'CHF') { resultat.ecarts.push({ reference: e.ref, recu: e.montant, devise: e.devise, motif: 'devise' }); continue; }
-      // Même transaction déjà importée (relevé importé deux fois) : rien à refaire.
-      const cle = e.cle || `${e.ref}|${e.montant.toFixed(2)}`;
-      const vue = db.prepare('SELECT numero FROM camt_ecritures WHERE boutique_id = ? AND cle = ?').get(ctx.boutique.id, cle);
-      if (vue) { if (vue.numero) resultat.deja.push(vue.numero); continue; }
-      const row = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND json_extract(donnees, '$.referenceQr') = ?").get(ctx.boutique.id, e.ref);
-      const noter = numero => db.prepare('INSERT OR IGNORE INTO camt_ecritures (boutique_id, cle, numero, le) VALUES (?, ?, ?, ?)').run(ctx.boutique.id, cle, numero || null, Date.now());
-      if (!row) { resultat.inconnues.push(e.ref); noter(null); continue; }
-      const c = lireCommande(row);
-      if (c.statut !== 'attente') {
-        // Facture déjà réglée (ou annulée) et nouveau versement : à rembourser au client.
-        resultat[c.statut === 'annulee' ? 'ecarts' : 'doublons'].push({ numero: c.numero, recu: e.montant, du: c.total, ...(c.statut === 'annulee' ? { annulee: true } : {}) });
-        noter(c.numero); continue;
+      const deja = vue.get(ctx.boutique.id, e.cle);
+      if (deja) { if (deja.numero) resultat.deja.push(deja.numero); continue; }       // relevé (ou même transaction) déjà importé
+      const row = parRef.get(e.ref);
+      if (!row) { resultat.inconnues.push(e.ref); noter(e.cle, null, e.montant); continue; }
+      const statut = db.prepare('SELECT statut FROM commandes WHERE id = ?').get(row.id).statut;
+      if (statut !== 'attente') {
+        resultat[statut === 'annulee' ? 'ecarts' : 'doublons'].push({ numero: row.numero, recu: e.montant, du: row.total, ...(statut === 'annulee' ? { annulee: true } : {}) });
+        noter(e.cle, row.numero, e.montant); continue;
       }
-      if (Math.round(e.montant * 100) < Math.round(c.total * 100)) { resultat.ecarts.push({ numero: c.numero, recu: e.montant, du: c.total, motif: 'insuffisant' }); noter(c.numero); continue; }
+      // Versements partiels : additionnés (le client complète un premier virement trop faible).
+      const anterieur = db.prepare('SELECT COALESCE(SUM(montant), 0) AS s FROM camt_ecritures WHERE boutique_id = ? AND numero = ?').get(ctx.boutique.id, row.numero).s;
+      const cumul = Math.round((anterieur + e.montant) * 100);
+      if (cumul < Math.round(row.total * 100)) { noter(e.cle, row.numero, e.montant); resultat.ecarts.push({ numero: row.numero, recu: Math.round(cumul) / 100, du: row.total, motif: 'insuffisant' }); continue; }
       const res = transaction(db, () => {
         const frais = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);
         if (frais.statut !== 'attente') return null;
-        noter(c.numero);
-        return marquerPayee(frais, `Paiement de la facture QR reçu (${formatMontant(e.montant, config)}, relevé bancaire importé)`);
+        noter(e.cle, row.numero, e.montant);
+        return marquerPayee(frais, `Paiement de la facture QR reçu (${formatMontant(cumul / 100, config)}, relevé bancaire importé)`);
       });
       if (!res) continue;
-      resultat.payees.push(c.numero);
-      if (Math.round(e.montant * 100) > Math.round(c.total * 100)) resultat.ecarts.push({ numero: c.numero, recu: e.montant, du: c.total, motif: 'trop-percu' });
+      resultat.payees.push(row.numero);
+      if (cumul > Math.round(row.total * 100)) resultat.ecarts.push({ numero: row.numero, recu: cumul / 100, du: row.total, motif: 'trop-percu' });
       aTraiter.push(res);
     }
-    for (const res of aTraiter) await apresPaiement(res);
+    // Suite du paiement (e-mails, transmission au fournisseur) : une erreur sur une commande n'empêche pas les autres.
+    for (const res of aTraiter) { try { await apresPaiement(res); } catch (err) { journal.error('[camt]', res.c.numero, err.message); } }
     if (resultat.payees.length || resultat.doublons.length) noterActivite(ctx.marchand.id, 'import-camt', `${resultat.payees.length} payée(s)`, ctx);
     return resultat;
   });
@@ -1926,10 +1952,12 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   };
   /* Signature légère de l'état (pour savoir s'il faut recharger) : quelques octets au lieu de plusieurs Mo. */
   const signatureDe = boutiqueId => {
-    const c = db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(date), 0) AS derniere, COALESCE(MAX(maj_le), 0) AS maj FROM commandes WHERE boutique_id = ?").get(boutiqueId);
+    // Lu uniquement dans les index (boutique, date) et (boutique, maj_le) : toute modification de commande passe par
+    // enregistrerCommande, qui date maj_le ; pas de lecture du JSON, pas de regroupement par statut.
+    const c = db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(date), 0) AS derniere FROM commandes WHERE boutique_id = ?').get(boutiqueId);
+    const m = db.prepare('SELECT COALESCE(MAX(maj_le), 0) AS maj FROM commandes WHERE boutique_id = ?').get(boutiqueId);
     const a = db.prepare('SELECT COUNT(*) AS n FROM avis WHERE boutique_id = ?').get(boutiqueId);
-    const statuts = db.prepare('SELECT statut, COUNT(*) AS n FROM commandes WHERE boutique_id = ? GROUP BY statut').all(boutiqueId).map(x => x.statut + x.n).join(',');
-    return { commandes: c.n, derniere: c.derniere, maj: c.maj, statuts, avis: a.n };
+    return { commandes: c.n, derniere: c.derniere, maj: m.maj, avis: a.n };
   };
   r.get('/api/admin/signature', exigerMarchand, ctx => signatureDe(ctx.boutique.id));
 
@@ -1939,21 +1967,29 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   const flux = new Set();
   let minuterieFlux = null;
   const ecrire = (a, texte) => { try { a.res.write(texte); } catch { /* fermé */ } };
+  let dernieresEcritures = -1;
   function tourDeFlux() {
+    // Aucune écriture dans la base depuis le dernier tour : rien n'a pu changer, on ne lit rien (coût nul au repos).
+    const ecritures = Number(db.prepare('SELECT total_changes() AS n').get().n);
+    const calme = ecritures === dernieresEcritures;
+    dernieresEcritures = ecritures;
     const parBoutique = new Map();
     for (const a of flux) { if (!parBoutique.has(a.boutiqueId)) parBoutique.set(a.boutiqueId, []); parBoutique.get(a.boutiqueId).push(a); }
     const maintenant = Date.now();
     for (const [boutiqueId, abonnes] of parBoutique) {
-      let sig; try { sig = signatureDe(boutiqueId); } catch { continue; }
-      const cle = JSON.stringify(sig);
+      let sig = null, cle = null;
+      if (!calme) { try { sig = signatureDe(boutiqueId); cle = JSON.stringify(sig); } catch { continue; } }
       for (const a of abonnes) {
         // Session encore valable ? (contrôle toutes les 30 s : déconnexion à distance, mot de passe changé)
         if (maintenant - a.controle > (Number(env.FLUX_CONTROLE_MS) || 30000)) {
           a.controle = maintenant;
-          if (!db.prepare('SELECT 1 FROM sessions WHERE jeton_hash = ? AND expire_le > ?').get(a.session, maintenant)) { ecrire(a, 'event: fin\ndata: {}\n\n'); a.res.end(); flux.delete(a); continue; }
+          const sess = db.prepare('SELECT marchand_id FROM sessions WHERE jeton_hash = ? AND expire_le > ?').get(a.session, maintenant);
+          const e = sess && abo.etat(sess.marchand_id);
+          if (!sess || (e.obligatoire && !e.actif)) {   /* session terminée ou abonnement échu */ ecrire(a, 'event: fin\ndata: {}\n\n'); a.res.end(); flux.delete(a); continue; }
         }
-        if (a.signature !== cle) {
-          const nouvelles = a.depuis ? db.prepare("SELECT numero, json_extract(donnees, '$.total') AS total FROM commandes WHERE boutique_id = ? AND COALESCE(maj_le, date) > ? AND statut IN ('payee', 'retiree') ORDER BY date LIMIT 5").all(boutiqueId, a.depuis) : [];
+        if (cle !== null && a.signature !== cle) {
+          // Seules les commandes payées par le client depuis le dernier envoi (pas une simple modification ni un retrait).
+          const nouvelles = db.prepare("SELECT numero, json_extract(donnees, '$.total') AS total FROM commandes WHERE boutique_id = ? AND maj_le > ? AND json_extract(donnees, '$.payeLe') > ? ORDER BY date LIMIT 5").all(boutiqueId, a.depuis, a.depuis);
           if (a.signature !== null) ecrire(a, `event: maj\ndata: ${JSON.stringify({ ...sig, nouvelles })}\n\n`);
           a.signature = cle; a.depuis = maintenant;
         } else if (maintenant - a.ping > 25000) { ecrire(a, ': ping\n\n'); a.ping = maintenant; }   // garde la connexion ouverte (proxys)
