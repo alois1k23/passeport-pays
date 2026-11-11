@@ -536,3 +536,13 @@ Les textes que Comptoir rédige pour le marchand (campagnes, publications) engag
 1. **« Emballage cadeau offert »**, offre par défaut des campagnes sans remise : un fournisseur de dropshipping n'emballe pas en cadeau. Remplacé par « Notre sélection pour l'occasion » ; pour Noël, « livraison prévue avant Noël pour toute commande passée avant le … » (date calculée).
 2. **« Un cadeau fait main »** (fête des mères) et les mots-clés `#faitmain #commercelocal` ajoutés à toutes les publications : réservés aux boutiques qui vendent leurs propres produits.
 3. **Vidéos « coulisses »** (« vos mains qui emballent une commande ») proposées à des boutiques entièrement en dropshipping, où le marchand n'expédie rien lui-même : plus proposées dans ce cas. L'accroche « on en refuse 9 sur 10 », chiffre inventé, est retirée.
+
+### Cycle 29 — Les deux simulations de 100 utilisateurs, sur le code de la nuit
+
+Les simulateurs dataient d'avant l'abonnement obligatoire et l'adresse exigée du vendeur : leurs marchands ne payaient pas leur formule. Ils suivent désormais le vrai parcours (formule payée, adresse saisie dans Conformité). Résultats :
+- **100 utilisateurs par l'API** (40 marchands, 60 acheteurs, entrées hostiles comprises) : aucune anomalie. Le nom de boutique de 106 caractères est refusé avec un message clair (limite de 80), comme prévu.
+- **100 utilisateurs dans un navigateur** (bureau, portable, tablette, téléphones) :
+  - 40 marchands inscrits, chacun a parcouru tous les écrans, ajouté un produit, créé un code promo, modifié une section et préparé le calendrier social ;
+  - 60 acheteurs : 46 commandes payées, 10 paniers abandonnés, 4 paiements annulés ;
+  - aucune anomalie.
+- Contrôles complémentaires : audit d'accessibilité propre (clair et sombre) ; page d'accueil sans débordement à 360 px ; liens Impressum, Protection des données et Conditions en 200.
