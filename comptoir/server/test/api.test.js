@@ -961,3 +961,13 @@ test('photos de produit : rangées à part, servies par adresse, gardées si inc
   assert.equal((await fetch(base + pub.produits[0].image)).status, 404);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM images_produits WHERE produit_id = ?').get(row.id).n, 0);
 });
+
+test('session glissante : le cookie du navigateur est renouvelé avec la session, sans écraser les autres', async () => {
+  const m = client();
+  await m('POST', '/api/auth/inscription', { email: 'glisse@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Glisse', pays: 'ch', secteur: 'maison', sections: [] } } });
+  const mid = db.prepare("SELECT id FROM marchands WHERE email = 'glisse@exemple.ch'").get().id;
+  db.prepare('UPDATE sessions SET expire_le = ? WHERE marchand_id = ?').run(Date.now() + 5 * 86400000, mid);   // session bientôt échue
+  const rep = await m('GET', '/api/session', null, { brut: true });
+  assert.match(rep.headers.getSetCookie().join(' | '), /comptoir_session=[^;]+;.*Max-Age=2592000/);
+  assert.ok(db.prepare('SELECT expire_le FROM sessions WHERE marchand_id = ?').get(mid).expire_le > Date.now() + 25 * 86400000);
+});

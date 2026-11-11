@@ -20,7 +20,7 @@ function euros(n) {
 }
 
 function visuelProduit(p, grand = false) {
-  if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${/^data:image\/(jpeg|png|webp);base64,/.test(p.image) ? esc(p.image) : ''}" alt="${esc(p.nom)}"></div>`;
+  if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${/^data:image\/(jpeg|png|webp);base64,/.test(p.image) || /^\/api\/public\/[\w-]+\/image\/[\w-]+$/.test(p.image) ? esc(p.image) : ''}" loading="lazy" alt="${esc(p.nom)}"></div>`;
   const h = p.teinte ?? 30;
   // Sans photo : fond uni teinté et pictogramme de la catégorie (plus sobre que des initiales).
   return `<div class="sf-visuel sans-photo${grand ? ' grand' : ''}" style="--teinte:${Number(h) || 0}" role="img" aria-label="${esc(p.nom)}">${pictoProduit(p)}</div>`;

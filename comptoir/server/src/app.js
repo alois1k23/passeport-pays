@@ -243,7 +243,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     envoyerEmail(b.id, c.client.email, `Votre commande n° ${c.numero} est en route`,
       `Bonjour ${c.client.nom},\n\nVotre colis est parti${c.transporteur ? ` avec ${c.transporteur}` : ''}.${c.suivi ? `\nNuméro de suivi : ${c.suivi}` : ''}${c.suivi && lien ? `\nSuivre le colis : ${lien}` : ''}\n\nVotre commande : ${lienCommande(b, c.id)}\n\nMerci et à bientôt,\n${config.boutique.nom}`);
   };
-  const envoyerEmail = (boutiqueId, destinataire, sujet, corps, { marketing = false } = {}) => {
+  const envoyerEmail = (boutiqueId, destinataire, sujet, corps, { marketing = false, motif = 'nouvelles' } = {}) => {
     if (!destinataire) return;
     if (marketing && boutiqueId && estDesinscrit(boutiqueId, destinataire)) return;
     let pied = '', lien = null;
@@ -252,7 +252,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const conf = JSON.parse(b.config), e = conf.entreprise || {};
       const identite = [e.raison || conf.boutique.nom, e.adresse, e.email ? `Contact : ${e.email}` : ''].filter(Boolean).join(' · ');
       if (marketing) lien = `${urlPublique}/desinscription?j=${jetonDesinscription(boutiqueId, destinataire)}`;
-      pied = `\n\n—\n${identite}${lien ? `\nVous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir : ${lien}` : ''}`;
+      pied = `\n\n—\n${identite}${lien ? `\n${motif === 'commande' ? `Vous recevez cet e-mail à la suite de votre commande chez ${conf.boutique.nom}. Pour ne plus recevoir ce type de message` : `Vous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir`} : ${lien}` : ''}`;
     }
     db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
     if (env.LOG_EMAILS) journal.log(`[e-mail] à ${destinataire} : ${sujet}`);
@@ -401,7 +401,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       return l.source;
     });
     const rep = await fournisseurs.client(f, fetchImpl).passerCommande({
-      referenceMarchand: `${boutique.slug}-${c.numero}`,
+      referenceMarchand: `${boutique.slug}-${c.numero}-${c.id.slice(-6)}`,   // unique même si un nom de boutique est réutilisé
       lignes: lignesDrop.map((l, i) => ({ produitId: sources[i], qte: l.qte })),
       livraison: { nom: c.client.nom, adresse: c.client.adresse || '', npa: c.client.npa || '', ville: c.client.ville, pays: lireConfig(boutique).boutique.pays.toUpperCase() }
     });
@@ -489,12 +489,16 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     }
   }
 
+  /* Ajoute un cookie à la réponse sans effacer ceux déjà posés (session renouvelée, appareil reconnu…). */
+  const ajouterCookie = (ctx, c) => { const v = ctx.entetes['Set-Cookie']; ctx.entetes['Set-Cookie'] = v ? [...(Array.isArray(v) ? v : [v]), c] : c; };
+  // Session glissante : le cookie du navigateur repart pour 30 jours avec la session en base.
+  const renouvelerCookie = (ctx, m) => { if (m && m.cookieRenouvele) { ajouterCookie(ctx, auth.cookieSession(m.cookieRenouvele, securise)); delete m.cookieRenouvele; } };
   /* ---------- Garde d'authentification ---------- */
   // Compte connecté (sans exiger l'abonnement) : paiement de l'abonnement, suppression du compte.
   const exigerCompte = ctx => {
     ctx.marchand = auth.marchandDepuisRequete(db, ctx.cookies);
     if (!ctx.marchand) throw erreur(401, 'Connectez-vous pour continuer.', 'non_connecte');
-    if (ctx.marchand.cookieRenouvele) { ctx.entetes['Set-Cookie'] = auth.cookieSession(ctx.marchand.cookieRenouvele, securise); delete ctx.marchand.cookieRenouvele; }
+    renouvelerCookie(ctx, ctx.marchand);
     ctx.boutique = boutiqueDuMarchand(ctx.marchand.id);
   };
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
@@ -512,6 +516,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* ---------- Comptes ---------- */
   r.get('/api/session', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
+    renouvelerCookie(ctx, m);
     const b = m && db.prepare('SELECT slug FROM boutiques WHERE marchand_id = ?').get(m.id);
     return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(m.id) : null };
   });
@@ -666,7 +671,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, actuelle);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);
     });
-    ctx.entetes['Set-Cookie'] = cookieAppareil(String(m.email).toLowerCase());   // cet appareil reste reconnu ; les autres ne le sont plus
+    ajouterCookie(ctx, cookieAppareil(String(m.email).toLowerCase()));   // cet appareil reste reconnu ; les autres ne le sont plus
     return { ok: true };
   });
   /* Activation des paiements de la boutique (Stripe Connect) : la boutique encaisse sur son propre compte Stripe. */
@@ -1030,9 +1035,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     };
   });
   r.post('/api/public/:slug/commandes', async ctx => {
-    auth.limiter(`commande:${ctx.params.slug}:${ctx.ip}`, (Number(env.LIMITE_COMMANDES) || 30) * facteurLimites,   // par boutique : une promotion chez l'une ne bloque pas les autres
-      15 * 60000, 'Trop de commandes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueOuverte(ctx.params.slug);
+    // Après la boutique (une adresse inventée ne crée pas de compteur) : par boutique et par adresse.
+    auth.limiter(`commande:${b.id}:${ctx.ip}`, (Number(env.LIMITE_COMMANDES) || 30) * facteurLimites, 15 * 60000, 'Trop de commandes en peu de temps. Réessayez dans quelques minutes.');
     const config = configVente(b);
     // Vendre à distance sans adresse du vendeur est interdit (CH : LCD art. 3 s ; FR : LCEN art. 6 ; BE : CDE art. VI.45).
     const adr = String((config.entreprise || {}).adresse || '').trim();
@@ -1236,15 +1241,16 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   function entretien(maintenant = Date.now()) {
     // Fournisseur de démonstration : expéditions en attente (redémarrage, webhook en échec)
     if (delaiExpeditionDemo >= 0) for (const r of db.prepare("SELECT ref FROM demo_fournisseur_commandes WHERE statut = 'recue' AND cree_le < ?").all(maintenant - delaiExpeditionDemo - 60000)) expedierDemo(r.ref).catch(e => journal.error('[demo-fournisseur]', e.message));
+    if (maintenant - dernierePurge < 86400000) return;
+    dernierePurge = maintenant;
     // Commande transmise, sans expédition depuis 7 jours : le marchand est prévenu (une fois), pour relancer le fournisseur
-    for (const row of db.prepare("SELECT * FROM commandes WHERE statut = 'fournisseur' AND date < ?").all(maintenant - 7 * 86400000)) {
+    for (const row of db.prepare("SELECT id, numero, boutique_id FROM commandes WHERE statut = 'fournisseur' AND date < ?").all(maintenant - 7 * 86400000)) {
       if (!relances.reserverEnvoi || !relances.reserverEnvoi(db, row.boutique_id, `bloquee:${row.id}`, maintenant)) continue;
       const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id), mch = b && db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
       if (mch) envoyerEmail(null, mch.email, `Commande n° ${row.numero} : toujours pas expédiée par le fournisseur`, `Bonjour,\n\nLa commande n° ${row.numero} a été transmise au fournisseur il y a plus de 7 jours et n'a pas encore de numéro de suivi. Contactez le fournisseur, ou remboursez le client depuis Commandes si le colis ne part pas.\n\nComptoir`);
     }
-    if (maintenant - dernierePurge < 86400000) return;
-    dernierePurge = maintenant;
-    // Purge quotidienne : sessions et liens expirés, mesures d'audience de plus de 400 jours, corps des e-mails envoyés de plus de 180 jours
+    // Purge quotidienne
+    db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE supprime = 1)').run();   // photos des produits supprimés : sessions et liens expirés, mesures d'audience de plus de 400 jours, corps des e-mails envoyés de plus de 180 jours
     db.prepare('DELETE FROM sessions WHERE expire_le < ?').run(maintenant);
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
@@ -1582,8 +1588,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!cmd || cmd.statut === 'expediee') return;
     const f = db.prepare("SELECT * FROM fournisseurs WHERE code = 'demo'").get();
     const corps = JSON.stringify({ ref, statut: 'expediee', transporteur: 'La Poste', suivi: '99.60.' + Math.floor(100000 + Math.random() * 899999) + '.' + Math.floor(1e7 + Math.random() * 9e7) });
-    const rep = await fetchImpl(`${urlPublique}/api/webhooks/fournisseurs/demo`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Signature': fournisseurs.signer(corps, f.secret_webhook) }, body: corps });
-    if (rep && rep.ok) db.prepare("UPDATE demo_fournisseur_commandes SET statut = 'expediee' WHERE ref = ?").run(ref);   // sinon : nouvel essai au prochain passage
+    const rep = await fetchImpl(`${urlPublique}/api/webhooks/fournisseurs/demo`, { method: 'POST', signal: AbortSignal.timeout(10000), headers: { 'Content-Type': 'application/json', 'X-Signature': fournisseurs.signer(corps, f.secret_webhook) }, body: corps });
+    if (rep && rep.ok) db.prepare("UPDATE demo_fournisseur_commandes SET statut = 'expediee' WHERE ref = ?").run(ref);
+    else if (rep && rep.status >= 400 && rep.status < 500) db.prepare("UPDATE demo_fournisseur_commandes SET statut = 'abandonnee' WHERE ref = ?").run(ref);   // commande inconnue (compte supprimé) : on arrête   // sinon : nouvel essai au prochain passage
   }
   r.get('/demo-fournisseur/catalogue', exigerCleDemo, () => fournisseurs.CATALOGUE_DEMO);
   r.post('/demo-fournisseur/commandes', exigerCleDemo, ctx => {

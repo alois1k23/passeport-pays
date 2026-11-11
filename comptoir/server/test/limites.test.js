@@ -4,8 +4,11 @@ const { test } = require('node:test'); const assert = require('node:assert/stric
 const { ouvrir } = require('../src/db'); const { creerApp } = require('../src/app');
 test('limite de commandes publiques par adresse', async () => {
   const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
-  s.on('request', creerApp({ db: ouvrir(':memory:'), env: {}, urlPublique: base, journal: { log() {}, error() {} } }));
-  const codes = []; for (let k = 0; k < 35; k++) codes.push((await fetch(base + '/api/public/x/commandes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status);
+  s.on('request', creerApp({ db: ouvrir(':memory:'), env: { ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const ins = await (await fetch(base + '/api/auth/inscription', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'lim@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Limite' }, entreprise: { raison: 'L', adresse: 'Rue 1, 1003 Lausanne' } } }) })).json();
+  const codes = []; for (let k = 0; k < 35; k++) codes.push((await fetch(`${base}/api/public/${ins.slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status);
+  // Une boutique inventée ne crée pas de compteur (et répond 404)
+  assert.equal((await fetch(base + '/api/public/inventee-' + Date.now() + '/commandes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 404);
   s.close(); assert.equal(codes.slice(0, 30).filter(c => c === 429).length, 0); assert.ok(codes.slice(30).every(c => c === 429), codes.join(','));
 });
 

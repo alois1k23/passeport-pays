@@ -45,8 +45,11 @@ function nomExpediteur(n) { return String(n).replace(/<[^>]*>/g, '').replace(/[<
 function creerTables(db) {
   // Colonnes ajoutées après coup : tentatives et dernière erreur (ignoré si déjà présentes).
   for (const sql of ['ALTER TABLE emails ADD COLUMN tentatives INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE emails ADD COLUMN erreur TEXT', 'ALTER TABLE emails ADD COLUMN desinscription TEXT', 'ALTER TABLE emails ADD COLUMN prochain_essai INTEGER NOT NULL DEFAULT 0', 'CREATE INDEX IF NOT EXISTS emails_file ON emails(envoye, prochain_essai, id)']) {
+
     try { db.exec(sql); } catch { /* colonne déjà là */ }
   }
+  // Anciens e-mails abandonnés (5 essais, règle précédente) : ils ne repartent pas des semaines plus tard.
+  try { db.prepare("UPDATE emails SET tentatives = 12 WHERE envoye = 0 AND tentatives >= 5 AND tentatives < 12 AND prochain_essai = 0").run(); } catch { /* ignoré */ }
 }
 
 /* Envoie jusqu'à `lot` e-mails en attente. Un échec n'est pas définitif : nouvel essai de plus en plus espacé
@@ -74,7 +77,7 @@ async function envoyerLot(db, p, { lot, journal }) {
       n++;
     } catch (err) {
       // Adresse refusée (4xx sauf 429) : rien ne sert d'insister longtemps ; sinon (panne, 429, délai dépassé) on réessaie.
-      const definitif = err.statut >= 400 && err.statut < 500 && err.statut !== 429;
+      const definitif = [400, 404, 422].includes(err.statut);   // 401/403 : clé ou compte du service à corriger par l'exploitant, on réessaie
       const t = e.tentatives + 1, attente = Math.min(6 * 3600000, 60000 * 2 ** (t - 1));
       db.prepare('UPDATE emails SET tentatives = ?, erreur = ?, prochain_essai = ? WHERE id = ?').run(definitif ? ESSAIS_MAX : t, String(err.message).slice(0, 200), Date.now() + attente, e.id);
       journal.error(definitif || t >= ESSAIS_MAX ? '[e-mail] ABANDON (à vérifier par l’exploitant)' : '[e-mail]', `${err.message} · à ${e.destinataire} · « ${e.sujet} »`);

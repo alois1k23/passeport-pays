@@ -1179,3 +1179,48 @@ Test ajouté.
 **Pour l'exploitant**
 - Ce mois a produit 21 258 e-mails, soit environ 210 par boutique.
 - Il faut une offre d'envoi payante (Brevo ou Postmark) à la mesure de ce volume : le niveau gratuit de Brevo (300 par jour) ne suffit pas.
+
+### Après la nuit — Contrôles poussés : 60 jours, concurrence, redémarrage, RGPD, risques d'exploitation
+
+**Simulation étendue** (`outils/simulation/mois.js`, 60 jours par défaut, date de départ réglable). Elle couvre maintenant :
+- plusieurs clients qui achètent la dernière pièce au même instant, et des doubles clics sur « Payer » ;
+- un changement de mot de passe, qui doit déconnecter les autres appareils ;
+- un redémarrage du serveur sur une vraie base au milieu de la période ;
+- des désinscriptions par le lien des e-mails ;
+- des effacements de données (RGPD) et des suppressions de compte ;
+- le contenu de chaque e-mail ;
+- les demandes d'avis, qui ne doivent partir qu'après la livraison ;
+- deux passages de calendrier : le Nouvel An (numérotation des factures) et le passage à l'heure d'été.
+
+**Défauts trouvés par ces contrôles, et corrigés**
+1. **Relances de paiement et demandes d'avis traitées comme des e-mails de commande.** Elles n'avaient pas de lien de désinscription et partaient même aux personnes désinscrites. Ce sont des e-mails commerciaux : elles ont maintenant un lien adapté (« à la suite de votre commande ») et respectent les désinscriptions.
+2. **Déconnexion forcée au bout de 30 jours**, même pour un marchand actif tous les jours. La session est maintenant glissante : session et cookie repartent pour 30 jours quand elle sert.
+3. **File d'e-mails.** Une panne du service d'envoi de quelques minutes perdait définitivement les confirmations de commande. Désormais :
+   - nouveaux essais espacés pendant environ un jour et demi ;
+   - un délai maximum par envoi ;
+   - une clé d'envoi invalide n'abandonne plus les e-mails ;
+   - un abandon est signalé dans le journal.
+4. **Heure.** Le serveur tournait en UTC : un paiement fait le 1er janvier à 0 h 30 était facturé sur l'année précédente. Il est maintenant à l'heure de Lausanne (Dockerfile avec tzdata, et `server.js`).
+5. **Docker.** Derrière Docker, tous les clients avaient la même adresse, donc 30 commandes par quart d'heure pour toute la plateforme. Désormais :
+   - la passerelle Docker est déclarée comme proxy de confiance, et le port n'est publié que sur 127.0.0.1 ;
+   - une alerte s'affiche dans le journal en cas de mauvaise configuration ;
+   - la limite de commandes compte par boutique, et seulement pour une boutique qui existe.
+6. **Photos de produits.** Elles étaient rangées dans la fiche et relues sans cesse : avec 100 boutiques, le serveur se serait figé, puis aurait manqué de mémoire.
+   - Elles ont maintenant leur propre table.
+   - La boutique publique les charge par adresse, ce qui permet au navigateur de les garder en cache.
+   - Une première version les rendait invisibles sur la boutique : corrigé, et vérifié dans un navigateur.
+7. **Fournisseur.**
+   - Une clé d'idempotence garantit qu'un colis n'est pas envoyé deux fois après une coupure.
+   - Une alerte prévient le marchand si une commande reste 7 jours sans expédition.
+   - Le fournisseur de démonstration rattrape ses expéditions après un redémarrage ; ses références sont uniques.
+8. **Litiges bancaires** : suivis (voir plus haut).
+9. **Caisse.** Une vente renvoyée après un redémarrage était comptée deux fois. La clé de ticket est maintenant gardée en base.
+10. **Entretien quotidien.**
+    - Purge des sessions, liens et mesures expirés, et des photos des produits supprimés.
+    - Le contenu des e-mails envoyés est effacé après 180 jours (protection des données).
+    - Une sauvegarde automatique de la base est faite chaque jour, et les 14 dernières sont gardées.
+
+**Résultats finaux**
+- 60 jours, 100 marchands, 8 562 commandes, serveur redémarré au jour 30, 970 désinscriptions, 9 effacements et 2 comptes supprimés : 0 anomalie, 0 erreur serveur.
+- Nouvel An et heure d'été (40 marchands sur 30 jours chacun) : 0 anomalie.
+- Tests : 67, dont la panne du service d'e-mail, les photos et la session glissante.
