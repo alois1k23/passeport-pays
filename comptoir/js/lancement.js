@@ -7,7 +7,7 @@ function etapesLancement() {
   etatConversion();
   if (!connecteServeur()) {
     if (!etat.social) semerHistoriqueSocial(etat);
-    if (!etat.avis) semerAvis();
+    if (!etat.avis && !connecteServeur()) semerAvis();   // avis simulés : démo seulement
     if (!etat.tests) semerTests();
   }
   const actifs = etat.produits.filter(p => p.actif);
