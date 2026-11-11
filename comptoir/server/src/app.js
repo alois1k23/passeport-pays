@@ -205,9 +205,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
     `Total payé : ${formatMontant(c.total, config)}`
   ].join('\n');
-  const lienTransporteur = (transporteur, suivi) => {
+  const lienTransporteur = (transporteur, suivi, pays) => {
     const n = encodeURIComponent(String(suivi || '').replace(/\s/g, ''));
-    if (/la poste|post/i.test(transporteur || '') && /^99\.|^\d{2}\.\d{2}/.test(suivi || '')) return `https://service.post.ch/ekp-web/ui/entry/shipping/0?formattedParcelCodes=${n}`;
+    // La Poste suisse : tout numéro pour une boutique suisse (colis 99.…, recommandés RR…CH, etc.)
+    if (/la poste|post/i.test(transporteur || '') && (pays === 'ch' || /^99\.|^\d{2}\.\d{2}/.test(suivi || ''))) return `https://service.post.ch/ekp-web/ui/entry/shipping/0?formattedParcelCodes=${n}`;
     if (/colissimo|la poste/i.test(transporteur || '')) return `https://www.laposte.fr/outils/suivre-vos-envois?code=${n}`;
     if (/chronopost/i.test(transporteur || '')) return `https://www.chronopost.fr/tracking-no-cms/suivi-page?listeNumerosLT=${n}`;
     if (/mondial/i.test(transporteur || '')) return `https://www.mondialrelay.fr/suivi-de-colis/?NumeroExpedition=${n}`;
@@ -215,7 +216,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return null;
   };
   const emailExpedition = (b, c, config) => {
-    const lien = lienTransporteur(c.transporteur || (prix.modesLivraison(config)[c.livraison] || {}).transporteur, c.suivi);
+    const lien = lienTransporteur(c.transporteur || (prix.modesLivraison(config)[c.livraison] || {}).transporteur, c.suivi, config.boutique.pays);
     envoyerEmail(b.id, c.client.email, `Votre commande n° ${c.numero} est en route`,
       `Bonjour ${c.client.nom},\n\nVotre colis est parti${c.transporteur ? ` avec ${c.transporteur}` : ''}.${c.suivi ? `\nNuméro de suivi : ${c.suivi}` : ''}${c.suivi && lien ? `\nSuivre le colis : ${lien}` : ''}\n\nVotre commande : ${lienCommande(b, c.id)}\n\nMerci et à bientôt,\n${config.boutique.nom}`);
   };
@@ -1000,7 +1001,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = boutiqueOuverte(ctx.params.slug);
     const config = configVente(b);
     // Vendre à distance sans adresse du vendeur est interdit (CH : LCD art. 3 s ; FR : LCEN art. 6 ; BE : CDE art. VI.45).
-    if (!String((config.entreprise || {}).adresse || '').trim()) throw erreur(409, 'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.', 'boutique_incomplete');
+    const adr = String((config.entreprise || {}).adresse || '').trim();
+    if (!adr || /compléter/i.test(adr)) throw erreur(409, 'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.', 'boutique_incomplete');
     const produits = listerProduits(b.id).filter(vendable);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
     const modes = prix.modesLivraison(config);

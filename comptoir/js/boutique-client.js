@@ -165,8 +165,8 @@ function rendreBrut() {
             <label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}
             <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
             <p class="erreur-form" id="erreur" hidden></p>
-            ${!(donnees.entreprise || {}).adresse ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
-            <button class="sf-btn plein" ${vue.envoi || !(donnees.entreprise || {}).adresse || donnees.paiementsActifs === false ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
+            ${!adresseVendeur() ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
+            <button class="sf-btn plein" ${vue.envoi || !adresseVendeur() || donnees.paiementsActifs === false ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
             <p class="mini">${donnees.paiement === 'stripe' ? (ch && (!donnees.moyens || donnees.moyens.twint) ? 'Paiement sécurisé par TWINT ou carte.' : donnees.boutique.pays === 'be' && (!donnees.moyens || donnees.moyens.bancontact) ? 'Paiement sécurisé par Bancontact ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
@@ -338,6 +338,9 @@ async function appliquerCode(code) {
   } catch (e) { vue.code = null; vue.codeMessage = e.message || 'Code non reconnu.'; }
   rendre();
 }
+
+// Adresse du vendeur réellement saisie (pas le modèle « à compléter ») : sinon le serveur refuse la commande.
+function adresseVendeur() { const a = String((donnees.entreprise || {}).adresse || '').trim(); return !!a && !/compléter/i.test(a); }
 
 async function inscrireNewsletter(form) {
   const email = form.querySelector('input[type=email]').value;

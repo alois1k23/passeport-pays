@@ -1326,7 +1326,7 @@ html, body { overflow-x: clip; }
   .icone { min-height: 40px; }
   #nav a { min-height: 40px; }
   .segment button { min-height: 36px; }
-  input[type="radio"], input[type="checkbox"] { width: 20px; height: 20px; }
+  input[type="radio"]:not(.interrupteur input), input[type="checkbox"]:not(.interrupteur input) { width: 20px; height: 20px; }
 }
 /* Sur téléphone, l'aperçu a déjà la taille d'un téléphone : le choix Ordinateur / Mobile n'a pas de sens. */
 @media (max-width: 900px) { .segment[aria-label="Appareil"] { display: none; } }

@@ -1082,3 +1082,13 @@ Parcours complet sur iPhone 13, Pixel 7 et un écran de 360 × 640 :
 - fournisseurs du catalogue de démonstration marqués « (démo) » : ils disparaissent avec un vrai fournisseur.
 
 Tests : 64.
+
+### Cycle 48 — Relecture du cycle 47 : 2 régressions et 3 détails corrigés (06 h 05 – 06 h 15)
+
+1. **Régression : « Annuler » expédiait quand même.** Annuler la question du numéro de suivi laissait le clic passer à la logique de démonstration : la commande s'affichait expédiée, avec un numéro inventé, jusqu'au rechargement. L'annulation arrête maintenant tout.
+2. **Régression : interrupteurs déformés.** Sur téléphone et tablette, la nouvelle taille des cases à cocher (20 px) écrasait aussi les interrupteurs, devenus carrés. Les interrupteurs sont maintenant exclus de la règle.
+3. **Commande expédiée par le fournisseur.** Le marchand n'a plus à donner de numéro de suivi : c'est le fournisseur qui le transmet.
+4. **Lien de suivi La Poste suisse.** Pour une boutique suisse, tout numéro (par exemple un recommandé RR…CH) mène au suivi de La Poste suisse, et non plus au site de La Poste française.
+5. **Une seule règle pour « adresse renseignée »**, la même pour le serveur, la boutique, le badge et le message de bienvenue. Le modèle « (adresse à compléter) » ne compte plus comme une adresse.
+
+Tests : 64.
