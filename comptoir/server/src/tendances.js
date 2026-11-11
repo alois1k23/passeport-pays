@@ -63,7 +63,7 @@ function creerCollecte({ db, env = {}, catalogue, fetchImpl = fetch, journal = c
 
   /* 2. Google Trends via SerpApi : on interroge d'abord les produits les plus anciennement mis à jour. */
   async function collecterTrends(maintenant = Date.now()) {
-    if (!env.SERPAPI_KEY) { meta.sources.trends = { actif: false, detail: 'Ajoutez une clé SerpApi (SERPAPI_KEY) pour suivre les recherches Google en Suisse, en France et en Belgique.' }; return; }
+    if (!env.SERPAPI_KEY) { meta.sources.trends = { actif: false, detail: 'Recherches Google en Suisse, en France et en Belgique : pas encore branchées sur cette installation.' }; return; }
     const paysActifs = [...new Set(db.prepare('SELECT config FROM boutiques').all().map(r => { try { return JSON.parse(r.config).boutique.pays; } catch { return 'ch'; } }))].filter(p => ['ch', 'fr', 'be'].includes(p));
     const anciennete = new Map(db.prepare("SELECT cle, maj_le FROM tendances WHERE cle LIKE 'trends|%'").all().map(r => [r.cle, r.maj_le]));
     const file = [];
@@ -89,7 +89,7 @@ function creerCollecte({ db, env = {}, catalogue, fetchImpl = fetch, journal = c
 
   /* 3. Fichier d'un outil d'analyse ou de relevés de meilleures ventes. */
   function collecterFichier(maintenant = Date.now()) {
-    if (!env.TENDANCES_FICHIER) { meta.sources.fichier = { actif: false, detail: 'Importez un export d’outil d’analyse (Minea, Jungle Scout…) ou vos relevés de meilleures ventes au format JSON (TENDANCES_FICHIER).' }; return; }
+    if (!env.TENDANCES_FICHIER) { meta.sources.fichier = { actif: false, detail: 'Relevés externes (outils d’analyse, meilleures ventes) : aucun fichier importé sur cette installation.' }; return; }
     try {
       const liste = JSON.parse(fs.readFileSync(env.TENDANCES_FICHIER, 'utf8'));
       let n = 0;

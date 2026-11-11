@@ -913,3 +913,17 @@ test('entrées malformées : cookie, adresse et jeton multi-octets donnent une r
   for (let i = 0; i < 1001; i++) { dernier = await m('POST', '/api/admin/compte/supprimer', { motDePasse: 'mauvais mot de passe ' + i }); if (dernier.statut === 429) break; }
   assert.equal(dernier.statut, 429);
 });
+
+test('passage à Lancement : les publications programmées ne partent pas, elles redeviennent des brouillons', async () => {
+  const m = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'retour-lancement@exemple.ch', motDePasse: 'un mot de passe solide', config: { ...config('Retour'), social: { comptes: { instagram: true }, reglages: {} } } }, { sansPaiement: true });
+  const { url } = (await m('POST', '/api/abonnement/commencer', { formule: 'croissance' })).json;
+  await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const r = await m('POST', '/api/admin/publications', { publications: [{ reseau: 'instagram', date: Date.now() - 1000, format: 'Reel', pilier: 'produit', accroche: 'a', legende: 'b', hashtags: [], statut: 'programmee' }] });
+  assert.equal(r.statut, 201, JSON.stringify(r.json));
+  assert.equal((await m('POST', '/api/abonnement/changer', { formule: 'lancement' })).statut, 200);
+  await serveur.listeners('request')[0].publierEcheances();
+  const b = db.prepare('SELECT id FROM boutiques WHERE slug = ?').get(ins.json.slug);
+  const p = db.prepare('SELECT statut, donnees FROM publications WHERE boutique_id = ?').get(b.id);
+  assert.equal(p.statut, 'brouillon'); assert.equal(JSON.parse(p.donnees).statut, 'brouillon');
+});

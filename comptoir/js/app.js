@@ -121,10 +121,10 @@ const NAV = [
   ['sourcing', 'Trouver des produits', 'Catalogue'],
   ['tests', 'Tests produits', 'Catalogue'],
   ['fournisseurs', 'Fournisseurs', 'Catalogue'],
-  ['social', 'Réseaux sociaux', 'Croissance'],
-  ['conversion', 'Conversion et e-mails', 'Croissance'],
-  ['domaines', 'Domaines', 'Croissance'],
+  ['social', 'Réseaux sociaux', 'Marketing'],
+  ['conversion', 'Conversion et e-mails', 'Marketing'],
   ['editeur', 'Éditeur du site', 'Boutique'],
+  ['domaines', 'Domaines', 'Boutique'],
   ['conformite', 'Conformité', 'Boutique'],
   ['boutique', 'Voir la boutique', 'Boutique'],
   ['parametres', 'Paramètres', 'Compte']
@@ -147,13 +147,14 @@ document.addEventListener('keydown', e => { if (e.key === 'Tab') dernierTab = { 
 function rendre() {
   const route = ui.route;
   document.body.dataset.route = route;
+  document.body.dataset.connecte = typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? '1' : '';   // l'aperçu pleine largeur n'existe qu'en démonstration
   const aTraiter = etat.commandes.filter(c => c.statut === 'payee' || c.statut === 'preparation').length;
   const aValider = prochainsTempsForts(2).filter(e => !etat.campagnes[e.cle]).length;
   let groupe = '';
   $('#nav').innerHTML = NAV.map(([id, nom, g]) => {
     const tete = g !== groupe ? `<div class="nav-groupe">${(groupe = g)}</div>` : '';
     const verrouille = typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.abonnement && SERVEUR.abonnement.obligatoire && Formules.FONCTIONS[id] && !Formules.permet(SERVEUR.abonnement.formule, id);
-    return `${tete}<a href="#${id}" class="${route === id ? 'actif' : ''}${verrouille ? ' verrouille' : ''}" ${route === id ? 'aria-current="page"' : ''} ${verrouille ? `title="Formule ${Formules.FORMULES[Formules.FONCTIONS[id]].nom}"` : ''}>${icone(id)}<span>${nom}</span>${verrouille ? '<i class="cadenas" aria-label="Non inclus dans votre formule">🔒</i>' : ''}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider ? `<b class="badge">${aValider}</b>` : ''}</a>`;
+    return `${tete}<a href="#${id}" class="${route === id ? 'actif' : ''}${verrouille ? ' verrouille' : ''}" ${route === id ? 'aria-current="page"' : ''} ${verrouille ? `title="Formule ${Formules.FORMULES[Formules.FONCTIONS[id]].nom}"` : ''}>${icone(id)}<span>${nom}</span>${verrouille ? '<i class="cadenas" aria-label="Non inclus dans votre formule">🔒</i>' : ''}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider && !verrouille ? `<b class="badge">${aValider}</b>` : ''}</a>`;
   }).join('');
   const n = NAV.find(x => x[0] === route);
   const [g, t] = n ? [n[2], n[1]] : (TITRES_HORS_NAV[route] || ['Comptoir', '']);
@@ -291,10 +292,10 @@ function vueTableau() {
     <section class="carte saison-carte">
       <span class="eyebrow">Copilote · prochain temps fort</span>
       <h2>${esc(prochain.nom)}, ${prochain.date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</h2>
-      <p>${dansJours(prochain.date)}. ${etat.campagnes[prochain.cle] ? 'Votre campagne est programmée.' : `Campagne prête${campProchain.caPrevu === null ? ' (prévision de ventes dès vos premières commandes)' : ` : ${euros(campProchain.caPrevu)} de ventes prévues`}${campProchain.ruptures.length ? `, ${campProchain.ruptures.length} produit${campProchain.ruptures.length > 1 ? 's' : ''} à réassortir` : ''}.`}</p>
+      <p>${dansJours(prochain.date)}. ${!fonctionIncluse('copilote') ? 'Avec la formule Croissance, le copilote prépare la campagne (offre, code, bannière, publications).' : etat.campagnes[prochain.cle] ? 'Votre campagne est programmée.' : `Campagne prête${campProchain.caPrevu === null ? ' (prévision de ventes dès vos premières commandes)' : ` : ${euros(campProchain.caPrevu)} de ventes prévues`}${campProchain.ruptures.length ? `, ${campProchain.ruptures.length} produit${campProchain.ruptures.length > 1 ? 's' : ''} à réassortir` : ''}.`}</p>
       <div class="jauge"><div style="width:${Math.min(100, indice / 1.8)}%"></div></div>
       <p class="sous">Demande « ${esc(secteur.nom)} » : indice ${indice} (100 = mois moyen)</p>
-      <div class="rangee"><a class="btn" href="#copilote">${etat.campagnes[prochain.cle] ? 'Voir la campagne' : 'Relire et valider'}</a><a class="btn fantome" href="#domaines">Domaine de campagne</a></div>
+      <div class="rangee">${fonctionIncluse('copilote') ? `<a class="btn" href="#copilote">${etat.campagnes[prochain.cle] ? 'Voir la campagne' : 'Relire et valider'}</a>` : '<a class="btn" href="#offre">Voir les formules</a>'}<a class="btn fantome" href="#domaines">Domaine de campagne</a></div>
     </section>
   </div>
   <div class="grille-2">
@@ -302,7 +303,7 @@ function vueTableau() {
       <div class="carte-tete"><h2>Dernières commandes</h2><a href="#commandes" class="lien">Toutes les commandes</a></div>
       ${recentes.length ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>N°</th><th>Client</th><th class="num">Total</th><th>Statut</th></tr></thead><tbody>${recentes.map(c => `
         <tr data-action="ouvrir-commande" data-id="${c.id}" tabindex="0"><td class="mono">#${c.numero}</td><td>${esc(c.client.nom)}<div class="sous">${dateCourte(c.date)} · ${esc(c.client.ville || '')}</div></td><td class="num">${euros(c.total)}</td><td>${pill(c.statut)}</td></tr>`).join('')}
-      </tbody></table></div>` : etatVide('commandes', 'Pas encore de commande', 'Partagez le lien de votre boutique ou lancez le pilote des réseaux sociaux pour obtenir vos premières visites.', '<a class="btn petit" href="#social">Préparer mes publications</a>')}
+      </tbody></table></div>` : etatVide('commandes', 'Pas encore de commande', fonctionIncluse('social') ? 'Partagez le lien de votre boutique ou lancez le pilote des réseaux sociaux pour obtenir vos premières visites.' : 'Partagez le lien de votre boutique (réseaux, messagerie, QR code) pour obtenir vos premières visites.', fonctionIncluse('social') ? '<a class="btn petit" href="#social">Préparer mes publications</a>' : '<a class="btn petit" href="#boutique">Voir ma boutique</a>')}
     </section>
     <section class="carte">
       <div class="carte-tete"><h2>À faire</h2></div>

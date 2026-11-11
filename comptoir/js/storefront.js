@@ -113,7 +113,8 @@ function renduSection(s, etat, mode) {
         const c = p.campagne ? etat.campagnes[p.campagne] : null;
         const per = !c && p.code ? Remises.periodeCampagne(vente, p.code) : null;
         const debut = c ? c.debut : per && per.debut, avant = debut && debut > Date.now();
-        const quoi = avant ? `Programmée : visible à partir du ${new Date(debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : p.campagne || p.code ? 'Campagne terminée : cette bannière n’est plus affichée.' : 'Masquée pendant qu’une bannière de campagne est affichée.';
+        const horsFormule = vente !== etat && p.campagne;   // campagne éteinte par la formule (Lancement)
+        const quoi = horsFormule ? 'Non affichée : les campagnes viennent avec la formule Croissance.' : avant ? `Programmée : visible à partir du ${new Date(debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : p.campagne || p.code ? 'Campagne terminée : cette bannière n’est plus affichée.' : 'Masquée pendant qu’une bannière de campagne est affichée.';
         return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${quoi}</span></div></section>`;
       }
       // Côté admin, on vérifie que le code existe vraiment (Conversion ou campagne) ; côté public, le serveur a déjà retiré les codes inconnus.
@@ -159,9 +160,14 @@ function renduSection(s, etat, mode) {
       return `<section class="sf-avis"><h2 class="sf-avis-titre">${esc(p.titre || 'Témoignages')}</h2>${temoignages.map(([a, n]) => `
         <figure><blockquote>${esc(a)}</blockquote>${n ? `<figcaption>${esc(n)}</figcaption>` : ''}</figure>`).join('')}</section>`;
     }
-    case 'newsletter':
-      return `<section class="sf-newsletter"><h2>${esc(p.titre)}</h2><p>${esc(p.texte)}</p>
+    case 'newsletter': {
+      // Ancien texte par défaut (« -10 % ») : il ne promet que la remise réellement envoyée par l'e-mail de bienvenue.
+      const bv = (((typeof etatVente === 'function' ? etatVente() : etat).automatisations || {}).bienvenue) || etat.newsletter || null;
+      const r = bv && bv.actif && bv.code ? Number(bv.remise ?? 10) : 0;
+      const texte = p.texte === '-10 % sur votre première commande.' ? (r > 0 ? `-${r} % sur votre première commande.` : 'Les nouveautés de la boutique, quelques fois par mois.') : p.texte;
+      return `<section class="sf-newsletter"><h2>${esc(p.titre)}</h2><p>${esc(texte)}</p>
         <form data-sf="newsletter"><input type="email" placeholder="Votre e-mail" aria-label="Votre e-mail" required><button class="sf-btn">S’inscrire</button></form></section>`;
+    }
     case 'faq':
       return `<section class="sf-faq"><h2>Questions fréquentes</h2>${[[p.q1, p.r1], [p.q2, p.r2]].filter(q => q[0]).map(([q, r]) => `<details><summary>${esc(q)}</summary><p>${esc(r)}</p></details>`).join('')}</section>`;
     case 'pied':

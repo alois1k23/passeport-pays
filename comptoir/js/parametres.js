@@ -28,19 +28,21 @@ function vueParametres() {
         <div><strong>TWINT</strong><span class="sous">Paiement mobile le plus utilisé en Suisse, uniquement en CHF.</span>${statut(stripe && b.devise === 'CHF', 'Proposé', 'Inactif')}</div>
         <div><strong>Cartes</strong><span class="sous">Visa, Mastercard et autres cartes acceptées par Stripe.</span>${statut(stripe, 'Proposé', 'Inactif')}</div>
       </div>
-      <p class="sous">${stripe ? 'Les paiements passent par Stripe Checkout ; les remboursements partent depuis la fiche commande.' : 'Pour encaisser pour de vrai : créez un compte Stripe au nom de l’entreprise, activez TWINT, puis renseignez les clés sur le serveur (guide : server/README.md). En attendant, le paiement est simulé et aucun montant n’est débité.'}</p></section>`;
+      <p class="sous">${stripe ? 'Les paiements passent par Stripe Checkout ; les remboursements partent depuis la fiche commande.' : 'Le paiement en ligne n’est pas encore branché sur cette installation : il est simulé et aucun montant n’est débité. Il s’active quand l’exploitant de la plateforme relie Stripe (cartes, TWINT en Suisse, Bancontact en Belgique).'}</p></section>`;
   } else if (s === 'livraison') {
     const modes = Object.values(livraisonsPays(b.pays));
     corps = `<section class="carte sans-pad"><div class="carte-tete pad"><h2>Modes de livraison</h2><span class="sous">tarifs TTC facturés au client</span></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Mode</th><th>Délai (stock propre)</th><th class="num">Prix</th></tr></thead><tbody>
       ${modes.filter(m => m.transporteur || retraitPossible()).map(m => `<tr><td>${esc(m.nom)}</td><td class="sous">${esc(m.delai)}</td><td class="num">${m.prix ? euros(m.prix) : 'Gratuit'}</td></tr>`).join('')}
       </tbody></table></div>
-      <div class="pad-x pad-b"><p class="sous">Livraison offerte dès <b>${seuilPort() > 0 ? euros(seuilPort()) : 'jamais'}</b> (hors envoi express) : réglable dans <a class="lien" href="#conversion">Conversion</a>. Commandes passées après 14 h : expédiées le jour ouvrable suivant. Pour les produits en dropshipping, le délai affiché est celui du fournisseur.</p></div></section>`;
+      <div class="pad-x pad-b"><p class="sous">Livraison offerte dès <b>${seuilPort() > 0 ? euros(seuilPort()) : 'jamais'}</b> (hors envoi express).</p>
+        <label class="champ"><span>Livraison offerte dès (${devise()}, 0 = jamais)</span><input type="number" min="0" max="1000" step="5" value="${seuilPort()}" data-seuil></label>
+        <p class="sous">Commandes passées après 14 h : expédiées le jour ouvrable suivant. Pour les produits en dropshipping, le délai affiché est celui du fournisseur.</p></div></section>`;
   } else if (s === 'emails') {
     const service = enLigne() ? SERVEUR.emails : null;
     corps = `<section class="carte"><div class="carte-tete"><h2>Envoi des e-mails</h2>${statut(!!service, service === 'brevo' ? 'Brevo actif' : service === 'postmark' ? 'Postmark actif' : 'Actif', enLigne() ? 'File d’attente' : 'Démo')}</div>
       <p class="sous">${service ? `Les e-mails partent automatiquement : confirmations, expéditions${etatVente() === etat ? ', relances, avis, bienvenue' : ' (relances, avis et bienvenue : avec la formule Croissance)'}.` : 'Sans service d’envoi, les e-mails sont préparés et gardés en file, mais ne partent pas. Branchez Brevo (hébergé en Europe) ou Postmark sur le serveur pour les envoyer.'}</p>
-      <div class="liste-reglages">${['Confirmation de commande', 'Colis expédié, avec suivi', 'Commande prête à retirer', 'Relance de paiement abandonné', 'Bienvenue (newsletter)', 'Demande d’avis', 'Reconquête des inactifs'].map((n, i) => `<div><strong>${n}</strong><span class="sous">${i < 3 ? 'Toujours envoyé (e-mail de service)' : 'Réglable dans Conversion'}</span></div>`).join('')}</div>
+      <div class="liste-reglages">${['Confirmation de commande', 'Colis expédié, avec suivi', 'Commande prête à retirer', 'Relance de paiement abandonné', 'Bienvenue (newsletter)', 'Demande d’avis', 'Reconquête des inactifs'].map((n, i) => `<div><strong>${n}</strong><span class="sous">${i < 3 ? (i === 2 && !retraitPossible() ? 'Envoyé si le retrait en magasin est activé' : 'Toujours envoyé (e-mail de service)') : etatVente() === etat ? 'Réglable dans <a class="lien" href="#conversion">Conversion</a>' : 'Avec la formule Croissance'}</span></div>`).join('')}</div>
       ${enLigne() ? '<div class="rangee"><button class="btn petit fantome" data-action="voir-emails">Voir les derniers e-mails</button></div>' : ''}</section>`;
   } else if (s === 'domaine') {
     const d = b.domaine;
@@ -109,7 +111,10 @@ document.addEventListener('click', async e => {
     if (a === 'abo-resilier' && !confirm('Résilier l’abonnement ? Votre boutique reste ouverte jusqu’à la fin du mois payé.')) return;
     if (a === 'abo-changer') {
       const ab = SERVEUR.abonnement || {}, f = Formules.FORMULES[el.dataset.v];
-      if (f && !confirm(`Passer à ${f.nom} pour ${Formules.prixTexte(el.dataset.v, ab.devise)} par mois ? Le changement est immédiat ; ${ab.prestataire === 'stripe' ? 'la différence pour le mois en cours est calculée au prorata et ajoutée à (ou déduite de) votre prochaine facture.' : 'en mode test, rien n’est débité.'}`)) return;
+      // Ce qui s'arrête tout de suite en descendant de formule (les réglages restent enregistrés).
+      const perdues = Object.keys(Formules.FONCTIONS).filter(k => Formules.permet(ab.formule, k) && !Formules.permet(el.dataset.v, k)).map(k => Formules.NOMS_FONCTIONS[k]);
+      const avert = perdues.length ? `\n\nS'arrêtent immédiatement : ${perdues.join(', ')}${perdues.includes(Formules.NOMS_FONCTIONS.conversion) ? ' (codes promo, remises par quantité, offres, campagnes, e-mails automatiques)' : ''}${perdues.includes(Formules.NOMS_FONCTIONS.magasin) ? ' (caisse, retrait en magasin)' : ''}${perdues.includes(Formules.NOMS_FONCTIONS.social) ? ' ; les publications programmées redeviennent des brouillons' : ''}. Vos réglages sont gardés et reviennent si vous reprenez la formule.` : '';
+      if (f && !confirm(`Passer à ${f.nom} pour ${Formules.prixTexte(el.dataset.v, ab.devise)} par mois ? Le changement est immédiat ; ${ab.prestataire === 'stripe' ? 'la différence pour le mois en cours est calculée au prorata et ajoutée à (ou déduite de) votre prochaine facture.' : 'en mode test, rien n’est débité.'}${avert}`)) return;
     }
     try {
       const r = await api('POST', `/api/abonnement/${a === 'abo-changer' ? 'changer' : a === 'abo-resilier' ? 'resilier' : 'reprendre'}`, a === 'abo-changer' ? { formule: el.dataset.v } : {});

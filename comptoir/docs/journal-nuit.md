@@ -836,3 +836,42 @@ Une relecture indépendante des corrections du cycle 40 a trouvé une régressio
 7. **Base de données.** Ajout d'un index `paiements(commande_id, statut)`, utilisé par le calcul des tendances et par la mise à jour des paiements d'une commande.
 
 Tests : 61.
+
+### Cycle 42 — Chaque formule dans un vrai navigateur (05 h 00 – 05 h 25)
+
+Les trois formules (Lancement, Croissance, Pro) ont été parcourues de bout en bout dans Chromium : inscription, paiement simulé, les 19 écrans, l'éditeur, la boutique publique, le panier et la page de paiement, plus des changements de formule à la hausse et à la baisse.
+
+**Ce qui fonctionne :** les montants payés suivent exactement la formule.
+- Lancement : CHF 162.00, sans remise.
+- Croissance et Pro : CHF 145.80 avec la remise par quantité, et CHF 129.60 avec un code.
+- Le retrait en magasin disparaît et revient avec la formule Pro.
+- La caisse est refusée sous Croissance.
+
+14 défauts trouvés, tous corrigés :
+
+1. **Après un passage à Lancement, les publications programmées partaient quand même, et l'écran verrouillé empêchait de les annuler.** Elles redeviennent maintenant des brouillons (test ajouté).
+2. **La livraison offerte n'était réglable que dans Conversion, verrouillé sous Lancement.** Le seuil se règle maintenant aussi dans Paramètres > Livraison.
+3. **La boutique promettait « -10 % sur votre première commande » sans e-mail de bienvenue actif.** Le texte n'annonce plus que la remise réellement envoyée, sinon il reste neutre. Le nouveau texte par défaut ne promet rien.
+4. **La vue d'ensemble poussait des fonctions hors formule** (copilote, pilote des réseaux sociaux). Elle renvoie maintenant vers les formules.
+5. **Le plan de lancement comptait des étapes impossibles avec Lancement.** Elles sont affichées à part, avec un cadenas et la formule nécessaire.
+6. **Une bannière de campagne restait « programmée » alors qu'elle ne sera jamais affichée.** Elle indique maintenant que les campagnes viennent avec Croissance.
+7. **Descendre de formule se faisait sans avertissement.** La confirmation liste maintenant ce qui s'arrête tout de suite, et précise que les réglages sont gardés.
+8. **Paramètres > E-mails** renvoyait vers un écran verrouillé, et annonçait l'e-mail « prête à retirer » sans retrait en magasin. Les deux textes suivent maintenant la formule.
+9. **Tarifs honnêtes.**
+   - Retiré de Pro : « Export pour votre fiduciaire » (déjà inclus dès Lancement) et « Assistance prioritaire » (rien ne la distinguait).
+   - Retiré de Croissance : « Tendances en continu » (même rythme pour tous).
+   - Retirée : la « fiche Google », pas encore disponible.
+   - Ajoutés à la place, uniquement des éléments qui existent.
+   - Même correction sur l'accueil public.
+10. **Page Offre et tarifs.** La formule actuelle est marquée, et les boutons disent « Passer à … ».
+11. **Menu.**
+    - Plus de badge « 2 à valider » sur le copilote verrouillé.
+    - Le groupe de menu nommé « Croissance » (comme la formule) devient « Marketing ».
+    - Les Domaines, inclus partout, passent sous « Boutique ».
+12. **La palette de commandes (Ctrl+K)** ne propose plus d'action vers un écran hors formule.
+13. **« Voir la boutique » en mode connecté** n'est plus collé à la barre latérale : la mise en page pleine largeur ne vaut que pour l'aperçu de démonstration.
+14. **Jargon de développeur visible des marchands** (SERPAPI_KEY, TENDANCES_FICHIER, server/README.md). Remplacé par des phrases claires.
+
+Le code promo faux renvoie toujours une erreur 404. Le message affiché au client est juste ; ce n'est qu'une ligne dans la console du navigateur, laissée telle quelle.
+
+Tests : 62.

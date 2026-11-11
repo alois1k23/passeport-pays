@@ -197,7 +197,7 @@ const TYPES_SECTIONS = {
   arguments: { nom: 'Arguments clés', champs: [['a1', 'Argument 1', 'text'], ['a2', 'Argument 2', 'text'], ['a3', 'Argument 3', 'text']], defaut: { a1: 'Paiement sécurisé', a2: 'Livraison suivie', a3: 'Service client par e-mail' } },
   texte: { nom: 'Bloc texte', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'textarea']], defaut: { titre: 'Notre histoire', texte: 'Racontez qui vous êtes, comment vous fabriquez et pourquoi.' } },
   avis: { nom: 'Avis clients', champs: [['a1', 'Avis 1', 'textarea'], ['n1', 'Auteur 1', 'text'], ['a2', 'Avis 2', 'textarea'], ['n2', 'Auteur 2', 'text']], defaut: { a1: '', n1: '', a2: '', n2: '' } },
-  newsletter: { nom: 'Inscription newsletter', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'text']], defaut: { titre: 'Restons en contact', texte: '-10 % sur votre première commande.' } },
+  newsletter: { nom: 'Inscription newsletter', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'text']], defaut: { titre: 'Restons en contact', texte: 'Les nouveautés de la boutique, quelques fois par mois.' } },
   faq: { nom: 'Questions fréquentes', champs: [['q1', 'Question 1', 'text'], ['r1', 'Réponse 1', 'textarea'], ['q2', 'Question 2', 'text'], ['r2', 'Réponse 2', 'textarea']], defaut: { q1: 'Quels sont les délais de livraison ?', r1: 'Le délai de livraison est indiqué sur chaque fiche produit.', q2: 'Puis-je retourner un produit ?', r2: 'Oui : la procédure est décrite dans nos conditions générales de vente.' } },
   pied: { nom: 'Pied de page', champs: [['texte', 'Texte', 'text'], ['contact', 'Contact', 'text']], defaut: { texte: 'Fait avec soin.', contact: '' } }
 };
@@ -239,7 +239,7 @@ const LIVRAISONS_BE = {
 const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH, ...LIVRAISONS_BE };
 function livraisonsPays(pays) { return pays === 'ch' ? LIVRAISONS_CH : pays === 'be' ? LIVRAISONS_BE : LIVRAISONS; }
 const SEUIL_PORT_DEFAUT = 60;
-/* Seuil de livraison offerte de la boutique (réglable dans Conversion ; 0 = jamais offerte). */
+/* Seuil de livraison offerte de la boutique (Paramètres > Livraison, ou Conversion ; 0 = jamais offerte). */
 function seuilPort() { try { return etat && etat.offres && etat.offres.seuilPort !== undefined ? Number(etat.offres.seuilPort) : SEUIL_PORT_DEFAUT; } catch { return SEUIL_PORT_DEFAUT; } }
 function fraisPort(mode, sousTotal) {
   const l = TOUTES_LIVRAISONS[mode] || LIVRAISONS.colissimo;
@@ -406,6 +406,11 @@ function urlBoutiquePublique() {
 function etatVente() {
   const ab = typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? SERVEUR.abonnement : null;
   return ab && ab.obligatoire && typeof Formules !== 'undefined' ? Formules.configVente(etat, ab.formule) : etat;
+}
+/* Écran ou fonction inclus dans la formule payée (toujours vrai en démonstration). */
+function fonctionIncluse(id) {
+  const ab = typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? SERVEUR.abonnement : null;
+  return !(ab && ab.obligatoire && typeof Formules !== 'undefined' && Formules.FONCTIONS[id] && !Formules.permet(ab.formule, id));
 }
 function retraitPossible() { try { const v = etatVente(); return !!(v.magasin && v.magasin.clickCollect && String(v.magasin.adresse || '').trim()); } catch { return false; } }
 

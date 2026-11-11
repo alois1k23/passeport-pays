@@ -837,10 +837,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 
   /* Publie les publications programmées arrivées à échéance (appelé chaque minute). */
   async function publierEcheances(maintenant = Date.now()) {
-    const dues = db.prepare("SELECT p.*, b.config FROM publications p JOIN boutiques b ON b.id = p.boutique_id WHERE p.statut = 'programmee' AND p.date <= ? LIMIT 200").all(maintenant);
+    const dues = db.prepare("SELECT p.*, b.config, b.marchand_id FROM publications p JOIN boutiques b ON b.id = p.boutique_id WHERE p.statut = 'programmee' AND p.date <= ? LIMIT 200").all(maintenant);
     let n = 0;
     for (const row of dues) {
       const config = JSON.parse(row.config);
+      // Formule sans réseaux sociaux (après un changement de formule) : rien ne part ; la publication redevient un brouillon,
+      // à revalider si le marchand reprend Croissance (l'écran est alors verrouillé : il ne pourrait pas l'annuler).
+      const ab = abo.etat(row.marchand_id);
+      if (ab.obligatoire && !Formules.permet(ab.formule, 'social')) {
+        db.prepare("UPDATE publications SET statut = 'brouillon', donnees = ? WHERE id = ?").run(JSON.stringify({ ...JSON.parse(row.donnees), statut: 'brouillon' }), row.id);
+        continue;
+      }
       if (!config.social || !config.social.comptes || !config.social.comptes[row.reseau]) continue;
       // Sans API de réseau branchée, rien ne part tout seul : la publication reste « à publier » par le marchand.
       if (!social.apiReseauxBranchee() && !socialSimule) continue;

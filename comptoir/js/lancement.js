@@ -49,7 +49,9 @@ function etapesLancement() {
 
 function blocLancement() {
   const phases = etapesLancement();
-  const toutes = phases.flatMap(p => p.etapes);
+  // Étapes qui demandent un écran hors formule : affichées à part, ni comptées ni proposées comme prochaines.
+  for (const p of phases) for (const e of p.etapes) e.horsFormule = !fonctionIncluse(e.lien);
+  const toutes = phases.flatMap(p => p.etapes).filter(e => !e.horsFormule);
   const faites = toutes.filter(e => e.ok).length;
   if (faites === toutes.length && !ui.lancementOuvert) return '';
   const prochaines = toutes.filter(e => !e.ok).slice(0, 3);
@@ -62,6 +64,7 @@ function blocLancement() {
   </section>`;
 }
 function ligneEtape(e) {
+  if (e.horsFormule) return `<li class="hors-formule"><span class="coche" aria-hidden="true">🔒</span><span>${esc(e.nom)}</span><span class="sous">Avec la formule ${esc(Formules.FORMULES[Formules.FONCTIONS[e.lien]].nom)}</span></li>`;
   return `<li class="${e.ok ? 'fait' : ''}">
     ${e.manuel ? `<input type="checkbox" data-lancement="${e.cle}" ${e.ok ? 'checked' : ''} aria-label="${esc(e.nom)}">` : `<span class="coche" aria-hidden="true">${e.ok ? '✓' : ''}</span>`}
     <a href="#${e.lien}">${esc(e.nom)}</a>${e.detail ? `<span class="sous">${esc(e.detail)}</span>` : ''}${e.source ? `<span class="source">${esc(e.source)}</span>` : ''}</li>`;

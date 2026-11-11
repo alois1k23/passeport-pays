@@ -416,7 +416,7 @@ function vueOffre() {
       <h2>${nom}</h2><p class="sous">${pour}</p>
       <div class="prix"><strong>${devise === 'CHF' ? 'CHF ' + prix + '.–' : prix + ' €'}</strong><span class="sous">${ch ? 'par mois' : 'HT / mois'}</span></div>
       <ul>${inclus.map(x => `<li>${x}</li>`).join('')}</ul>
-      ${connecteAuServeur() ? `<a class="btn ${i === 1 ? '' : 'fantome'}" href="#parametres" data-action="section-param" data-v="abonnement">Choisir ${nom}</a>` : `<a class="btn ${i === 1 ? '' : 'fantome'}" href="#creer">Essayer 30 jours</a>`}
+      ${connecteAuServeur() && SERVEUR.abonnement && SERVEUR.abonnement.formule === Formules.ORDRE[i] ? '<span class="pill ok">Votre formule</span>' : connecteAuServeur() ? `<a class="btn ${i === 1 ? '' : 'fantome'}" href="#parametres" data-action="section-param" data-v="abonnement">Passer à ${nom}</a>` : `<a class="btn ${i === 1 ? '' : 'fantome'}" href="#creer">Essayer 30 jours</a>`}
     </section>`).join('')}</div>
   <section class="carte">
     <div class="carte-tete"><h2>Ce qui nous distingue</h2></div>
@@ -426,7 +426,7 @@ function vueOffre() {
       <div><strong>Fait pour la Suisse</strong><p class="sous">CHF, TWINT, La Poste (Economy, Priority, PickPost), Impressum et nLPD.</p></div>` : ''}
       <div><strong>Copilote de saison</strong><p class="sous">Chaque temps fort (Black Friday, Noël, fête des mères, soldes) arrive avec une campagne prête, calculée sur vos ventes et votre stock.</p></div>
       ${ch ? '<div><strong>Conforme en Suisse</strong><p class="sous">Factures numérotées, CGV, Impressum, déclaration nLPD, TVA suisse : générés et tenus à jour.</p></div>' : '<div><strong>Conforme en France</strong><p class="sous">Factures numérotées et facture électronique, CGV, mentions légales, RGPD, TVA : générés et tenus à jour.</p></div>'}
-      <div><strong>Boutique et magasin réunis</strong><p class="sous">Une caisse, un stock, le retrait en magasin et la fiche Google, sans application supplémentaire.</p></div>
+      <div><strong>Boutique et magasin réunis</strong><p class="sous">Une caisse, un stock et le retrait en magasin, sans application supplémentaire.</p></div>
       <div><strong>Un humain au démarrage</strong><p class="sous">30 minutes en visio pour lancer la boutique avec vous. En français.</p></div>
     </div>
   </section>`;

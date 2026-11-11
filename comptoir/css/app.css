@@ -257,7 +257,7 @@ textarea { resize: vertical; }
 .choix-dom b { font-family: var(--f-mono); }
 
 /* Vue boutique client */
-body[data-route="boutique"] main { padding: 0; gap: 0; }
+body[data-route="boutique"]:not([data-connecte="1"]) main { padding: 0; gap: 0; }
 .bandeau-client { position: sticky; top: 0; z-index: 5; display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--ink); color: var(--bg); font-size: .86rem; }
 .bandeau-client .btn { background: var(--bg); color: var(--ink); border-color: var(--bg); }
 .tiroir { position: fixed; inset: 0; z-index: 30; pointer-events: none; }

@@ -2,7 +2,7 @@
 const palette = { ouverte: false, filtre: '', index: 0 };
 
 function entreesPalette() {
-  const pages = NAV.map(([id, nom, g]) => ({ groupe: 'Pages', nom, sous: g, icone: id, faire: () => { location.hash = id; } }));
+  const pages = NAV.filter(([id]) => fonctionIncluse(id)).map(([id, nom, g]) => ({ groupe: 'Pages', nom, sous: g, icone: id, faire: () => { location.hash = id; } }));
   const actions = [
     { nom: 'Nouveau produit', icone: 'plus', faire: () => { location.hash = 'produits'; setTimeout(() => document.querySelector('[data-action="nouveau-produit"]')?.click(), 50); } },
     { nom: 'Générer le calendrier des réseaux sociaux', icone: 'social', faire: () => { location.hash = 'social'; setTimeout(() => document.querySelector('[data-action="generer-planning"]')?.click(), 80); } },
@@ -12,7 +12,7 @@ function entreesPalette() {
     { nom: 'Exporter toutes les commandes (CSV)', icone: 'analyse', faire: () => exporterCommandesCsv(etat.commandes) },
     { nom: 'Changer de thème (clair, sombre, système)', icone: 'soleil', faire: changerTheme },
     { nom: 'Offre et tarifs', icone: 'offre', faire: () => { location.hash = 'offre'; } }
-  ].map(a => ({ ...a, groupe: 'Actions' }));
+  ].filter(a => fonctionIncluse(a.icone)).map(a => ({ ...a, groupe: 'Actions' }));   // pas d'action vers un écran hors formule
   const commandes = [...etat.commandes].sort((a, b) => b.date - a.date).slice(0, 5000).map(c => ({ groupe: 'Commandes', nom: `Commande n° ${c.numero} · ${c.client.nom}`, sous: euros(c.total), icone: 'commandes', faire: () => { ui.commande = c.id; ui.filtre = 'tous'; location.hash = 'commandes'; rendre(); } }));
   const produits = etat.produits.map(p => ({ groupe: 'Produits', nom: p.nom, sous: euros(p.prix), icone: 'produits', faire: () => { ui.produitEdite = { ...p }; location.hash = 'produits'; rendre(); } }));
   return [...pages, ...actions, ...produits, ...commandes];
