@@ -1,6 +1,7 @@
 // Petit routeur HTTP (sans dépendance) : routes avec paramètres, corps JSON limité,
 // cookies, erreurs typées et fichiers statiques.
 'use strict';
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
@@ -84,18 +85,36 @@ function envoyerHtml(res, statut, html) {
   res.end(html);
 }
 
-const TYPES = { '.md': 'text/markdown; charset=utf-8', '.jpg': 'image/jpeg', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const TYPES = { '.webmanifest': 'application/manifest+json', '.md': 'text/markdown; charset=utf-8', '.jpg': 'image/jpeg', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 
 /* Sert un fichier sous `racine` ; refuse toute sortie du dossier (../). */
+const ETAGS = new Map();
 function servirStatique(res, racine, chemin) {
   const cible = path.normalize(path.join(racine, chemin));
   if (!cible.startsWith(racine + path.sep) && cible !== racine) return false;
   let fichier = cible;
   try {
     if (fs.statSync(fichier).isDirectory()) fichier = path.join(fichier, 'index.html');
-    const contenu = fs.readFileSync(fichier);
+    const st = fs.statSync(fichier);
+    // ETag (empreinte du contenu, recalculée seulement si le fichier change) : un rechargement ne retélécharge rien
+    // de ce qui n'a pas changé (réponse 304), tout en restant toujours à jour après une mise en production.
+    let e = ETAGS.get(fichier);
+    if (!e || e.mtime !== st.mtimeMs || e.taille !== st.size) { const c = fs.readFileSync(fichier); e = { mtime: st.mtimeMs, taille: st.size, etag: `"${crypto.createHash('sha1').update(c).digest('base64url').slice(0, 20)}"` }; ETAGS.set(fichier, e); }
     const type = TYPES[path.extname(fichier)] || 'application/octet-stream';
-    const z = /^(text|application\/json)/.test(type) ? compresser(res, contenu, { 'Content-Type': type, 'Cache-Control': 'no-cache' }) : { corps: contenu, entetes: { 'Content-Type': type, 'Cache-Control': 'no-cache' } };
+    const communs = { 'Content-Type': type, 'Cache-Control': 'no-cache', ETag: e.etag, Vary: 'Accept-Encoding', ...(path.basename(fichier) === 'sw.js' ? { 'Service-Worker-Allowed': '/app' } : {}) };
+    const req = res.req;
+    if (req && String(req.headers['if-none-match'] || '').split(/,\s*/).includes(e.etag)) { res.writeHead(304, communs); res.end(); return true; }
+    const contenu = fs.readFileSync(fichier);
+    // Fichiers texte : compressés une fois (Brotli, sinon gzip) puis gardés en mémoire jusqu'au prochain changement.
+    let z = { corps: contenu, entetes: communs };
+    if ((/^(text|application\/(json|manifest))/.test(type) || type.includes('svg')) && contenu.length >= 1024) {
+      const ae = String(req && req.headers['accept-encoding'] || '');
+      const algo = /\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : null;
+      if (algo) {
+        if (!e[algo]) e[algo] = algo === 'br' ? zlib.brotliCompressSync(contenu, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } }) : zlib.gzipSync(contenu, { level: 9 });
+        z = { corps: e[algo], entetes: { ...communs, 'Content-Encoding': algo } };
+      }
+    }
     res.writeHead(200, z.entetes);
     res.end(z.corps);
     return true;

@@ -132,7 +132,7 @@ La revue indépendante a relevé 11 points. Tous sont corrigés :
 
 Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, formes IPv6). Écran Intégrations ajusté : état « ne répond plus depuis… », réactivation avec le nombre d'événements en attente, intégrations inactives encore supprimables.
 
-## Cycle 7 (00 h 35) : tableau de bord en direct
+## Cycle 7 (00 h 25) : tableau de bord en direct
 
 - Flux en direct (Server-Sent Events, `/api/admin/flux`). Le serveur compare l'état de chaque boutique suivie toutes les 2 secondes et prévient l'onglet dès qu'une commande arrive ou change.
 - Avant, l'onglet interrogeait le serveur toutes les 15 secondes. Cette interrogation reste en secours si un proxy coupe le flux.
@@ -146,3 +146,15 @@ Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, 
   - il est contrôlé toutes les 30 secondes et se ferme si l'appareil est déconnecté à distance ;
   - 8 onglets en direct au plus par compte.
 - Vérifié dans un vrai navigateur : une commande payée sur la boutique s'affiche chez le marchand en 1,5 seconde. Test automatique ajouté : 84 tests sur 84.
+
+## Cycle 8 (00 h 35) : application installable, notifications, performance
+
+- **Application installable (PWA)** :
+  - manifeste, icônes (dont une icône « masquable » pour Android), raccourcis Commandes et Produits ;
+  - service worker limité à `/app`, qui prend toujours le réseau d'abord : la dernière version en ligne est servie. La copie locale ne sert qu'hors connexion : l'application s'ouvre au lieu d'une page d'erreur.
+  - Les appels à l'API ne sont jamais mis en cache : aucune donnée de la boutique ne reste sur l'appareil.
+- **Notifications** : nouvelle carte « Notifications sur cet appareil » dans Paramètres > E-mails. L'autorisation n'est demandée qu'au clic. La notification passe par le service worker, ce qui la fait marcher sur Android, et un clic ramène sur les commandes.
+- **Performance des fichiers statiques** :
+  - ETag par fichier : un rechargement reçoit 304 et ne retélécharge rien qui n'ait changé ;
+  - compression Brotli, sinon gzip, faite une seule fois et gardée en mémoire. Avant, gzip était recalculé à chaque requête.
+- Vérifié dans un vrai navigateur : service worker actif, manifeste lu, application ouverte hors connexion, 304 sur un fichier inchangé, Brotli servi.

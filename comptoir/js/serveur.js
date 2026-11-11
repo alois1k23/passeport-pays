@@ -32,6 +32,11 @@ async function initServeur() {
     if (typeof s.connecte !== 'boolean') return;
   } catch { return; }
   Object.assign(SERVEUR, s, { actif: true });
+  // Application installable (PWA) : manifeste et service worker, seulement servis par Comptoir (pas en démo hors ligne).
+  if (location.pathname.startsWith('/app')) {
+    document.head.insertAdjacentHTML('beforeend', '<link rel="manifest" href="/app.webmanifest"><meta name="theme-color" content="#0D1016"><link rel="apple-touch-icon" href="/img/icone-192.png">');
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/app' }).catch(() => { /* facultatif */ });
+  }
   const params = new URLSearchParams(location.search);
   const formuleUrl = params.get('formule');
   if (formuleUrl) { try { sessionStorage.setItem('comptoir-formule', formuleUrl); } catch { /* ignoré */ } }
@@ -467,7 +472,14 @@ function installerModeConnecte() {
       toast(texte);
       if (document.hidden) {
         nonVues += payees.length; document.title = `(${nonVues}) ${titreDeBase}`;
-        try { if ('Notification' in window && Notification.permission === 'granted') new Notification('Comptoir', { body: texte, tag: 'comptoir-commande'}); } catch { /* ignoré */ }
+        try {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            const options = { body: texte, tag: 'comptoir-commande', icon: '/img/icone-192.png', badge: '/img/icone-192.png' };
+            // Via le service worker quand il est là (obligatoire sur Android ; un clic ramène sur les commandes)
+            if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.ready.then(r => r.showNotification('Comptoir', options));
+            else new Notification('Comptoir', options);
+          }
+        } catch { /* ignoré */ }
       }
     } else if (etat.commandes.length > avant) toast(`Nouvelle commande reçue (${etat.commandes.length - avant}).`);
   };

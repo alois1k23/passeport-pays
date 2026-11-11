@@ -61,7 +61,11 @@ function vueParametres() {
         <p class="sous">Commandes passées après 14 h : expédiées le jour ouvrable suivant. Pour les produits en dropshipping, le délai affiché est celui du fournisseur.</p></div></section>`;
   } else if (s === 'emails') {
     const service = enLigne() ? SERVEUR.emails : null;
-    corps = `<section class="carte"><div class="carte-tete"><h2>Envoi des e-mails</h2>${statut(!!service, service === 'brevo' ? 'Brevo actif' : service === 'postmark' ? 'Postmark actif' : 'Actif', enLigne() ? 'File d’attente' : 'Démo')}</div>
+    const notif = typeof Notification === 'undefined' ? 'indisponible' : Notification.permission;
+    const carteNotif = enLigne() ? `<section class="carte"><div class="carte-tete"><h2>Notifications sur cet appareil</h2>${statut(notif === 'granted', notif === 'granted' ? 'Activées' : notif === 'denied' ? 'Bloquées' : 'Inactives', 'Navigateur')}</div>
+      <p class="sous">Une notification à chaque commande payée, même quand Comptoir est en arrière-plan. ${notif === 'denied' ? 'Vous les avez bloquées : autorisez-les dans les réglages du site de votre navigateur.' : notif === 'indisponible' ? 'Ce navigateur ne les propose pas. Sur iPhone : ajoutez d’abord Comptoir à l’écran d’accueil (Partager > Sur l’écran d’accueil).' : 'Installez aussi Comptoir comme une application (menu du navigateur > Installer) pour l’ouvrir en un geste.'}</p>
+      ${notif === 'default' ? '<div class="rangee"><button class="btn" data-action="notif-activer">Activer les notifications</button></div>' : ''}</section>` : '';
+    corps = carteNotif + `<section class="carte"><div class="carte-tete"><h2>Envoi des e-mails</h2>${statut(!!service, service === 'brevo' ? 'Brevo actif' : service === 'postmark' ? 'Postmark actif' : 'Actif', enLigne() ? 'File d’attente' : 'Démo')}</div>
       <p class="sous">${service ? `Les e-mails partent automatiquement : confirmations, expéditions${fonctionIncluse('conversion') ? ', relances, avis, bienvenue' : ' (relances, avis et bienvenue : avec la formule Croissance)'}.` : 'Sans service d’envoi, les e-mails sont préparés et gardés en file, mais ne partent pas. Branchez Brevo (hébergé en Europe) ou Postmark sur le serveur pour les envoyer.'}</p>
       <div class="liste-reglages">${['Confirmation de commande', 'Colis expédié, avec suivi', 'Commande prête à retirer', 'Relance de paiement abandonné', 'Bienvenue (newsletter)', 'Demande d’avis', 'Reconquête des inactifs'].map((n, i) => `<div><strong>${n}</strong><span class="sous">${i < 3 ? (i === 2 && !retraitPossible() ? 'Envoyé si le retrait en magasin est activé' : 'Toujours envoyé (e-mail de service)') : fonctionIncluse('conversion') ? 'Réglable dans <a class="lien" href="#conversion">Conversion</a>' : 'Avec la formule Croissance'}</span></div>`).join('')}</div>
       ${enLigne() ? '<div class="rangee"><button class="btn petit fantome" data-action="voir-emails">Voir les derniers e-mails</button></div>' : ''}</section>`;
@@ -317,4 +321,11 @@ document.addEventListener('change', async e => {
     if (r.inconnues.length) parts.push(`${r.inconnues.length} paiement(s) sans commande correspondante`);
     toast(parts.join(' · ')); if (typeof rechargerEtat === 'function') { await rechargerEtat(); rendre(); }
   } catch (err) { toast(err.message || 'Relevé illisible.'); }
+});
+
+/* Notifications du navigateur : demandées seulement sur un geste du marchand (bouton). */
+document.addEventListener('click', async e => {
+  if (!e.target.closest('[data-action="notif-activer"]')) return;
+  try { const r = await Notification.requestPermission(); toast(r === 'granted' ? 'Notifications activées sur cet appareil.' : 'Notifications non autorisées.'); } catch { toast('Notifications indisponibles.'); }
+  rendre();
 });
