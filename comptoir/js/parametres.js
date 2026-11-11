@@ -132,7 +132,7 @@ document.addEventListener('click', async e => {
       const DETAIL = { conversion: 'codes promo, remises par quantité, offres, campagnes, e-mails automatiques', magasin: 'caisse, retrait en magasin', social: 'les publications programmées repassent en brouillon à leur date' };
       const perdues = Object.keys(Formules.FONCTIONS).filter(k => Formules.permet(ab.formule, k) && !Formules.permet(el.dataset.v, k)).map(k => Formules.NOMS_FONCTIONS[k] + (DETAIL[k] ? ` (${DETAIL[k]})` : ''));
       const avert = perdues.length ? `\n\nS'arrêtent immédiatement :\n– ${perdues.join('\n– ')}\n\nVos réglages sont gardés et reviennent si vous reprenez la formule.` : '';
-      if (f && !confirm(`Passer à ${f.nom} pour ${Formules.prixTexte(el.dataset.v, ab.devise)} par mois ? Le changement est immédiat ; ${ab.prestataire === 'stripe' ? 'la différence pour le mois en cours est calculée au prorata et ajoutée à (ou déduite de) votre prochaine facture.' : 'en mode test, rien n’est débité.'}${avert}`)) return;
+      if (f && !confirm(`Passer à ${f.nom} pour ${Formules.prixTexte(el.dataset.v, ab.devise)} par mois ? Le changement est immédiat ; ${ab.prestataire === 'stripe' ? (Formules.FORMULES[el.dataset.v].prix > Formules.FORMULES[ab.formule].prix ? 'la différence pour le reste du mois est facturée maintenant, au prorata.' : 'le nouveau prix s’applique dès la prochaine échéance (pas de remboursement du mois en cours).') : 'en mode test, rien n’est débité.'}${avert}`)) return;
     }
     try {
       const r = await api('POST', `/api/abonnement/${a === 'abo-changer' ? 'changer' : a === 'abo-resilier' ? 'resilier' : 'reprendre'}`, a === 'abo-changer' ? { formule: el.dataset.v } : {});

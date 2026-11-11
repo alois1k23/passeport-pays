@@ -944,7 +944,7 @@ Le test Connect couvre aussi :
 
 Tests : 63.
 
-### Cycle 45 — L'abonnement Comptoir du marchand avec le vrai Stripe (05 h 30 – 05 h 45)
+### Cycle 45 — L'abonnement Comptoir du marchand avec le vrai Stripe (05 h 25 – 05 h 40)
 
 Une relecture du cycle de vie de l'abonnement a trouvé 12 problèmes, et la plupart sont corrigés. Le parcours a aussi été joué en simulation dans le navigateur : inscription, paiement, résiliation, reprise, changement de formule à la baisse puis à la hausse. Il était propre.
 
@@ -979,3 +979,26 @@ Tests : 63. Le test d'abonnement Stripe couvre aussi :
 - la ligne de prorata ;
 - l'impayé avec un seul e-mail ;
 - la résiliation par l'API.
+
+### Cycle 46 — Relecture des cycles 44 et 45 : 9 défauts corrigés (05 h 40 – 05 h 50)
+
+**Graves (introduits au cycle 45)**
+
+1. **Webhook en échec jamais retraité.** L'événement était marqué « traité » avant son traitement. Si Stripe était injoignable à ce moment, sa nouvelle tentative était ignorée et le renouvellement perdu. La marque est maintenant retirée en cas d'échec : Stripe réessaie, et l'événement passe.
+2. **Impayé gardé un mois entier.** Stripe passe déjà à la période suivante quand un renouvellement échoue, donc un impayé recevait un mois d'accès en plus, voire indéfiniment.
+   - La fin de période n'avance plus que pour une période réellement payée ; l'impayé garde l'ancienne, plus 7 jours de grâce.
+   - Une hausse de formule dont le paiement échoue ne change plus rien (`payment_behavior=error_if_incomplete`).
+
+**Moyens et mineurs**
+
+3. **E-mail « votre boutique est en ligne » perdu.** Il disparaissait quand le retour du client arrivait avant le webhook, ce qui est désormais le cas habituel. Il part maintenant à la première activation, quelle qu'en soit la source, et une seule fois.
+4. **Clé d'idempotence de création de compte rejouée** après une suppression. Elle change maintenant toutes les 10 minutes.
+5. **Liaison Stripe d'une boutique effacée sur une simple erreur de droits.** Seul un compte réellement inexistant est maintenant oublié.
+6. **Souscription impayée ou suspendue laissée vivante chez Stripe.** Elle est maintenant arrêtée avant d'en créer une nouvelle, et à la suppression du compte.
+7. **`?relancer=1` resté dans l'adresse.** Chaque rechargement renvoyait vers Stripe. Le paramètre est maintenant retiré après usage.
+8. **Textes faux.**
+   - La confirmation de changement de formule dit maintenant « facturé maintenant » pour une hausse, « dès la prochaine échéance » pour une baisse.
+   - L'e-mail d'impayé annonce les 7 jours avant fermeture.
+9. **TWINT proposé par le serveur pour un ancien compte** dont l'état était inconnu. Le serveur applique maintenant la même règle que la boutique : seulement si TWINT est connu comme actif.
+
+Tests : 63.

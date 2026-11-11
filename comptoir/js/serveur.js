@@ -94,6 +94,7 @@ async function rechargerEtat() {
   SERVEUR.emails = e.serveur.emails || null; SERVEUR.creeLe = e.serveur.creeLe || null; SERVEUR.abonnement = e.serveur.abonnement || null; SERVEUR.jetonDomaine = e.serveur.jetonDomaine || null; SERVEUR.paiementsBoutique = e.serveur.paiementsBoutique || null;
   // Lien d'activation Stripe expiré (?relancer=1) : un nouveau lien est demandé et ouvert directement.
   if (/[?&]relancer=1/.test(location.search) && SERVEUR.paiementsBoutique && !SERVEUR.paiementsBoutique.pret) {
+    history.replaceState(null, '', location.pathname + '?section=paiements' + location.hash);   // une seule fois, pas à chaque rechargement
     api('POST', '/api/admin/paiements/activer').then(r => { if (r.url) location.href = r.url; }).catch(() => {});
   }
   // Retour de la page d'activation Stripe : l'état du compte est relu une fois (le webhook peut arriver un peu plus tard).

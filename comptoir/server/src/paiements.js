@@ -57,7 +57,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
       ];
       // TWINT n'est proposé par Stripe qu'en CHF.
       // Sur un compte connecté, seulement si Stripe a activé ce moyen pour la boutique (sinon la session entière est refusée).
-      const permis = m => !compte || !moyens || moyens[m] === true;
+      const permis = m => !compte || !!(moyens && moyens[m] === true);   // même règle que la boutique publique
       if (d === 'chf' && permis('twint')) params.push(['payment_method_types[]', 'twint']);
       // Belgique : Bancontact, le moyen de paiement le plus utilisé du pays (Stripe le propose en EUR).
       if (d === 'eur' && pays === 'be' && permis('bancontact')) params.push(['payment_method_types[]', 'bancontact']);
@@ -99,7 +99,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
     async etatCompte(compte) {
       let a;
       try { a = await lire(`accounts/${compte}`); }
-      catch (e) { if (/No such account|does not have access|not connected/i.test(e.message)) return { introuvable: true, pret: false }; throw e; }
+      catch (e) { if (/No such account/i.test(e.message)) return { introuvable: true, pret: false }; throw e; }   // seulement un compte vraiment inexistant (pas un problème de droits)
       return etatDepuisCompte(a);
     },
     // Le paiement est-il passé ? (retour du client, au cas où le webhook tarde ou manque)

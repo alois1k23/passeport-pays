@@ -86,6 +86,11 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
       if (ancienne && ancienne.status === 'complete') { await sessionTerminee(a, ancienne); throw erreur(409, 'Votre paiement est déjà enregistré : votre abonnement est actif.', 'deja_actif'); }
       if (ancienne && ancienne.status === 'open') await appelerStripe('POST', `checkout/sessions/${encodeURIComponent(a.session_ref)}/expire`).catch(() => {});
     }
+    // Ancienne souscription impayée ou suspendue (statut local « résilié ») : arrêtée chez Stripe avant d'en créer une autre.
+    if (stripe && a && a.ref_externe && a.statut === 'resilie') {
+      const sub = await appelerStripe('GET', `subscriptions/${encodeURIComponent(a.ref_externe)}`).catch(() => null);
+      if (sub && sub.status !== 'canceled' && sub.status !== 'incomplete_expired') await appelerStripe('DELETE', `subscriptions/${encodeURIComponent(a.ref_externe)}`);
+    }
     const ref = 'abo_' + crypto.randomBytes(12).toString('base64url');
     if (a) maj(marchand.id, { formule, devise, session_ref: ref, statut: a.statut === 'resilie' ? 'en_attente' : a.statut });
     else db.prepare('INSERT INTO abonnements (marchand_id, formule, statut, devise, session_ref, cree_le, maj_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(marchand.id, formule, 'en_attente', devise, ref, Date.now(), Date.now());
@@ -136,7 +141,9 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
         ['items[0][price_data][unit_amount]', Math.round(FORMULES[formule].prix * 100)], ['items[0][price_data][recurring][interval]', 'month'],
         // À la hausse : la différence est facturée tout de suite (sinon une résiliation avant l'échéance l'effacerait) ;
         // à la baisse : nouveau prix dès la prochaine échéance, sans avoir.
-        ['proration_behavior', FORMULES[formule].prix > FORMULES[a.formule].prix ? 'always_invoice' : 'none'], ['metadata[formule]', formule]
+        ['proration_behavior', FORMULES[formule].prix > FORMULES[a.formule].prix ? 'always_invoice' : 'none'], ['metadata[formule]', formule],
+        // Hausse : si le supplément n'est pas payé, rien ne change (pas de formule Pro offerte sur un paiement refusé).
+        ['payment_behavior', FORMULES[formule].prix > FORMULES[a.formule].prix ? 'error_if_incomplete' : 'allow_incomplete']
       ]);
     }
     maj(marchand.id, { formule, fin_demandee: 0 });
@@ -170,23 +177,30 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   async function synchroniser(a, subId) {
     const sub = await appelerStripe('GET', `subscriptions/${encodeURIComponent(subId)}`);
     const f = sub.metadata && sub.metadata.formule;
-    const champs = { ref_externe: sub.id, client_externe: sub.customer || a.client_externe, statut: STATUTS[sub.status] || a.statut,
-      periode_fin: sub.current_period_end ? sub.current_period_end * 1000 : a.periode_fin, fin_demandee: sub.cancel_at_period_end ? 1 : 0 };
+    const statut = STATUTS[sub.status] || a.statut;
+    // La fin de période n'avance que pour une période réellement payée : un impayé garde l'ancienne (+ 7 jours de grâce),
+    // sinon Stripe, qui passe déjà à la période suivante, offrirait un mois de plus.
+    const paye = statut === 'actif' && sub.current_period_end;
+    const champs = { ref_externe: sub.id, client_externe: sub.customer || a.client_externe, statut,
+      periode_fin: paye ? sub.current_period_end * 1000 : (a.periode_fin || (sub.current_period_start ? sub.current_period_start * 1000 : null)), fin_demandee: sub.cancel_at_period_end ? 1 : 0 };
     if (f && FORMULES[f]) champs.formule = f;
     maj(a.marchand_id, champs);
     return lire(a.marchand_id);
   }
   async function sessionTerminee(a, session) {
+    const avant = lire(a.marchand_id);
+    if (!avant.session_ref) return { abo: avant, devenuActif: false };   // déjà traitée (retour du client ou webhook) : pas de second e-mail
     maj(a.marchand_id, { session_ref: null, client_externe: session.customer || a.client_externe });
-    return session.subscription ? synchroniser(lire(a.marchand_id), session.subscription) : lire(a.marchand_id);
+    const b = session.subscription ? await synchroniser(lire(a.marchand_id), session.subscription) : lire(a.marchand_id);
+    return { abo: b, devenuActif: b.statut === 'actif' };
   }
   /* Retour de Checkout (?abonnement=ok) : le paiement est vérifié tout de suite, sans attendre le webhook. */
   async function verifierRetour(marchandId) {
     const a = lire(marchandId);
-    if (!stripe || !a || !a.session_ref || !/^cs_/.test(a.session_ref)) return etat(marchandId);
+    if (!stripe || !a || !a.session_ref || !/^cs_/.test(a.session_ref)) return { etat: etat(marchandId), devenuActif: false };
     const s = await appelerStripe('GET', `checkout/sessions/${encodeURIComponent(a.session_ref)}`);
-    if (s.status === 'complete') await sessionTerminee(a, s);
-    return etat(marchandId);
+    const r = s.status === 'complete' ? await sessionTerminee(a, s) : { devenuActif: false };
+    return { etat: etat(marchandId), devenuActif: r.devenuActif };
   }
 
   /* Événements Stripe déjà vérifiés (signature) par l'appelant. */
@@ -195,9 +209,8 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
     if (ev.type === 'checkout.session.completed' && o.mode === 'subscription') {
       const a = db.prepare('SELECT * FROM abonnements WHERE session_ref = ? OR marchand_id = ?').get(o.id, o.client_reference_id || '');
       if (!a) return true;
-      const avant = a.statut;
-      const b = await sessionTerminee(a, o);
-      return avant !== 'actif' && b.statut === 'actif' ? { marchandId: a.marchand_id, evenement: 'active' } : true;
+      const r = await sessionTerminee(a, o);
+      return r.devenuActif ? { marchandId: a.marchand_id, evenement: 'active' } : true;
     }
     // Facture : la souscription est à la racine (anciennes versions) ou sous parent.subscription_details (versions récentes).
     const sub = (typeof o.subscription === 'string' ? o.subscription : o.subscription && o.subscription.id)
@@ -217,9 +230,9 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   /* Suppression du compte : résiliation immédiate de la souscription Stripe (refus si Stripe ne répond pas). */
   async function arreterDefinitivement(marchandId) {
     const a = lire(marchandId);
-    if (stripe && a && a.ref_externe && a.statut !== 'resilie') {
+    if (stripe && a && a.ref_externe) {   // même « résilié » localement (impayé, suspendu), la souscription peut vivre encore chez Stripe
       const rep = await fetchImpl(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(a.ref_externe)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${stripe}`, 'Stripe-Version': VERSION_STRIPE } });
-      if (!rep.ok && rep.status !== 404) throw erreur(502, 'Stripe ne confirme pas la résiliation : réessayez avant de supprimer le compte.', 'stripe');
+      if (!rep.ok && rep.status !== 404 && !(rep.status === 400 && a.statut === 'resilie')) throw erreur(502, 'Stripe ne confirme pas la résiliation : réessayez avant de supprimer le compte.', 'stripe');
     }
   }
 

@@ -654,7 +654,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       // Pas de compte, compte de l'autre mode (test / réel), ou supprimé chez Stripe : un nouveau compte est créé.
       if (!c || etatC.introuvable) {
         const config = lireConfig(ctx.boutique);
-        const compte = await paiement.creerCompte({ pays: config.boutique.pays, email: ctx.marchand.email, cleIdempotence: `compte-${bid}-${paiement.modeCle}-${c ? c.compte : 'nouveau'}` });
+        const compte = await paiement.creerCompte({ pays: config.boutique.pays, email: ctx.marchand.email, cleIdempotence: `compte-${bid}-${paiement.modeCle}-${c ? c.compte : 'nouveau'}-${Math.floor(Date.now() / 600000)}` });
         db.prepare('INSERT OR REPLACE INTO comptes_stripe (boutique_id, compte, pret, maj_le, mode, moyens) VALUES (?, ?, 0, ?, ?, NULL)').run(bid, compte, Date.now(), paiement.modeCle);
         c = compteStripe(bid); etatC = await paiement.etatCompte(c.compte);
       }
@@ -1228,6 +1228,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (db.prepare('INSERT OR IGNORE INTO evenements_stripe (id, recu_le) VALUES (?, ?)').run(String(ev.id), Date.now()).changes === 0) return { recu: true, deja: true };
       db.prepare('DELETE FROM evenements_stripe WHERE recu_le < ?').run(Date.now() - 30 * 86400000);
     }
+    try { return await traiterEvenementStripe(ev); }
+    catch (e) { if (ev.id) db.prepare('DELETE FROM evenements_stripe WHERE id = ?').run(String(ev.id)); throw e; }   // échec (Stripe injoignable…) : Stripe réessaiera, l'événement n'est pas perdu
+  });
+  async function traiterEvenementStripe(ev) {
     // Événement d'un compte connecté (boutique) : jamais un abonnement Comptoir ; seuls l'état du compte et ses ventes comptent.
     if (ev.account) {
       const objet = (ev.data && ev.data.object) || {};
@@ -1246,7 +1250,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       await paiementConfirme(ev.data.object.metadata.paiement_id, ev.data.object.id);
     }
     return { recu: true };
-  });
+  }
   r.post('/api/webhooks/fournisseurs/:code', ctx => {
     const f = db.prepare('SELECT * FROM fournisseurs WHERE code = ?').get(ctx.params.code);
     if (!f || !fournisseurs.verifierSignature(ctx.corpsBrut, ctx.req.headers['x-signature'], f.secret_webhook)) throw erreur(401, 'Signature invalide.', 'signature');
@@ -1428,7 +1432,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* ---------- Abonnement Comptoir ---------- */
   r.get('/api/abonnement', exigerCompte, ctx => ({ ...abo.etat(ctx.marchand.id), formules: abo.formulesPour(deviseDe(ctx.boutique)), devise: deviseDe(ctx.boutique) }));
   // Retour de Stripe Checkout : paiement vérifié tout de suite, sans attendre le webhook.
-  r.post('/api/abonnement/verifier', exigerCompte, async ctx => abo.verifierRetour(ctx.marchand.id));
+  r.post('/api/abonnement/verifier', exigerCompte, async ctx => {
+    const { etat: e, devenuActif } = await abo.verifierRetour(ctx.marchand.id);
+    if (devenuActif) emailAbonnement(ctx.marchand.id, 'active');   // le webhook arrivera après : c'est ici que l'abonnement devient actif
+    return e;
+  });
   r.post('/api/abonnement/commencer', exigerCompte, async ctx => {
     if (abo.prestataire === 'simulation' && env.NODE_ENV === 'production' && abo.obligatoire) throw erreur(503, 'Le paiement des abonnements n’est pas encore configuré (clé Stripe manquante).', 'paiement_non_configure');
     return abo.commencer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || ''), devise: deviseDe(ctx.boutique) });
@@ -1447,7 +1455,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const nom = lireConfig(b).boutique.nom;
     const textes = {
       active: [`Votre boutique ${nom} est en ligne`, `Bonjour,\n\nVotre abonnement Comptoir ${noms[e.formule] || ''} (${montant} par mois) est actif. Votre boutique est ouverte aux clients : ${urlBoutique(b)}\n\nVotre espace : ${urlPublique}/app\nProchain renouvellement : ${fin}. Résiliable à tout moment dans Paramètres > Abonnement.\n\nL’équipe Comptoir`],
-      impaye: [`Paiement de votre abonnement en échec`, `Bonjour,\n\nLe dernier paiement de votre abonnement Comptoir n’est pas passé. Votre boutique ${nom} est fermée aux clients tant que le paiement n’est pas régularisé ; vos données sont conservées.\n\nMettez à jour votre moyen de paiement : ${urlPublique}/app\n\nL’équipe Comptoir`],
+      impaye: [`Paiement de votre abonnement en échec`, `Bonjour,\n\nLe dernier paiement de votre abonnement Comptoir n’est pas passé. Stripe va réessayer dans les prochains jours. Sans paiement d’ici 7 jours, votre boutique ${nom} sera fermée aux clients ; vos données sont conservées.\n\nMettez à jour votre moyen de paiement : ${urlPublique}/app\n\nL’équipe Comptoir`],
       resiliation: [`Résiliation enregistrée`, `Bonjour,\n\nLa résiliation de votre abonnement Comptoir est enregistrée. Votre boutique ${nom} et votre espace restent ouverts jusqu’au ${fin}. Rien ne sera prélevé ensuite.\n\nVous changez d’avis ? Paramètres > Abonnement > Garder mon abonnement : ${urlPublique}/app\n\nL’équipe Comptoir`],
       termine: [`Votre abonnement est terminé`, `Bonjour,\n\nVotre abonnement Comptoir est terminé : la boutique ${nom} est fermée aux clients. Vos données sont conservées ; reprenez un abonnement quand vous voulez : ${urlPublique}/app\n\nL’équipe Comptoir`]
     };
