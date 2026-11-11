@@ -24,7 +24,7 @@ function signer(corps, secret) {
 function verifierSignature(corps, signature, secret) {
   if (!signature || !secret) return false;
   const attendu = signer(corps, secret);
-  return signature.length === attendu.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(attendu));
+  return Buffer.byteLength(String(signature)) === Buffer.byteLength(attendu) && crypto.timingSafeEqual(Buffer.from(String(signature)), Buffer.from(attendu));
 }
 
 function client(fournisseur, fetchImpl = fetch) {

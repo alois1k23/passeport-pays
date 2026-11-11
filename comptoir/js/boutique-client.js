@@ -345,8 +345,8 @@ async function inscrireNewsletter(form) {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/newsletter`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur);
-    if (json.confirmation) { form.innerHTML = '<p>Vous vous étiez désinscrit : pour recevoir à nouveau nos nouvelles, confirmez en cliquant sur le lien que nous venons de vous envoyer.</p>'; return; }
-    form.innerHTML = `<p>Merci, vous êtes inscrit.${donnees.newsletter && donnees.newsletter.actif && donnees.newsletter.code ? ` Votre code de bienvenue vous attend par e-mail.` : ''}</p>`;
+    // Double confirmation : l'inscription n'est faite qu'au clic dans l'e-mail reçu.
+    form.innerHTML = `<p>Merci ! Pour confirmer votre inscription, cliquez sur le lien que nous venons d'envoyer à ${esc(email)}${donnees.newsletter && donnees.newsletter.actif && donnees.newsletter.code ? ' : votre code de bienvenue suivra' : ''}.</p>`;
   } catch (e) { form.insertAdjacentHTML('beforeend', `<p class="erreur-form">${esc(e.message || 'Inscription impossible.')}</p>`); }
 }
 

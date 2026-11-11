@@ -278,11 +278,18 @@ test('codes promo, newsletter et e-mail de bienvenue', async () => {
   const cmd = await acheteur('POST', `/api/public/${slug}/commandes`, { code: 'LANCEMENT20', lignes: [{ produitId: coffret.id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C', email: 'c@exemple.ch', adresse: 'Rue 3', npa: '1004', ville: 'Lausanne' } });
   assert.equal(cmd.json.total, 54.2, '59 − 20 % = 47,20 + 7 de port (sous 60 après remise)');
   assert.equal((await acheteur('POST', `/api/public/${slug}/commandes`, { code: 'INCONNU', lignes: [{ produitId: coffret.id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C', email: 'c@exemple.ch', adresse: 'Rue 3', npa: '1004', ville: 'Lausanne' } })).statut, 400);
+  // Double confirmation : rien n'est envoyé d'autre que le lien, et l'adresse n'est pas inscrite avant le clic.
   await acheteur('POST', `/api/public/${slug}/newsletter`, { email: 'nouveau@exemple.ch' });
-  await acheteur('POST', `/api/public/${slug}/newsletter`, { email: 'nouveau@exemple.ch' });
-  const mails = (await marchand('GET', '/api/admin/emails')).json.filter(m => m.destinataire === 'nouveau@exemple.ch');
+  assert.equal((await marchand('GET', '/api/admin/etat')).json.abonnes, 0);
+  let mails = (await marchand('GET', '/api/admin/emails')).json.filter(m => m.destinataire === 'nouveau@exemple.ch');
+  assert.equal(mails.length, 1); assert.match(mails[0].sujet, /Confirmez/); assert.doesNotMatch(mails[0].corps, /BIENVENUE10/);
+  const lien = /\/reinscription\?j=([\w.-]+)/.exec(mails[0].corps)[0];
+  assert.equal((await fetch(base + lien, { method: 'POST' })).status, 200);
+  assert.equal((await fetch(base + lien, { method: 'POST' })).status, 200);   // second clic : pas de second e-mail de bienvenue
+  await acheteur('POST', `/api/public/${slug}/newsletter`, { email: 'nouveau@exemple.ch' });   // déjà inscrit : rien de plus
+  mails = (await marchand('GET', '/api/admin/emails')).json.filter(m => m.destinataire === 'nouveau@exemple.ch' && /BIENVENUE10/.test(m.corps));
   assert.equal(mails.length, 1, 'un seul e-mail de bienvenue');
-  assert.match(mails[0].corps, /BIENVENUE10/);
+  assert.equal((await marchand('GET', '/api/admin/emails')).json.filter(m => m.destinataire === 'nouveau@exemple.ch').length, 2);
   assert.equal((await marchand('GET', '/api/admin/etat')).json.abonnes, 1);
 });
 
@@ -600,6 +607,8 @@ test('e-mails : identité de la boutique en pied, lien de désinscription sur le
   const pid = (await c('GET', '/api/admin/etat')).json.produits[0].id;
   const a = client();
   assert.equal((await a('POST', `/api/public/${r.json.slug}/newsletter`, { email: 'lecteur@exemple.ch', consentement: true })).statut, 200);
+  const demande = (await c('GET', '/api/admin/emails')).json.find(m => /Confirmez votre inscription/.test(m.sujet));
+  await fetch(/(http\S+\/reinscription\?j=\S+)/.exec(demande.corps)[1], { method: 'POST' });   // le lecteur confirme son inscription
   const cmd = await a('POST', `/api/public/${r.json.slug}/commandes`, { lignes: [{ produitId: pid, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Léa', email: 'lecteur@exemple.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
   await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
   const mails = (await c('GET', '/api/admin/emails')).json;
@@ -885,4 +894,22 @@ test('sécurité : domaine non vérifié à l’inscription, fonctions de formul
   const c = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(cmd2.json.commandeId).donnees);
   assert.equal(c.total - c.port, 100);   // aucun palier appliqué
   assert.equal((await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: vase.id, qte: 1 }], livraison: 'retrait', client: { nom: 'A B', email: 'ab@x.ch' } })).statut, 400);
+});
+
+test('entrées malformées : cookie, adresse et jeton multi-octets donnent une réponse propre, jamais une erreur 500', async () => {
+  const r1 = await fetch(base + '/api/session', { headers: { Cookie: 'comptoir_session=%E0%A4%A' } });
+  assert.equal(r1.status, 200);
+  const r2 = await fetch(base + '/api/public/%E0%A4%A');
+  assert.equal(r2.status, 400);
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'malforme@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Malformé', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'M', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'A B', email: 'mb@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
+  const row = db.prepare('SELECT jeton_client FROM commandes WHERE id = ?').get(cmd.json.commandeId);
+  const faux = 'é'.repeat(row.jeton_client.length);   // même nombre de caractères, plus d'octets
+  assert.equal((await fetch(`${base}/api/public/${ins.json.slug}/commandes/${cmd.json.commandeId}?jeton=${encodeURIComponent(faux)}`)).status, 404);
+  // Suppression du compte : les essais de mot de passe sont limités, même avec une session valide
+  let dernier;
+  for (let i = 0; i < 1001; i++) { dernier = await m('POST', '/api/admin/compte/supprimer', { motDePasse: 'mauvais mot de passe ' + i }); if (dernier.statut === 429) break; }
+  assert.equal(dernier.statut, 429);
 });

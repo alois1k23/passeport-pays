@@ -14,7 +14,7 @@ Ouvrez `http://localhost:3000`, créez un compte, puis ouvrez votre boutique pub
 
 | Domaine | Détail |
 |---|---|
-| **Comptes** | Inscription et connexion. Mots de passe hachés avec scrypt. Session dans un cookie HttpOnly et SameSite=Lax ; la base ne stocke que l'empreinte du jeton. 10 essais de connexion par quart d'heure et par IP. |
+| **Comptes** | Inscription et connexion. Mots de passe hachés avec scrypt. Session dans un cookie HttpOnly et SameSite=Lax ; la base ne stocke que l'empreinte du jeton. Calcul scrypt asynchrone (n'immobilise pas le serveur). Limites d'essais par adresse IPv4 ou par réseau IPv6 /64 ; changement de mot de passe et suppression du compte limités par compte. Un domaine personnalisé n'est actif qu'après vérification DNS et TXT. |
 | **Boutiques** | Plusieurs boutiques dans une seule base. Chaque requête d'administration est limitée à la boutique du marchand connecté (testé). |
 | **Boutique publique** | `/s/<slug>` : catalogue, panier, livraison, paiement. Le coût fournisseur n'est jamais exposé. |
 | **Prix** | Tout est recalculé côté serveur (produits, livraison, seuil de port offert). Un prix envoyé par le navigateur est ignoré (testé). |
@@ -44,6 +44,8 @@ Ouvrez `http://localhost:3000`, créez un compte, puis ouvrez votre boutique pub
 |---|---|
 | **Parcours** | Page d'accueil `/` (formules) → `/app?formule=…` : création du compte et de la boutique → choix de la formule et paiement → accès à l'espace. Avant le paiement, toute route d'administration répond 402 et la boutique publique est fermée (404 « pas encore ouverte ») ; le suivi des commandes déjà passées reste accessible. |
 | **Isolation** | Chaque route d'administration ne lit et n'écrit que la boutique du compte connecté (`boutique_id` tiré de la session, jamais de la requête). Testé : un marchand ne voit ni ne modifie les données d'un autre. |
+| **Newsletter** | Double confirmation : le formulaire envoie un lien ; l'adresse n'est inscrite (et l'e-mail de bienvenue envoyé) qu'après le clic. |
+| **Formules** | Le serveur applique la formule : sans Croissance, codes, paliers, offres, campagnes et e-mails automatiques sont éteints à la vente ; sans Pro, le retrait en magasin aussi (les réglages restent enregistrés). |
 | **Paiement** | Sans clé : page `/abonnement-simule/<ref>` (refusée en production). Avec `STRIPE_SECRET_KEY` : Checkout en mode abonnement (cartes), portail client Stripe pour changer de carte, de formule ou résilier. Webhooks : `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
 | **Résiliation** | Effet à la fin du mois payé ; accès conservé jusque-là, puis boutique fermée aux clients, données conservées. Délai de grâce de 3 jours après une échéance non confirmée. |
 | **Routes** | `GET /api/abonnement`, `POST /api/abonnement/commencer` `{ formule }`, `POST /api/abonnement/changer`, `/resilier`, `/reprendre`. |

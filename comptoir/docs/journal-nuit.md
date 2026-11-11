@@ -782,3 +782,35 @@ Le client utilisé par les tests garde désormais chaque cookie sous son nom, co
 - 100 boutiques : 100 commandes, aucune anomalie ;
 - 100 utilisateurs dans un navigateur : 40 marchands sur tous les écrans, 46 commandes payées, 10 paniers abandonnés, 4 paiements annulés, aucune anomalie ;
 - pannes et doubles clics : aucun problème.
+
+## Cycle 40 — Relecture de sécurité du serveur (04 h 10 – 04 h 35)
+
+Une relecture indépendante du serveur a relevé 8 problèmes. Tous sont corrigés.
+
+**Grave**
+
+1. **Détournement de domaine à l'inscription.** Le formulaire d'inscription acceptait un domaine déjà « actif », sans aucune vérification. Un tiers pouvait ainsi se faire servir le domaine d'un autre marchand, y compris en HTTPS, et bloquer son vrai propriétaire.
+   - Le domaine passe désormais par la même règle que les réglages : il n'est actif qu'après la vérification DNS et TXT.
+   - Au démarrage, les boutiques déjà enregistrées avec un domaine actif jamais vérifié sont corrigées.
+
+**Moyens**
+
+2. **Fonctions payantes appliquées par le serveur.** Avec la formule Lancement, l'interface masquait les codes promo, paliers, offres, campagnes et e-mails automatiques, mais le serveur les appliquait quand même. Le retrait en magasin (Pro) était dans le même cas.
+   - Le serveur les éteint désormais à la vente.
+   - Les réglages restent enregistrés et reviennent si le marchand passe à une formule qui les inclut.
+3. **Tendances faussables.** Une boutique pouvait déclarer elle-même l'origine fournisseur de ses produits, et une commande marquée « payée » à la main comptait comme une vente.
+   - L'origine fournisseur n'est retenue que si le produit existe au catalogue.
+   - Seules les commandes réellement payées en ligne comptent.
+4. **Limites d'essais et IPv6.** Un seul abonné IPv6 dispose de milliards d'adresses, ce qui lui permettait de contourner les limites.
+   - Toutes les limites comptent maintenant par réseau /64.
+   - Le compteur des essais de connexion est purgé, pour ne plus grossir sans fin.
+   - Le hachage des mots de passe (scrypt) est asynchrone : il n'immobilise plus le serveur.
+
+**Mineurs**
+
+5. **Newsletter.** N'importe qui pouvait inscrire l'adresse d'un tiers. L'inscription passe maintenant par une double confirmation : un lien est envoyé, et l'adresse n'est inscrite (avec son e-mail de bienvenue) qu'au clic.
+6. **Suppression du compte.** Les essais de mot de passe n'étaient pas limités. Ils partagent maintenant le compteur du changement de mot de passe.
+7. **Entrées malformées.** Un cookie ou une adresse mal encodés, ou un jeton avec des accents, provoquaient une erreur 500. Ils reçoivent maintenant une réponse propre (400 ou 404). Toutes les comparaisons de jetons se font sur leur longueur en octets.
+8. **Contournement de « vendable ».** Un code fournisseur déclaré librement contournait la règle « vendable ». Il est désormais toujours fixé par le serveur.
+
+Tests : 60 (2 nouveaux, et le test de la newsletter suit le lien de confirmation).

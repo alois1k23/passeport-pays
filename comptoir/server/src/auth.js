@@ -6,21 +6,29 @@ const { erreur } = require('./http');
 const DUREE_SESSION = 30 * 24 * 3600 * 1000;
 const COOKIE = 'comptoir_session';
 
-function hacherMotDePasse(mdp) {
+// scrypt asynchrone : un calcul (≈ 50 ms) ne bloque pas les autres requêtes pendant ce temps.
+const scrypt = (mdp, sel, n) => new Promise((ok, ko) => crypto.scrypt(mdp, sel, n, { N: 16384, r: 8, p: 1 }, (e, h) => e ? ko(e) : ok(h)));
+async function hacherMotDePasse(mdp) {
   const sel = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(mdp, sel, 64, { N: 16384, r: 8, p: 1 });
+  const hash = await scrypt(mdp, sel, 64);
   return `scrypt$${sel.toString('base64')}$${hash.toString('base64')}`;
 }
 
-function verifierMotDePasse(mdp, stocke) {
+async function verifierMotDePasse(mdp, stocke) {
   const [algo, selB64, hashB64] = String(stocke).split('$');
   if (algo !== 'scrypt') return false;
   const attendu = Buffer.from(hashB64, 'base64');
-  const calcule = crypto.scryptSync(mdp, Buffer.from(selB64, 'base64'), attendu.length, { N: 16384, r: 8, p: 1 });
+  if (!attendu.length) return false;
+  const calcule = await scrypt(mdp, Buffer.from(selB64 || '', 'base64'), attendu.length);
   return crypto.timingSafeEqual(attendu, calcule);
 }
 
 const sha256 = t => crypto.createHash('sha256').update(t).digest('hex');
+/* Comparaison à temps constant de deux textes, sûre pour les caractères multi-octets (longueurs en octets). */
+function egal(a, b) {
+  const x = Buffer.from(String(a ?? '')), y = Buffer.from(String(b ?? ''));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
 const nouvelId = (prefixe = '') => prefixe + crypto.randomBytes(9).toString('base64url');
 
 function creerSession(db, marchandId) {
@@ -55,6 +63,7 @@ function limiterConnexion(ip, max = 10) {
   if (maintenant - e.depuis > 15 * 60 * 1000) { e.n = 0; e.depuis = maintenant; }
   e.n++;
   essais.set(ip, e);
+  if (essais.size > 50000) for (const [k, v] of essais) if (maintenant - v.depuis > 15 * 60 * 1000) essais.delete(k);
   if (e.n > max) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
 }
 
@@ -88,4 +97,4 @@ function limiter(cle, max, fenetreMs, message) {
   if (e.n > max) throw erreur(429, message, 'trop_de_requetes');
 }
 
-module.exports = { limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };
+module.exports = { egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };

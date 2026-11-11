@@ -149,7 +149,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!donnees || !sig) return null;
     const [boutiqueId, email] = Buffer.from(donnees, 'base64url').toString('utf8').split('|');
     const attendu = signerDesinscription(boutiqueId, email);
-    return sig.length === attendu.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(attendu)) ? { boutiqueId, email } : null;
+    return auth.egal(sig, attendu) ? { boutiqueId, email } : null;
   };
   // Appareil où le marchand s'est connecté : cookie signé, valable un an, qui ne contient que l'empreinte de l'e-mail.
   // Lié à l'empreinte du mot de passe actuel : un changement ou une réinitialisation du mot de passe révoque tous les appareils.
@@ -466,10 +466,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = m && db.prepare('SELECT slug FROM boutiques WHERE marchand_id = ?').get(m.id);
     return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(m.id) : null };
   });
-  r.post('/api/auth/inscription', ctx => {
+  r.post('/api/auth/inscription', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const email = valider.email(ctx.corps.email);
     const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
+    const hashMdp = await auth.hacherMotDePasse(mdp);
     // Un domaine choisi à l'inscription n'est jamais actif : il faut d'abord prouver qu'on le possède (DNS + TXT).
     const config = garderDomaine(nettoyerConfig(ctx.corps.config), { boutique: {} });
     if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(email)) throw erreur(409, 'Un compte existe déjà avec cet e-mail. Connectez-vous.', 'email_pris');
@@ -477,7 +478,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const boutiqueId = auth.nouvelId('b_');
     const slug = slugUnique(config.boutique.nom);
     transaction(db, () => {
-      db.prepare('INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES (?, ?, ?, ?)').run(marchandId, email, auth.hacherMotDePasse(mdp), Date.now());
+      db.prepare('INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES (?, ?, ?, ?)').run(marchandId, email, hashMdp, Date.now());
       db.prepare('INSERT INTO boutiques (id, marchand_id, slug, config, cree_le) VALUES (?, ?, ?, ?, ?)').run(boutiqueId, marchandId, slug, JSON.stringify(config), Date.now());
       insererProduits(boutiqueId, ctx.corps.produits);
       // Produits fournisseurs choisis à l'inscription (préparés avant même le paiement de l'abonnement).
@@ -487,7 +488,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, marchandId), securise), cookieAppareil(email.toLowerCase())];
     return { statut: 201, corps: { ok: true, slug } };
   });
-  r.post('/api/auth/connexion', ctx => {
+  r.post('/api/auth/connexion', async ctx => {
     const email = valider.email(ctx.corps.email);
     // Limites par adresse, et par compte depuis cette adresse : un tiers ne peut pas verrouiller le compte d'un marchand
     // depuis d'autres adresses. Le compte seul n'est bloqué qu'à un seuil très élevé (attaque distribuée massive).
@@ -499,7 +500,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(e);
     if (!appareilConnu) auth.verifierEchecs(['compte:' + e], max * 20);
     const m = db.prepare('SELECT * FROM marchands WHERE email = ?').get(email);
-    if (!m || !auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
+    if (!m || !(await auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
     auth.oublierEchecs([`compte-ip:${e}|${reseau}`]);
     ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, m.id), securise), cookieAppareil(e)];
     return { ok: true };
@@ -517,13 +518,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     }
     return { ok: true };
   });
-  r.post('/api/auth/reinitialiser', ctx => {
+  r.post('/api/auth/reinitialiser', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
     const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
+    const hashMdp = await auth.hacherMotDePasse(mdp);   // avant la lecture du lien : rien ne s'intercale entre sa vérification et son usage
     const ligne = db.prepare('SELECT * FROM reinitialisations WHERE jeton_hash = ?').get(auth.sha256(String(ctx.corps.jeton || '')));
     if (!ligne || ligne.expire_le < Date.now()) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau.', 'lien_expire');
     transaction(db, () => {
-      db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(auth.hacherMotDePasse(mdp), ligne.marchand_id);
+      db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, ligne.marchand_id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(ligne.marchand_id);
     });
@@ -596,15 +598,16 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 
   /* Suppression définitive du compte et de toutes ses données (mot de passe exigé). */
   /* Mot de passe : l'actuel est exigé ; les autres sessions sont fermées. */
-  r.post('/api/admin/compte/mot-de-passe', exigerCompte, ctx => {
+  r.post('/api/admin/compte/mot-de-passe', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     const cles = ['mdp:' + m.id];   // clé propre : une attaque sur la page de connexion ne bloque pas un marchand déjà connecté
     auth.verifierEchecs(cles, Number(env.LIMITE_ESSAIS) || 10);
-    if (!auth.verifierMotDePasse(String(ctx.corps.actuel || ''), m.mot_de_passe)) { auth.noterEchec(cles); throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants'); }
+    if (!(await auth.verifierMotDePasse(String(ctx.corps.actuel || ''), m.mot_de_passe))) { auth.noterEchec(cles); throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants'); }
     const nouveau = valider.texte(ctx.corps.nouveau, 'Le nouveau mot de passe', { min: 10, max: 200 });
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
+    const hashMdp = await auth.hacherMotDePasse(nouveau);
     transaction(db, () => {
-      db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(auth.hacherMotDePasse(nouveau), m.id);
+      db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, m.id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, actuelle);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);
     });
@@ -617,7 +620,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
   r.post('/api/admin/compte/supprimer', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
-    if (!auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    const cles = ['mdp:' + m.id];   // même compteur que le changement de mot de passe : une session volée ne devine pas le mot de passe par essais
+    auth.verifierEchecs(cles, Number(env.LIMITE_ESSAIS) || 10);
+    if (!(await auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { auth.noterEchec(cles); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     await abo.arreterDefinitivement(m.id);   // sinon Stripe continuerait de prélever un compte supprimé
     transaction(db, () => {
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
@@ -970,7 +975,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = boutiqueParSlug(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(String(ctx.corps.commandeId || ''), b.id);
     const jeton = String(ctx.corps.jeton || '');
-    if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    if (!row || !auth.egal(jeton, row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     if (!['expediee', 'livree', 'retiree'].includes(row.statut)) throw erreur(409, 'Vous pourrez donner votre avis après réception de la commande.', 'pas_encore');
     const c = lireCommande(row);
     const liste = Array.isArray(ctx.corps.avis) ? ctx.corps.avis.filter(x => x && typeof x === 'object').slice(0, 20) : [];
@@ -989,7 +994,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = boutiqueParSlug(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(String(ctx.query.get('commande') || ''), b.id);
     const jeton = String(ctx.query.get('jeton') || '');
-    if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    if (!row || !auth.egal(jeton, row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     const c = lireCommande(row);
     const deja = new Set(db.prepare('SELECT produit_id FROM avis WHERE commande_id = ?').all(c.id).map(x => x.produit_id));
     return { prenom: c.client.nom.split(' ')[0], produits: c.lignes.filter(l => !deja.has(l.produitId)).map(l => ({ produitId: l.produitId, nom: l.nom })) };
@@ -1012,7 +1017,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const p = listerProduits(b.id).find(x => x.id === r.alors && vendable(x) && (x.type === 'drop' || x.stock > 0));
     return p ? { regle: r.id, produitId: p.id, nom: p.nom, prix: p.prix, prixOffre: prix.arrondi(p.prix * (1 - r.remise / 100)), remise: r.remise, teinte: p.teinte, image: p.image || null } : null;
   }
-  const verifierJeton = (row, jeton) => row && String(jeton || '').length === row.jeton_client.length && crypto.timingSafeEqual(Buffer.from(String(jeton)), Buffer.from(row.jeton_client));
+  const verifierJeton = (row, jeton) => row && auth.egal(jeton || '', row.jeton_client);
   r.post('/api/public/:slug/commandes/:id/complement', async ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
@@ -1071,21 +1076,19 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     auth.limiter('newsletter:' + ctx.ip, 20 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
     const email = valider.email(ctx.corps.email);
-    if (estDesinscrit(b.id, email)) {
-      // Adresse désinscrite : n'importe qui pourrait la réinscrire ; seul un clic dans l'e-mail envoyé à cette adresse le fait.
-      const lien = `${urlPublique}/reinscription?j=${jetonDesinscription(b.id, email)}`;
-      envoyerEmail(b.id, email, `Confirmez votre inscription chez ${lireConfig(b).boutique.nom}`, `Bonjour,\n\nVous vous étiez désinscrit des nouvelles de ${lireConfig(b).boutique.nom}. Pour vous réinscrire, confirmez ici :\n${lien}\n\nSi ce n'est pas vous, ignorez cet e-mail : rien ne changera.`);
-      return { ok: true, confirmation: true };
-    }
-    db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(b.id, email, Date.now());
-    relances.emailBienvenue({ db, boutique: b, config: configVente(b), email, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail });
-    return { ok: true };
+    // Double confirmation (opt-in) : n'importe qui pourrait saisir l'adresse d'un tiers ; seul un clic dans l'e-mail envoyé
+    // à cette adresse l'inscrit (et déclenche l'e-mail de bienvenue). Une adresse déjà inscrite ne reçoit rien de plus.
+    if (db.prepare('SELECT 1 FROM abonnes WHERE boutique_id = ? AND email = ?').get(b.id, email)) return { ok: true, confirmation: true };
+    auth.limiter(`newsletter-adresse:${b.id}|${email.toLowerCase()}`, 3, 24 * 3600000, 'Un e-mail de confirmation vous a déjà été envoyé. Vérifiez votre boîte de réception (et les indésirables).');
+    const nom = lireConfig(b).boutique.nom, lien = `${urlPublique}/reinscription?j=${jetonDesinscription(b.id, email)}`;
+    envoyerEmail(b.id, email, `Confirmez votre inscription chez ${nom}`, `Bonjour,\n\nVous (ou quelqu'un d'autre) avez demandé à recevoir les nouvelles et offres de ${nom}. Pour confirmer, cliquez ici :\n${lien}\n\nSi ce n'est pas vous, ignorez cet e-mail : vous ne recevrez rien d'autre.\n\n${nom}`);
+    return { ok: true, confirmation: true };
   });
   r.post('/api/public/:slug/commandes/:id/reprendre', async ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
     const jeton = String(ctx.corps.jeton || '');
-    if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    if (!row || !auth.egal(jeton, row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     if (row.statut !== 'attente') throw erreur(409, 'Cette commande est déjà payée ou annulée.', 'deja_traitee');
     const c = lireCommande(row);
     const devise = lireConfig(b).boutique.devise || 'EUR';
@@ -1116,7 +1119,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const b = boutiqueParSlug(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
     const jeton = String(ctx.query.get('jeton') || '');
-    if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    if (!row || !auth.egal(jeton, row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     const c = lireCommande(row);
     return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map(l => ({ produitId: l.produitId, nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c) };
   });
@@ -1291,14 +1294,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/reinscription', ctx => {
     const d = lireJetonDesinscription(ctx.query.get('j'));
     if (!d) return { html: pageSimple('Lien invalide', 'Ce lien est incomplet ou a été modifié.') };
-    return { html: pageSimple('Recevoir à nouveau les nouvelles', `Confirmez pour ${d.email}.`, `<form method="post" action="/reinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Me réinscrire</button></form>`) };
+    return { html: pageSimple('Recevoir les nouvelles de la boutique', `Confirmez l’inscription de ${d.email}.`, `<form method="post" action="/reinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Confirmer mon inscription</button></form>`) };
   });
   r.post('/reinscription', ctx => {
     const d = lireJetonDesinscription(ctx.query.get('j'));
     if (!d) throw erreur(400, 'Lien invalide.', 'invalide');
     db.prepare('DELETE FROM desinscriptions WHERE boutique_id = ? AND email = ?').run(d.boutiqueId, d.email);
-    db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(d.boutiqueId, d.email, Date.now());
-    return { html: pageSimple('C’est fait', `${d.email} recevra de nouveau les nouvelles de cette boutique.`) };
+    const nouveau = db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(d.boutiqueId, d.email, Date.now()).changes > 0;
+    const bq = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(d.boutiqueId);
+    // Inscription confirmée : l'e-mail de bienvenue (et son code) part maintenant, une seule fois par adresse.
+    if (nouveau && bq) relances.emailBienvenue({ db, boutique: bq, config: configVente(bq), email: d.email, urlPublique, urlBoutique: urlBoutique(bq), envoyerEmail });
+    return { html: pageSimple('C’est fait', `${d.email} recevra désormais les nouvelles de cette boutique. Vous pourrez vous désinscrire à tout moment depuis chaque e-mail.`) };
   });
   r.post('/desinscription', ctx => {
     const d = lireJetonDesinscription(ctx.query.get('j'));
@@ -1428,7 +1434,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         }
         throw erreur(404, 'Page introuvable.', 'introuvable');
       }
-      const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: ipClient(req), corps: {}, corpsBrut: '' };
+      const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: reseauIp(ipClient(req)), corps: {}, corpsBrut: '' };
       if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
         ctx.corpsBrut = (await lireCorps(req)).toString('utf8');
         const type = req.headers['content-type'] || '';

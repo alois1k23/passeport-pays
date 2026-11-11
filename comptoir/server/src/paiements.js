@@ -89,7 +89,7 @@ function verifierSignatureStripe(corpsBrut, entete, secret, maintenant = Date.no
   const t = Number(parts.t);
   if (!t || Math.abs(maintenant / 1000 - t) > 300) return false;
   const attendu = crypto.createHmac('sha256', secret).update(`${t}.${corpsBrut}`).digest('hex');
-  return signatures.some(s => s.length === attendu.length && crypto.timingSafeEqual(Buffer.from(s), Buffer.from(attendu)));
+  return signatures.some(s => Buffer.byteLength(s) === Buffer.byteLength(attendu) && crypto.timingSafeEqual(Buffer.from(s), Buffer.from(attendu)));
 }
 
 function choisirPrestataire(env, urlPublique) {

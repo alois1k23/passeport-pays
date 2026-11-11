@@ -27,7 +27,11 @@ function creerRouteur() {
       for (const r of routes) {
         if (r.methode !== methode) continue;
         const m = r.re.exec(chemin);
-        if (m) return { gestionnaires: r.gestionnaires, params: Object.fromEntries(r.noms.map((n, i) => [n, decodeURIComponent(m[i + 1])])) };
+        if (m) {
+          // Adresse mal encodée (« %E0 », « %zz ») : requête invalide, pas une erreur du serveur.
+          try { return { gestionnaires: r.gestionnaires, params: Object.fromEntries(r.noms.map((n, i) => [n, decodeURIComponent(m[i + 1])])) }; }
+          catch { throw erreur(400, 'Adresse invalide.', 'adresse_invalide'); }
+        }
       }
       return null;
     }
@@ -54,7 +58,9 @@ function lireCookies(req) {
   const out = {};
   for (const part of (req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const brut = part.slice(i + 1).trim();
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(brut); } catch { out[part.slice(0, i).trim()] = brut; }   // cookie mal encodé : gardé tel quel
   }
   return out;
 }
