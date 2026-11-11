@@ -1363,3 +1363,11 @@ html, body { overflow-x: clip; }
   .parcours-etapes, .parcours-fonctions { grid-template-columns: minmax(0, 1fr); }
   .parcours .plans { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Indicateurs : la petite courbe passe sous le chiffre (elle ne le recouvre plus, quelle que soit la largeur),
+   et une case vide en fin de grille reste de la couleur des cases (plus de bloc gris). */
+.tuile-ligne { display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; gap: 6px; }
+.tuile-ligne strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tuile-ligne svg, .tuile-ligne .sparkline, .tuile-ligne .spark { width: 100%; max-width: 160px; height: 26px; flex: none; }
+.kpis { gap: 0; background: var(--surface); }
+.kpis > .kpi { box-shadow: 1px 0 0 var(--line), 0 1px 0 var(--line); }
