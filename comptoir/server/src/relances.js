@@ -52,13 +52,17 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
   if (a.paiement.actif) {
     for (const c of commandes) {
       if (c.statut !== 'attente' || !c.client.email || maintenant - c.date > 7 * JOUR) continue;
+      // Au plus une relance par passage : la plus avancée qui est due et pas encore envoyée
+      // (après une interruption du serveur, le client ne reçoit pas trois e-mails d'un coup).
+      let due = -1;
+      a.paiement.etapes.forEach((e, i) => { if (maintenant - c.date >= e.heures * HEURE) due = i; });
       a.paiement.etapes.forEach((e, i) => {
-        if (maintenant - c.date < e.heures * HEURE) return;
+        if (i !== due) return;
         if ((c.relances || 0) > i || !reserver(db, boutique.id, `paiement:${c.id}:${i}`, maintenant)) return;
         const lien = `${base}?reprendre=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`;
         const derniere = i === a.paiement.etapes.length - 1;
         const offre = derniere && a.paiement.remise && a.paiement.code ? `\n\nPour vous aider à vous décider : -${a.paiement.remise} % avec le code ${a.paiement.code}.` : '';
-        envoyerEmail(boutique.id, c.client.email, i === 0 ? `Votre commande chez ${nom} vous attend` : `Votre panier chez ${nom} est encore réservé`,
+        envoyerEmail(boutique.id, c.client.email, i === 0 ? `Votre commande chez ${nom} vous attend` : `Votre panier chez ${nom} vous attend toujours`,
           `Bonjour ${c.client.nom},\n\nVotre commande n° ${c.numero} (${formatMontant(c.total, config)}) n’a pas été finalisée. Un souci au moment de payer ? Vous pouvez la reprendre ici :\n${lien}${offre}\n\nL’équipe ${nom}`);
         c.relances = i + 1;
         c.historique.push({ date: maintenant, texte: `Relance de paiement n° ${i + 1} envoyée par e-mail` });
@@ -96,7 +100,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       if (!c.client.consentement) continue; // e-mail marketing : uniquement avec accord explicite
       if (!reserver(db, boutique.id, `reconquete:${email}:${c.id}`, maintenant)) continue;
       envoyerEmail(boutique.id, email, `Ça fait longtemps, ${c.client.nom.split(' ')[0]}`,
-        `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${base}\n\nL’équipe ${nom}\n\nVous recevez cet e-mail car vous avez accepté nos nouvelles. Répondez « STOP » pour ne plus en recevoir.`, { marketing: true });
+        `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${base}\n\nL’équipe ${nom}\n\nVous recevez cet e-mail car vous avez accepté nos nouvelles.`, { marketing: true });
       n++;
     }
   }
@@ -104,7 +108,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
 }
 
 function emailBienvenue({ db, boutique, config, email, urlPublique, urlBoutique, envoyerEmail }) {
-  const base = urlBoutique || `${base}`;
+  const base = urlBoutique || urlPublique;
   const a = nettoyer(config.automatisations);
   if (!a.bienvenue.actif || !reserver(db, boutique.id, `bienvenue:${email}`, Date.now())) return false;
   envoyerEmail(boutique.id, email, `Bienvenue chez ${config.boutique.nom}`,

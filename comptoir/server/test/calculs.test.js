@@ -29,7 +29,7 @@ const alea = () => { graine = (graine * 1103515245 + 12345) % 2147483648; return
 
 test('300 paniers : total du serveur = calcul de l’interface, au centime', async () => {
   const produits = [12.345, 9.9, 0.05, 19.95, 49, 59.99, 99.5, 7.25].map((p, i) => ({ nom: 'P' + i, prix: p, stock: 100000, type: 'stock', cout: 2 }));
-  const r = await appel('POST', '/api/auth/inscription', { email: 'calc@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Calculs', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Calculs', regime: 'ch-assujetti' } }, produits });
+  const r = await appel('POST', '/api/auth/inscription', { email: 'calc@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Calculs', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Calculs', regime: 'ch-assujetti', adresse: 'Rue du Test 1, 1003 Lausanne' } }, produits });
   assert.equal(r.s, 201);
   const { j: { url } } = await appel('POST', '/api/abonnement/commencer', { formule: 'pro' });
   await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });

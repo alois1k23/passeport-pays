@@ -236,7 +236,7 @@ function texteCGV() {
   <p><strong>1. Objet.</strong> Les présentes conditions régissent les ventes conclues sur le site de ${esc(b.nom)}, exploité par ${esc(e.raison)} (${droitPays().idCourt} ${esc(e.siret || '[à compléter]')}).</p>
   <p><strong>2. Prix.</strong> Les prix sont indiqués en euros, toutes taxes comprises${e.regime === 'franchise' ? ` (${droitPays().franchise})` : ''}.</p>
   <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}, ${l.delai}`).join(' ; ')}. ${seuilPort() > 0 ? `Livraison offerte dès ${euros(seuilPort())} d’achat (hors express).` : 'Pas de livraison offerte.'}</p>
-  <p><strong>4. Droit de rétractation.</strong> Vous disposez de 14 jours à compter de la réception pour vous rétracter, sans avoir à vous justifier (art. L221-18 du Code de la consommation). Le remboursement intervient sous 14 jours.</p>
+  <p><strong>4. Droit de rétractation.</strong> Vous disposez de 14 jours à compter de la réception pour vous rétracter, sans avoir à vous justifier (${droitPays().retractation}). Le remboursement intervient sous 14 jours.</p>
   <p><strong>5. Garanties.</strong> Les produits bénéficient de la garantie légale de conformité (2 ans) et de la garantie des vices cachés.</p>
   <p><strong>6. Médiation.</strong> En cas de litige, vous pouvez recourir gratuitement au médiateur de la consommation : ${esc(e.mediateur || '[médiateur à renseigner]')}.</p>`;
 }

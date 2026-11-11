@@ -114,9 +114,19 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const estDesinscrit = (boutiqueId, email) => !!db.prepare('SELECT 1 FROM desinscriptions WHERE boutique_id = ? AND email = ?').get(boutiqueId, email);
   /* Contenu des e-mails de commande : récapitulatif, lien de suivi personnel, lien du transporteur. */
   const lienCommande = (b, id) => { const row = db.prepare('SELECT jeton_client FROM commandes WHERE id = ?').get(id); return row ? `${urlBoutique(b)}?commande=${encodeURIComponent(id)}&jeton=${encodeURIComponent(row.jeton_client)}` : urlBoutique(b); };
+  /* France et Belgique : l'information sur la rétractation et le formulaire type doivent figurer sur un support durable (directive 2011/83, art. 8.7). */
+  const infoRetractation = (bq, c, config) => {
+    const pays = config.boutique.pays;
+    if (pays === 'ch' || c.canal === 'magasin') return '';
+    const article = pays === 'be' ? 'art. VI.47 du Code de droit économique' : 'art. L221-18 du Code de la consommation';
+    const e = config.entreprise || {};
+    const vendeur = [e.raison || config.boutique.nom, e.adresse, e.email].filter(Boolean).join(', ');
+    return `\n\nDroit de rétractation : vous disposez de 14 jours à compter de la réception pour vous rétracter, sans avoir à vous justifier (${article}). Il suffit de nous le dire, par exemple en répondant à cet e-mail ; le remboursement intervient au plus tard 14 jours après votre demande. Conditions générales de vente : ${urlBoutique(bq)} (bas de page).\n\nFormulaire de rétractation (à compléter et renvoyer si vous le souhaitez) :\nÀ l’attention de ${vendeur} :\nJe vous notifie par la présente ma rétractation du contrat portant sur la vente du bien ci-dessous : commande n° ${c.numero}, commandée le ${new Date(c.date).toLocaleDateString('fr-FR')}, reçue le : ....\nNom : ${c.client.nom}\nAdresse : ....\nDate et signature : ....`;
+  };
   const recapitulatif = (c, config) => [
     ...c.lignes.map(l => `- ${l.qte} × ${l.nom} : ${formatMontant(l.prix * l.qte, config)}`),
-    ...(c.remise ? [`- Remise${c.motifRemise ? ` (${c.motifRemise})` : ''} : −${formatMontant(c.remise, config)}`] : []),
+    // Les prix des articles sont déjà remisés : la remise est indiquée pour information, pas soustraite une seconde fois.
+    ...(c.remise ? [`  (prix après remise${c.motifRemise ? ` : ${c.motifRemise}` : ''}, soit ${formatMontant(c.remise, config)} d’économie)`] : []),
     `- Livraison${(prix.modesLivraison(config)[c.livraison] || {}).nom ? ` (${prix.modesLivraison(config)[c.livraison].nom})` : ''} : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
     `Total payé : ${formatMontant(c.total, config)}`
   ].join('\n');
@@ -344,7 +354,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     }
     const config = lireConfig(res.boutique);
     envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
-      `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.`);
+      `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.${infoRetractation(res.boutique, res.c, config)}`);
     if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop')) {
       try { await transmettreAuFournisseur(res.boutique, res.c, true); } catch (e) {
         const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.id));
@@ -698,19 +708,22 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return {
       boutique: { ...config.boutique, sections: sectionsPubliques },
       magasin: { clickCollect: !!config.magasin.clickCollect, adresse: config.magasin.adresse || '' },
-      entreprise: { raison: config.entreprise.raison, adresse: config.entreprise.adresse, email: config.entreprise.email, forme: config.entreprise.forme, siret: config.entreprise.siret, regime: config.entreprise.regime },
+      entreprise: { raison: config.entreprise.raison, adresse: config.entreprise.adresse, email: config.entreprise.email, forme: config.entreprise.forme, siret: config.entreprise.siret, regime: config.entreprise.regime, tvaIntra: config.entreprise.tvaIntra, mediateur: config.entreprise.mediateur },
       produits, avisRecents,
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: Remises.offresDe(config).seuilPort,
       offres: (({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles }) => ({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles: regles.filter(r => r.actif && r.type === 'panier') }))(Remises.offresDe(config)),
       newsletter: relances.nettoyer(config.automatisations).bienvenue,
-      paiement: paiement.nom
+      paiement: paiement.nom,
+      hebergeur: env.HEBERGEUR || null   // identité de l'hébergeur (obligatoire dans les mentions légales en France)
     };
   });
   r.post('/api/public/:slug/commandes', async ctx => {
     auth.limiter('commande:' + ctx.ip, (Number(env.LIMITE_COMMANDES) || 30) * facteurLimites, 15 * 60000, 'Trop de commandes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueOuverte(ctx.params.slug);
     const config = lireConfig(b);
+    // Vendre à distance sans adresse du vendeur est interdit (CH : LCD art. 3 s ; FR : LCEN art. 6 ; BE : CDE art. VI.45).
+    if (!String((config.entreprise || {}).adresse || '').trim()) throw erreur(409, 'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.', 'boutique_incomplete');
     const produits = listerProduits(b.id);
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
     const modes = prix.modesLivraison(config);
@@ -728,6 +741,13 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (config.boutique.pays === 'ch' && client.npa && !/^\d{4}$/.test(client.npa)) throw erreur(400, 'Le NPA suisse compte 4 chiffres.', 'npa_invalide');
     const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
     if (ctx.corps.code && calcul.codeValide === false) throw erreur(400, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
+    // Le code de bienvenue est annoncé « sur votre première commande » : refusé à une adresse qui a déjà commandé ici.
+    const bienvenue = ((config.automatisations || {}).bienvenue || {});
+    if (calcul.motif && calcul.motif.code && bienvenue.code && calcul.motif.code.toUpperCase() === String(bienvenue.code).toUpperCase()) {
+      const deja = db.prepare("SELECT donnees FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee')").all(b.id)
+        .some(r => { try { return String(JSON.parse(r.donnees).client.email || '').toLowerCase() === client.email.toLowerCase(); } catch { return false; } });
+      if (deja) throw erreur(400, `Le code ${bienvenue.code} est réservé à une première commande.`, 'code_premiere_commande');
+    }
     const lignes = calcul.lignes;
     const sousTotal = calcul.sousTotal, remise = calcul.remise;
     const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);

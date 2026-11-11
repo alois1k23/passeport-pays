@@ -314,7 +314,7 @@ function vueTableau() {
           retraits ? item(retraits, `retrait${retraits > 1 ? 's' : ''} en magasin en cours`, 'magasin', { alerte: true }) : '',
           etat.boutique.domaine ? '' : item(null, 'Choisir un domaine personnalisé', 'domaines', { alerte: true }),
           etat.entreprise.mediateur || estSuisse() ? '' : item(null, 'Indiquer votre médiateur de la consommation (obligatoire)', 'conformite', { alerte: true }),
-          etat.entreprise.adresse ? '' : item(null, `Indiquer l’adresse de l’entreprise (${estSuisse() ? 'Impressum' : 'mentions légales'}, obligatoire pour vendre en ligne)`, 'conformite', { alerte: true }),
+          etat.entreprise.adresse ? '' : item(null, `Indiquer l’adresse de l’entreprise (${estSuisse() ? 'Impressum' : 'mentions légales'}, obligatoire : sans elle, votre boutique n’accepte pas de commandes)`, 'conformite', { alerte: true }),
           (() => { const n = etat.produits.filter(p => p.aVerifier).length; return n ? item(n, `produit${n > 1 ? 's' : ''} d’exemple à vérifier avant la mise en ligne`, 'produits', { alerte: true }) : ''; })(),
           (() => { const n = etat.produits.filter(p => p.actif !== false && !p.aVerifier && !p.image).length; return n ? item(n, `produit${n > 1 ? 's' : ''} sans photo (une vraie photo rassure et convertit mieux)`, 'produits') : ''; })()
         ];

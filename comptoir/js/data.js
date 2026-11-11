@@ -190,15 +190,15 @@ const POLICES = [
 
 /* Types de sections disponibles dans l’éditeur et leurs champs. */
 const TYPES_SECTIONS = {
-  annonce: { nom: 'Barre d’annonce', champs: [['texte', 'Texte', 'text']], defaut: { texte: 'Livraison offerte dès 60 € d’achat' } },
+  annonce: { nom: 'Barre d’annonce', champs: [['texte', 'Texte', 'text']], defaut: { texte: 'Paiement sécurisé · Livraison suivie' } },
   hero: { nom: 'Bannière d’accueil', champs: [['titre', 'Titre', 'text'], ['sousTitre', 'Sous-titre', 'textarea'], ['bouton', 'Texte du bouton', 'text'], ['align', 'Alignement', 'select:gauche,centre']], defaut: { titre: 'Votre nouvelle collection', sousTitre: 'Une phrase qui donne envie de découvrir vos produits.', bouton: 'Découvrir', align: 'gauche' } },
   saison: { nom: 'Bannière saisonnière', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'textarea'], ['code', 'Code promo', 'text']], defaut: { titre: 'Offre de saison', texte: '-15 % sur toute la boutique', code: 'SAISON15' } },
   produits: { nom: 'Grille de produits', champs: [['titre', 'Titre', 'text'], ['nombre', 'Nombre de produits', 'select:3,4,6,8'], ['categorie', 'Catégorie', 'categorie']], defaut: { titre: 'Nos meilleures ventes', nombre: '4', categorie: '' } },
-  arguments: { nom: 'Arguments clés', champs: [['a1', 'Argument 1', 'text'], ['a2', 'Argument 2', 'text'], ['a3', 'Argument 3', 'text']], defaut: { a1: 'Fabriqué en France', a2: 'Expédié sous 48 h', a3: 'Retours gratuits 30 jours' } },
+  arguments: { nom: 'Arguments clés', champs: [['a1', 'Argument 1', 'text'], ['a2', 'Argument 2', 'text'], ['a3', 'Argument 3', 'text']], defaut: { a1: 'Paiement sécurisé', a2: 'Livraison suivie', a3: 'Service client par e-mail' } },
   texte: { nom: 'Bloc texte', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'textarea']], defaut: { titre: 'Notre histoire', texte: 'Racontez qui vous êtes, comment vous fabriquez et pourquoi.' } },
-  avis: { nom: 'Avis clients', champs: [['a1', 'Avis 1', 'textarea'], ['n1', 'Auteur 1', 'text'], ['a2', 'Avis 2', 'textarea'], ['n2', 'Auteur 2', 'text']], defaut: { a1: 'Produit superbe et livraison rapide.', n1: 'Camille, Lyon', a2: 'Je recommande les yeux fermés.', n2: 'Hugo, Nantes' } },
+  avis: { nom: 'Avis clients', champs: [['a1', 'Avis 1', 'textarea'], ['n1', 'Auteur 1', 'text'], ['a2', 'Avis 2', 'textarea'], ['n2', 'Auteur 2', 'text']], defaut: { a1: '', n1: '', a2: '', n2: '' } },
   newsletter: { nom: 'Inscription newsletter', champs: [['titre', 'Titre', 'text'], ['texte', 'Texte', 'text']], defaut: { titre: 'Restons en contact', texte: '-10 % sur votre première commande.' } },
-  faq: { nom: 'Questions fréquentes', champs: [['q1', 'Question 1', 'text'], ['r1', 'Réponse 1', 'textarea'], ['q2', 'Question 2', 'text'], ['r2', 'Réponse 2', 'textarea']], defaut: { q1: 'Quels sont les délais de livraison ?', r1: '48 à 72 h en France métropolitaine.', q2: 'Puis-je retourner un produit ?', r2: 'Oui, sous 30 jours, retour gratuit.' } },
+  faq: { nom: 'Questions fréquentes', champs: [['q1', 'Question 1', 'text'], ['r1', 'Réponse 1', 'textarea'], ['q2', 'Question 2', 'text'], ['r2', 'Réponse 2', 'textarea']], defaut: { q1: 'Quels sont les délais de livraison ?', r1: 'Le délai de livraison est indiqué sur chaque fiche produit.', q2: 'Puis-je retourner un produit ?', r2: 'Oui : la procédure est décrite dans nos conditions générales de vente.' } },
   pied: { nom: 'Pied de page', champs: [['texte', 'Texte', 'text'], ['contact', 'Contact', 'text']], defaut: { texte: 'Fait avec soin.', contact: '' } }
 };
 
@@ -263,12 +263,12 @@ function sectionsParDefaut(nom, secteurId, pays = 'fr') {
   const saison = SAISONS[new Date().getMonth()];
   const mk = (type, props) => ({ id: 's' + Math.random().toString(36).slice(2, 9), type, props: { ...TYPES_SECTIONS[type].defaut, ...props } });
   return [
-    mk('annonce', pays === 'ch' ? { texte: 'Livraison offerte dès CHF 60.– · Paiement TWINT' } : {}),
-    mk('hero', { titre: nom, sousTitre: `${s.nom} choisis avec soin, expédiés depuis notre atelier.`, bouton: 'Voir la collection' }),
+    mk('annonce', pays === 'ch' ? { texte: 'Paiement TWINT ou carte · Livraison suivie' } : {}),
+    mk('hero', { titre: nom, sousTitre: `${s.nom} choisis avec soin.`, bouton: 'Voir la collection' }),
     // Pas de code promo par défaut : il n'existerait pas au paiement. Le copilote en crée un quand le marchand valide une campagne.
     mk('saison', { titre: saison.nom, texte: 'Découvrez notre sélection du moment.', code: '' }),
     mk('produits', { titre: 'Nos meilleures ventes', nombre: '4' }),
-    mk('arguments', pays === 'ch' ? { a1: 'Livraison suivie jusqu’à votre porte', a2: 'Paiement TWINT ou carte', a3: 'Retours gratuits 30 jours' } : {}),
+    mk('arguments', pays === 'ch' ? { a1: 'Livraison suivie jusqu’à votre porte', a2: 'Paiement TWINT ou carte', a3: 'Service client en français' } : {}),
     mk('avis', {}),
     mk('newsletter', {}),
     mk('pied', { texte: `© ${new Date().getFullYear()} ${nom}` })
@@ -395,9 +395,15 @@ const SOURCES = [
 
 /* Règles légales et fiscales par pays de l'entreprise (hors Suisse, gérée à part). */
 const DROIT_PAYS = {
-  fr: { id: 'SIRET', idCourt: 'SIRET', idExemple: '123 456 789 00012', tva: 0.2, tvaTexte: '20 %', franchise: 'TVA non applicable, art. 293 B du CGI', franchiseNom: 'Franchise en base', formes: ['Micro-entreprise', 'EI', 'EURL', 'SASU', 'SARL', 'SAS'], tvaExemple: 'FR12345678901', recouvrement: true },
-  be: { id: 'Numéro d’entreprise (BCE)', idCourt: 'BCE', idExemple: '0123.456.789', tva: 0.21, tvaTexte: '21 %', franchise: 'Régime de la franchise des petites entreprises : TVA non applicable', franchiseNom: 'Franchise des petites entreprises', formes: ['Personne physique', 'SRL', 'SA', 'SC'], tvaExemple: 'BE0123456789', recouvrement: false }
+  fr: { id: 'SIRET', idCourt: 'SIRET', idExemple: '123 456 789 00012', tva: 0.2, tvaTexte: '20 %', franchise: 'TVA non applicable, art. 293 B du CGI', franchiseNom: 'Franchise en base', formes: ['Micro-entreprise', 'EI', 'EURL', 'SASU', 'SARL', 'SAS'], tvaExemple: 'FR12345678901', recouvrement: true, retractation: 'art. L221-18 du Code de la consommation' },
+  be: { id: 'Numéro d’entreprise (BCE)', idCourt: 'BCE', idExemple: '0123.456.789', tva: 0.21, tvaTexte: '21 %', franchise: 'Régime de la franchise des petites entreprises : TVA non applicable', franchiseNom: 'Franchise des petites entreprises', formes: ['Personne physique', 'SRL', 'SA', 'SC'], tvaExemple: 'BE0123456789', recouvrement: false, retractation: 'art. VI.47 du Code de droit économique' }
 };
+/* Mention de prix selon le régime de TVA : « TTC » n'a de sens que si l'entreprise facture la TVA. */
+function mentionTva(regime, pays) {
+  if (regime === 'ch-non') return 'Entreprise non assujettie à la TVA';
+  if (regime === 'franchise') return (DROIT_PAYS[pays] || DROIT_PAYS.fr).franchise;
+  return pays === 'ch' ? 'TVA comprise' : 'TTC, TVA incluse';
+}
 function droitPays(pays) {
   let p = pays;
   if (!p) { try { p = etat.boutique.pays; } catch { p = 'fr'; } }

@@ -13,7 +13,7 @@ before(async () => {
   await new Promise(ok => serveur.listen(0, '127.0.0.1', ok));
   base = `http://127.0.0.1:${serveur.address().port}`;
   serveur.on('request', creerApp({ db, env: { DEMO_DELAI_EXPEDITION_MS: '-1', LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000' }, urlPublique: base, journal: { log() {}, error() {} } }));
-  const r = await appel('POST', '/api/auth/inscription', { email: 'argent@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Argent', pays: 'ch', secteur: 'maison', sections: [] } }, produits: [{ nom: 'Vase', prix: 50, stock: 5, type: 'stock' }, { nom: 'Bougie', prix: 20, stock: 50, type: 'stock' }] });
+  const r = await appel('POST', '/api/auth/inscription', { email: 'argent@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Argent', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Argent', adresse: 'Rue du Test 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 50, stock: 5, type: 'stock' }, { nom: 'Bougie', prix: 20, stock: 50, type: 'stock' }] });
   slug = r.j.slug;
   const { j: { url } } = await appel('POST', '/api/abonnement/commencer', { formule: 'pro' });
   await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });

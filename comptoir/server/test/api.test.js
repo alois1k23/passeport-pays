@@ -46,7 +46,7 @@ function client() {
 
 const config = nom => ({
   boutique: { nom, pays: 'ch', secteur: 'maison', modele: 'drop', theme: { bg: '#EEF3F4', surface: '#FFFFFF', text: '#14242B', muted: '#566A72', primary: '#1D5C70', onPrimary: '#FFFFFF', font: "'Outfit', system-ui, sans-serif", body: "'Outfit', system-ui, sans-serif", radius: 12 }, sections: [{ id: 's1', type: 'hero', props: { titre: nom } }] },
-  entreprise: { raison: nom, regime: 'ch-non' },
+  entreprise: { raison: nom, regime: 'ch-non', adresse: 'Rue du Test 1, 1003 Lausanne' },
   magasin: { clickCollect: false },
   reglages: { autoTransmission: true, cpa: 8 }
 });
@@ -637,4 +637,19 @@ test('saisies malformées (corps non objet, éléments null) : 400, jamais 500',
   const r = await client()('POST', `/api/public/${e.serveur.slug}/commandes`, { lignes: [null], livraison: 'poste-eco', client: { nom: 'A', email: 'a@exemple.ch', adresse: 'R', npa: '1003', ville: 'L' } });
   assert.equal(r.statut, 400);
   assert.equal((await c('POST', '/api/admin/publications', { publications: [{ reseau: 'instagram', format: 'Reel', pilier: 'produit', date: Date.now() + 3600e3, accroche: 'x', legende: 'y', hashtags: [], script: [null] }] })).statut < 500, true);
+});
+
+test('boutique sans adresse du vendeur : commandes refusées, ouvertes dès l’adresse saisie', async () => {
+  const c = client();
+  const r = await c('POST', '/api/auth/inscription', { email: 'sans-adresse@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Sans adresse', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Sans adresse' } }, produits: [{ nom: 'Vase', prix: 50, stock: 5, type: 'stock' }] });
+  assert.equal(r.statut, 201);
+  const pub = await c('GET', `/api/public/${r.json.slug}`);
+  const commande = () => c('POST', `/api/public/${r.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], client: { nom: 'Léa Test', email: 'lea@exemple.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' }, livraison: 'poste-eco' });
+  const refus = await commande();
+  assert.equal(refus.statut, 409);
+  assert.equal(refus.json.code, 'boutique_incomplete');
+  const etat = await c('GET', '/api/admin/etat');
+  const conf = { boutique: etat.json.boutique, entreprise: { ...etat.json.entreprise, adresse: 'Rue du Lac 2, 1006 Lausanne' }, magasin: etat.json.magasin, reglages: etat.json.reglages };
+  assert.equal((await c('PUT', '/api/admin/config', { config: conf })).statut, 200);
+  assert.equal((await commande()).statut, 201);
 });

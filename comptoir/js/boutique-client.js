@@ -9,9 +9,13 @@ const racineBoutique = (document.querySelector('meta[name="comptoir-racine"]') |
 const urlFiche = id => racineBoutique.replace(/\/?$/, '/') + 'p/' + encodeURIComponent(id);
 
 /* Mesure d’audience sans cookie : identifiant aléatoire propre à l’onglet (perdu à sa fermeture), aucune donnée personnelle. */
-const sessionMesure = (() => { try { let s = sessionStorage.getItem('comptoir-session'); if (!s) { s = 's' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); sessionStorage.setItem('comptoir-session', s); } return s; } catch { return 's' + Math.random().toString(36).slice(2, 14); } })();
+// Mesure seulement après « Accepter » (le bandeau le promet) ; l'identifiant d'onglet n'est créé qu'à ce moment-là.
+function consentementMesure() { try { return localStorage.getItem('comptoir-cookies') === 'accord'; } catch { return false; } }
+function sessionMesureCourante() { try { let s = sessionStorage.getItem('comptoir-session'); if (!s) { s = 's' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); sessionStorage.setItem('comptoir-session', s); } return s; } catch { return null; } }
 const dejaMesure = new Set();
 function mesurer(type, extra = {}) {
+  if (!consentementMesure()) return;
+  const sessionMesure = sessionMesureCourante();
   const cle = type + (extra.valeur || '');
   if (dejaMesure.has(cle) && type !== 'panier') return;
   dejaMesure.add(cle);
@@ -147,7 +151,8 @@ function rendreBrut() {
             <label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}
             <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
             <p class="erreur-form" id="erreur" hidden></p>
-            <button class="sf-btn plein" ${vue.envoi ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
+            ${(donnees.entreprise || {}).adresse ? '' : '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>'}
+            <button class="sf-btn plein" ${vue.envoi || !(donnees.entreprise || {}).adresse ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
             <p class="mini">${donnees.paiement === 'stripe' ? (ch ? 'Paiement sécurisé par TWINT ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
@@ -158,13 +163,17 @@ function rendreBrut() {
 function texteLegal(type) {
   const e = donnees.entreprise, b = donnees.boutique, ch = b.pays === 'ch';
   if (type === 'cgv') return `<h2>Conditions générales de vente</h2>
-    <p><strong>Vendeur.</strong> ${esc(e.raison || b.nom)}, ${esc(e.adresse || '')}. Contact : ${esc(e.email || '')}.</p>
-    <p><strong>Prix.</strong> En ${esc(b.devise)}, TVA comprise${e.regime === 'ch-non' ? ' (entreprise non assujettie à la TVA)' : ''}.</p>
+    <p><strong>Vendeur.</strong> ${esc(e.raison || b.nom)}${e.siret ? `, ${ch ? 'IDE' : esc(droitPays(b.pays).idCourt)} ${esc(e.siret)}` : ''}${e.adresse ? `, ${esc(e.adresse)}` : ''}${e.email ? `. Contact : ${esc(e.email)}` : ''}.</p>
+    <p><strong>Prix.</strong> En ${esc(b.devise)}. ${esc(mentionTva(e.regime, b.pays))}.</p>
     <p><strong>Livraison.</strong> ${Object.values(donnees.livraisons).map(m => `${esc(m.nom)} : ${m.prix ? euros(m.prix) : 'gratuit'}`).join(' ; ')}. ${donnees.seuilPortOffert > 0 ? `Offerte dès ${euros(donnees.seuilPortOffert)} sauf envoi express.` : 'Pas de livraison offerte.'} Les articles expédiés par nos partenaires indiquent leur délai sur la fiche produit.</p>
-    <p><strong>Retours.</strong> ${ch ? 'Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. Nous acceptons toutefois les retours sous 30 jours.' : 'Vous disposez de 14 jours pour vous rétracter (art. L221-18 du Code de la consommation).'}</p>
-    <p><strong>Garantie.</strong> 2 ans pour les défauts.</p>`;
+    <p><strong>Retours.</strong> ${ch ? 'Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. Nous acceptons toutefois les retours sous 30 jours.' : `Vous disposez de 14 jours à compter de la réception pour vous rétracter, sans avoir à vous justifier (${esc(droitPays(b.pays).retractation)}). Il suffit de nous l’écrire${e.email ? ` à ${esc(e.email)}` : ''} ; le remboursement intervient au plus tard 14 jours après votre demande, frais de livraison initiaux compris (hors envoi express).`}</p>
+    <p><strong>Garantie.</strong> ${ch ? 'Garantie de 2 ans pour les défauts (art. 197 ss CO).' : 'Garantie légale de conformité de 2 ans et garantie des vices cachés.'}</p>
+    ${!ch && e.mediateur ? `<p><strong>Médiation.</strong> En cas de litige, vous pouvez recourir gratuitement au médiateur de la consommation : ${esc(e.mediateur)}.</p>` : ''}`;
   return `<h2>${ch ? 'Impressum et protection des données' : 'Mentions légales'}</h2>
-    <p><strong>Exploitant.</strong> ${esc(e.raison || b.nom)}, ${esc(e.forme || '')}${e.siret ? ', ' + esc(e.siret) : ''}, ${esc(e.adresse || '')}. Contact : ${esc(e.email || '')}.</p>
+    <p><strong>Exploitant.</strong> ${[e.raison || b.nom, e.forme, e.siret ? `${ch ? 'IDE' : droitPays(b.pays).idCourt} ${e.siret}` : '', e.adresse].filter(Boolean).map(esc).join(', ')}.${e.email ? ` Contact : ${esc(e.email)}.` : ''}</p>
+    ${e.tvaIntra ? `<p><strong>TVA.</strong> ${esc(e.tvaIntra)}</p>` : ''}
+    ${!ch && e.mediateur ? `<p><strong>Médiateur de la consommation.</strong> ${esc(e.mediateur)}</p>` : ''}
+    <p><strong>Hébergement.</strong> ${donnees.hebergeur ? esc(donnees.hebergeur) : 'Plateforme Comptoir'}.</p>
     <p><strong>Données personnelles.</strong> Vos données servent uniquement à traiter votre commande. Elles sont transmises au prestataire de paiement, au transporteur et, pour les articles expédiés par nos partenaires, au fournisseur concerné. Vous pouvez demander leur consultation ou leur effacement par e-mail.</p>`;
 }
 
@@ -257,7 +266,7 @@ document.addEventListener('click', e => {
     l.qte = Math.min(max, l.qte + Number(el.dataset.d));   // le serveur refuserait au paiement : on borne tout de suite
     if (l.qte <= 0) vue.panier = vue.panier.filter(x => x !== l);
     garderPanier(); rendre();
-  } else if (c === 'cookies') { try { localStorage.setItem('comptoir-cookies', el.dataset.v); } catch { /* ignoré */ } rendre(); }
+  } else if (c === 'cookies') { try { localStorage.setItem('comptoir-cookies', el.dataset.v); } catch { /* ignoré */ } if (el.dataset.v === 'accord') mesurer('vue'); rendre(); }
   else if (c === 'legal') { vue.legal = el.dataset.v; rendre(); }
   else if (c === 'legal-fermer') { vue.legal = null; rendre(); }
 });

@@ -31,7 +31,7 @@ async function marchand(i) {
   const nom = NOMS[i % NOMS.length] + (i >= NOMS.length ? ' ' + i : '');
   const pays = i % 4 === 3 ? 'fr' : 'ch';
   const email = `m${i}-${Date.now()}@exemple.ch`;
-  const r = await c('POST', '/api/auth/inscription', { email, motDePasse: 'mot de passe solide ' + i, config: { boutique: { nom, pays, secteur: SECTEURS[i % 9], modele: ['drop', 'stock', 'mixte'][i % 3], theme, sections: [{ id: 's1', type: 'hero', props: { titre: nom } }, { id: 's2', type: 'produits', props: { titre: 'Nos produits', nombre: '4' } }] }, entreprise: { raison: nom, regime: pays === 'ch' ? 'ch-non' : 'franchise' }, magasin: { clickCollect: i % 5 === 0 }, reglages: { autoTransmission: true, cpa: 8 } }, produits: [{ nom: 'Produit phare', prix: 49, stock: 10, type: 'stock', cout: 15 }] });
+  const r = await c('POST', '/api/auth/inscription', { email, motDePasse: 'mot de passe solide ' + i, config: { boutique: { nom, pays, secteur: SECTEURS[i % 9], modele: ['drop', 'stock', 'mixte'][i % 3], theme, sections: [{ id: 's1', type: 'hero', props: { titre: nom } }, { id: 's2', type: 'produits', props: { titre: 'Nos produits', nombre: '4' } }] }, entreprise: { raison: nom, adresse: 'Rue de Bourg 1, 1003 Lausanne', regime: pays === 'ch' ? 'ch-non' : 'franchise' }, magasin: { clickCollect: i % 5 === 0 }, reglages: { autoTransmission: true, cpa: 8 } }, produits: [{ nom: 'Produit phare', prix: 49, stock: 10, type: 'stock', cout: 15 }] });
   if (r.statut !== 201) { if (nom.trim().length < 2 && r.statut === 400) bien('nom de boutique trop court refusé proprement'); else note(qui, `inscription refusée (${nom})`, JSON.stringify(r.json)); return null; }
   const slug = r.json.slug;
   if (/script/.test(slug)) note(qui, 'slug contient du code', slug);

@@ -312,3 +312,23 @@ Dates calculées comparées aux règles officielles pour 2026 à 2032 : soldes f
 1. **Soldes belges un dimanche** : quand le 3 janvier ou le 1er juillet tombe un dimanche, les soldes commencent la veille (2 janvier 2027, 30 juin 2029). Le copilote annonçait le dimanche.
 2. **Conseils du mois faux pour la Belgique** : « fête des mères le dernier dimanche de mai », « soldes le 2e mercredi de janvier » (règles françaises). Conseils belges ajoutés (2e dimanche de mai et de juin, soldes du 3 janvier et du 1er juillet, Saint-Nicolas).
 3. **Conseils français incomplets** : les exceptions (1er mercredi de janvier, fête des mères en juin les années de Pentecôte) sont précisées.
+
+### Cycle 16 — Relecture du parcours public, de la boutique et des e-mails (1/2)
+
+Une troisième relecture, centrée sur ce que voient les acheteurs, a relevé 20 points. Première série, la plus grave :
+
+1. **Fausses promesses dans toute boutique neuve** : « Fabriqué en France », « Expédié sous 48 h », « expédiés depuis notre atelier », « Retours gratuits 30 jours », pour du dropshipping livré en une à trois semaines. C'est une pratique trompeuse (LCD art. 3, directive 2005/29). Textes par défaut neutres et vrais (paiement sécurisé, livraison suivie, service client) ; FAQ par défaut renvoyant aux délais des fiches et aux CGV.
+2. **Faux avis clients affichés** (« ★★★★★ Produit superbe… Camille, Lyon ») tant qu'il n'y avait pas d'avis réels : interdit (directive Omnibus). Plus rien n'est affiché sans avis vérifiés ; un témoignage saisi à la main n'a plus d'étoiles.
+3. **Vente possible sans adresse du vendeur** : interdit en Suisse, en France et en Belgique. Les commandes sont refusées tant que l'adresse manque, avec un message clair pour l'acheteur (bouton « Payer » désactivé) et une alerte pour le marchand.
+4. **CGV publiques non conformes** :
+   - Belgique : article de loi français cité au lieu du Code de droit économique (art. VI.47) ;
+   - régime de franchise : « TVA comprise » au lieu de « TVA non applicable, art. 293 B du CGI » (même correction sur les fiches produits, qui affichaient « TTC ») ;
+   - médiateur de la consommation, numéro de TVA et hébergeur absents (hébergeur réglable avec `HEBERGEUR`).
+5. **Confirmation de commande sans information de rétractation** : en France et en Belgique, elle doit l'inclure, avec le formulaire type, sur un support durable. Ajoutés à l'e-mail.
+6. **E-mail de commande : remise comptée deux fois en apparence** (articles déjà remisés, puis « Remise : −10,80 € », total inchangé). La remise est indiquée pour information.
+7. **Mesure d'audience avant tout accord**, et même après « Refuser », alors que le bandeau promettait le contraire. Rien n'est mesuré sans « Accepter ».
+8. **Trois relances de paiement envoyées d'un coup** après une interruption du serveur : une seule par passage.
+9. **Code de bienvenue « sur votre première commande »** utilisable sans limite : refusé à une adresse qui a déjà commandé.
+10. **E-mails** : « répondez STOP pour ne plus en recevoir » (personne ne traite ces réponses ; le vrai lien de désinscription figure déjà en pied), « votre panier est encore réservé » (faux : le stock n'est pas bloqué), et un plantage latent de l'e-mail de bienvenue.
+
+Tests : 41 (refus de commande sans adresse ajouté).

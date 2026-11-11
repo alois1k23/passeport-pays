@@ -132,9 +132,12 @@ function renduSection(s, etat, mode) {
       const etoiles = n => '★★★★★'.slice(0, n) + `<span aria-hidden="true" class="sf-etoiles-vides">${'☆☆☆☆☆'.slice(0, 5 - n)}</span>`;
       if (reels.length) return `<section class="sf-avis"><h2 class="sf-avis-titre">${esc(p.titre || 'Ce qu’en disent nos clients')}</h2>${reels.map(a => `
         <figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${etoiles(a.note)}</div><blockquote>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom)}${a.ville ? ', ' + esc(a.ville) : ''} · achat vérifié</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}
-        <p class="sf-methode">Avis vérifiés : seuls les clients ayant reçu leur commande peuvent noter, via un lien personnel envoyé par e-mail. Tous les avis sont publiés, positifs comme négatifs.</p></section>`;
-      return `<section class="sf-avis">${[[p.a1, p.n1], [p.a2, p.n2]].filter(a => a[0]).map(([a, n]) => `
-        <figure><div class="sf-etoiles" aria-label="5 étoiles sur 5">★★★★★</div><blockquote>${esc(a)}</blockquote><figcaption>${esc(n)}</figcaption></figure>`).join('')}</section>`;
+        <p class="sf-methode">Avis vérifiés : seuls les clients dont la commande a été expédiée peuvent noter, via un lien personnel envoyé par e-mail. Tous les avis sont publiés, positifs comme négatifs.</p></section>`;
+      // Sans avis vérifiés : rien en ligne (un témoignage saisi à la main n'a pas d'étoiles et ne passe pas pour un avis client).
+      const temoignages = [[p.a1, p.n1], [p.a2, p.n2]].filter(a => a[0] && String(a[0]).trim());
+      if (!temoignages.length) return mode === 'edition' ? '<section class="sf-avis"><p class="sf-methode">Les avis vérifiés de vos clients s’afficheront ici dès les premières notes. Rien n’est affiché en ligne d’ici là.</p></section>' : '';
+      return `<section class="sf-avis"><h2 class="sf-avis-titre">${esc(p.titre || 'Témoignages')}</h2>${temoignages.map(([a, n]) => `
+        <figure><blockquote>${esc(a)}</blockquote>${n ? `<figcaption>${esc(n)}</figcaption>` : ''}</figure>`).join('')}</section>`;
     }
     case 'newsletter':
       return `<section class="sf-newsletter"><h2>${esc(p.titre)}</h2><p>${esc(p.texte)}</p>
@@ -166,7 +169,7 @@ function renduFiche(etat, p, qte = 1) {
     <div class="sf-fiche-infos">
       ${p.categorie ? `<small class="sf-fiche-cat">${esc(p.categorie)}</small>` : ''}
       <h2>${esc(p.nom)}</h2>
-      <p class="sf-fiche-prix">${prixBarreAffiche(p, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(p, etat))}</s> ` : ''}<strong>${euros(p.prix)}</strong> <small>TTC${ch ? '' : ', TVA incluse'}</small></p>
+      <p class="sf-fiche-prix">${prixBarreAffiche(p, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(p, etat))}</s> ` : ''}<strong>${euros(p.prix)}</strong> <small>${esc(mentionTva((etat.entreprise || {}).regime, etat.boutique.pays))}</small></p>
       ${prixBarreAffiche(p, etat) ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
       ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
       ${p.description ? `<p class="sf-fiche-desc">${esc(p.description)}</p>` : ''}

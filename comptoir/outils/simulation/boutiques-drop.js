@@ -156,7 +156,7 @@ async function boutique(b, i) {
     });
     if (niveau === 3) await etape(qui, 'copilote', async () => { await go('copilote'); await p.click('[data-action="valider-campagne"]'); await p.waitForTimeout(700); });
     if (niveau >= 1) await etape(qui, 'domaine', async () => { await go('domaines'); const d = await p.$('[data-action="choisir-domaine"]'); if (d) { await d.click(); await p.waitForTimeout(600); } });
-    if (niveau >= 1) await etape(qui, 'conformité', async () => {
+    await etape(qui, 'conformité', async () => {
       await go('conformite');
       await p.fill('#en-adresse', 'Rue du Lac ' + (i + 1) + ', 1003 Lausanne'); await p.press('#en-adresse', 'Tab'); await p.waitForTimeout(250);
       if (pays === 'ch') { await p.fill('#en-siret', 'CHE-123.456.' + String(100 + i)); await p.press('#en-siret', 'Tab'); }
@@ -193,7 +193,7 @@ async function boutique(b, i) {
     if (!e.produits.length) note(qui, 'aucun produit dans la boutique');
     const sansDelai = e.produits.filter(x => x.type === 'drop' && !(Array.isArray(x.delai) && x.delai[1] > 0));
     if (sansDelai.length) note(qui, 'produit fournisseur sans délai de livraison', sansDelai.map(x => x.nom).join(', '));
-    if (niveau >= 1 && !(e.entreprise && /Lac/.test(e.entreprise.adresse || ''))) note(qui, 'adresse de l’entreprise non enregistrée', JSON.stringify(e.entreprise).slice(0, 120));
+    if (!(e.entreprise && /Lac/.test(e.entreprise.adresse || ''))) note(qui, 'adresse de l’entreprise non enregistrée', JSON.stringify(e.entreprise).slice(0, 120));
     if (niveau >= 2 && !((e.offres && e.offres.codes) || []).some(c => c.code === 'LANCEMENT' + i)) note(qui, 'code promo non enregistré sur le serveur');
     const slug = await p.evaluate(() => SERVEUR.slug);
     if (i % 10 === 0) await p.screenshot({ path: `${dossier}/admin-${i + 1}.png` });
