@@ -74,7 +74,7 @@ async function rechargerEtat() {
   etat = completerEtat(e);
   SERVEUR.slug = e.serveur.slug;
   SERVEUR.paiement = e.serveur.paiement;
-  SERVEUR.emails = e.serveur.emails || null; SERVEUR.creeLe = e.serveur.creeLe || null; SERVEUR.abonnement = e.serveur.abonnement || null;
+  SERVEUR.emails = e.serveur.emails || null; SERVEUR.creeLe = e.serveur.creeLe || null; SERVEUR.abonnement = e.serveur.abonnement || null; SERVEUR.jetonDomaine = e.serveur.jetonDomaine || null;
 }
 const urlBoutique = () => `${location.origin}/s/${SERVEUR.slug}`;
 const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, offres: etat.offres, lancement: etat.lancement || {}, fournisseursSuivi: etat.fournisseursSuivi || {} });
@@ -257,6 +257,7 @@ function installerModeConnecte() {
     const carte = d && d.domaine ? `<section class="carte"><div class="carte-tete"><h2>Votre domaine : <span class="mono">${esc(d.domaine)}</span></h2>${d.actif ? '<span class="pill good">Actif</span>' : '<span class="pill warn">En attente du DNS</span>'}</div>
       ${d.actif ? `<p>Votre boutique répond sur <a class="lien" href="https://${esc(d.domaine)}/" target="_blank" rel="noopener">https://${esc(d.domaine)}/</a>. Les e-mails et les liens de paiement l’utilisent.</p>`
         : `<ol class="appris"><li>Réservez le domaine chez un registrar (par exemple Infomaniak, Gandi ou OVH).</li><li>Dans sa zone DNS, créez un enregistrement <b>CNAME</b> nommé <span class="mono">www</span> (ou la racine si votre registrar le permet) vers <span class="mono">${esc(hote)}</span>.</li><li>Revenez ici et cliquez sur « Vérifier ». La propagation peut prendre quelques heures.</li></ol>
+          <p class="sous">Preuve de propriété : ajoutez aussi un enregistrement <b>TXT</b> nommé <span class="mono">_comptoir.${esc(d.domaine)}</span> avec la valeur <span class="mono">comptoir=${esc(SERVEUR.jetonDomaine || '')}</span>.</p>
           <div class="rangee"><button class="btn" data-srv="verifier-dns">Vérifier le DNS</button></div>`}</section>` : '';
     return carte + domainesOrig();
   };

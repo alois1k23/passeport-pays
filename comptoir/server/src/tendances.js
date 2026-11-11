@@ -2,7 +2,7 @@
 // Sources, toutes facultatives sauf la première :
 //  1. Ventes observées sur Comptoir : commandes payées des 28 derniers jours, toutes boutiques,
 //     agrégées par produit du catalogue. Un produit n'apparaît que s'il est vendu par au moins
-//     TENDANCES_MIN_BOUTIQUES boutiques (2 par défaut) : aucune boutique ne peut déduire les ventes d'une autre.
+//     TENDANCES_MIN_BOUTIQUES boutiques (3 au minimum) : aucune boutique ne peut déduire les ventes d'une autre.
 //  2. Google Trends, via l'API SerpApi (SERPAPI_KEY) : évolution des recherches sur 4 semaines,
 //     par pays (CH, FR, BE). Les requêtes tournent sur le catalogue (TENDANCES_REQUETES_MAX par passage).
 //  3. Fichier importé (TENDANCES_FICHIER) : export JSON d'un outil d'analyse (Minea, Jungle Scout,
@@ -22,7 +22,8 @@ const JOUR = 86400000;
 
 function creerCollecte({ db, env = {}, catalogue, fetchImpl = fetch, journal = console }) {
   db.exec(SCHEMA);
-  const minBoutiques = Number(env.TENDANCES_MIN_BOUTIQUES || 2);
+  // 3 au minimum : avec 2 boutiques, chacune pourrait déduire les ventes de l'autre en retirant les siennes.
+  const minBoutiques = Math.max(3, Number(env.TENDANCES_MIN_BOUTIQUES || 3));
   const requetesMax = Number(env.TENDANCES_REQUETES_MAX || 30);
   const ecrire = (cle, donnees, t = Date.now()) => db.prepare('INSERT INTO tendances (cle, donnees, maj_le) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET donnees = excluded.donnees, maj_le = excluded.maj_le').run(cle, JSON.stringify(donnees), t);
   const meta = { derniere: null, sources: {} };

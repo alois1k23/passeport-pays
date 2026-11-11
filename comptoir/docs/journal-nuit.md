@@ -214,3 +214,34 @@ Captures sur 360 px : liste et fiche des commandes, vue d'ensemble, produits sta
 4. **FAQ de la page d'accueil** : « Pour tester, non » alors que l'accès est payant. Corrigé : la démo est libre, l'ouverture d'une boutique demande une formule.
 
 Tests : 33 (refus 403 des fonctions non incluses ajouté).
+
+### Cycle 11 — Relecture complète du serveur (argent, stock, comptes)
+
+Une relecture ligne à ligne du serveur a relevé 18 points ; chacun a été vérifié puis corrigé.
+
+**Argent et commandes**
+
+1. **Paiement encaissé deux fois** : relancer le paiement d'une commande laissait l'ancienne session ouverte. Les anciens paiements sont annulés (et les sessions Stripe expirées).
+2. **Commande annulée puis payée** : un paiement arrivant après l'annulation passait la commande en « payée ». Il est maintenant marqué « à rembourser » (remboursement automatique avec Stripe).
+3. **Annulation sans remboursement** : une commande payée ne peut plus être « annulée » ; elle passe par « remboursée ».
+4. **Stock contrôlé ligne par ligne** : deux lignes du même produit pouvaient dépasser le stock. Le total par produit est vérifié.
+5. **Offres illimitées** : une règle « 1 acheté = 1 offert » pouvait s'appliquer sans article payant. Une ligne d'offre par règle, et seulement s'il y a un article normal.
+6. **Paiement TWINT différé** (`async_payment_succeeded`) ignoré, et webhook Stripe sans métadonnées en erreur 500 : traités.
+
+**Comptes et abonnements**
+
+7. **Compte supprimé mais toujours prélevé** : la souscription Stripe est résiliée avant la suppression (refus si Stripe ne confirme pas).
+8. **Deuxième souscription Stripe** pour un compte impayé : le marchand est envoyé au portail pour régulariser la première.
+9. **Domaine revendiqué par un autre marchand** : un domaine qui pointait déjà vers Comptoir pouvait être pris par n'importe quel compte. Il faut désormais un enregistrement TXT `_comptoir.<domaine>` avec le code propre à la boutique (affiché dans Domaines).
+
+**Fournisseur, e-mails, confidentialité**
+
+10. **Commande transmise deux fois au fournisseur** (deux clics, ou clic pendant l'envoi automatique) : verrou par commande.
+11. **Commande mixte** : le suivi du fournisseur remplaçait celui du marchand et le client recevait « commande expédiée » alors qu'une partie restait à envoyer. E-mail « une partie est en route », suivi séparé.
+12. **File d'e-mails** : deux envois simultanés pouvaient envoyer deux fois le même message. Verrou.
+13. **Réinscription forcée** : n'importe qui pouvait réinscrire une adresse désinscrite en tapant l'adresse. Il faut maintenant cliquer dans l'e-mail de confirmation.
+14. **Boutique fermée** : sa page HTML listait encore ses produits. Plus rien n'est exposé.
+15. **Tendances** : avec 2 boutiques seulement, chacune pouvait déduire les ventes de l'autre. Minimum 3.
+16. **Requêtes malformées** (`null`, tableau, nombre au lieu d'un objet) : erreur 500. Refus propre (400).
+
+Tests : 40.

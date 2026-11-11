@@ -47,8 +47,13 @@ function creerTables(db) {
 }
 
 /* Envoie jusqu'à `lot` e-mails en attente. 5 tentatives au plus par e-mail. */
+let envoiEnCours = false;
 async function envoyerFile(db, p, { lot = 20, journal = console } = {}) {
-  if (!p) return 0;
+  if (!p || envoiEnCours) return 0;   // un lot lent ne doit pas être relu et renvoyé par l'appel suivant
+  envoiEnCours = true;
+  try { return await envoyerLot(db, p, { lot, journal }); } finally { envoiEnCours = false; }
+}
+async function envoyerLot(db, p, { lot, journal }) {
   const enAttente = db.prepare(`SELECT e.*, b.config FROM emails e LEFT JOIN boutiques b ON b.id = e.boutique_id
     WHERE e.envoye = 0 AND e.tentatives < 5 ORDER BY e.id LIMIT ?`).all(lot);
   let n = 0;

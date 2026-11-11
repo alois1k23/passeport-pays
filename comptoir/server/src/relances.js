@@ -22,7 +22,7 @@ function nettoyer(a) {
     bienvenue: { actif: b.actif !== undefined ? !!b.actif : DEFAUT.bienvenue.actif, remise: n(b.remise, 10, 0, 50), code: nettoyerCode(b.code ?? DEFAUT.bienvenue.code) },
     paiement: {
       actif: p.actif !== undefined ? !!p.actif : DEFAUT.paiement.actif,
-      etapes: (Array.isArray(p.etapes) && p.etapes.length ? p.etapes : DEFAUT.paiement.etapes).slice(0, 3).map(e => ({ heures: n(e.heures, 1, 0.25, 168) })),
+      etapes: (Array.isArray(p.etapes) && p.etapes.filter(x => x && typeof x === 'object').length ? p.etapes.filter(x => x && typeof x === 'object') : DEFAUT.paiement.etapes).slice(0, 3).map(e => ({ heures: n(e.heures, 1, 0.25, 168) })),
       remise: n(p.remise, 0, 0, 30), code: nettoyerCode(p.code)
     },
     avis: { actif: v.actif !== undefined ? !!v.actif : DEFAUT.avis.actif, jours: n(v.jours, 7, 1, 60) },

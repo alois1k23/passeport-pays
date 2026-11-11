@@ -13,16 +13,16 @@
   function offresDe(config) {
     const o = Object.assign({}, OFFRES_DEFAUT, (config && config.offres) || {});
     o.seuilPort = Math.max(0, Math.min(1000, Number(o.seuilPort) || 0));
-    o.paliers = (Array.isArray(o.paliers) ? o.paliers : [])
+    o.paliers = (Array.isArray(o.paliers) ? o.paliers : []).filter(x => x && typeof x === 'object')
       .map(p => ({ qte: Math.max(2, Math.min(20, Math.round(Number(p.qte) || 0))), remise: Math.max(0, Math.min(50, Number(p.remise) || 0)) }))
       .filter(p => p.remise > 0).sort((a, b) => a.qte - b.qte).slice(0, 4);
     // Offres complémentaires : « si le panier contient X, proposer Y à −N % » (dans le panier ou après l’achat).
-    o.regles = (Array.isArray(o.regles) ? o.regles : []).slice(0, 10).map((r, i) => ({
+    o.regles = (Array.isArray(o.regles) ? o.regles : []).filter(x => x && typeof x === 'object').slice(0, 10).map((r, i) => ({
       id: String(r.id || 'r' + i).replace(/[^\w-]/g, '').slice(0, 20) || 'r' + i,
       si: String(r.si || '*').slice(0, 40), alors: String(r.alors || '').slice(0, 40),
       remise: Math.max(0, Math.min(50, Number(r.remise) || 0)), type: r.type === 'apres' ? 'apres' : 'panier', actif: r.actif !== false
     })).filter(r => r.alors && r.si !== r.alors);
-    o.codes = (Array.isArray(o.codes) ? o.codes : []).slice(0, 50).map(c => ({ code: String(c.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), remise: Math.max(1, Math.min(70, Number(c.remise) || 0)), expire: Number(c.expire) || null })).filter(c => c.code);
+    o.codes = (Array.isArray(o.codes) ? o.codes : []).filter(x => x && typeof x === 'object').slice(0, 50).map(c => ({ code: String(c.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), remise: Math.max(1, Math.min(70, Number(c.remise) || 0)), expire: Number(c.expire) || null })).filter(c => c.code);
     return o;
   }
 

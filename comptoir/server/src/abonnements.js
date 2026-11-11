@@ -75,6 +75,8 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
     if (!FORMULES[formule]) throw erreur(400, 'Formule inconnue.', 'formule');
     const a = lire(marchand.id);
     if (a && a.statut === 'actif' && a.periode_fin > Date.now()) throw erreur(409, 'Votre abonnement est déjà actif.', 'deja_actif');
+    // Une souscription Stripe existe encore (impayée, en période de grâce) : on la régularise dans le portail plutôt que d'en créer une seconde.
+    if (stripe && a && a.ref_externe && a.statut !== 'resilie' && a.client_externe) return portail(marchand);
     const ref = 'abo_' + crypto.randomBytes(12).toString('base64url');
     if (a) maj(marchand.id, { formule, devise, session_ref: ref, statut: a.statut === 'resilie' ? 'en_attente' : a.statut });
     else db.prepare('INSERT INTO abonnements (marchand_id, formule, statut, devise, session_ref, cree_le, maj_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(marchand.id, formule, 'en_attente', devise, ref, Date.now(), Date.now());
@@ -152,7 +154,16 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
     return true;
   }
 
-  return { FORMULES, formulesPour, etat, commencer, confirmerSimulation, parRefSimulation, changer, resilier, reprendre, evenementStripe, obligatoire, prestataire: stripe ? 'stripe' : 'simulation' };
+  /* Suppression du compte : résiliation immédiate de la souscription Stripe (refus si Stripe ne répond pas). */
+  async function arreterDefinitivement(marchandId) {
+    const a = lire(marchandId);
+    if (stripe && a && a.ref_externe && a.statut !== 'resilie') {
+      const rep = await fetchImpl(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(a.ref_externe)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${stripe}` } });
+      if (!rep.ok && rep.status !== 404) throw erreur(502, 'Stripe ne confirme pas la résiliation : réessayez avant de supprimer le compte.', 'stripe');
+    }
+  }
+
+  return { arreterDefinitivement, FORMULES, formulesPour, etat, commencer, confirmerSimulation, parRefSimulation, changer, resilier, reprendre, evenementStripe, obligatoire, prestataire: stripe ? 'stripe' : 'simulation' };
 }
 
 function pageAbonnementSimule(a, marchandEmail) {

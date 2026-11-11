@@ -110,6 +110,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const attendu = signerDesinscription(boutiqueId, email);
     return sig.length === attendu.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(attendu)) ? { boutiqueId, email } : null;
   };
+  const jetonDomaine = boutiqueId => crypto.createHmac('sha256', cleDesinscription).update(`domaine|${boutiqueId}`).digest('hex').slice(0, 24);
   const estDesinscrit = (boutiqueId, email) => !!db.prepare('SELECT 1 FROM desinscriptions WHERE boutique_id = ? AND email = ?').get(boutiqueId, email);
   /* Contenu des e-mails de commande : récapitulatif, lien de suivi personnel, lien du transporteur. */
   const lienCommande = (b, id) => { const row = db.prepare('SELECT jeton_client FROM commandes WHERE id = ?').get(id); return row ? `${urlBoutique(b)}?commande=${encodeURIComponent(id)}&jeton=${encodeURIComponent(row.jeton_client)}` : urlBoutique(b); };
@@ -188,10 +189,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       offres: Remises.offresDe(config),
       fournisseursSuivi: Object.fromEntries(Object.entries(config.fournisseursSuivi || {}).slice(0, 50).map(([k, v]) => [String(k).slice(0, 80), Object.fromEntries(['echantillon', 'reponse', 'delai', 'douane'].map(c => [c, !!(v && v[c])]))])),
       lancement: Object.fromEntries(Object.entries(config.lancement || {}).slice(0, 30).map(([k, v]) => [String(k).slice(0, 20), !!v])),
-      tests: (Array.isArray(config.tests) ? config.tests : []).slice(-50).map(t => ({
+      tests: (Array.isArray(config.tests) ? config.tests : []).filter(x => x && typeof x === 'object').slice(-50).map(t => ({
         id: String(t.id).slice(0, 30), produitId: String(t.produitId).slice(0, 40), canal: ['meta', 'tiktok-ads', 'organique'].includes(t.canal) ? t.canal : 'meta',
         budgetJour: Math.max(0, Number(t.budgetJour) || 0), debut: Number(t.debut) || Date.now(),
-        resultats: (Array.isArray(t.resultats) ? t.resultats : []).slice(0, 60).map(r => Object.fromEntries(['depense', 'vues', 'impressions', 'vues3s', 'clics', 'ventes'].map(k => [k, Math.max(0, Number(r[k]) || 0)])))
+        resultats: (Array.isArray(t.resultats) ? t.resultats : []).filter(x => x && typeof x === 'object').slice(0, 60).map(r => Object.fromEntries(['depense', 'vues', 'impressions', 'vues3s', 'clics', 'ventes'].map(k => [k, Math.max(0, Number(r[k]) || 0)])))
       }))
     };
   }
@@ -256,9 +257,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   }
 
   /* Transmet au fournisseur les articles en dropshipping d'une commande payée. */
+  const transmissionsEnCours = new Set();
   async function transmettreAuFournisseur(boutique, c, auto) {
     const lignesDrop = c.lignes.filter(l => l.type === 'drop');
     if (!lignesDrop.length || c.refFournisseur) return c;
+    if (transmissionsEnCours.has(c.id)) throw erreur(409, 'Transmission déjà en cours pour cette commande.', 'transmission_en_cours');
+    transmissionsEnCours.add(c.id);
+    try { return await transmettre(boutique, c, auto, lignesDrop); } finally { transmissionsEnCours.delete(c.id); }
+  }
+  async function transmettre(boutique, c, auto, lignesDrop) {
     const f = db.prepare('SELECT * FROM fournisseurs WHERE code = ?').get(lignesDrop[0].codeFournisseur || 'demo');
     if (!f) throw erreur(500, 'Fournisseur non configuré.', 'fournisseur_absent');
     // Routage : le même produit existe-t-il dans un entrepôt plus proche du client ? (Suisse > UE > Chine)
@@ -280,6 +287,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       livraison: { nom: c.client.nom, adresse: c.client.adresse || '', npa: c.client.npa || '', ville: c.client.ville, pays: lireConfig(boutique).boutique.pays.toUpperCase() }
     });
     const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
+    if (frais.refFournisseur) { journal.error('[fournisseur] commande déjà transmise', c.id, frais.refFournisseur, rep.ref); return frais; }
     frais.refFournisseur = rep.ref;
     frais.codeFournisseur = f.code;
     if (estDrop(frais)) frais.statut = 'fournisseur';
@@ -434,6 +442,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const domaine = String(d.domaine).toLowerCase();
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domaine)) throw erreur(400, 'Nom de domaine invalide.', 'domaine_invalide');
     let ok = env.DOMAINES_SANS_VERIFICATION === '1';
+    // Preuve de propriété : un enregistrement TXT « _comptoir.<domaine> » contenant le code de la boutique.
+    // Sans elle, un autre marchand pourrait revendiquer un domaine qui pointe déjà vers Comptoir.
+    if (!ok) {
+      const txt = (await dns.resolveTxt(`_comptoir.${domaine}`).catch(() => [])).map(x => x.join(''));
+      if (!txt.includes(`comptoir=${jetonDomaine(ctx.boutique.id)}`)) throw erreur(409, `Prouvez que ${domaine} vous appartient : ajoutez chez votre registrar un enregistrement TXT nommé _comptoir.${domaine} avec la valeur comptoir=${jetonDomaine(ctx.boutique.id)}, puis vérifiez à nouveau (la propagation peut prendre quelques minutes).`, 'domaine_preuve');
+    }
     if (!ok) {
       try {
         const cname = await dns.resolveCname(domaine).catch(() => []);
@@ -461,9 +475,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
 
   /* Suppression définitive du compte et de toutes ses données (mot de passe exigé). */
-  r.post('/api/admin/compte/supprimer', exigerCompte, ctx => {
+  r.post('/api/admin/compte/supprimer', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     if (!auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    await abo.arreterDefinitivement(m.id);   // sinon Stripe continuerait de prélever un compte supprimé
     transaction(db, () => {
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
@@ -491,7 +506,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Audience : sessions distinctes par jour et par étape (365 derniers jours)
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
-    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id)} };
+    return { version: 2, ...config, produits: listerProduits(ctx.boutique.id), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id) } };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -744,7 +759,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!row || jeton.length !== row.jeton_client.length || !crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(row.jeton_client))) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     if (!['expediee', 'livree', 'retiree'].includes(row.statut)) throw erreur(409, 'Vous pourrez donner votre avis après réception de la commande.', 'pas_encore');
     const c = lireCommande(row);
-    const liste = Array.isArray(ctx.corps.avis) ? ctx.corps.avis.slice(0, 20) : [];
+    const liste = Array.isArray(ctx.corps.avis) ? ctx.corps.avis.filter(x => x && typeof x === 'object').slice(0, 20) : [];
     let n = 0;
     for (const a of liste) {
       if (!c.lignes.some(l => l.produitId === a.produitId)) continue;
@@ -838,8 +853,13 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     auth.limiter('newsletter:' + ctx.ip, 20 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
     const email = valider.email(ctx.corps.email);
+    if (estDesinscrit(b.id, email)) {
+      // Adresse désinscrite : n'importe qui pourrait la réinscrire ; seul un clic dans l'e-mail envoyé à cette adresse le fait.
+      const lien = `${urlPublique}/reinscription?j=${jetonDesinscription(b.id, email)}`;
+      envoyerEmail(b.id, email, `Confirmez votre inscription chez ${lireConfig(b).boutique.nom}`, `Bonjour,\n\nVous vous étiez désinscrit des nouvelles de ${lireConfig(b).boutique.nom}. Pour vous réinscrire, confirmez ici :\n${lien}\n\nSi ce n'est pas vous, ignorez cet e-mail : rien ne changera.`);
+      return { ok: true, confirmation: true };
+    }
     db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(b.id, email, Date.now());
-    db.prepare('DELETE FROM desinscriptions WHERE boutique_id = ? AND email = ?').run(b.id, email);   // nouvelle inscription explicite : nouveau consentement
     relances.emailBienvenue({ db, boutique: b, config: lireConfig(b), email, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail });
     return { ok: true };
   });
@@ -889,7 +909,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const ev = JSON.parse(ctx.corpsBrut);
     const evAbo = abo.evenementStripe(ev);
     if (evAbo) { if (evAbo.marchandId) emailAbonnement(evAbo.marchandId, evAbo.evenement); return { recu: true }; }
-    if (ev.type === 'checkout.session.completed' && ev.data.object.payment_status === 'paid') {
+    const objet = (ev.data && ev.data.object) || {};
+    if (((ev.type === 'checkout.session.completed' && objet.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') && objet.metadata && objet.metadata.paiement_id) {
       await paiementConfirme(ev.data.object.metadata.paiement_id, ev.data.object.id);
     }
     return { recu: true };
@@ -901,13 +922,22 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const row = db.prepare("SELECT * FROM commandes WHERE json_extract(donnees, '$.refFournisseur') = ?").get(String(ev.ref));
     if (!row) throw erreur(404, 'Commande inconnue.', 'commande_introuvable');
     const c = lireCommande(row);
-    if (ev.statut === 'expediee' && !c.suivi) {
+    if (ev.statut === 'expediee' && estDrop(c) && !c.suivi) {
       c.suivi = String(ev.suivi || '').slice(0, 60);
       c.transporteur = String(ev.transporteur || '').slice(0, 40);
-      if (estDrop(c)) c.statut = 'expediee';
+      c.statut = 'expediee';
       historique(c, `Expédiée par le fournisseur (${c.transporteur}), suivi ${c.suivi} envoyé au client`);
       enregistrerCommande(c);
       { const bq = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id); emailExpedition(bq, c, lireConfig(bq)); }
+    } else if (ev.statut === 'expediee' && !estDrop(c) && !c.suiviFournisseur) {
+      // Commande mixte : seule la partie du fournisseur est partie ; le marchand expédiera le reste avec son propre suivi.
+      c.suiviFournisseur = String(ev.suivi || '').slice(0, 60);
+      c.transporteurFournisseur = String(ev.transporteur || '').slice(0, 40);
+      historique(c, `Partie fournisseur expédiée (${c.transporteurFournisseur}), suivi ${c.suiviFournisseur} ; le reste est à expédier par vous`);
+      enregistrerCommande(c);
+      const bq = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id), conf = lireConfig(bq);
+      const parties = c.lignes.filter(l => l.type === 'drop').map(l => `- ${l.qte} × ${l.nom}`).join('\n');
+      envoyerEmail(bq.id, c.client.email, `Une partie de votre commande n° ${c.numero} est en route`, `Bonjour ${c.client.nom},\n\nCes articles sont partis${c.transporteurFournisseur ? ` avec ${c.transporteurFournisseur}` : ''} :\n${parties}\nNuméro de suivi : ${c.suiviFournisseur}\n\nLe reste de votre commande suit séparément ; nous vous écrirons à son expédition.\n\nVotre commande : ${lienCommande(bq, c.id)}\n\n${conf.boutique.nom}`);
     }
     return { recu: true };
   });
@@ -945,7 +975,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   function pageBoutique(b, { racine, produitId = null }) {
     const config = lireConfig(b);
     const ouverte = abo.etat(b.marchand_id).actif;
-    const produits = listerProduits(b.id).filter(p => p.actif && !p.aVerifier);
+    const produits = ouverte ? listerProduits(b.id).filter(p => p.actif && !p.aVerifier) : [];
     const p = produitId ? produits.find(x => x.id === produitId) : null;
     const nom = config.boutique.nom;
     const hero = (config.boutique.sections || []).find(s => s.type === 'hero');
@@ -1000,6 +1030,18 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const nom = b ? JSON.parse(b.config).boutique.nom : 'cette boutique';
     if (estDesinscrit(d.boutiqueId, d.email)) return { html: pageSimple('Vous êtes déjà désinscrit', `${d.email} ne reçoit plus les nouvelles et offres de ${nom}.`) };
     return { html: pageSimple(`Ne plus recevoir les e-mails de ${nom}`, `Confirmez pour ${d.email}. Vous recevrez toujours les e-mails liés à vos commandes (confirmation, expédition).`, `<form method="post" action="/desinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Me désinscrire</button></form>`) };
+  });
+  r.get('/reinscription', ctx => {
+    const d = lireJetonDesinscription(ctx.query.get('j'));
+    if (!d) return { html: pageSimple('Lien invalide', 'Ce lien est incomplet ou a été modifié.') };
+    return { html: pageSimple('Recevoir à nouveau les nouvelles', `Confirmez pour ${d.email}.`, `<form method="post" action="/reinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Me réinscrire</button></form>`) };
+  });
+  r.post('/reinscription', ctx => {
+    const d = lireJetonDesinscription(ctx.query.get('j'));
+    if (!d) throw erreur(400, 'Lien invalide.', 'invalide');
+    db.prepare('DELETE FROM desinscriptions WHERE boutique_id = ? AND email = ?').run(d.boutiqueId, d.email);
+    db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(d.boutiqueId, d.email, Date.now());
+    return { html: pageSimple('C’est fait', `${d.email} recevra de nouveau les nouvelles de cette boutique.`) };
   });
   r.post('/desinscription', ctx => {
     const d = lireJetonDesinscription(ctx.query.get('j'));
@@ -1133,6 +1175,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
           // JSON obligatoire : un formulaire d'un autre site ne peut pas envoyer ce type sans CORS (protection CSRF).
           if (ctx.corpsBrut && !type.startsWith('application/json')) throw erreur(415, 'Envoyez du JSON.', 'type_contenu');
           ctx.corps = ctx.corpsBrut ? JSON.parse(ctx.corpsBrut) : {};
+          if (!ctx.corps || typeof ctx.corps !== 'object' || Array.isArray(ctx.corps)) throw erreur(400, 'Requête invalide : un objet JSON est attendu.', 'corps_invalide');
         } else if (type.startsWith('application/json') && ctx.corpsBrut) ctx.corps = JSON.parse(ctx.corpsBrut);
       }
       let resultat;

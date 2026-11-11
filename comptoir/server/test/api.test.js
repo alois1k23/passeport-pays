@@ -620,3 +620,21 @@ test('caisse : une même clé de ticket n’enregistre qu’une seule vente', as
   assert.equal(e.commandes.filter(x => x.canal === 'magasin').length, 1);
   assert.equal(e.produits[0].stock, 9);
 });
+
+test('saisies malformées (corps non objet, éléments null) : 400, jamais 500', async () => {
+  const brut = async (m, chemin, corps) => (await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json' }, body: corps })).status;
+  assert.equal(await brut('POST', '/api/auth/connexion', 'null'), 400);
+  assert.equal(await brut('POST', '/api/auth/connexion', '[1,2]'), 400);
+  assert.equal(await brut('POST', '/api/auth/connexion', '42'), 400);
+  const c = client();
+  await c('POST', '/api/auth/inscription', { email: 'nulls@exemple.ch', motDePasse: 'un mot de passe solide', config: config('Nulls'), produits: [{ nom: 'Pot', prix: 10, stock: 5, type: 'stock' }] });
+  const e = (await c('GET', '/api/admin/etat')).json;
+  const { produits, commandes, serveur: s, avis, abonnes, envois, audience, offresVues, ...conf } = e;
+  conf.offres = { ...conf.offres, regles: [null], codes: [null, 3], paliers: [null] };
+  conf.tests = [null, { id: 't', produitId: 'p', resultats: [null] }];
+  conf.automatisations = { ...conf.automatisations, paiement: { actif: true, etapes: [null] } };
+  assert.equal((await c('PUT', '/api/admin/config', { config: conf })).statut, 200);
+  const r = await client()('POST', `/api/public/${e.serveur.slug}/commandes`, { lignes: [null], livraison: 'poste-eco', client: { nom: 'A', email: 'a@exemple.ch', adresse: 'R', npa: '1003', ville: 'L' } });
+  assert.equal(r.statut, 400);
+  assert.equal((await c('POST', '/api/admin/publications', { publications: [{ reseau: 'instagram', format: 'Reel', pilier: 'produit', date: Date.now() + 3600e3, accroche: 'x', legende: 'y', hashtags: [], script: [null] }] })).statut < 500, true);
+});
