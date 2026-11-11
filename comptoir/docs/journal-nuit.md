@@ -783,7 +783,7 @@ Le client utilisé par les tests garde désormais chaque cookie sous son nom, co
 - 100 utilisateurs dans un navigateur : 40 marchands sur tous les écrans, 46 commandes payées, 10 paniers abandonnés, 4 paiements annulés, aucune anomalie ;
 - pannes et doubles clics : aucun problème.
 
-## Cycle 40 — Relecture de sécurité du serveur (04 h 10 – 04 h 35)
+### Cycle 40 — Relecture de sécurité du serveur (04 h 10 – 04 h 35)
 
 Une relecture indépendante du serveur a relevé 8 problèmes. Tous sont corrigés.
 
@@ -815,7 +815,7 @@ Une relecture indépendante du serveur a relevé 8 problèmes. Tous sont corrig�
 
 Tests : 60 (2 nouveaux, et le test de la newsletter suit le lien de confirmation).
 
-## Cycle 41 — Relecture des corrections du cycle 40 (04 h 35 – 05 h 00)
+### Cycle 41 — Relecture des corrections du cycle 40 (04 h 35 – 05 h 00)
 
 Une relecture indépendante des corrections du cycle 40 a trouvé une régression que j'avais introduite, et six points à compléter.
 
