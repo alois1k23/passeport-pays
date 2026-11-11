@@ -611,3 +611,12 @@ Une septième relecture a relevé 14 défauts. Tous sont corrigés.
 14. Éditeur au clavier : le focus revient sur la section ou sur le bouton « Monter/Descendre » après l'action.
 
 Tests : 51 ; démo sans erreur ni débordement ; audit d'accessibilité propre.
+
+### Cycle 32 — Le marchand est prévenu de ce qui demande une action
+
+**Manque** : le marchand n'était prévenu de rien. Il devait ouvrir son tableau de bord pour découvrir une commande à expédier, et un échec de transmission au fournisseur n'était visible que dans l'historique de la commande. Désormais, il reçoit un e-mail :
+- **à chaque commande payée** : récapitulatif, client et ce qu'il doit faire (« à préparer et expédier », « à transmettre au fournisseur », « rien à faire : la commande part automatiquement chez le fournisseur », « à préparer pour un retrait ») ;
+- **si la transmission automatique au fournisseur échoue** : alerte « action requise », avec la cause et le lien (sans elle, le premier e-mail l'aurait laissé croire qu'il n'avait rien à faire) ;
+- **quand un produit tombe à zéro** après une vente (il s'affiche alors « Épuisé »).
+
+Tests : 53 (e-mail de commande, alerte de stock).

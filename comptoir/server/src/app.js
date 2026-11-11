@@ -372,12 +372,25 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const config = lireConfig(res.boutique);
     envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
       `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.${infoRetractation(res.boutique, res.c, config)}`);
+    // Le marchand est prévenu de chaque commande payée (sans e-mail, une commande à expédier pourrait rester oubliée).
+    {
+      const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
+      const drop = res.c.lignes.every(l => l.type === 'drop'), auto = config.reglages.autoTransmission;
+      const quoiFaire = res.c.livraison === 'retrait' ? 'À préparer pour un retrait en magasin.' : drop && auto ? 'Rien à faire : la commande part automatiquement chez le fournisseur.' : drop ? 'À transmettre au fournisseur depuis Commandes.' : 'À préparer et expédier.';
+      // Produits en stock tombés à zéro avec cette vente : ils s'affichent « Épuisé » ; le marchand doit le savoir.
+      const epuises = res.c.lignes.filter(l => l.type !== 'drop').map(l => listerProduits(res.boutique.id).find(p => p.id === l.produitId)).filter(p => p && p.type !== 'drop' && p.stock <= 0);
+      if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
+      if (mch) envoyerEmail(null, mch.email, `Nouvelle commande n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
+        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\nClient : ${res.c.client.nom}${res.c.client.ville ? `, ${res.c.client.ville}` : ''}\n${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
+    }
     if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop')) {
       try { await transmettreAuFournisseur(res.boutique, res.c, true); } catch (e) {
         const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.id));
         historique(c, `Échec de la transmission automatique : ${e.message} Transmettez-la à la main.`);
         enregistrerCommande(c);
         journal.error('[fournisseur]', e.message);
+        const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
+        if (mch) envoyerEmail(null, mch.email, `Action requise : commande n° ${c.numero} non transmise au fournisseur`, `Bonjour,\n\nLa commande n° ${c.numero} a été payée, mais sa transmission automatique au fournisseur a échoué : ${e.message}\n\nTransmettez-la à la main depuis Commandes : ${urlPublique}/app#commandes\n\nTant qu'elle n'est pas transmise, rien n'est expédié au client.`);
       }
     }
   }

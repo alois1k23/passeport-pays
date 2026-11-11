@@ -788,3 +788,27 @@ test('compte : changement de mot de passe (ancien exigé), autres appareils déc
   assert.equal((await pc('POST', '/api/admin/compte/deconnecter-autres', {})).json.n, 1);
   assert.equal((await neuf('GET', '/api/session')).json.connecte, false);
 });
+
+test('le marchand reçoit un e-mail pour chaque commande payée', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'alerte-commande@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Alerte', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Alerte', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Zoé', email: 'zoe@exemple.ch', adresse: 'Rue 2', npa: '1006', ville: 'Lausanne' } });
+  await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const mail = db.prepare("SELECT sujet, corps FROM emails WHERE destinataire = 'alerte-commande@exemple.ch' AND sujet LIKE 'Nouvelle commande%'").get();
+  assert.ok(mail, 'e-mail au marchand');
+  assert.match(mail.sujet, /CHF 47\.00/);
+  assert.match(mail.corps, /À préparer et expédier/);
+  assert.match(mail.corps, /\/app#commandes/);
+});
+
+test('alerte de stock épuisé envoyée au marchand après la dernière vente', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'stock-zero@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Stock zéro', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Stock zéro', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Dernier vase', prix: 40, stock: 1, type: 'stock' }] });
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Zoé', email: 'zoe2@exemple.ch', adresse: 'Rue 2', npa: '1006', ville: 'Lausanne' } });
+  await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const mail = db.prepare("SELECT sujet FROM emails WHERE destinataire = 'stock-zero@exemple.ch' AND sujet LIKE 'Stock épuisé%'").get();
+  assert.ok(mail, 'alerte de stock');
+  assert.match(mail.sujet, /Dernier vase/);
+});
