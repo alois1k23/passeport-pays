@@ -741,3 +741,21 @@ test('factures : taux réduit par ligne, avoir numéroté au remboursement, arro
   assert.equal(Number(c.avoir.numero.slice(-4)), Number(c.facture.slice(-4)) + 1, 'une seule suite continue');
   assert.equal(c.facture.slice(0, 2), 'FA', 'la facture d’origine reste');
 });
+
+test('e-mail de confirmation français : récapitulatif juste avec remise, rétractation et formulaire type', async () => {
+  const m = client(), a = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'retract@exemple.fr', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Atelier Lyon', pays: 'fr', secteur: 'deco', sections: [] }, entreprise: { raison: 'Atelier Lyon', adresse: '3 rue de la Paix, 69001 Lyon', email: 'contact@atelier.fr', regime: 'franchise' }, offres: { codes: [{ code: 'MOINS10', remise: 10 }] } }, produits: [{ nom: 'Vase', prix: 50, stock: 5, type: 'stock' }] });
+  assert.equal(ins.statut, 201);
+  const pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 2 }], livraison: 'colissimo', code: 'MOINS10', client: { nom: 'Paul Martin', email: 'paul@exemple.fr', adresse: '1 rue A', npa: '69002', ville: 'Lyon' } });
+  assert.equal(cmd.statut, 201, JSON.stringify(cmd.json));
+  await fetch(cmd.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+  const mail = db.prepare("SELECT corps FROM emails WHERE destinataire = 'paul@exemple.fr' AND sujet LIKE '%confirmée' ORDER BY id DESC LIMIT 1").get();
+  assert.ok(mail, 'e-mail de confirmation');
+  assert.match(mail.corps, /2 × Vase : 90,00/);           // prix après remise
+  assert.doesNotMatch(mail.corps, /Remise .* : −/);       // la remise n'est pas soustraite une seconde fois
+  assert.match(mail.corps, /Total payé : 90,00/);
+  assert.match(mail.corps, /14 jours/); assert.match(mail.corps, /L221-18/);
+  assert.match(mail.corps, /Formulaire de rétractation/);
+  assert.match(mail.corps, /Atelier Lyon, 3 rue de la Paix/);
+});
