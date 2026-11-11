@@ -76,7 +76,14 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cmd.json.commandeId).statut, 'attente');
     assert.equal(await webhook(evPaye('acct_boutique')), 200);
     assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cmd.json.commandeId).statut, 'payee');
-    // Remboursement : sur le compte qui a encaissé
+    // Litige ouvert par le client : la commande le montre et le marchand est prévenu
+    db.prepare('UPDATE paiements SET intent = ? WHERE id = ?').run('pi_litige', pay.id);
+    assert.equal(await webhook({ type: 'charge.dispute.created', account: 'acct_boutique', data: { object: { payment_intent: 'pi_litige', amount: 4700, reason: 'fraudulent', status: 'needs_response', evidence_details: { due_by: Math.floor(Date.now() / 1000) + 7 * 86400 } } } }), 200);
+    const avecLitige = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(cmd.json.commandeId).donnees);
+    assert.equal(avecLitige.litige.statut, 'needs_response');
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE sujet LIKE 'Litige sur la commande%'").get(), 'marchand prévenu');
+    assert.equal(await webhook({ type: 'charge.dispute.created', account: 'acct_autre', data: { object: { payment_intent: 'pi_litige', amount: 1, status: 'needs_response' } } }), 200);   // un autre compte ne touche pas cette commande
+        // Remboursement : sur le compte qui a encaissé
     assert.equal((await c('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 200);
     assert.ok(appels.filter(a => a.chemin === 'refunds').every(a => a.compte === 'acct_boutique') && appels.some(a => a.chemin === 'refunds'));
     // account.updated : compte désactivé par Stripe → commandes à nouveau fermées

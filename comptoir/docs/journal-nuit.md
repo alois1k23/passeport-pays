@@ -1143,3 +1143,39 @@ La formule choisie s'applique ensuite dans la démo comme sur la vraie plateform
 Code : `js/parcours.js`, chargé avant `app.js` ; `abonnementCourant()` dans `js/data.js` sert aussi bien au mode connecté qu'à la démo. Sur un vrai serveur, rien ne change : ce parcours y est assuré par `accueil.html`, l'inscription et Stripe.
 
 Vérifié dans un navigateur, sur ordinateur et sur iPhone : parcours complet de bout en bout, verrous de la formule Lancement, passage à Croissance, rechargement de la page, aucune erreur.
+
+### Après la nuit — Un mois d'exploitation simulé avec 100 clients
+
+Nouvel outil : `outils/simulation/mois.js`. Il fait tourner le vrai serveur avec une horloge virtuelle, ce qui fait passer 30 jours en quelques minutes.
+
+**Le scénario**
+- 100 marchands arrivent sur 10 jours : 40 en Lancement, 40 en Croissance, 20 en Pro ; Suisse, France et Belgique.
+- Chacun crée sa boutique, avec ses produits et ceux du fournisseur.
+- 2 252 acheteurs passent 6 547 commandes ; 10 % des paniers sont abandonnés.
+- Les marchands préparent, expédient (avec numéro de suivi), remboursent et vendent en caisse.
+- Au jour 12, des marchands changent de formule (hausses et baisses) ; au jour 15, 8 marchands résilient.
+- Les e-mails automatiques et les publications partent selon le calendrier, et les abonnements se renouvellent.
+
+**Vérifié à la fin du mois**
+- Stocks cohérents avec les ventes et remboursements, jamais négatifs.
+- Une facture par vente ; factures et avoirs dans une suite continue, sans trou ni doublon.
+- Totaux justes.
+- Rien de payant ne s'applique aux boutiques en formule Lancement : ni remise, ni code, ni retrait en magasin, ni e-mail automatique.
+- Exactement un e-mail de confirmation par commande payée, et aucune relance après un paiement.
+- Les boutiques résiliées ferment à la fin du mois payé ; les autres sont renouvelées.
+- Aucune boutique ne voit les données d'une autre.
+
+**Défauts trouvés et corrigés**
+1. **Références du fournisseur de démonstration.** Un tirage à 6 chiffres se répétait après quelques milliers de commandes, et la transmission de ces commandes échouait. Les références sont maintenant uniques.
+2. **Litiges bancaires** (un client conteste un paiement auprès de sa banque). Comptoir ne les voyait pas : le marchand pouvait perdre le montant sans le savoir. Désormais :
+   - le litige apparaît sur la commande ;
+   - le marchand reçoit un e-mail avec l'échéance de réponse ;
+   - une alerte s'affiche dans « À faire ».
+
+Test ajouté.
+
+**Second passage : 0 anomalie, 0 erreur serveur.** Le temps de réponse médian est de 1 ms, et 95 % des requêtes répondent en moins de 4 ms, sur 41 260 requêtes.
+
+**Pour l'exploitant**
+- Ce mois a produit 21 258 e-mails, soit environ 210 par boutique.
+- Il faut une offre d'envoi payante (Brevo ou Postmark) à la mesure de ce volume : le niveau gratuit de Brevo (300 par jour) ne suffit pas.

@@ -106,7 +106,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
     async sessionPayee(p) {
       if (!p.ref_externe || !/^cs_/.test(p.ref_externe)) return false;
       const s = await lire(`checkout/sessions/${p.ref_externe}`, p.compte || null);
-      return s.payment_status === 'paid';
+      return s.payment_status === 'paid' ? (s.payment_intent || true) : false;   // payment_intent : sert à retrouver un litige
     },
     modeCle: /^sk_live_/.test(cleSecrete) ? 'live' : 'test',
     /* Vérifie l'en-tête Stripe-Signature (HMAC-SHA256, tolérance 5 minutes) : webhook de la plateforme, ou celui des comptes connectés. */

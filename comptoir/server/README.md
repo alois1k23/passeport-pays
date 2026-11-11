@@ -71,7 +71,7 @@ Rafraîchissement : Google Trends et fichier au démarrage puis toutes les 6 heu
 2. Définissez `STRIPE_SECRET_KEY` et `URL_PUBLIQUE`.
 3. Dans Stripe, ajoutez un webhook vers `https://<votre-domaine>/api/webhooks/stripe` pour les événements `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` et `customer.subscription.deleted` (abonnements Comptoir uniquement : les ventes des boutiques arrivent par le webhook Connect), puis copiez son secret dans `STRIPE_WEBHOOK_SECRET`. Activez le portail client Stripe (changement de carte, de formule, résiliation).
    Choisissez la version d'API `2024-06-20` pour les deux webhooks : c'est celle que le serveur utilise pour tous ses appels.
-4. Ajoutez un second webhook, de type **Connect** (« événements des comptes connectés »), vers la même adresse, pour `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `account.updated` et `account.application.deauthorized` ; son secret va dans `STRIPE_CONNECT_WEBHOOK_SECRET`.
+4. Ajoutez un second webhook, de type **Connect** (« événements des comptes connectés »), vers la même adresse, pour `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `account.updated`, `account.application.deauthorized` et `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed` (litiges : le marchand est prévenu par e-mail et dans « À faire ») ; son secret va dans `STRIPE_CONNECT_WEBHOOK_SECRET`.
 
 ### Un vrai fournisseur
 Tout fournisseur qui respecte ce contrat (ou un petit adaptateur devant son API) se branche sans changer le reste :

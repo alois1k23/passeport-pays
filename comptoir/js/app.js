@@ -314,6 +314,7 @@ function vueTableau() {
         const item = (n, texte, lien, { alerte = false, filtre = '', section = '' } = {}) => `<li class="${alerte ? 'alerte' : ''}"><a href="#${lien}" ${filtre ? `data-action="filtre-lien" data-filtre="${filtre}"` : section ? `data-action="section-param" data-v="${section}"` : ''}><span class="todo-n">${n === null ? '<i></i>' : n}</span><span class="todo-t">${texte}</span><span class="todo-fl" aria-hidden="true">›</span></a></li>`;
         const pb = typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? SERVEUR.paiementsBoutique : null;
         const items = [
+          ...etat.commandes.filter(c => c.litige && c.litige.statut !== 'won' && c.litige.statut !== 'lost').map(c => item('!', `Litige bancaire sur la commande n° ${c.numero} : répondez dans Stripe${c.litige.echeance ? ` avant le ${new Date(c.litige.echeance).toLocaleDateString('fr-FR')}` : ''}`, 'commandes', { alerte: true })),
           ...(pb && pb.mode === 'stripe' && !pb.pret ? [item(null, 'Activez vos paiements : sans cela, la boutique n’accepte aucune commande', 'parametres', { alerte: true, section: 'paiements' })] : []),
           item(aExpedier.length, `commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier`, 'commandes', { alerte: aExpedier.length > 0, filtre: 'payee' }),
           item(attente, `paiement${attente > 1 ? 's' : ''} en attente`, 'commandes', { alerte: attente > 0, filtre: 'attente' }),

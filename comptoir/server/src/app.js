@@ -82,6 +82,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Stripe Connect : compte Stripe de chaque boutique (l'argent des ventes va directement au marchand). */
   db.exec('CREATE TABLE IF NOT EXISTS comptes_stripe (boutique_id TEXT PRIMARY KEY, compte TEXT NOT NULL, pret INTEGER NOT NULL DEFAULT 0, maj_le INTEGER NOT NULL);');
   try { db.exec('ALTER TABLE paiements ADD COLUMN compte TEXT'); } catch { /* colonne déjà présente */ }
+  try { db.exec('ALTER TABLE paiements ADD COLUMN intent TEXT'); } catch { /* colonne déjà présente */ }   // payment_intent Stripe : retrouve la vente d'un litige
   for (const sql of ["ALTER TABLE comptes_stripe ADD COLUMN mode TEXT", "ALTER TABLE comptes_stripe ADD COLUMN moyens TEXT"]) { try { db.exec(sql); } catch { /* déjà présente */ } }
   // Un compte créé en mode test ne vaut rien avec une clé réelle (et inversement) : il est ignoré, la boutique en active un nouveau.
   const compteStripe = boutiqueId => {
@@ -1218,7 +1219,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       for (const p of db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree' AND fournisseur = 'stripe'").all(row.id)) {
         if (Date.now() - (verifsSession.get(p.id) || 0) < 10000) continue;   // au plus une question à Stripe toutes les 10 s par paiement
         verifsSession.set(p.id, Date.now()); if (verifsSession.size > 5000) verifsSession.clear();
-        if (await paiement.sessionPayee(p).catch(() => false)) { await paiementConfirme(p.id, p.ref_externe); break; }
+        const paye = await paiement.sessionPayee(p).catch(() => false);
+        if (paye) { await paiementConfirme(p.id, p.ref_externe); if (typeof paye === 'string') db.prepare('UPDATE paiements SET intent = ? WHERE id = ?').run(paye, p.id); break; }
       }
       row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);
     }
@@ -1247,7 +1249,27 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (ev.type === 'account.application.deauthorized') db.prepare('UPDATE comptes_stripe SET pret = 0, maj_le = ? WHERE compte = ?').run(Date.now(), ev.account);
       if (((ev.type === 'checkout.session.completed' && objet.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') && objet.metadata && objet.metadata.paiement_id) {
         const p = db.prepare('SELECT compte FROM paiements WHERE id = ?').get(String(objet.metadata.paiement_id));
-        if (p && p.compte === ev.account) await paiementConfirme(objet.metadata.paiement_id, objet.id);   // la vente doit venir du compte de la boutique
+        if (p && p.compte === ev.account) {   // la vente doit venir du compte de la boutique
+          await paiementConfirme(objet.metadata.paiement_id, objet.id);
+          if (objet.payment_intent) db.prepare('UPDATE paiements SET intent = ? WHERE id = ?').run(String(objet.payment_intent), String(objet.metadata.paiement_id));
+        }
+      }
+      // Litige (rétrofacturation) : le client conteste le paiement auprès de sa banque. Le marchand doit répondre dans Stripe
+      // avant l'échéance, sinon il perd le montant et des frais : il est prévenu, et la commande le montre.
+      if (/^charge\.dispute\.(created|updated|closed|funds_withdrawn)$/.test(ev.type) && objet.payment_intent) {
+        const p = db.prepare('SELECT * FROM paiements WHERE intent = ? AND compte = ?').get(String(objet.payment_intent), ev.account);
+        const row = p && db.prepare('SELECT * FROM commandes WHERE id = ?').get(p.commande_id);
+        if (row) {
+          const c = lireCommande(row), b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id), config = lireConfig(b);
+          const echeance = objet.evidence_details && objet.evidence_details.due_by ? objet.evidence_details.due_by * 1000 : null;
+          const nouveau = !c.litige;
+          c.litige = { statut: String(objet.status || ''), montant: (Number(objet.amount) || 0) / 100, raison: String(objet.reason || ''), echeance, maj: Date.now() };
+          historique(c, ev.type === 'charge.dispute.closed' ? `Litige clos : ${objet.status === 'won' ? 'gagné, le montant reste acquis' : 'perdu, le montant a été repris par la banque du client'}` : nouveau ? `Litige ouvert par le client auprès de sa banque (${c.litige.raison || 'motif non précisé'})` : 'Litige mis à jour');
+          enregistrerCommande(c);
+          const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+          if (mch && nouveau) envoyerEmail(null, mch.email, `Litige sur la commande n° ${c.numero} : répondez avant l’échéance`,
+            `Bonjour,\n\nLe client de la commande n° ${c.numero} (${formatMontant(c.litige.montant, config)}) conteste le paiement auprès de sa banque (motif : ${c.litige.raison || 'non précisé'}).\n\nRépondez dans votre tableau de bord Stripe${echeance ? ` avant le ${new Date(echeance).toLocaleDateString('fr-FR')}` : ''} avec vos preuves : facture, suivi du colis, échanges avec le client. Sans réponse, la banque rend le montant au client et Stripe facture des frais de litige.\n\nComptoir`);
+        }
       }
       return { recu: true };
     }
