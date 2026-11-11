@@ -55,6 +55,7 @@ setInterval(() => { try { gerer.automatisationsEcheances(); } catch (e) { consol
 
 // File d'e-mails : envoi réel si BREVO_API_KEY ou POSTMARK_TOKEN et EMAIL_EXPEDITEUR sont définis.
 setInterval(() => gerer.envoyerEmails().catch(e => console.error('[e-mail]', e.message)), Number(env.EMAIL_INTERVALLE_MS || 30000)).unref();
+setInterval(() => gerer.envoyerWebhooks().catch(e => console.error('[webhook]', e.message)), Number(env.WEBHOOK_INTERVALLE_MS || 15000)).unref();
 
 // Produits stars : signaux de demande (ventes Comptoir, Google Trends via SerpApi, fichier importé), toutes les 6 heures.
 const tendances = () => gerer.rafraichirTendances().catch(e => console.error('[tendances]', e.message));

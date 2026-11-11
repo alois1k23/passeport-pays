@@ -20,6 +20,7 @@ const relances = require('./relances');
 const Remises = require('../../js/remises.js');
 const PrixBarres = require('../../js/prix-barres.js');
 const QrFacture = require('../../js/qrfacture.js');
+const { creerIntegrations } = require('./integrations');
 const courriel = require('./courriel');
 
 const RACINE_FRONT = path.resolve(__dirname, '..', '..');
@@ -180,9 +181,21 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!c) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     return c;
   };
+  const integ = creerIntegrations({ db, env, journal, fetchImpl });
+  // Commande telle qu'envoyée aux intégrations du marchand (API, webhooks) : pas de jeton, pas de coûts internes.
+  const commandeApi = (c, devise) => ({ id: c.id, numero: c.numero, date: new Date(c.date).toISOString(), statut: c.statut, total: c.total, sousTotal: c.sousTotal, remise: c.remise || 0, port: c.port || 0, devise,
+    livraison: c.livraison, canal: c.canal || 'web', moyen: c.moyen || 'en_ligne', facture: c.facture || null, suivi: c.suivi || null, transporteur: c.transporteur || null,
+    client: c.client ? { nom: c.client.nom, email: c.client.email, adresse: c.client.adresse, npa: c.client.npa, ville: c.client.ville } : null,
+    lignes: (c.lignes || []).map(l => ({ produitId: l.produitId, nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock' })) });
   const enregistrerCommande = c => {
     const { id, numero, date, statut, ...donnees } = c;
+    const avant = db.prepare('SELECT statut, boutique_id FROM commandes WHERE id = ?').get(id);
     db.prepare('UPDATE commandes SET statut = ?, donnees = ? WHERE id = ?').run(statut, JSON.stringify(donnees), id);
+    // Changement de statut : les webhooks du marchand sont prévenus (commande.payee, .expediee, .remboursee…).
+    if (avant && avant.statut !== statut) {
+      try { const b = db.prepare('SELECT config FROM boutiques WHERE id = ?').get(avant.boutique_id); integ.emettre(avant.boutique_id, `commande.${statut}`, commandeApi({ ...c }, (JSON.parse(b.config).boutique || {}).devise || 'CHF')); }
+      catch (e) { journal.error('[webhook]', e.message); }
+    }
   };
   const historique = (c, texte) => c.historique.push({ date: Date.now(), texte });
   // Factures et avoirs partagent une seule suite de numéros, continue et sans trou.
@@ -550,6 +563,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       // Une seule alerte, au passage à zéro : le stock d'avant cette vente était positif (pas de doublon à chaque vente suivante).
       const vendus = {}; for (const l of res.c.lignes) if (l.type !== 'drop') vendus[l.produitId] = (vendus[l.produitId] || 0) + l.qte;
       const epuises = res.c.alerteStock ? [] : listerProduits(res.boutique.id).filter(p => vendus[p.id] && p.type !== 'drop' && p.stock <= 0 && p.stock + vendus[p.id] > 0);   // en rupture, l'e-mail de commande le dit déjà
+      for (const p of epuises) integ.emettre(res.boutique.id, 'produit.rupture', { id: p.id, nom: p.nom, stock: p.stock });
       if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
       if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
         `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
@@ -1367,6 +1381,77 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     }
     return resultat;
   });
+  /* ---------- Intégrations : gestion (espace marchand, formule Croissance) ---------- */
+  r.get('/api/admin/integrations', exigerFonction('api'), ctx => ({ cles: integ.listerCles(ctx.boutique.id), webhooks: integ.listerWebhooks(ctx.boutique.id), portees: integ.PORTEES, evenements: integ.EVENEMENTS, base: `${urlPublique}/api/v1` }));
+  r.post('/api/admin/integrations/cles', exigerFonction('api'), ctx => { const r2 = integ.creerCle(ctx.boutique.id, ctx.corps); noterActivite(ctx.marchand.id, 'cle-api', String(ctx.corps.nom || '').slice(0, 60), ctx); return { statut: 201, corps: r2 }; });
+  r.post('/api/admin/integrations/cles/:id/revoquer', exigerMarchand, ctx => { if (!integ.revoquerCle(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Clé inconnue.', 'introuvable'); noterActivite(ctx.marchand.id, 'cle-api-revoquee', null, ctx); return { ok: true }; });
+  r.post('/api/admin/integrations/webhooks', exigerFonction('api'), async ctx => ({ statut: 201, corps: await integ.creerWebhook(ctx.boutique.id, ctx.corps) }));
+  r.post('/api/admin/integrations/webhooks/:id/supprimer', exigerMarchand, ctx => { if (!integ.supprimerWebhook(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Webhook inconnu.', 'introuvable'); return { ok: true }; });
+  r.post('/api/admin/integrations/webhooks/:id/reactiver', exigerFonction('api'), ctx => { if (!integ.reactiverWebhook(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Webhook inconnu.', 'introuvable'); return { ok: true }; });
+  r.post('/api/admin/integrations/webhooks/tester', exigerFonction('api'), async ctx => { const n = integ.emettre(ctx.boutique.id, 'test', { message: 'Événement de test envoyé depuis Comptoir.' }); await integ.envoyerFile(); return { envoyes: n }; });
+
+  /* ---------- API publique v1 (clé d'API du marchand) ---------- */
+  function exigerCle(portee) {
+    return ctx => {
+      const c = integ.authentifier(ctx.req.headers.authorization);
+      auth.limiter('api:' + c.id, 300 * facteurLimites, 60000, 'Limite de 300 requêtes par minute dépassée.');
+      if (!c.portees.includes(portee)) throw erreur(403, `Cette clé n’a pas la permission « ${portee} ».`, 'portee');
+      const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(c.boutiqueId);
+      const ab = abo.etat(b.marchand_id);
+      if (!ab.actif || (ab.obligatoire && !Formules.permet(ab.formule, 'api'))) throw erreur(402, 'API indisponible : abonnement inactif ou formule sans API.', 'abonnement_requis');
+      ctx.boutique = b; ctx.cleApi = c;
+    };
+  }
+  const deviseDeBoutique = b => lireConfig(b).boutique.devise || 'CHF';
+  r.get('/api/v1/commandes', exigerCle('commandes:lecture'), ctx => {
+    const depuis = ctx.query.get('depuis') ? new Date(ctx.query.get('depuis')).getTime() || Number(ctx.query.get('depuis')) || 0 : 0;
+    const limite = Math.max(1, Math.min(100, Number(ctx.query.get('limite')) || 50)), statut = ctx.query.get('statut');
+    const rows = db.prepare(`SELECT * FROM commandes WHERE boutique_id = ? AND date > ? ${statut ? 'AND statut = ?' : ''} ORDER BY date ASC LIMIT ?`).all(...[ctx.boutique.id, depuis, ...(statut ? [statut] : []), limite + 1]);
+    const devise = deviseDeBoutique(ctx.boutique);
+    const donnees = rows.slice(0, limite).map(r2 => commandeApi(lireCommande(r2), devise));
+    return { donnees, suite: rows.length > limite ? donnees[donnees.length - 1].date : null };
+  });
+  r.get('/api/v1/commandes/:numero', exigerCle('commandes:lecture'), ctx => {
+    const row = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND numero = ?').get(ctx.boutique.id, Number(ctx.params.numero));
+    if (!row) throw erreur(404, 'Commande introuvable.', 'introuvable');
+    return commandeApi(lireCommande(row), deviseDeBoutique(ctx.boutique));
+  });
+  r.post('/api/v1/commandes/:numero/expedier', exigerCle('commandes:ecriture'), ctx => {
+    const row = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND numero = ?').get(ctx.boutique.id, Number(ctx.params.numero));
+    if (!row) throw erreur(404, 'Commande introuvable.', 'introuvable');
+    const c = lireCommande(row);
+    if (!['payee', 'preparation'].includes(c.statut) || c.livraison === 'retrait' || c.lignes.every(l => l.type === 'drop')) throw erreur(409, 'Seule une commande payée, à expédier par vous, peut être marquée expédiée.', 'statut');
+    c.statut = 'expediee'; c.suivi = String(ctx.corps.suivi || '').trim().slice(0, 60); c.transporteur = String(ctx.corps.transporteur || '').trim().slice(0, 40) || null;
+    historique(c, `Expédiée${c.suivi ? `, suivi ${c.suivi}` : ', sans numéro de suivi'} (API)`);
+    enregistrerCommande(c);
+    emailExpedition(ctx.boutique, c, lireConfig(ctx.boutique));
+    return commandeApi(c, deviseDeBoutique(ctx.boutique));
+  });
+  const produitApi = (p, slug) => ({ id: p.id, nom: p.nom, prix: p.prix, stock: p.type === 'drop' ? null : p.stock, type: p.type, actif: p.actif !== false, categorie: p.categorie || '', image: p.image ? `${urlPublique}/api/public/${encodeURIComponent(slug)}/image/${p.id}` : null });
+  r.get('/api/v1/produits', exigerCle('produits:lecture'), ctx => ({ donnees: listerProduits(ctx.boutique.id).map(p => produitApi(p, ctx.boutique.slug)) }));
+  r.patch('/api/v1/produits/:id', exigerCle('produits:ecriture'), ctx => {
+    const ancien = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(ctx.params.id, ctx.boutique.id);
+    if (!ancien) throw erreur(404, 'Produit introuvable.', 'introuvable');
+    const avant = JSON.parse(ancien.donnees);
+    const c = ctx.corps || {}, maj = { ...avant };
+    if (c.prix !== undefined) maj.prix = c.prix;
+    if (c.stock !== undefined && avant.type !== 'drop') maj.stock = c.stock;
+    if (c.actif !== undefined) maj.actif = !!c.actif;
+    const propre = nettoyerProduit({ ...maj, type: avant.type, source: avant.source, codeFournisseur: avant.codeFournisseur, image: avant.image }, avant.historiquePrix || []);
+    db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, propre), ctx.params.id);
+    return produitApi({ ...propre, id: ctx.params.id }, ctx.boutique.slug);
+  });
+  r.get('/api/v1/clients', exigerCle('clients:lecture'), ctx => {
+    const parEmail = new Map();
+    for (const c of db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee')").all(ctx.boutique.id).map(lireCommande)) {
+      const e = String(c.client && c.client.email || '').toLowerCase(); if (!e) continue;
+      const x = parEmail.get(e) || { email: e, nom: c.client.nom, commandes: 0, total: 0, derniere: null };
+      x.commandes++; x.total = Math.round((x.total + c.total) * 100) / 100; x.derniere = new Date(Math.max(c.date, x.derniere ? Date.parse(x.derniere) : 0)).toISOString();
+      parEmail.set(e, x);
+    }
+    return { donnees: [...parEmail.values()] };
+  });
+
   /* Avis vérifiés : seul un client ayant reçu sa commande peut noter, une fois par produit. */
   const statsAvis = boutiqueId => Object.fromEntries(db.prepare('SELECT produit_id, AVG(note) AS m, COUNT(*) AS n FROM avis WHERE boutique_id = ? GROUP BY produit_id').all(boutiqueId).map(x => [x.produit_id, { moyenne: x.m, n: x.n }]));
   r.post('/api/public/:slug/avis', ctx => {
@@ -1957,6 +2042,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   gerer.rafraichirTendances = () => collecte.rafraichir();
   gerer.actualiserVentesTendances = () => collecte.actualiserVentes(0);
   gerer.envoyerEmails = () => courriel.envoyerFile(db, serviceEmail, { journal });
+  gerer.envoyerWebhooks = () => integ.envoyerFile();
   return gerer;
 }
 

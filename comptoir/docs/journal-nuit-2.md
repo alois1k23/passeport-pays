@@ -13,7 +13,7 @@ Demande : jusqu'à 7 h 00 (heure de Lausanne), pousser le code, renforcer la sé
 
 ## Cycles
 
-### Cycle 1 — Sécurité des comptes marchands (23 h 35 – 00 h 05)
+### Cycle 1 — Sécurité des comptes marchands (23 h 35 – 23 h 48)
 
 - **Double authentification (TOTP)**, codée sans aucune bibliothèque (RFC 6238, vérifiée par les vecteurs de test officiels). Elle fonctionne avec Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden et Proton Pass.
   - Mise en place par QR code ; le mot de passe et un premier code sont exigés.
@@ -44,7 +44,7 @@ Demande : jusqu'à 7 h 00 (heure de Lausanne), pousser le code, renforcer la sé
 7. **Erreur de chargement.** Elle n'entraîne plus de boucle de requêtes ; un bouton « Réessayer » s'affiche.
 8. **Journal d'activité.** Il est conservé 12 mois.
 
-### Cycle 2 — QR-facture suisse et rapprochement bancaire automatique (23 h 50 – 00 h 20)
+### Cycle 2 — QR-facture suisse et rapprochement bancaire automatique (23 h 48 – 23 h 56)
 
 En Suisse, le paiement sur facture est très répandu. Comptoir le propose maintenant aux boutiques suisses, de bout en bout :
 - **QR-facture conforme à la norme SIX** (Swiss Payment Standards, QR-bill 2.3) : récépissé et section paiement au format A4 (62 mm + 148 mm), QR code avec la croix suisse, adresses structurées.

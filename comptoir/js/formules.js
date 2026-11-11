@@ -10,16 +10,16 @@
     lancement: { nom: 'Lancement', prix: 29, resume: 'Votre première boutique de dropshipping',
       inclus: ['Boutique complète et éditeur', 'Catalogue fournisseurs et produits stars', 'Transmission automatique des commandes', 'Marge nette réelle par produit', 'Exports CSV et export pour votre fiduciaire', 'Paiement par carte, et TWINT en Suisse', '0 % de commission Comptoir'] },
     croissance: { nom: 'Croissance', prix: 59, resume: 'Pour vendre plus et fidéliser',
-      inclus: ['Tout Lancement, plus :', 'Calendrier et textes des réseaux sociaux préparés pour vous', 'Copilote de saison et tests produits', 'E-mails automatiques, codes promo et offres', 'Remises par quantité et campagnes de saison'] },
+      inclus: ['Tout Lancement, plus :', 'Calendrier et textes des réseaux sociaux préparés pour vous', 'Copilote de saison et tests produits', 'E-mails automatiques, codes promo et offres', 'Remises par quantité et campagnes de saison', 'API et webhooks (comptabilité, entrepôt, Zapier)'] },
     pro: { nom: 'Pro', prix: 119, resume: 'Boutique en ligne et vente en personne',
       inclus: ['Tout Croissance, plus :', 'Caisse et stock unique (marchés, pop-up, magasin)', 'Retrait en magasin et QR code de vitrine', 'Ventes en ligne et en magasin dans les mêmes analyses'] }
   };
   // Fonction → formule minimale. Ce qui n'est pas listé est inclus partout.
   const FONCTIONS = {
-    social: 'croissance', copilote: 'croissance', tests: 'croissance', conversion: 'croissance',
+    social: 'croissance', copilote: 'croissance', tests: 'croissance', conversion: 'croissance', api: 'croissance',
     magasin: 'pro'
   };
-  const NOMS_FONCTIONS = { social: 'Réseaux sociaux', copilote: 'Copilote de saison', tests: 'Tests produits', conversion: 'Conversion et e-mails', magasin: 'Magasin et caisse' };
+  const NOMS_FONCTIONS = { social: 'Réseaux sociaux', copilote: 'Copilote de saison', tests: 'Tests produits', conversion: 'Conversion et e-mails', magasin: 'Magasin et caisse', api: 'API et webhooks' };
   function permet(formule, fonction) {
     const min = FONCTIONS[fonction];
     if (!min) return true;
