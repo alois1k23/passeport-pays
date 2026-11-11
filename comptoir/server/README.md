@@ -115,7 +115,7 @@ La route `/api/tls/autoriser` ne répond « oui » que pour le domaine principal
 
 ## Avant l'ouverture au public (obligatoire)
 
-- **Identité de l'exploitant** : `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL`, `EXPLOITANT_IDE` (pages `/mentions-legales`, `/confidentialite`, `/conditions`), et `HEBERGEUR` (nom, adresse et téléphone de l'hébergeur, repris dans les mentions légales des boutiques). Tant qu'ils manquent, les pages légales l'affichent.
+- **Identité de l'exploitant** : `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL`, `EXPLOITANT_IDE`, et `EXPLOITANT_TVA` si l'exploitant est assujetti à la TVA (pages `/mentions-legales`, `/confidentialite`, `/conditions`), et `HEBERGEUR` (nom, adresse et téléphone de l'hébergeur, repris dans les mentions légales des boutiques). Tant qu'ils manquent, les pages légales l'affichent.
 - **Un vrai fournisseur** : avec une clé Stripe de production, les produits du fournisseur de démonstration sont masqués et refusés à la commande (il n'expédie rien). Branchez au moins un fournisseur réel (contrat d'API dans `src/fournisseurs.js`).
 - **Réseaux sociaux** : sans application validée par Meta, TikTok et Pinterest, la publication est manuelle (le pilote prépare les textes, le marchand les publie). `SOCIAL_SIMULATION=1` réactive la simulation pour une démonstration.
 - **Adresse du vendeur** : une boutique n'accepte aucune commande tant que son adresse n'est pas renseignée (Conformité).

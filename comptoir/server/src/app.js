@@ -513,9 +513,18 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     ctx.boutique = boutiqueDuMarchand(ctx.marchand.id);
   };
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
+  // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
+  // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
+  const LECTURE_SEULE = new Set(['GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
-    if (!abo.etat(ctx.marchand.id).actif) throw erreur(402, 'Choisissez une formule et réglez votre abonnement pour accéder à votre boutique.', 'abonnement_requis');
+    const e = abo.etat(ctx.marchand.id);
+    if (e.actif) return;
+    const route = `${ctx.req.method} ${new URL(ctx.req.url, 'http://x').pathname}`;
+    // Les commandes déjà payées doivent pouvoir être expédiées, transmises ou remboursées : les clients ont payé.
+    const suiviCommande = /^POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)$/.test(route);
+    if (['resilie', 'impaye'].includes(e.statut) && (LECTURE_SEULE.has(route) || suiviCommande)) { ctx.lectureSeule = true; return; }
+    throw erreur(402, ['resilie', 'impaye'].includes(e.statut) ? 'Abonnement terminé : vos données restent consultables et exportables ; reprenez un abonnement pour modifier votre boutique.' : 'Choisissez une formule et réglez votre abonnement pour accéder à votre boutique.', 'abonnement_requis');
   };
   // Fonction réservée à une formule (réseaux sociaux : Croissance ; caisse : Pro). Sans abonnement obligatoire : tout est ouvert.
   const exigerFonction = fonction => ctx => {
@@ -725,10 +734,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
     return { ok: true, n: db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(ctx.marchand.id, actuelle).changes };
   });
-  r.post('/api/admin/compte/supprimer', exigerCompte, async ctx => {
-    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
-    const cles = ['mdp:' + m.id];   // même compteur que le changement de mot de passe : une session volée ne devine pas le mot de passe par essais
-    if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+  /* Suppression définitive d'un compte marchand et de tout ce qui lui appartient (demande du marchand, ou fin de conservation). */
+  async function supprimerCompte(m) {
     await abo.arreterDefinitivement(m.id);   // sinon Stripe continuerait de prélever un compte supprimé
     transaction(db, () => {
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
@@ -738,6 +745,29 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
       db.prepare('DELETE FROM marchands WHERE id = ?').run(m.id); // boutiques, produits, commandes, sessions : suppression en cascade
     });
+  }
+  /* Conservation limitée : 12 mois après la fin de l'abonnement (avertissement 30 jours avant), 90 jours pour une
+     inscription jamais payée. Les pièces comptables du marchand lui appartiennent : il les exporte avant (lecture seule). */
+  async function conservation(maintenant = Date.now()) {
+    const JOUR = 86400000;
+    for (const a of db.prepare("SELECT * FROM abonnements WHERE statut = 'resilie' AND periode_fin < ?").all(maintenant - 335 * JOUR)) {
+      const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(a.marchand_id);
+      if (!m) continue;
+      if (a.periode_fin < maintenant - 365 * JOUR) { await supprimerCompte(m).catch(e => journal.error('[conservation]', e.message)); continue; }
+      const b = db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').get(m.id);
+      if (b && relances.reserverEnvoi(db, b.id, 'conservation-avis', maintenant)) envoyerEmail(null, m.email, 'Vos données Comptoir seront effacées dans 30 jours',
+        `Bonjour,\n\nVotre abonnement Comptoir est terminé depuis bientôt un an. Sans nouvel abonnement, votre compte, votre boutique et ses données seront effacés définitivement le ${new Date(a.periode_fin + 365 * JOUR).toLocaleDateString('fr-FR')}.\n\nPensez à exporter vos commandes, factures et clients (conservation comptable obligatoire de votre côté) : ${urlPublique}/app\n\nL’équipe Comptoir`);
+    }
+    // Inscriptions jamais payées (aucune période payée) depuis plus de 90 jours
+    for (const m of db.prepare('SELECT m.* FROM marchands m LEFT JOIN abonnements a ON a.marchand_id = m.id WHERE m.cree_le < ? AND (a.marchand_id IS NULL OR a.periode_fin IS NULL)').all(maintenant - 90 * JOUR)) {
+      await supprimerCompte(m).catch(e => journal.error('[conservation]', e.message));
+    }
+  }
+  r.post('/api/admin/compte/supprimer', exigerCompte, async ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    const cles = ['mdp:' + m.id];   // même compteur que le changement de mot de passe : une session volée ne devine pas le mot de passe par essais
+    if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    await supprimerCompte(m);
     ctx.entetes['Set-Cookie'] = [auth.cookieSession(null, securise), `comptoir_appareil=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${securise ? '; Secure' : ''}`];
     return { ok: true };
   });
@@ -760,7 +790,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id), paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -1267,6 +1297,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
     db.prepare("UPDATE emails SET corps = '(contenu effacé après 180 jours)' WHERE envoye = 1 AND cree_le < ? AND corps <> '(contenu effacé après 180 jours)'").run(maintenant - 180 * 86400000);
     db.prepare('DELETE FROM tickets_caisse WHERE le < ?').run(maintenant - 30 * 86400000);
+    if (abo.obligatoire) conservation(maintenant).catch(e => journal.error('[conservation]', e.message));
   }
   function automatisationsEcheances(maintenant = Date.now()) {
     let n = 0;
@@ -1491,12 +1522,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       ['Données des acheteurs', 'Nom, adresse de livraison, e-mail et commande, traités pour le compte du marchand (Comptoir agit comme sous-traitant). Elles sont transmises au prestataire de paiement, au transporteur et, pour le dropshipping, au fournisseur concerné.'],
       ['Prestataires', 'Paiement : Stripe (cartes, TWINT). Envoi des e-mails : le service configuré par l’exploitant. Aucune donnée n’est vendue ni utilisée à des fins publicitaires.'],
       ['Mesure d’audience', 'Uniquement après l’accord de l’acheteur dans la boutique, sans cookie publicitaire, avec un identifiant limité à l’onglet.'],
-      ['Durée et droits', 'Les données sont conservées tant que le compte existe, puis supprimées, sauf les pièces comptables (10 ans en Suisse). Vous pouvez demander l’accès, la rectification ou l’effacement de vos données par e-mail. Un compte peut être supprimé à tout moment depuis ses paramètres.']
+      ['Durée et droits', 'Les données du marchand sont conservées pendant l’abonnement, puis 12 mois après sa fin (consultation et export restent possibles), et effacées ensuite, après un avertissement 30 jours avant ; une inscription jamais payée est effacée après 90 jours. Les pièces comptables appartiennent au marchand, qui les exporte et les conserve (10 ans en Suisse et en France). Vous pouvez demander l’accès, la rectification ou l’effacement de vos données par e-mail. Un compte peut être supprimé à tout moment depuis ses paramètres.']
     ]) };
   });
   r.get('/conditions', () => ({ html: pageLegale('Conditions d’utilisation', [
     ['Service', 'Comptoir fournit un logiciel pour créer et gérer une boutique en ligne. Le marchand vend en son nom : il est responsable de ses produits, de ses prix, de ses textes et du respect du droit applicable à ses ventes.'],
-    ['Abonnement', `Formules ${['lancement', 'croissance', 'pro'].map(f => `${escHtml(Formules.FORMULES[f].nom)} (CHF ${Formules.FORMULES[f].prix}.– ou ${Formules.FORMULES[f].prix} € par mois)`).join(', ')}, payées par mois et par carte. Aucune commission sur les ventes ; seuls les frais du prestataire de paiement s’appliquent.`],
+    ['Abonnement', `Formules ${['lancement', 'croissance', 'pro'].map(f => `${escHtml(Formules.FORMULES[f].nom)} (CHF ${Formules.FORMULES[f].prix}.– ou ${Formules.FORMULES[f].prix} € par mois)`).join(', ')}, payées par mois et par carte. ${env.EXPLOITANT_TVA ? `Prix hors TVA : la TVA de l’exploitant (n° ${escHtml(env.EXPLOITANT_TVA)}) s’y ajoute selon les règles de votre pays (autoliquidation pour les entreprises de l’Union européenne).` : 'Prix finaux : l’exploitant n’est pas assujetti à la TVA, aucune taxe ne s’ajoute.'} Aucune commission sur les ventes ; seuls les frais du prestataire de paiement s’appliquent.`],
     ['Résiliation', 'À tout moment, depuis les paramètres. L’accès reste ouvert jusqu’à la fin du mois payé. En cas d’échec de paiement, la boutique est mise en pause jusqu’à régularisation ; le prestataire de paiement retente le prélèvement automatiquement.'],
     ['Données', 'Le marchand peut exporter ses commandes et supprimer son compte à tout moment. Voir la page Protection des données.'],
     ['Simulations', 'Les chiffres de démonstration, de tendance et de prévision sont des estimations et ne constituent pas une promesse de résultat.']
@@ -1560,7 +1591,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       active: [`Votre boutique ${nom} est en ligne`, `Bonjour,\n\nVotre abonnement Comptoir ${noms[e.formule] || ''} (${montant} par mois) est actif. Votre boutique est ouverte aux clients : ${urlBoutique(b)}\n\nVotre espace : ${urlPublique}/app\nProchain renouvellement : ${fin}. Résiliable à tout moment dans Paramètres > Abonnement.\n\nL’équipe Comptoir`],
       impaye: [`Paiement de votre abonnement en échec`, `Bonjour,\n\nLe dernier paiement de votre abonnement Comptoir n’est pas passé. Stripe va réessayer dans les prochains jours. Sans paiement d’ici 7 jours, votre boutique ${nom} sera fermée aux clients ; vos données sont conservées.\n\nMettez à jour votre moyen de paiement : ${urlPublique}/app\n\nL’équipe Comptoir`],
       resiliation: [`Résiliation enregistrée`, `Bonjour,\n\nLa résiliation de votre abonnement Comptoir est enregistrée. Votre boutique ${nom} et votre espace restent ouverts jusqu’au ${fin}. Rien ne sera prélevé ensuite.\n\nVous changez d’avis ? Paramètres > Abonnement > Garder mon abonnement : ${urlPublique}/app\n\nL’équipe Comptoir`],
-      termine: [`Votre abonnement est terminé`, `Bonjour,\n\nVotre abonnement Comptoir est terminé : la boutique ${nom} est fermée aux clients. Vos données sont conservées ; reprenez un abonnement quand vous voulez : ${urlPublique}/app\n\nL’équipe Comptoir`]
+      termine: [`Votre abonnement est terminé`, `Bonjour,\n\nVotre abonnement Comptoir est terminé : la boutique ${nom} est fermée aux clients. Vos données restent consultables et exportables pendant 12 mois (Paramètres, export complet) ; reprenez un abonnement quand vous voulez : ${urlPublique}/app\n\nL’équipe Comptoir`]
     };
     const t = textes[evenement];
     if (t) envoyerEmail(null, m.email, t[0], t[1]);

@@ -9,6 +9,39 @@ const { ouvrir } = require('./src/db');
 const { creerApp } = require('./src/app');
 
 const env = process.env;
+
+/* Vérification avant la mise en ligne : `node server/server.js --verifier` liste ce qui manque ou cloche, puis s'arrête. */
+if (process.argv.includes('--verifier')) {
+  (async () => {
+    const res = [];
+    const v = (ok, quoi, conseil) => res.push(`${ok ? '✓' : '✗'} ${quoi}${ok ? '' : ` — ${conseil}`}`);
+    const url = env.URL_PUBLIQUE || '';
+    v(/^https:\/\//.test(url), 'URL_PUBLIQUE en https', 'indiquez l’adresse publique, par ex. https://comptoir.example');
+    v(env.NODE_ENV === 'production', 'NODE_ENV=production', 'sans cela, les paiements simulés restent possibles');
+    v(['EXPLOITANT_NOM', 'EXPLOITANT_ADRESSE', 'EXPLOITANT_EMAIL'].every(k => env[k]), 'identité de l’exploitant (EXPLOITANT_NOM, _ADRESSE, _EMAIL)', 'obligatoire pour les mentions légales');
+    v(!!env.HEBERGEUR, 'hébergeur indiqué (HEBERGEUR)', 'obligatoire en France dans les mentions légales');
+    v(/^sk_live_/.test(env.STRIPE_SECRET_KEY || ''), 'clé Stripe réelle (sk_live_…)', env.STRIPE_SECRET_KEY ? 'clé de test : parfait pour l’essai, à remplacer avant d’ouvrir' : 'STRIPE_SECRET_KEY manquante : paiements simulés');
+    v(!!env.STRIPE_WEBHOOK_SECRET, 'secret du webhook Stripe de la plateforme', 'déclarez le webhook (abonnements) et copiez son secret');
+    v(!!env.STRIPE_CONNECT_WEBHOOK_SECRET, 'secret du webhook Stripe Connect', 'déclarez le webhook Connect (ventes, comptes, litiges) et copiez son secret');
+    v(!env.STRIPE_API_URL && !env.BREVO_API_URL && !env.POSTMARK_API_URL && !env.DOMAINES_SANS_VERIFICATION, 'aucun réglage d’essai en production', 'retirez STRIPE_API_URL, BREVO_API_URL, POSTMARK_API_URL, DOMAINES_SANS_VERIFICATION');
+    v(!!((env.BREVO_API_KEY || env.POSTMARK_TOKEN) && env.EMAIL_EXPEDITEUR), 'service d’envoi d’e-mails (Brevo ou Postmark) et EMAIL_EXPEDITEUR', 'sans cela, aucun e-mail ne part');
+    v(!!env.FOURNISSEUR_URL_API, 'vrai fournisseur déclaré (FOURNISSEUR_*)', 'sans fournisseur réel, le dropshipping est impossible avec une clé Stripe réelle');
+    v((env.TZ || '') === 'Europe/Zurich' || !env.TZ, 'heure de Lausanne', 'TZ doit valoir Europe/Zurich');
+    if (env.STRIPE_SECRET_KEY && !env.STRIPE_API_URL) {
+      try {
+        const r = await fetch('https://api.stripe.com/v1/account', { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Stripe-Version': '2024-06-20' }, signal: AbortSignal.timeout(10000) });
+        const a = await r.json();
+        v(r.ok, 'clé Stripe acceptée par Stripe', a.error ? a.error.message : `statut ${r.status}`);
+        if (r.ok) v(!!(a.settings && a.settings.dashboard), `compte Stripe de la plateforme : ${a.business_profile && a.business_profile.name || a.email || a.id}`, '');
+        const c = await fetch('https://api.stripe.com/v1/accounts?limit=1', { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Stripe-Version': '2024-06-20' }, signal: AbortSignal.timeout(10000) });
+        v(c.ok, 'Stripe Connect activé sur le compte de la plateforme', 'activez Connect dans le tableau de bord Stripe (Connect > Commencer)');
+      } catch (e) { v(false, 'Stripe joignable', e.message); }
+    }
+    console.log(`Vérification de mise en ligne de Comptoir\n\n${res.join('\n')}\n\n${res.filter(x => x.startsWith('✗')).length} point(s) à régler.`);
+    process.exit(0);
+  })();
+  return;
+}
 const port = Number(env.PORT || 3000);
 const urlPublique = (env.URL_PUBLIQUE || `http://localhost:${port}`).replace(/\/$/, '');
 const db = ouvrir(env.BASE_DE_DONNEES || path.join(__dirname, 'donnees', 'comptoir.db'));

@@ -971,3 +971,27 @@ test('session glissante : le cookie du navigateur est renouvelé avec la session
   assert.match(rep.headers.getSetCookie().join(' | '), /comptoir_session=[^;]+;.*Max-Age=2592000/);
   assert.ok(db.prepare('SELECT expire_le FROM sessions WHERE marchand_id = ?').get(mid).expire_le > Date.now() + 25 * 86400000);
 });
+
+test('fin d’abonnement : consultation et export en lecture seule, rien d’autre ; effacement après 12 mois', async () => {
+  const m = client();
+  await m('POST', '/api/auth/inscription', { email: 'lecture@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Lecture', pays: 'ch', secteur: 'maison', sections: [] } } });
+  const mid = db.prepare("SELECT id FROM marchands WHERE email = 'lecture@exemple.ch'").get().id;
+  db.prepare("UPDATE abonnements SET statut = 'resilie', periode_fin = ? WHERE marchand_id = ?").run(Date.now() - 86400000, mid);
+  const e = await m('GET', '/api/admin/etat');
+  assert.equal(e.statut, 200); assert.equal(e.json.serveur.lectureSeule, true);
+  assert.equal((await m('GET', '/api/admin/clients/export?email=x@y.ch')).statut === 402, false);
+  assert.equal((await m('PUT', '/api/admin/config', { config: e.json })).statut, 402);
+  assert.equal((await m('POST', '/api/admin/produits', { produit: { nom: 'X', prix: 1 } })).statut, 402);
+  assert.notEqual((await m('POST', '/api/admin/commandes/c_inexistante/statut', { statut: 'expediee' })).statut, 402, 'les commandes déjà payées restent traitables');
+  // 12 mois plus tard : effacé (avertissement 30 jours avant)
+  const gerer = serveur.listeners('request')[0];
+  const T1 = Date.now() + 1000 * 86400000;   // bien après les autres tests (l'entretien ne passe qu'une fois par jour)
+  db.prepare("UPDATE abonnements SET periode_fin = ? WHERE marchand_id = ?").run(T1 - 340 * 86400000, mid);
+  gerer.automatisationsEcheances(T1);
+  await new Promise(r => setTimeout(r, 100));
+  assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'lecture@exemple.ch' AND sujet LIKE 'Vos données Comptoir seront effacées%'").get(), 'avertissement envoyé');
+  db.prepare("UPDATE abonnements SET periode_fin = ? WHERE marchand_id = ?").run(T1 - 370 * 86400000, mid);
+  gerer.automatisationsEcheances(T1 + 2 * 86400000);
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM marchands WHERE id = ?').get(mid).n, 0, 'compte effacé après 12 mois');
+});

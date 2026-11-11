@@ -415,7 +415,7 @@ function vueOffre() {
     <section class="plan ${i === 1 ? 'conseille' : ''}">
       ${i === 1 ? '<span class="eyebrow">Le plus choisi</span>' : '<span class="eyebrow">&nbsp;</span>'}
       <h2>${nom}</h2><p class="sous">${pour}</p>
-      <div class="prix"><strong>${devise === 'CHF' ? 'CHF ' + prix + '.–' : prix + ' €'}</strong><span class="sous">${ch ? 'par mois' : 'HT / mois'}</span></div>
+      <div class="prix"><strong>${devise === 'CHF' ? 'CHF ' + prix + '.–' : prix + ' €'}</strong><span class="sous">par mois</span></div>
       <ul>${inclus.map(x => `<li>${x}</li>`).join('')}</ul>
       ${connecteAuServeur() && SERVEUR.abonnement && SERVEUR.abonnement.formule === Formules.ORDRE[i] ? '<span class="pill ok">Votre formule</span>' : connecteAuServeur() ? `<a class="btn ${i === 1 ? '' : 'fantome'}" href="#parametres" data-action="section-param" data-v="abonnement">Passer à ${nom}</a>` : `<a class="btn ${i === 1 ? '' : 'fantome'}" href="#creer">Créer une boutique de démonstration</a>`}
     </section>`).join('')}</div>

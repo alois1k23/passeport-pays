@@ -15,7 +15,7 @@ async function api(methode, chemin, corps) {
   const texte = await rep.text();
   const json = texte ? JSON.parse(texte) : {};
   // Abonnement échu pendant la session : retour à l'écran de paiement.
-  if (rep.status === 402 && SERVEUR.connecte && !chemin.startsWith('/api/abonnement')) { location.reload(); }
+  if (rep.status === 402 && SERVEUR.connecte && !SERVEUR.lectureSeule && !chemin.startsWith('/api/abonnement')) { location.reload(); }
   if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; throw e; }
   // Le serveur répond de nouveau : une modification restée en échec part tout de suite.
   if (typeof ENREGISTREMENT !== 'undefined' && ENREGISTREMENT.echecs && !ENREGISTREMENT.enCours && chemin !== '/api/admin/config') setTimeout(envoyerConfig, 0);
@@ -42,6 +42,16 @@ async function initServeur() {
       if (!s.abonnement.actif) await new Promise(ok => setTimeout(ok, 2000));
     }
     SERVEUR.abonnement = s.abonnement;
+  }
+  // Abonnement terminé ou impayé : consultation et export en lecture seule, sur demande (bouton de l'écran des formules).
+  let lecture = false; try { lecture = sessionStorage.getItem('comptoir-lecture') === '1'; } catch { /* ignoré */ }
+  if (SERVEUR.connecte && s.abonnement && !s.abonnement.actif && lecture && ['resilie', 'impaye'].includes(s.abonnement.statut)) {
+    SERVEUR.lectureSeule = true;
+    await rechargerEtat(); installerModeConnecte();
+    sauver = function () { toast('Lecture seule : reprenez un abonnement pour modifier votre boutique.'); };
+    document.querySelector('.colonne').insertAdjacentHTML('afterbegin', `<div class="encart alerte-encart bandeau-lecture" role="status"><b>Lecture seule.</b> Votre abonnement est terminé : vos commandes, factures et clients restent consultables et exportables (Paramètres > Données) pendant 12 mois, et les commandes déjà payées peuvent encore être expédiées ou remboursées. <button class="lien-bouton" data-lecture="reprendre">Reprendre un abonnement</button></div>`);
+    document.addEventListener('click', e => { if (e.target.closest('[data-lecture="reprendre"]')) { try { sessionStorage.removeItem('comptoir-lecture'); } catch { /* ignoré */ } location.reload(); } });
+    return;
   }
   if (SERVEUR.connecte && s.abonnement && !s.abonnement.actif) { installerAbonnement(s.abonnement, params.get('abonnement')); return; }
   if (SERVEUR.connecte) {
@@ -239,6 +249,7 @@ function installerAbonnement(etatAbo, retour) {
       <div class="abonnement-pied">
         <button class="btn" data-abo="payer" ${!e.choisie || e.envoi ? 'disabled' : ''}>${e.envoi ? 'Redirection vers le paiement…' : e.choisie ? `Payer ${prix(e.formules.find(f => f.id === e.choisie) || { prix: 0 })} et ouvrir ma boutique` : 'Choisissez une formule'}</button>
         <p class="sous">Sans engagement : résiliable à tout moment dans Paramètres, l’accès reste ouvert jusqu’à la fin du mois payé. 0 % de commission sur vos ventes. ${SERVEUR.paiement === 'stripe' ? 'Paiement sécurisé par carte (Stripe).' : 'Mode test : aucun montant n’est débité.'}</p>
+        ${['resilie', 'impaye'].includes(etatAbo.statut) ? '<p class="sous"><button class="btn fantome" data-abo="lecture">Consulter et exporter mes données (lecture seule)</button></p>' : ''}
         <p class="sous"><button class="lien-bouton" data-abo="deconnexion">Se déconnecter</button></p>
         <details class="sous"><summary>Supprimer mon compte</summary><p>Le compte, la boutique préparée et ses produits sont supprimés définitivement.</p>
           <form data-form="supprimer-compte" class="rangee"><input type="password" name="motDePasse" placeholder="Votre mot de passe" required autocomplete="current-password" aria-label="Mot de passe"><button class="btn petit fantome danger-doux">Supprimer définitivement</button></form></details>
@@ -248,6 +259,7 @@ function installerAbonnement(etatAbo, retour) {
   document.addEventListener('click', async ev => {
     const b = ev.target.closest('[data-abo]');
     if (!b || b.tagName === 'INPUT' || b.tagName === 'LABEL') return;
+    if (b.dataset.abo === 'lecture') { try { sessionStorage.setItem('comptoir-lecture', '1'); } catch { /* ignoré */ } location.reload(); return; }
     if (b.dataset.abo === 'deconnexion') { await api('POST', '/api/auth/deconnexion').catch(() => {}); location.href = '/'; return; }
     if (b.dataset.abo === 'payer' && e.choisie) {
       e.envoi = true; e.erreur = ''; rendre();

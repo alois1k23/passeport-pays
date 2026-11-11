@@ -67,7 +67,7 @@ function installerParcours() {
       <section class="parcours-bloc" id="formules"><h2>Les formules</h2>
         <div class="rangee parcours-pays" role="group" aria-label="Pays de votre entreprise">${Object.entries(PAYS_PARCOURS).map(([k, v]) => `<button class="btn petit ${e.pays === k ? '' : 'fantome'}" data-parcours="pays" data-v="${k}" aria-pressed="${e.pays === k}">${v.nom}</button>`).join('')}</div>
         <div class="plans">${plans}</div>
-        <p class="sous">${e.pays === 'ch' ? 'Prix en francs suisses, par mois.' : 'Prix en euros, hors taxes, par mois.'} Aucun essai gratuit : vous payez le premier mois, puis vous pouvez résilier quand vous voulez (accès jusqu'à la fin du mois payé).</p>
+        <p class="sous">${e.pays === 'ch' ? 'Prix en francs suisses, par mois.' : 'Prix en euros, par mois.'} Prix finaux : la TVA éventuelle est indiquée dans les conditions. Aucun essai gratuit : vous payez le premier mois, puis vous pouvez résilier quand vous voulez (accès jusqu'à la fin du mois payé).</p>
       </section>
       <section class="parcours-bloc"><h2>Questions fréquentes</h2>
         <details><summary>Comptoir prend-il une commission sur mes ventes ?</summary><p>Non. Vous payez votre formule ; les ventes sont versées sur votre propre compte de paiement. Seuls les frais du prestataire de paiement s'appliquent.</p></details>
