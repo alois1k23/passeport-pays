@@ -777,3 +777,8 @@ Tests : 58.
 11. La restauration d'une sauvegarde ajoutait un faux code « SAISON15 » à la bannière saisonnière.
 
 Le client utilisé par les tests garde désormais chaque cookie sous son nom, comme un navigateur. Tests : 58.
+
+**Contrôles sur le code du cycle 38** :
+- 100 boutiques : 100 commandes, aucune anomalie ;
+- 100 utilisateurs dans un navigateur : 40 marchands sur tous les écrans, 46 commandes payées, 10 paniers abandonnés, 4 paiements annulés, aucune anomalie ;
+- pannes et doubles clics : aucun problème.
