@@ -1083,7 +1083,7 @@ Parcours complet sur iPhone 13, Pixel 7 et un écran de 360 × 640 :
 
 Tests : 64.
 
-### Cycle 48 — Relecture du cycle 47 : 2 régressions et 3 détails corrigés (06 h 05 – 06 h 15)
+### Cycle 48 — Relecture du cycle 47 : 2 régressions et 3 détails corrigés (06 h 05 – 06 h 10)
 
 1. **Régression : « Annuler » expédiait quand même.** Annuler la question du numéro de suivi laissait le clic passer à la logique de démonstration : la commande s'affichait expédiée, avec un numéro inventé, jusqu'au rechargement. L'annulation arrête maintenant tout.
 2. **Régression : interrupteurs déformés.** Sur téléphone et tablette, la nouvelle taille des cases à cocher (20 px) écrasait aussi les interrupteurs, devenus carrés. Les interrupteurs sont maintenant exclus de la règle.
