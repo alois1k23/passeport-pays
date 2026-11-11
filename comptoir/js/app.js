@@ -630,7 +630,6 @@ function vueClients() {
   const liste = tous.filter(c => seg === 'tous' || c.segments.includes(seg))
     .filter(c => !q || c.nom.toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q) || (c.ville || '').toLowerCase().includes(q))
     .sort((a, b) => b.total - a.total);
-  ui.clientsAffiches = liste;   // l'export reprend exactement la liste affichée (segment et recherche)
   const pages = Math.max(1, Math.ceil(liste.length / PAR_PAGE));
   ui.pageClient = Math.min(ui.pageClient || 1, pages);
   const debut = (ui.pageClient - 1) * PAR_PAGE;
@@ -639,7 +638,7 @@ function vueClients() {
   const ca = tous.reduce((a, c) => a + c.total, 0);
   return `
   <div class="tete"><div><h1>Clients</h1><p class="sous">${tous.length.toLocaleString('fr-FR')} clients · ${fideles} ont commandé plusieurs fois · valeur moyenne ${euros(tous.length ? ca / tous.length : 0)}</p></div>
-    <div class="rangee"><button class="btn fantome" data-action="export-clients">Exporter CSV</button></div></div>
+    <div class="rangee"><button class="btn fantome" data-action="export-clients" data-filtre="1">Exporter CSV</button></div></div>
   <div class="onglets onglets-defilants" role="tablist" aria-label="Segments">${SEGMENTS.map(([k, n]) => `<button role="tab" aria-selected="${seg === k}" class="${seg === k ? 'actif' : ''}" data-action="segment" data-v="${k}">${n} <span>${k === 'tous' ? tous.length : tous.filter(c => c.segments.includes(k)).length}</span></button>`).join('')}</div>
   <div class="barre-filtres"><input id="recherche-clients" type="search" placeholder="Rechercher un nom, un e-mail, une ville…" value="${esc(ui.rechercheClient || '')}" data-champ="recherche-client" aria-label="Rechercher un client"></div>
   <div class="maitre-detail ${ouvert ? 'ouvert' : ''}">
@@ -706,8 +705,14 @@ function ficheClient(c) {
   </aside>`;
 }
 
-function exporterClientsCsv() {
-  const l = ui.clientsAffiches || listeClients();
+/* Écran Clients : la liste affichée (segment et recherche du moment) ; Paramètres › Données : tous les clients. */
+function clientsFiltres() {
+  const seg = ui.segment || 'tous', q = (ui.rechercheClient || '').trim().toLowerCase();
+  return listeClients().filter(c => seg === 'tous' || c.segments.includes(seg))
+    .filter(c => !q || c.nom.toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q) || (c.ville || '').toLowerCase().includes(q))
+    .sort((a, b) => b.total - a.total);
+}
+function exporterClientsCsv(l = listeClients()) {
   const lignes = l.map(c => [csvTexte(c.nom), csvTexte(c.email || ''), csvTexte(c.ville || ''), String(c.n), csvMontant(c.total), csvMontant(c.panier), csvTexte(csvDate(c.premiere).slice(0, 10)), csvTexte(csvDate(c.derniere).slice(0, 10)), csvTexte(c.consentement ? 'oui' : 'non')].join(';'));
   telechargerTexte(`comptoir-clients-${new Date().toISOString().slice(0, 10)}.csv`, '﻿nom;email;ville;commandes;total;panier_moyen;premiere_commande;derniere_commande;accepte_emails\n' + lignes.join('\n'), 'text/csv;charset=utf-8', `${l.length} clients exportés.`);
 }
@@ -1107,7 +1112,7 @@ document.addEventListener('click', e => {
     case 'retirer-photo': if (ui.produitEdite) { ui.produitEdite.image = undefined; rendreEnGardantProduit(); setTimeout(() => document.getElementById('pf-photo-btn')?.focus(), 0); } break;
     case 'exporter-client': exporterClient(el.dataset.email); break;
     case 'effacer-client': effacerClient(el.dataset.email); break;
-    case 'export-clients': exporterClientsCsv(); break;
+    case 'export-clients': exporterClientsCsv(el.dataset.filtre ? clientsFiltres() : listeClients()); break;
     case 'copier': try { navigator.clipboard.writeText(el.dataset.texte).then(() => toast('Copié.'), () => toast(el.dataset.texte)); } catch { toast(el.dataset.texte); } break;
     case 'imprimer': window.print(); break;
     case 'filtre-lien': ui.filtre = el.dataset.filtre; ui.pageCmd = 1; ui.canalCmd = 'tous'; ui.periodeCmd = 'tout'; ui.recherche = ''; break;

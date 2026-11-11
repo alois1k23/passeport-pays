@@ -402,6 +402,11 @@ function confirmerAction(el) {
   try {
     if (action === 'statut' && (statut === 'remboursee' || statut === 'annulee')) {
       const c = etat.commandes.find(x => x.id === id);
+      if (statut === 'remboursee' && c && c.refFournisseur && !estDropship(c) && ['payee', 'preparation'].includes(c.statut)) {
+        const ok = confirm(`La partie fournisseur de la commande n° ${c.numero} est déjà commandée (réf. ${c.refFournisseur}). Avez-vous annulé cette partie chez le fournisseur ? Sinon il expédiera et facturera quand même.\n\nOK : oui, c’est annulé, rembourser le client.`);
+        if (ok) el.dataset.fournisseurAnnule = '1';
+        return ok;
+      }
       return confirm(statut === 'remboursee'
         ? `Rembourser la commande n° ${c ? c.numero : ''} (${c ? euros(c.total) : ''}) ? Le client est remboursé et un avoir est émis : c’est irréversible.`
         : `Annuler la commande n° ${c ? c.numero : ''} ? Le lien de paiement envoyé au client ne fonctionnera plus.`);

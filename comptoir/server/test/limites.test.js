@@ -34,3 +34,21 @@ test('un tiers ne peut pas verrouiller le compte d’un marchand depuis d’autr
   assert.equal((await appel('/api/auth/connexion', { email: 'victime@exemple.ch', motDePasse: 'un mot de passe solide' }, '203.0.113.50')).status, 200);
   s.close();
 });
+
+test('attaque répartie sur un compte : le marchand se connecte quand même depuis son appareil ; IPv6 compté par réseau', async () => {
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db: ouvrir(':memory:'), env: { LIMITE_ESSAIS: '3' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const appel = (corps, ip, cookie) => fetch(base + '/api/auth/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip, ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(corps) });
+  await fetch(base + '/api/auth/inscription', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '203.0.113.9' }, body: JSON.stringify({ email: 'cible@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Cible' } } }) });
+  // Le marchand se connecte une fois chez lui : son appareil reçoit le cookie signé
+  const r0 = await appel({ email: 'cible@exemple.ch', motDePasse: 'un mot de passe solide' }, '203.0.113.9');
+  const appareil = r0.headers.getSetCookie().find(c => c.startsWith('comptoir_appareil=')).split(';')[0];
+  // 25 adresses × 3 échecs : seuil du compte (60) dépassé
+  for (let k = 1; k <= 25; k++) for (let n = 0; n < 3; n++) await appel({ email: 'cible@exemple.ch', motDePasse: 'faux' }, `198.51.100.${k}`);
+  assert.equal((await appel({ email: 'cible@exemple.ch', motDePasse: 'un mot de passe solide' }, '192.0.2.77')).status, 429, 'appareil inconnu : bloqué');
+  assert.equal((await appel({ email: 'cible@exemple.ch', motDePasse: 'un mot de passe solide' }, '192.0.2.77', appareil)).status, 200, 'son appareil passe toujours');
+  // IPv6 : trois adresses du même /64 partagent la même limite
+  for (const ip of ['2001:db8:1:2::1', '2001:db8:1:2::2', '2001:0db8:0001:0002:aaaa::3']) await appel({ email: 'x@exemple.ch', motDePasse: 'faux' }, ip);
+  assert.equal((await appel({ email: 'y@exemple.ch', motDePasse: 'faux' }, '2001:db8:1:2:ffff::9')).status, 429);
+  s.close();
+});

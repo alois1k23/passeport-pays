@@ -316,7 +316,7 @@ function installerModeConnecte() {
     try {
       if (action === 'statut') {
         bloquer(); el.disabled = true;
-        const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/statut`, { statut: el.dataset.statut });
+        const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/statut`, { statut: el.dataset.statut, ...(el.dataset.fournisseurAnnule === '1' ? { fournisseurAnnule: true } : {}) });
         await rafraichir(`Commande n° ${r.commande.numero} : ${STATUTS[r.commande.statut].nom.toLowerCase()}.`);
       } else if (action === 'transmettre-partie') {
         bloquer(); el.disabled = true;

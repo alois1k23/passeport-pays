@@ -735,3 +735,18 @@ Tests : 57.
     - « Fiche Google synchronisée » ne s'affiche plus sur un compte réel, où rien n'est synchronisé (annoncée « bientôt disponible »).
 
 Tests : 57 ; démo sans erreur.
+
+### Cycle 38 — Relecture des cycles 33 à 36 : 6 défauts corrigés
+
+1. **Verrouillage d'un compte encore possible** avec une attaque répartie sur une vingtaine d'adresses (le seuil global du compte, 20 fois plus haut, finissait par être atteint). Désormais :
+   - un appareil où le marchand s'est déjà connecté reçoit un cookie signé (valable un an), et le seuil global ne s'applique jamais à cet appareil ;
+   - les adresses IPv6 sont comptées par réseau (/64), car une seule personne en détient des milliards.
+
+   Test ajouté : 25 adresses attaquent ; un appareil inconnu est bloqué, celui du marchand se connecte.
+2. **L'export « Clients » des Paramètres** reprenait la liste filtrée du dernier passage sur l'écran Clients : il exporte tous les clients. L'écran Clients, lui, exporte sa liste filtrée.
+3. **Commande mixte remboursée alors que sa partie fournisseur était déjà commandée** : le fournisseur aurait expédié et facturé quand même. Le remboursement demande de confirmer l'annulation chez le fournisseur (refusé par le serveur sans cette confirmation), et l'historique le note.
+4. Un produit Stripe était créé à chaque changement de formule : il est retrouvé et réutilisé.
+5. « Voir tous les produits » d'une deuxième section faisait défiler la page vers la première.
+6. Fournisseurs : le taux de remboursement et les délais sont calculés sur les seules commandes transmises, comme le nombre affiché.
+
+Tests : 58.

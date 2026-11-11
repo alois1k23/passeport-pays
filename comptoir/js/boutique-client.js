@@ -263,7 +263,7 @@ document.addEventListener('click', e => {
       if (l) l.qte = Math.min(max, l.qte + q); else vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(max, q) });
       garderPanier(); if (vue.fiche) fermerFiche({ rendu: false }); vue.message = null; vue.ouvert = true; rendre();
     } else if (sf.dataset.sf === 'panier') { vue.ouvert = true; rendre(); }
-    else if (sf.dataset.sf === 'tout-voir') { vueVitrine.tout = vueVitrine.tout === sf.dataset.id ? null : sf.dataset.id; vueVitrine.cat = ''; rendre(); document.getElementById('sf-collection')?.scrollIntoView({ block: 'start' }); }
+    else if (sf.dataset.sf === 'tout-voir') { vueVitrine.tout = vueVitrine.tout === sf.dataset.id ? null : sf.dataset.id; vueVitrine.cat = ''; rendre(); document.querySelector(`[data-sf="tout-voir"][data-id="${CSS.escape(sf.dataset.id)}"]`)?.closest('.sf-produits')?.scrollIntoView({ block: 'start' }); }
     else if (sf.dataset.sf === 'cat') { vueVitrine.cat = sf.dataset.v; rendre(); }
     else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
     else if (sf.dataset.sf === 'fermer-fiche') fermerFiche();

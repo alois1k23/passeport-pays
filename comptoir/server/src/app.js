@@ -128,6 +128,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const attendu = signerDesinscription(boutiqueId, email);
     return sig.length === attendu.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(attendu)) ? { boutiqueId, email } : null;
   };
+  // Appareil où le marchand s'est connecté : cookie signé, valable un an, qui ne contient que l'empreinte de l'e-mail.
+  const jetonAppareil = email => crypto.createHmac('sha256', cleDesinscription).update(`appareil|${email}`).digest('base64url').slice(0, 32);
+  const cookieAppareil = email => `comptoir_appareil=${jetonAppareil(email)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${365 * 86400}${securise ? '; Secure' : ''}`;
+  // IPv6 : une personne dispose d'un réseau /64 entier ; les limites comptent par réseau, pas par adresse.
+  const reseauIp = ip => {
+    const a = String(ip || '').replace(/^::ffff:/, '');
+    if (!a.includes(':')) return a;
+    const [g, d] = a.split('::'), gauche = g ? g.split(':') : [], droite = d !== undefined && d ? d.split(':') : [];
+    const groupes = d === undefined ? gauche : [...gauche, ...Array(Math.max(0, 8 - gauche.length - droite.length)).fill('0'), ...droite];
+    return groupes.slice(0, 4).map(x => x.toLowerCase().replace(/^0+(?=.)/, '')).join(':') + '::/64';
+  };
   const jetonDomaine = boutiqueId => crypto.createHmac('sha256', cleDesinscription).update(`domaine|${boutiqueId}`).digest('hex').slice(0, 24);
   const estDesinscrit = (boutiqueId, email) => !!db.prepare('SELECT 1 FROM desinscriptions WHERE boutique_id = ? AND email = ?').get(boutiqueId, email);
   /* Contenu des e-mails de commande : récapitulatif, lien de suivi personnel, lien du transporteur. */
@@ -442,21 +453,24 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const sources = Array.isArray(ctx.corps.importer) ? ctx.corps.importer.slice(0, 12).map(String) : [];
       for (const src of fournisseurs.CATALOGUE_DEMO.filter(x => sources.includes(x.id))) importerProduit(boutiqueId, src, 'demo');
     });
-    ctx.entetes['Set-Cookie'] = auth.cookieSession(auth.creerSession(db, marchandId), securise);
+    ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, marchandId), securise), cookieAppareil(email.toLowerCase())];
     return { statut: 201, corps: { ok: true, slug } };
   });
   r.post('/api/auth/connexion', ctx => {
     const email = valider.email(ctx.corps.email);
     // Limites par adresse, et par compte depuis cette adresse : un tiers ne peut pas verrouiller le compte d'un marchand
     // depuis d'autres adresses. Le compte seul n'est bloqué qu'à un seuil très élevé (attaque distribuée massive).
-    const max = Number(env.LIMITE_ESSAIS) || 10, e = email.toLowerCase();
-    const parIp = ['ip:' + ctx.ip, `compte-ip:${e}|${ctx.ip}`];
+    const max = Number(env.LIMITE_ESSAIS) || 10, e = email.toLowerCase(), reseau = reseauIp(ctx.ip);
+    const parIp = ['ip:' + reseau, `compte-ip:${e}|${reseau}`];
     auth.verifierEchecs(parIp, max);
-    auth.verifierEchecs(['compte:' + e], max * 20);
+    // Seuil global du compte (attaque répartie sur beaucoup d'adresses) : il ne s'applique jamais à un appareil où
+    // le marchand s'est déjà connecté (cookie signé), donc personne ne peut l'empêcher de se connecter de chez lui.
+    const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(e);
+    if (!appareilConnu) auth.verifierEchecs(['compte:' + e], max * 20);
     const m = db.prepare('SELECT * FROM marchands WHERE email = ?').get(email);
     if (!m || !auth.verifierMotDePasse(String(ctx.corps.motDePasse || ''), m.mot_de_passe)) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
-    auth.oublierEchecs([`compte-ip:${e}|${ctx.ip}`]);
-    ctx.entetes['Set-Cookie'] = auth.cookieSession(auth.creerSession(db, m.id), securise);
+    auth.oublierEchecs([`compte-ip:${e}|${reseau}`]);
+    ctx.entetes['Set-Cookie'] = [auth.cookieSession(auth.creerSession(db, m.id), securise), cookieAppareil(e)];
     return { ok: true };
   });
   /* Mot de passe oublié : lien valable 1 heure, réponse identique que le compte existe ou non. */
@@ -686,7 +700,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       await fournisseurs.client(f, fetchImpl).forcerExpedition(c.refFournisseur);
       return { commande: commandeDeBoutique(ctx.boutique.id, c.id) };
     }
+    if (cible === 'remboursee' && c.refFournisseur && !ctx.corps.fournisseurAnnule && ['payee', 'preparation'].includes(c.statut)) {
+      throw erreur(409, `La partie fournisseur est déjà commandée (réf. ${c.refFournisseur}) : annulez-la d’abord chez le fournisseur, sinon il expédiera et facturera quand même. Ensuite, confirmez le remboursement.`, 'fournisseur_a_annuler');
+    }
     if (cible === 'remboursee') {
+      if (c.refFournisseur && ctx.corps.fournisseurAnnule) historique(c, `Remboursement après annulation déclarée chez le fournisseur (réf. ${c.refFournisseur})`);
       const p = db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'paye'").get(c.id);
       if (p && p.fournisseur === 'stripe') await paiement.rembourser({ paiement: p });
       if (p) db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(p.id);

@@ -127,7 +127,8 @@ function renduSection(s, etat, mode) {
       const cats = [...new Set(dispo.map(x => x.categorie).filter(Boolean))];
       const filtres = tout ? dispo.filter(x => !vueVitrine.cat || x.categorie === vueVitrine.cat) : dispo;
       const liste = tout ? filtres : dispo.slice(0, Number(p.nombre) || 4);
-      return `<section class="sf-produits" id="sf-collection">
+      const premiere = (etat.boutique.sections || []).find(x => x.type === 'produits');
+      return `<section class="sf-produits" id="${!premiere || premiere.id === s.id ? 'sf-collection' : 'sf-collection-' + esc(s.id)}">
         <h2>${esc(tout ? 'Tous nos produits' : p.titre)}</h2>
         ${tout && cats.length > 1 ? `<div class="sf-cats" role="group" aria-label="Catégories"><button type="button" class="${!vueVitrine.cat ? 'actif' : ''}" data-sf="cat" data-v="" aria-pressed="${!vueVitrine.cat}">Tout (${dispo.length})</button>${cats.map(c => `<button type="button" class="${vueVitrine.cat === c ? 'actif' : ''}" data-sf="cat" data-v="${esc(c)}" aria-pressed="${vueVitrine.cat === c}">${esc(c)}</button>`).join('')}</div>` : ''}
         <div class="sf-grille">${liste.map(x => `

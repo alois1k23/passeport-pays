@@ -117,7 +117,9 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
       const item = sub.items && sub.items.data && sub.items.data[0];
       if (!item) throw erreur(502, 'Stripe : abonnement sans ligne de prix.', 'stripe');
       // Produit au nom de la nouvelle formule : les factures Stripe affichent « Comptoir Pro », pas l'ancien nom.
-      const produit = await appelerStripe('POST', 'products', [['name', `Comptoir ${FORMULES[formule].nom}`], ['metadata[formule]', formule]]);
+      // Un produit Stripe par formule, réutilisé (recherche par métadonnée) : pas de doublons à chaque changement.
+      const trouves = await appelerStripe('GET', `products/search?query=${encodeURIComponent(`metadata['formule']:'${formule}' AND active:'true'`)}`).catch(() => ({ data: [] }));
+      const produit = (trouves.data && trouves.data[0]) || await appelerStripe('POST', 'products', [['name', `Comptoir ${FORMULES[formule].nom}`], ['metadata[formule]', formule]]);
       await appelerStripe('POST', `subscriptions/${encodeURIComponent(a.ref_externe)}`, [
         ['items[0][id]', item.id], ['items[0][price_data][currency]', item.price.currency],
         ['items[0][price_data][product]', produit.id],
