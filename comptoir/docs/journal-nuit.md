@@ -332,3 +332,25 @@ Une troisième relecture, centrée sur ce que voient les acheteurs, a relevé 20
 10. **E-mails** : « répondez STOP pour ne plus en recevoir » (personne ne traite ces réponses ; le vrai lien de désinscription figure déjà en pied), « votre panier est encore réservé » (faux : le stock n'est pas bloqué), et un plantage latent de l'e-mail de bienvenue.
 
 Tests : 41 (refus de commande sans adresse ajouté).
+
+### Cycle 16 — (2/2)
+
+11. **Inscription : tout était effacé à la moindre erreur** (e-mail déjà utilisé, réseau) : nom de boutique, pays, e-mail et mot de passe sont conservés. Vérifié dans le navigateur.
+12. **Choix de la formule au clavier** : chaque flèche faisait perdre le focus. Il reste sur la formule choisie.
+13. **Panier au clavier et au lecteur d'écran** :
+    - le focus est gardé après « + », « − », le choix de livraison ou le code promo, et il va au titre du panier à l'ouverture ;
+    - le panier fermé n'est plus atteignable avec Tab (il contenait des champs invisibles) ;
+    - panier, fiche produit et conditions de vente gardent le focus à l'intérieur tant qu'ils sont ouverts.
+14. **Échap fermait deux fenêtres à la fois** (conditions de vente et fiche produit) : seulement celle du dessus.
+15. **Bouton « Retour » du navigateur** : après la fermeture d'une fiche produit, il la rouvrait. La fiche se ferme maintenant comme une page qu'on quitte, et l'ajout au panier depuis la fiche remet l'adresse de la boutique.
+16. **Formulaire d'avis effacé en cas d'erreur** : l'erreur s'affiche dans le formulaire, notes et commentaires gardés. Les étoiles sont annoncées (« 4 étoiles ») aux lecteurs d'écran.
+17. **Messages inexacts** :
+    - « un e-mail de confirmation vous a été envoyé » alors que le paiement n'était pas encore confirmé ;
+    - attente infinie sur « Paiement en cours de confirmation… » ;
+    - « Merci, vous êtes inscrit » pour une adresse désinscrite, qui doit d'abord confirmer par e-mail ;
+    - « seuls les clients ayant reçu leur commande peuvent noter » (en réalité, dès l'expédition).
+18. **Politique de retour suisse inventée** : les CGV annonçaient des retours sous 30 jours que le marchand n'avait jamais choisis. C'est un réglage dans Conformité (aucun, 14 ou 30 jours).
+19. **Page d'accueil de Comptoir** : liens Impressum, Protection des données et Conditions d'utilisation inexistants. Les trois pages existent, alimentées par l'identité de l'exploitant (`EXPLOITANT_*`), avec un avertissement visible tant qu'elle n'est pas renseignée. Les prix en euros pour la France et la Belgique sont indiqués.
+20. **Détails serveur** : les requêtes HEAD (robots, vérificateurs de liens) recevaient 404 sur les boutiques ; une boutique « Lumière & <b>Co</b> » avait des balises dans son adresse (`lumiere-b-co-b`, désormais `lumiere-co`).
+
+**À faire par l'exploitant avant l'ouverture** : renseigner `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL` (et `HEBERGEUR`). Je ne peux pas inventer ces informations.

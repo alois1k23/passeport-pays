@@ -1302,3 +1302,6 @@ html, body { overflow-x: clip; }
 #nav a.verrouille { opacity: .6; }
 #nav a .cadenas { font-style: normal; font-size: .7rem; margin-left: auto; opacity: .8; }
 .verrou-formule ul { margin: 0 0 4px; padding-left: 18px; display: grid; gap: 4px; font-size: .875rem; }
+/* Texte lu par les lecteurs d'écran seulement (notes en étoiles de la boutique) */
+.sf-lecteur { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.erreur-avis { color: #B42318; font-weight: 600; }

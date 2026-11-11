@@ -240,7 +240,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { id };
   }
   function slugUnique(nom) {
-    const base = nom.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'boutique';
+    const base = nom.replace(/<[^>]*>/g, ' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'boutique';
     let slug = base, i = 2;
     while (db.prepare('SELECT 1 FROM boutiques WHERE slug = ?').get(slug)) slug = `${base}-${i++}`;
     return slug;
@@ -708,7 +708,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return {
       boutique: { ...config.boutique, sections: sectionsPubliques },
       magasin: { clickCollect: !!config.magasin.clickCollect, adresse: config.magasin.adresse || '' },
-      entreprise: { raison: config.entreprise.raison, adresse: config.entreprise.adresse, email: config.entreprise.email, forme: config.entreprise.forme, siret: config.entreprise.siret, regime: config.entreprise.regime, tvaIntra: config.entreprise.tvaIntra, mediateur: config.entreprise.mediateur },
+      entreprise: { raison: config.entreprise.raison, adresse: config.entreprise.adresse, email: config.entreprise.email, forme: config.entreprise.forme, siret: config.entreprise.siret, regime: config.entreprise.regime, tvaIntra: config.entreprise.tvaIntra, mediateur: config.entreprise.mediateur, retoursJours: Number(config.entreprise.retoursJours) || 0 },
       produits, avisRecents,
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: Remises.offresDe(config).seuilPort,
@@ -1043,6 +1043,44 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* ---------- Désinscription des e-mails commerciaux (lien personnel signé, confirmation par un clic) ---------- */
   const pageSimple = (titre, texte, formulaire = '') => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escHtml(titre)}</title>
 <style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}</style></head><body><main><h1>${escHtml(titre)}</h1><p>${escHtml(texte)}</p>${formulaire}</main></body></html>`;
+  /* Pages légales de la plateforme elle-même (l'exploitant les complète avec EXPLOITANT_* dans l'environnement). */
+  const exploitant = () => ({
+    nom: env.EXPLOITANT_NOM || '', adresse: env.EXPLOITANT_ADRESSE || '', email: env.EXPLOITANT_EMAIL || '', ide: env.EXPLOITANT_IDE || '', hebergeur: env.HEBERGEUR || ''
+  });
+  const pageLegale = (titre, blocs) => {
+    const x = exploitant(), manque = !x.nom || !x.adresse || !x.email;
+    return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escHtml(titre)} · Comptoir</title>
+<style>body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#F4F5F7;color:#151821;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:24px;max-width:720px;margin:24px auto}h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 4px}a{color:#1D5C70}.alerte{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px}</style></head>
+<body><main><p><a href="/">← Comptoir</a></p><h1>${escHtml(titre)}</h1>${manque ? '<p class="alerte">Identité de l’exploitant à compléter avant l’ouverture au public (variables EXPLOITANT_NOM, EXPLOITANT_ADRESSE, EXPLOITANT_EMAIL).</p>' : ''}${blocs.map(([t, h]) => `<h2>${escHtml(t)}</h2><p>${h}</p>`).join('')}
+<p><a href="/mentions-legales">Impressum</a> · <a href="/confidentialite">Protection des données</a> · <a href="/conditions">Conditions d’utilisation</a></p></main></body></html>`;
+  };
+  r.get('/mentions-legales', () => {
+    const x = exploitant();
+    return { html: pageLegale('Impressum', [
+      ['Exploitant', [x.nom, x.ide ? `IDE ${x.ide}` : '', x.adresse].filter(Boolean).map(escHtml).join(', ') || '—'],
+      ['Contact', x.email ? `<a href="mailto:${escHtml(x.email)}">${escHtml(x.email)}</a>` : '—'],
+      ['Hébergement', escHtml(x.hebergeur || '—')],
+      ['Boutiques', 'Chaque boutique hébergée sur Comptoir est exploitée par son marchand, qui est le vendeur et publie ses propres mentions légales et conditions de vente.']
+    ]) };
+  });
+  r.get('/confidentialite', () => {
+    const x = exploitant();
+    return { html: pageLegale('Protection des données', [
+      ['Responsable', `${escHtml(x.nom || 'L’exploitant de Comptoir')}${x.email ? `, <a href="mailto:${escHtml(x.email)}">${escHtml(x.email)}</a>` : ''}. Cadre : loi fédérale sur la protection des données (nLPD) et, pour les personnes dans l’Union européenne, RGPD.`],
+      ['Données des marchands', 'E-mail, mot de passe (stocké chiffré, jamais en clair), informations de la boutique et de l’entreprise, abonnement. Elles servent à fournir le service et à le facturer.'],
+      ['Données des acheteurs', 'Nom, adresse de livraison, e-mail et commande, traités pour le compte du marchand (Comptoir agit comme sous-traitant). Elles sont transmises au prestataire de paiement, au transporteur et, pour le dropshipping, au fournisseur concerné.'],
+      ['Prestataires', 'Paiement : Stripe (cartes, TWINT). Envoi des e-mails : le service configuré par l’exploitant. Aucune donnée n’est vendue ni utilisée à des fins publicitaires.'],
+      ['Mesure d’audience', 'Uniquement après l’accord de l’acheteur dans la boutique, sans cookie publicitaire, avec un identifiant limité à l’onglet.'],
+      ['Durée et droits', 'Les données sont conservées tant que le compte existe, puis supprimées, sauf les pièces comptables (10 ans en Suisse). Vous pouvez demander l’accès, la rectification ou l’effacement de vos données par e-mail. Un compte peut être supprimé à tout moment depuis ses paramètres.']
+    ]) };
+  });
+  r.get('/conditions', () => ({ html: pageLegale('Conditions d’utilisation', [
+    ['Service', 'Comptoir fournit un logiciel pour créer et gérer une boutique en ligne. Le marchand vend en son nom : il est responsable de ses produits, de ses prix, de ses textes et du respect du droit applicable à ses ventes.'],
+    ['Abonnement', `Formules ${['lancement', 'croissance', 'pro'].map(f => `${escHtml(Formules.FORMULES[f].nom)} (CHF ${Formules.FORMULES[f].prix}.– ou ${Formules.FORMULES[f].prix} € par mois)`).join(', ')}, payées par mois et par carte. Aucune commission sur les ventes ; seuls les frais du prestataire de paiement s’appliquent.`],
+    ['Résiliation', 'À tout moment, depuis les paramètres. L’accès reste ouvert jusqu’à la fin du mois payé. En cas d’échec de paiement, la boutique est mise en pause jusqu’à régularisation ; le prestataire de paiement retente le prélèvement automatiquement.'],
+    ['Données', 'Le marchand peut exporter ses commandes et supprimer son compte à tout moment. Voir la page Protection des données.'],
+    ['Simulations', 'Les chiffres de démonstration, de tendance et de prévision sont des estimations et ne constituent pas une promesse de résultat.']
+  ]) }));
   r.get('/desinscription', ctx => {
     const d = lireJetonDesinscription(ctx.query.get('j'));
     if (!d) return { html: pageSimple('Lien invalide', 'Ce lien de désinscription est incomplet ou a été modifié.') };
@@ -1156,6 +1194,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(self)');
     if (securise) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    // HEAD : même réponse que GET, sans corps (Node l'omet de lui-même ; la réponse a déjà noté la méthode d'origine).
+    if (req.method === 'HEAD') req.method = 'GET';
     const url = new URL(req.url, 'http://local');
     const chemin = url.pathname;
     try {

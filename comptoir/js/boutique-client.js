@@ -90,7 +90,12 @@ function lireSaisie() {
 }
 function rendre() {
   lireSaisie();
-  const actif = document.activeElement && document.activeElement.name ? { nom: document.activeElement.name, form: document.activeElement.form && document.activeElement.form.id, debut: document.activeElement.selectionStart } : null;
+  const ae = document.activeElement;
+  const actif = ae && ae.name && ae.type !== 'radio' ? { nom: ae.name, form: ae.form && ae.form.id, debut: ae.selectionStart } : null;
+  // Boutons et choix (+, −, livraison, Appliquer…) : retrouvés après le rendu par leurs attributs, pour garder le focus clavier.
+  const cleFocus = ae && ae !== document.body && !actif ? ['data-c', 'data-sf', 'data-id', 'data-d', 'name', 'value'].filter(k => ae.hasAttribute(k) && (k !== 'value' || ae.type === 'radio')).map(k => `[${k}="${CSS.escape(ae.getAttribute(k))}"]`).join('') : '';
+  const dansTiroir = !!(ae && ae.closest && ae.closest('.tiroir-corps'));
+  const etaitOuvert = !!document.querySelector('.tiroir.ouvert');
   const defil = document.querySelector('.tiroir-corps')?.scrollTop || 0;
   rendreBrut();
   const f = document.getElementById('commande');
@@ -102,6 +107,14 @@ function rendre() {
   if (actif && actif.form) {
     const el = document.getElementById(actif.form)?.elements[actif.nom];
     if (el && el.type !== 'radio') { el.focus({ preventScroll: true }); try { if (actif.debut !== null && actif.debut !== undefined) el.setSelectionRange(actif.debut, actif.debut); } catch { /* champ sans sélection */ } }
+  } else if (vue.legal && !document.activeElement.closest?.('#modal')) {
+    document.querySelector('#modal .modal-x')?.focus({ preventScroll: true });
+  } else if (vue.ouvert && !etaitOuvert) {
+    document.querySelector('.tiroir-corps h2')?.focus({ preventScroll: true });   // à l'ouverture, le lecteur d'écran annonce le panier
+  } else if (cleFocus) {
+    const el = document.querySelector(cleFocus + ':not([disabled])');
+    if (el) el.focus({ preventScroll: true });
+    else if (dansTiroir && vue.ouvert) document.querySelector('.tiroir-corps h2')?.focus({ preventScroll: true });
   }
 }
 function rendreBrut() {
@@ -124,10 +137,10 @@ function rendreBrut() {
   $('#app').innerHTML = `
     ${renduBoutique(etat, { mode: 'live', panier: vue.panier, fiche: vue.fiche })}
     ${cookies ? '' : `<div class="cookies" role="region" aria-label="Cookies"><p>${esc(donnees.boutique.nom)} utilise uniquement des cookies nécessaires au panier. Aucune mesure d’audience n’est activée sans votre accord.</p><div class="rangee"><button class="btn petit fantome" data-c="cookies" data-v="refus">Refuser</button><button class="btn petit fantome" data-c="cookies" data-v="accord">Accepter</button></div></div>`}
-    <div class="tiroir ${vue.ouvert ? 'ouvert' : ''}" aria-hidden="${!vue.ouvert}">
+    <div class="tiroir ${vue.ouvert ? 'ouvert' : ''}" aria-hidden="${!vue.ouvert}" ${vue.ouvert ? '' : 'inert'}>
       <div class="tiroir-fond" data-c="fermer"></div>
-      <aside class="tiroir-corps" style="${varsTheme(th)}">
-        <div class="carte-tete"><h2>${vue.message ? 'Votre commande' : 'Panier'}</h2><button class="icone" data-c="fermer">Fermer</button></div>
+      <aside class="tiroir-corps" style="${varsTheme(th)}" role="dialog" aria-modal="true" aria-labelledby="titre-tiroir">
+        <div class="carte-tete"><h2 id="titre-tiroir" tabindex="-1">${vue.message ? 'Votre commande' : 'Panier'}</h2><button class="icone" data-c="fermer">Fermer</button></div>
         ${vue.message ? vue.message : vue.panier.length ? `
           <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
             <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span>${esc(l.nom)}</span>
@@ -166,7 +179,7 @@ function texteLegal(type) {
     <p><strong>Vendeur.</strong> ${esc(e.raison || b.nom)}${e.siret ? `, ${ch ? 'IDE' : esc(droitPays(b.pays).idCourt)} ${esc(e.siret)}` : ''}${e.adresse ? `, ${esc(e.adresse)}` : ''}${e.email ? `. Contact : ${esc(e.email)}` : ''}.</p>
     <p><strong>Prix.</strong> En ${esc(b.devise)}. ${esc(mentionTva(e.regime, b.pays))}.</p>
     <p><strong>Livraison.</strong> ${Object.values(donnees.livraisons).map(m => `${esc(m.nom)} : ${m.prix ? euros(m.prix) : 'gratuit'}`).join(' ; ')}. ${donnees.seuilPortOffert > 0 ? `Offerte dès ${euros(donnees.seuilPortOffert)} sauf envoi express.` : 'Pas de livraison offerte.'} Les articles expédiés par nos partenaires indiquent leur délai sur la fiche produit.</p>
-    <p><strong>Retours.</strong> ${ch ? 'Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. Nous acceptons toutefois les retours sous 30 jours.' : `Vous disposez de 14 jours à compter de la réception pour vous rétracter, sans avoir à vous justifier (${esc(droitPays(b.pays).retractation)}). Il suffit de nous l’écrire${e.email ? ` à ${esc(e.email)}` : ''} ; le remboursement intervient au plus tard 14 jours après votre demande, frais de livraison initiaux compris (hors envoi express).`}</p>
+    <p><strong>Retours.</strong> ${ch ? `Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. ${Number(e.retoursJours) > 0 ? `Nous acceptons toutefois les retours sous ${Number(e.retoursJours)} jours après réception (articles non utilisés, dans leur emballage ; frais de retour à la charge du client).` : 'Les articles ne sont ni repris ni échangés, sauf défaut (voir la garantie).'}` : `Vous disposez de 14 jours à compter de la réception pour vous rétracter, sans avoir à vous justifier (${esc(droitPays(b.pays).retractation)}). Il suffit de nous l’écrire${e.email ? ` à ${esc(e.email)}` : ''} ; le remboursement intervient au plus tard 14 jours après votre demande, frais de livraison initiaux compris (hors envoi express).`}</p>
     <p><strong>Garantie.</strong> ${ch ? 'Garantie de 2 ans pour les défauts (art. 197 ss CO).' : 'Garantie légale de conformité de 2 ans et garantie des vices cachés.'}</p>
     ${!ch && e.mediateur ? `<p><strong>Médiation.</strong> En cas de litige, vous pouvez recourir gratuitement au médiateur de la consommation : ${esc(e.mediateur)}.</p>` : ''}`;
   return `<h2>${ch ? 'Impressum et protection des données' : 'Mentions légales'}</h2>
@@ -216,12 +229,12 @@ async function suivreCommande(id, jeton, annule) {
       const retrait = c.livraison === 'retrait';
       const pointRetrait = !retrait && mode && /pickpost|relais|point/i.test(c.livraison + ' ' + mode.nom);
       const etapes = [['Commande reçue', true], ['Préparation', !['attente'].includes(c.statut)], [retrait ? 'Prête à retirer' : 'Expédiée', ['expediee', 'livree', 'prete', 'retiree'].includes(c.statut)], [retrait ? 'Retirée' : 'Livrée', ['livree', 'retiree'].includes(c.statut)]];
-      vue.message = `<div class="confirm"><p class="confirm-merci">${c.prenom ? `Merci ${esc(c.prenom)} !` : 'Merci !'}</p><h3>Commande n° ${c.numero}</h3><p>${libelles[c.statut] || ''}</p>
+      vue.message = `<div class="confirm"><p class="confirm-merci">${c.prenom ? `Merci ${esc(c.prenom)} !` : 'Merci !'}</p><h3>Commande n° ${c.numero}</h3><p>${c.statut === 'attente' && i >= 19 ? 'La confirmation du paiement prend plus de temps que prévu. Si votre paiement est passé, vous recevrez la confirmation par e-mail ; sinon, rien n’a été débité et vous pouvez réessayer.' : libelles[c.statut] || ''}</p>
         ${['annulee', 'remboursee'].includes(c.statut) ? '' : `<ol class="suivi-etapes">${etapes.map(([n, fait]) => `<li class="${fait ? 'fait' : ''}">${n}</li>`).join('')}</ol>`}
         ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
-        ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">Un e-mail de confirmation vous a été envoyé, avec le lien pour suivre votre commande.</p>
+        ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
         <button class="sf-btn plein" data-c="fermer">Continuer mes achats</button></div>
         ${c.offreApres ? `<div class="offre-apres">${visuelProduit({ nom: c.offreApres.nom, teinte: c.offreApres.teinte, image: c.offreApres.image })}<div><small>Uniquement maintenant</small><strong>${esc(c.offreApres.nom)}</strong><span><s>${euros(c.offreApres.prix)}</s> <b>${euros(c.offreApres.prixOffre)}</b> (−${c.offreApres.remise} %), livré dans le même colis, sans frais de port.</span>
           <button class="sf-btn" data-c="complement" data-commande="${esc(id)}" data-jeton="${esc(jeton)}" data-regle="${esc(c.offreApres.regle)}">Ajouter à ma commande</button><button class="bouton-lien" data-c="refuser-offre">Non merci</button></div></div>` : ''}`;
@@ -243,10 +256,10 @@ document.addEventListener('click', e => {
       const q = Math.max(1, Number(document.querySelector('[data-sf-qte]')?.value) || 1);
       const max = p.type === 'drop' ? 20 : p.stock;
       if (l) l.qte = Math.min(max, l.qte + q); else vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(max, q) });
-      garderPanier(); vue.fiche = null; vue.message = null; vue.ouvert = true; rendre();
+      garderPanier(); if (vue.fiche) fermerFiche({ rendu: false }); vue.message = null; vue.ouvert = true; rendre();
     } else if (sf.dataset.sf === 'panier') { vue.ouvert = true; rendre(); }
     else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
-    else if (sf.dataset.sf === 'fermer-fiche') { vue.fiche = null; history.pushState(null, '', racineBoutique); document.title = donnees.boutique.nom; rendre(); }
+    else if (sf.dataset.sf === 'fermer-fiche') fermerFiche();
     else if (sf.dataset.sf === 'nav') allerSection(document, sf.dataset.v);
     else if (sf.dataset.sf === 'defiler') document.getElementById('sf-collection')?.scrollIntoView({ behavior: 'smooth' });
     return;
@@ -256,7 +269,7 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-c]');
   if (!el) return;
   const c = el.dataset.c;
-  if (c === 'fermer') { vue.ouvert = false; if (vue.message && !vue.panier.length) vue.message = null; history.replaceState(null, '', racineBoutique); rendre(); }
+  if (c === 'fermer') { vue.ouvert = false; if (vue.message && !vue.panier.length) vue.message = null; if (!vue.fiche) history.replaceState(null, '', racineBoutique); rendre(); }
   else if (c === 'retirer-offre') { vue.panier = vue.panier.filter(x => !x.offre); garderPanier(); rendre(); }
   else if (c === 'retour-panier') { vue.message = null; rendre(); }
   else if (c === 'qte') {
@@ -298,7 +311,12 @@ document.addEventListener('submit', e => {
   else if (e.target.id === 'form-code') appliquerCode(e.target.elements.code.value);
   else if (e.target.id === 'form-avis') envoyerAvis(e.target);
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { vue.legal = null; vue.ouvert = false; rendre(); } });
+// Échap ferme la fenêtre du dessus seulement : conditions de vente, puis panier, puis fiche produit.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (vue.legal) { vue.legal = null; e.stopImmediatePropagation(); rendre(); }
+  else if (vue.ouvert) { vue.ouvert = false; e.stopImmediatePropagation(); rendre(); }
+});
 
 async function appliquerCode(code) {
   code = String(code || '').trim();
@@ -318,7 +336,9 @@ async function inscrireNewsletter(form) {
   const email = form.querySelector('input[type=email]').value;
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/newsletter`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
-    if (!rep.ok) throw new Error((await rep.json()).erreur);
+    const json = await rep.json();
+    if (!rep.ok) throw new Error(json.erreur);
+    if (json.confirmation) { form.innerHTML = '<p>Vous vous étiez désinscrit : pour recevoir à nouveau nos nouvelles, confirmez en cliquant sur le lien que nous venons de vous envoyer.</p>'; return; }
     form.innerHTML = `<p>Merci, vous êtes inscrit.${donnees.newsletter && donnees.newsletter.actif && donnees.newsletter.code ? ` Votre code de bienvenue vous attend par e-mail.` : ''}</p>`;
   } catch (e) { form.insertAdjacentHTML('beforeend', `<p class="erreur-form">${esc(e.message || 'Inscription impossible.')}</p>`); }
 }
@@ -342,7 +362,7 @@ async function formulaireAvis(id, jeton) {
     vue.avis = { id, jeton };
     vue.message = json.produits.length ? `<form id="form-avis" class="form-avis"><p>Merci ${esc(json.prenom)} ! Votre avis sera publié avec votre prénom et votre ville, marqué « achat vérifié ».</p>
       ${json.produits.map(p => `<fieldset data-produit="${esc(p.produitId)}"><legend>${esc(p.nom)}</legend>
-        <div class="etoiles-saisie">${[5, 4, 3, 2, 1].map(n => `<input type="radio" id="n-${esc(p.produitId)}-${n}" name="note-${esc(p.produitId)}" value="${n}" required><label for="n-${esc(p.produitId)}-${n}" title="${n} étoile${n > 1 ? 's' : ''}">★</label>`).join('')}</div>
+        <div class="etoiles-saisie">${[5, 4, 3, 2, 1].map(n => `<input type="radio" id="n-${esc(p.produitId)}-${n}" name="note-${esc(p.produitId)}" value="${n}" required><label for="n-${esc(p.produitId)}-${n}" title="${n} étoile${n > 1 ? 's' : ''}">★<span class="sf-lecteur">${n} étoile${n > 1 ? 's' : ''}</span></label>`).join('')}</div>
         <textarea name="texte-${esc(p.produitId)}" rows="3" maxlength="1000" placeholder="Qu’avez-vous aimé ? Qu’est-ce qui pourrait être mieux ?"></textarea></fieldset>`).join('')}
       <button class="sf-btn plein">Publier mon avis</button></form>` : '<p>Vous avez déjà donné votre avis pour cette commande. Merci !</p>';
   } catch (e) { vue.message = `<p>${esc(e.message || 'Lien d’avis invalide.')}</p>`; }
@@ -356,13 +376,25 @@ async function envoyerAvis(form) {
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur);
     vue.message = '<p>Merci, votre avis est publié.</p>';
-  } catch (e) { vue.message = `<p>${esc(e.message || 'Envoi impossible.')}</p>`; }
-  rendre();
+    rendre();
+  } catch (e) {
+    // Le formulaire reste tel quel (notes et commentaires) : l'erreur s'affiche dedans.
+    let err = form.querySelector('.erreur-avis');
+    if (!err) { err = document.createElement('p'); err.className = 'erreur-avis'; err.setAttribute('role', 'alert'); form.querySelector('button').before(err); }
+    err.textContent = e.message || 'Envoi impossible. Réessayez dans un instant.';
+  }
 }
 
 demarrer();
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && vue.fiche) { vue.fiche = null; history.pushState(null, '', racineBoutique); document.title = donnees.boutique.nom; rendre(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && vue.fiche && !vue.legal) fermerFiche(); });
+/* Fermer la fiche : si on l'a ouverte depuis la boutique, « Retour » du navigateur, sinon l'adresse de la boutique remplace celle du produit. */
+function fermerFiche({ rendu = true } = {}) {
+  vue.fiche = null; document.title = donnees.boutique.nom;
+  if (history.state && history.state.fiche && /\/p\//.test(location.pathname)) { history.back(); return; }   // popstate redessine
+  history.replaceState(null, '', racineBoutique);
+  if (rendu) rendre();
+}
 
 // Retour arrière du navigateur : ouvre ou ferme la fiche produit selon l'adresse.
 addEventListener('popstate', () => {
@@ -370,4 +402,16 @@ addEventListener('popstate', () => {
   vue.fiche = m ? decodeURIComponent(m[1]) : null;
   document.title = vue.fiche && donnees ? `${(donnees.produits.find(x => x.id === vue.fiche) || {}).nom || ''} · ${donnees.boutique.nom}` : (donnees ? donnees.boutique.nom : document.title);
   rendre();
+});
+
+/* Fenêtres (panier, fiche produit, CGV) : Tab reste à l'intérieur tant qu'elles sont ouvertes. */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  const boite = document.querySelector('#modal .modal-corps') || document.querySelector('.tiroir.ouvert .tiroir-corps') || document.querySelector('.sf-fiche') || document.querySelector('#modal .modal-corps');
+  if (!boite) return;
+  const f = [...boite.querySelectorAll('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent);
+  if (!f.length) return;
+  const i = f.indexOf(document.activeElement);
+  if (e.shiftKey && (i <= 0)) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
 });

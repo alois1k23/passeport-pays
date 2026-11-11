@@ -190,7 +190,7 @@ function vueConformite() {
       <div class="deux"><label class="champ"><span>Régime de TVA</span><select id="en-regime" data-entreprise="regime">${(ch ? [['ch-non', 'Non assujetti'], ['ch-assujetti', 'Assujetti (8,1 %)']] : [['franchise', droitPays().franchiseNom], ['normal', `Assujetti (${droitPays().tvaTexte})`]]).map(([v, n]) => `<option value="${v}" ${e.regime === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="champ"><span>${ch ? 'Numéro TVA' : 'Numéro de TVA'}</span><input id="en-tva" value="${esc(e.tvaIntra)}" data-entreprise="tvaIntra" placeholder="${ch ? 'CHE-123.456.789 TVA' : droitPays().tvaExemple}"></label></div>
       <label class="champ"><span>E-mail de contact</span><input id="en-email" value="${esc(e.email)}" data-entreprise="email"></label>
-      ${ch ? '' : `<label class="champ"><span>Médiateur de la consommation</span><input id="en-med" value="${esc(e.mediateur)}" data-entreprise="mediateur" placeholder="Nom et site du médiateur"></label>`}
+      ${ch ? `<label class="champ"><span>Retours acceptés (au-delà de la garantie, facultatif en Suisse)</span><select id="en-retours" data-entreprise="retoursJours">${[['', 'Aucun, sauf défaut'], ['14', '14 jours'], ['30', '30 jours']].map(([v, n]) => `<option value="${v}" ${String(e.retoursJours || '') === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : `<label class="champ"><span>Médiateur de la consommation</span><input id="en-med" value="${esc(e.mediateur)}" data-entreprise="mediateur" placeholder="Nom et site du médiateur"></label>`}
     </section>
   </div>
   <section class="carte sans-pad">
@@ -228,7 +228,7 @@ function texteCGV() {
     <p><strong>1. Objet.</strong> Ventes conclues sur le site de ${esc(b.nom)}, exploité par ${esc(e.raison)}, ${esc(e.adresse || '[adresse]')}.</p>
     <p><strong>2. Prix et paiement.</strong> Prix en francs suisses (CHF), TVA comprise${e.regime === 'ch-assujetti' ? ' (8,1 %)' : ' (entreprise non assujettie à la TVA)'}. Paiement par TWINT ou carte. Aucun frais de douane n’est facturé à la livraison.</p>
     <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}`).join(' ; ')}. ${seuilPort() > 0 ? `Offerte dès ${euros(seuilPort())} (hors Priority).` : 'Pas de livraison offerte.'} ${drops.length ? `Certains articles sont expédiés directement par nos partenaires depuis la Suisse ou l’Europe : le délai indiqué sur chaque fiche produit (de ${Math.min(...drops.map(p => p.delai[0]))} à ${Math.max(...drops.map(p => p.delai[1]))} jours) s’applique.` : ''}</p>
-    <p><strong>4. Retours.</strong> Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. ${esc(b.nom)} accepte toutefois les retours sous 30 jours, frais de retour offerts.</p>
+    <p><strong>4. Retours.</strong> Le droit suisse ne prévoit pas de droit de rétractation général pour les achats en ligne. ${Number(e.retoursJours) > 0 ? `Nous acceptons toutefois les retours sous ${Number(e.retoursJours)} jours après réception (articles non utilisés, dans leur emballage ; frais de retour à la charge du client).` : 'Les articles ne sont ni repris ni échangés, sauf défaut (voir la garantie).'}</p>
     <p><strong>5. Garantie.</strong> Garantie de 2 ans pour les défauts (art. 197 ss CO).</p>
     <p><strong>6. Droit applicable.</strong> Droit suisse, for au siège de l’exploitant, sous réserve des fors impératifs du consommateur.</p>`;
   }

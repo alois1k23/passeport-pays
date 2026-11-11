@@ -266,7 +266,7 @@ function boutiqueDemoLausanne() {
       domaine: null, publiee: true, pays: 'ch', devise: 'CHF', modele: 'mixte', langues: ['fr']
     },
     produits, commandes, visites30j: 6240,
-    entreprise: { raison: 'Lacustre', forme: 'Raison individuelle', siret: 'CHE-000.000.000 (démo)', tvaIntra: '', adresse: 'Lausanne (adresse à compléter)', email: 'bonjour@lacustre.ch', regime: 'ch-non', mediateur: '' },
+    entreprise: { raison: 'Lacustre', retoursJours: '30', forme: 'Raison individuelle', siret: 'CHE-000.000.000 (démo)', tvaIntra: '', adresse: 'Lausanne (adresse à compléter)', email: 'bonjour@lacustre.ch', regime: 'ch-non', mediateur: '' },
     magasin: { actif: false, adresse: 'Marché de Noël, place de la Riponne (pop-up)', horaires: 'Décembre, jeu.–dim.', clickCollect: false, googleSync: false },
     reglages: { autoTransmission: true, cpa: 8 }
   });

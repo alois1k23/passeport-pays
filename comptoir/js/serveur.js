@@ -99,7 +99,17 @@ function installerConnexion() {
   let formuleChoisie = null;
   try { formuleChoisie = sessionStorage.getItem('comptoir-formule'); } catch { /* ignoré */ }
   document.querySelector('.cote').hidden = true;
-  rendre = function () {
+  // La saisie survit aux rendus (erreur du serveur, envoi, changement d'onglet) : rien n'est à retaper.
+  etatForm.saisie = etatForm.saisie || {};
+  const rendreAuth = function () {
+    const f = document.getElementById('form-auth');
+    if (f) for (const el of f.elements) if (el.name) etatForm.saisie[el.name] = el.value;
+    rendreFormAuth();
+    const nf = document.getElementById('form-auth');
+    if (nf) for (const el of nf.elements) if (el.name && etatForm.saisie[el.name] !== undefined && (el.type !== 'password' || etatForm.ongletSaisie === etatForm.onglet)) el.value = etatForm.saisie[el.name];
+    etatForm.ongletSaisie = etatForm.onglet;
+  };
+  const rendreFormAuth = function () {
     const ins = etatForm.onglet === 'inscription';
     if (etatForm.onglet === 'oubli' || etatForm.onglet === 'reinit') {
       const oubli = etatForm.onglet === 'oubli';
@@ -132,6 +142,7 @@ function installerConnexion() {
       ${ins ? '<p class="sous">Votre boutique est créée avec un design, des pages et, en dropshipping, les meilleurs produits du catalogue fournisseurs pour votre niche. Vous pourrez tout modifier.</p>' : ''}
     </div>`;
   };
+  rendre = rendreAuth;
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-cx]');
     if (b) { etatForm.onglet = b.dataset.cx; etatForm.erreur = ''; etatForm.info = ''; rendre(); }
@@ -207,7 +218,7 @@ function installerAbonnement(etatAbo, retour) {
         <p class="sous"><button class="lien-bouton" data-abo="deconnexion">Se déconnecter</button></p>
       </div></div>`;
   };
-  document.addEventListener('change', ev => { if (ev.target.dataset.abo === 'formule') { e.choisie = ev.target.value; try { sessionStorage.setItem('comptoir-formule', e.choisie); } catch { /* ignoré */ } rendre(); } });
+  document.addEventListener('change', ev => { if (ev.target.dataset.abo === 'formule') { e.choisie = ev.target.value; try { sessionStorage.setItem('comptoir-formule', e.choisie); } catch { /* ignoré */ } rendre(); const r = document.querySelector(`input[data-abo="formule"][value="${e.choisie}"]`); if (r) r.focus(); } });
   document.addEventListener('click', async ev => {
     const b = ev.target.closest('[data-abo]');
     if (!b || b.tagName === 'INPUT' || b.tagName === 'LABEL') return;
