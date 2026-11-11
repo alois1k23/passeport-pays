@@ -9,16 +9,17 @@ const { creerApp } = require('../src/app');
 
 test('Stripe Connect : commandes fermées avant activation, vente et remboursement sur le compte de la boutique', async () => {
   const appels = [];
-  let actif = false;
+  let actif = false, twint = 'pending', refuser = false, paye = false;
   const reponse = json => ({ ok: true, status: 200, json: async () => json });
   const fauxFetch = async (url, opts = {}) => {
     const chemin = url.replace('https://api.stripe.com/v1/', ''), compte = (opts.headers || {})['Stripe-Account'] || null;
-    appels.push({ chemin, compte, methode: opts.method || 'GET' });
+    appels.push({ chemin, compte, methode: opts.method || 'GET', corps: opts.body ? new URLSearchParams(opts.body) : null });
+    if (chemin === 'accounts') await new Promise(ok => setTimeout(ok, 30));   // lent : deux demandes simultanées se croisent
     if (chemin === 'accounts') return reponse({ id: 'acct_boutique' });
-    if (chemin === 'accounts/acct_boutique') return reponse({ id: 'acct_boutique', charges_enabled: actif, details_submitted: actif });
+    if (chemin === 'accounts/acct_boutique') return reponse({ id: 'acct_boutique', charges_enabled: actif, details_submitted: actif, capabilities: { card_payments: 'active', twint_payments: twint } });
     if (chemin === 'account_links') return reponse({ url: 'https://connect.stripe.com/setup/e/xyz' });
-    if (chemin === 'checkout/sessions') return reponse({ id: 'cs_' + appels.length, url: 'https://checkout.stripe.com/c/x' });
-    if (/^checkout\/sessions\/cs_\d+$/.test(chemin)) return reponse({ id: chemin.split('/')[2], payment_intent: 'pi_1' });
+    if (chemin === 'checkout/sessions') return refuser ? { ok: false, status: 400, json: async () => ({ error: { message: 'The payment method type twint is invalid.' } }) } : reponse({ id: 'cs_' + appels.length, url: 'https://checkout.stripe.com/c/x' });
+    if (/^checkout\/sessions\/cs_\d+$/.test(chemin)) return reponse({ id: chemin.split('/')[2], payment_intent: 'pi_1', payment_status: paye ? 'paid' : 'unpaid' });
     if (chemin === 'refunds') return reponse({ id: 're_1' });
     return reponse({});
   };
@@ -38,8 +39,9 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     assert.equal(db.prepare('SELECT COUNT(*) n FROM commandes').get().n, 0);
     assert.equal((await c('GET', '/api/admin/etat')).json.serveur.paiementsBoutique.pret, false);
     // Activation : compte créé, lien vers Stripe ; une seconde demande réutilise le même compte
-    const act = await c('POST', '/api/admin/paiements/activer');
+    const [act, act2] = await Promise.all([c('POST', '/api/admin/paiements/activer'), c('POST', '/api/admin/paiements/activer')]);   // deux onglets
     assert.equal(act.json.url, 'https://connect.stripe.com/setup/e/xyz');
+    assert.equal(act2.statut, 409);
     await c('POST', '/api/admin/paiements/activer');
     assert.equal(appels.filter(a => a.chemin === 'accounts').length, 1);
     actif = true;   // le marchand termine chez Stripe
@@ -49,6 +51,19 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     assert.equal(cmd.statut, 201, JSON.stringify(cmd.json));
     const session = appels.filter(a => a.chemin === 'checkout/sessions').pop();
     assert.equal(session.compte, 'acct_boutique');
+    assert.deepEqual(session.corps.getAll('payment_method_types[]'), ['card'], 'TWINT pas encore activé par Stripe : non proposé');
+    // Stripe refuse la session : pas de commande fantôme
+    refuser = true;
+    const nAvant = db.prepare('SELECT COUNT(*) n FROM commandes').get().n;
+    assert.equal((await commander()).statut, 502);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM commandes').get().n, nAvant);
+    refuser = false;
+    // Retour du client sans webhook : la page de commande interroge Stripe et confirme le paiement
+    const cmdRetour = await commander();
+    paye = true;
+    const st = await fetch(`${base}/api/public/${ins.json.slug}/commandes/${cmdRetour.json.commandeId}?jeton=${cmdRetour.json.jeton}`).then(r => r.json());
+    assert.equal(st.statut, 'payee');
+    paye = false;
     const pay = db.prepare('SELECT * FROM paiements WHERE commande_id = ?').get(cmd.json.commandeId);
     assert.equal(pay.compte, 'acct_boutique');
     // Webhook d'un compte connecté
@@ -63,6 +78,10 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     assert.equal((await c('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 200);
     assert.ok(appels.filter(a => a.chemin === 'refunds').every(a => a.compte === 'acct_boutique') && appels.some(a => a.chemin === 'refunds'));
     // account.updated : compte désactivé par Stripe → commandes à nouveau fermées
+    // TWINT activé par Stripe : proposé ensuite
+    assert.equal(await webhook({ type: 'account.updated', account: 'acct_boutique', data: { object: { charges_enabled: true, details_submitted: true, capabilities: { twint_payments: 'active' } } } }), 200);
+    await commander();
+    assert.deepEqual(appels.filter(a => a.chemin === 'checkout/sessions').pop().corps.getAll('payment_method_types[]'), ['card', 'twint']);
     assert.equal(await webhook({ type: 'account.updated', account: 'acct_boutique', data: { object: { charges_enabled: false, details_submitted: true } } }), 200);
     assert.equal((await commander()).json.code, 'paiements_inactifs');
     // Un événement de compte connecté n'est jamais lu comme un abonnement Comptoir

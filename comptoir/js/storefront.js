@@ -113,7 +113,7 @@ function renduSection(s, etat, mode) {
         const c = p.campagne ? etat.campagnes[p.campagne] : null;
         const per = !c && p.code ? Remises.periodeCampagne(vente, p.code) : null;
         const debut = c ? c.debut : per && per.debut, avant = debut && debut > Date.now();
-        const horsFormule = vente !== etat && p.campagne;   // campagne éteinte par la formule (Lancement)
+        const horsFormule = typeof fonctionIncluse === 'function' && !fonctionIncluse('conversion') && p.campagne;   // campagne éteinte par la formule (Lancement)
         const quoi = horsFormule ? 'Non affichée : les campagnes viennent avec la formule Croissance.' : avant ? `Programmée : visible à partir du ${new Date(debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : p.campagne || p.code ? 'Campagne terminée : cette bannière n’est plus affichée.' : 'Masquée pendant qu’une bannière de campagne est affichée.';
         return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${quoi}</span></div></section>`;
       }

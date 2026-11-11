@@ -29,6 +29,9 @@ setInterval(() => { try { gerer.actualiserVentesTendances(); } catch (e) { conso
 
 http.createServer(gerer).listen(port, () => {
   console.log(`Comptoir écoute sur ${urlPublique}`);
-  console.log(`Paiements : ${env.STRIPE_SECRET_KEY ? 'Stripe (TWINT + cartes)' : 'simulation (aucune clé Stripe)'}`);
+  console.log(`Paiements : ${env.STRIPE_SECRET_KEY ? 'Stripe Connect (chaque boutique encaisse sur son compte)' : 'simulation (aucune clé Stripe)'}`);
+  // Sans ces secrets, Stripe ne peut pas confirmer les paiements : les commandes payées resteraient « en attente ».
+  if (env.STRIPE_SECRET_KEY && !env.STRIPE_WEBHOOK_SECRET) console.error('ATTENTION : STRIPE_WEBHOOK_SECRET manque — abonnements et paiements ne seront pas confirmés par Stripe.');
+  if (env.STRIPE_SECRET_KEY && !env.STRIPE_CONNECT_WEBHOOK_SECRET) console.error('ATTENTION : STRIPE_CONNECT_WEBHOOK_SECRET manque — les ventes des boutiques ne seront confirmées qu’au retour du client sur la boutique (déclarez le webhook Connect).');
   console.log(`E-mails : ${env.BREVO_API_KEY ? 'Brevo' : env.POSTMARK_TOKEN ? 'Postmark' : 'file d’attente seulement (aucune clé d’envoi)'}`);
 });

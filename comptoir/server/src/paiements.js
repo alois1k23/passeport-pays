@@ -29,12 +29,12 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
     if (!rep.ok) throw erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe');
     return json;
   };
-  const appeler = async (chemin, params, compte) => {
+  const appeler = async (chemin, params, compte, cleIdempotence) => {
     const corps = new URLSearchParams();
     for (const [k, v] of params) corps.append(k, String(v));
     const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, {
       method: 'POST',
-      headers: { ...entetes(compte), 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { ...entetes(compte), 'Content-Type': 'application/x-www-form-urlencoded', ...(cleIdempotence ? { 'Idempotency-Key': cleIdempotence } : {}) },
       body: corps
     });
     const json = await rep.json();
@@ -43,7 +43,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
   };
   return {
     nom: 'stripe',
-    async creerSession({ paiement, commande, devise, urlRetour, urlAnnulation, pays, compte }) {
+    async creerSession({ paiement, commande, devise, urlRetour, urlAnnulation, pays, compte, moyens = null }) {
       const d = devise.toLowerCase();
       const params = [
         ['mode', 'payment'],
@@ -56,9 +56,11 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
         ['metadata[paiement_id]', paiement.id]
       ];
       // TWINT n'est proposé par Stripe qu'en CHF.
-      if (d === 'chf') params.push(['payment_method_types[]', 'twint']);
+      // Sur un compte connecté, seulement si Stripe a activé ce moyen pour la boutique (sinon la session entière est refusée).
+      const permis = m => !compte || !moyens || moyens[m] === true;
+      if (d === 'chf' && permis('twint')) params.push(['payment_method_types[]', 'twint']);
       // Belgique : Bancontact, le moyen de paiement le plus utilisé du pays (Stripe le propose en EUR).
-      if (d === 'eur' && pays === 'be') params.push(['payment_method_types[]', 'bancontact']);
+      if (d === 'eur' && pays === 'be' && permis('bancontact')) params.push(['payment_method_types[]', 'bancontact']);
       commande.lignes.forEach((l, i) => {
         params.push([`line_items[${i}][quantity]`, l.qte], [`line_items[${i}][price_data][currency]`, d],
           [`line_items[${i}][price_data][unit_amount]`, centimes(l.prix)], [`line_items[${i}][price_data][product_data][name]`, l.nom]);
@@ -84,25 +86,41 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
       return { ok: true };
     },
     /* Compte Stripe du marchand (Express) : créé par la plateforme, activé par le marchand chez Stripe (identité, IBAN). */
-    async creerCompte({ pays, email }) {
+    async creerCompte({ pays, email, cleIdempotence }) {
       const params = [['type', 'express'], ['country', String(pays || 'ch').toUpperCase()], ['email', email || ''],
         ['capabilities[card_payments][requested]', 'true'], ['capabilities[transfers][requested]', 'true']];
       if (pays === 'ch') params.push(['capabilities[twint_payments][requested]', 'true']);
       if (pays === 'be') params.push(['capabilities[bancontact_payments][requested]', 'true']);
-      return (await appeler('accounts', params)).id;
+      return (await appeler('accounts', params, null, cleIdempotence)).id;
     },
     async lienActivation({ compte, urlRetour, urlRafraichir }) {
       return (await appeler('account_links', [['account', compte], ['type', 'account_onboarding'], ['return_url', urlRetour], ['refresh_url', urlRafraichir]])).url;
     },
     async etatCompte(compte) {
-      const a = await lire(`accounts/${compte}`);
-      return { pret: !!(a.charges_enabled && a.details_submitted), detailsEnvoyes: !!a.details_submitted };
+      let a;
+      try { a = await lire(`accounts/${compte}`); }
+      catch (e) { if (/No such account|does not have access|not connected/i.test(e.message)) return { introuvable: true, pret: false }; throw e; }
+      return etatDepuisCompte(a);
     },
+    // Le paiement est-il passé ? (retour du client, au cas où le webhook tarde ou manque)
+    async sessionPayee(p) {
+      if (!p.ref_externe || !/^cs_/.test(p.ref_externe)) return false;
+      const s = await lire(`checkout/sessions/${p.ref_externe}`, p.compte || null);
+      return s.payment_status === 'paid';
+    },
+    modeCle: /^sk_live_/.test(cleSecrete) ? 'live' : 'test',
     /* Vérifie l'en-tête Stripe-Signature (HMAC-SHA256, tolérance 5 minutes) : webhook de la plateforme, ou celui des comptes connectés. */
     verifierWebhook(corpsBrut, entete, maintenant = Date.now()) {
       return verifierSignatureStripe(corpsBrut, entete, secretWebhook, maintenant) || (!!secretWebhookConnect && verifierSignatureStripe(corpsBrut, entete, secretWebhookConnect, maintenant));
     }
   };
+}
+
+/* État d'un compte connecté : prêt à encaisser, et moyens de paiement réellement activés par Stripe. */
+function etatDepuisCompte(a) {
+  const cap = a.capabilities || {};
+  return { pret: !!(a.charges_enabled && a.details_submitted), detailsEnvoyes: !!a.details_submitted, livemode: a.livemode,
+    moyens: { twint: cap.twint_payments === 'active', bancontact: cap.bancontact_payments === 'active' } };
 }
 
 function verifierSignatureStripe(corpsBrut, entete, secret, maintenant = Date.now()) {
@@ -120,4 +138,4 @@ function choisirPrestataire(env, urlPublique, fetchImpl = fetch) {
   return prestataireSimulation({ urlPublique });
 }
 
-module.exports = { choisirPrestataire, prestataireSimulation, prestataireStripe, verifierSignatureStripe, centimes };
+module.exports = { etatDepuisCompte, choisirPrestataire, prestataireSimulation, prestataireStripe, verifierSignatureStripe, centimes };

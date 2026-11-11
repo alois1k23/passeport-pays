@@ -42,7 +42,7 @@ async function demarrer() {
     $('#app').innerHTML = `<div class="page-erreur"><h1>Boutique introuvable</h1><p>${esc(e.message)}</p></div>`;
     return;
   }
-  etat = { boutique: donnees.boutique, produits: donnees.produits, entreprise: donnees.entreprise, magasin: donnees.magasin, avisRecents: donnees.avisRecents || [] };
+  etat = { boutique: donnees.boutique, produits: donnees.produits, entreprise: donnees.entreprise, magasin: donnees.magasin, avisRecents: donnees.avisRecents || [], newsletter: donnees.newsletter || null };   // newsletter : remise de bienvenue réellement envoyée
   if (!vue.fiche) document.title = titreAccueil();
   document.body.style.background = donnees.boutique.theme.bg;
   // Le panier ne garde que les produits encore en vente, au prix actuel.
@@ -165,9 +165,9 @@ function rendreBrut() {
             <label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}
             <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
             <p class="erreur-form" id="erreur" hidden></p>
-            ${(donnees.entreprise || {}).adresse ? '' : '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>'}
-            <button class="sf-btn plein" ${vue.envoi || !(donnees.entreprise || {}).adresse ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
-            <p class="mini">${donnees.paiement === 'stripe' ? (ch ? 'Paiement sécurisé par TWINT ou carte.' : donnees.boutique.pays === 'be' ? 'Paiement sécurisé par Bancontact ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
+            ${!(donnees.entreprise || {}).adresse ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
+            <button class="sf-btn plein" ${vue.envoi || !(donnees.entreprise || {}).adresse || donnees.paiementsActifs === false ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
+            <p class="mini">${donnees.paiement === 'stripe' ? (ch && (!donnees.moyens || donnees.moyens.twint) ? 'Paiement sécurisé par TWINT ou carte.' : donnees.boutique.pays === 'be' && (!donnees.moyens || donnees.moyens.bancontact) ? 'Paiement sécurisé par Bancontact ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
     </div>

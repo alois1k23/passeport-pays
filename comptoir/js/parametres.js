@@ -5,6 +5,8 @@ const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['
 function enLigne() { return typeof SERVEUR !== 'undefined' && SERVEUR.connecte; }
 
 function vueParametres() {
+  // Retour de la page d'activation Stripe (?section=paiements) : la bonne section s'ouvre.
+  if (!ui.sectionParam) { try { const q = new URLSearchParams(location.search).get('section'); if (q && SECTIONS_PARAM.some(([k]) => k === q)) ui.sectionParam = q; } catch { /* ignoré */ } }
   const s = ui.sectionParam || 'general';
   const b = etat.boutique, e = etat.entreprise || {};
   const statut = (ok, oui, non) => `<span class="pill ${ok ? 'good' : 'warn'}">${ok ? oui : non}</span>`;
@@ -23,10 +25,11 @@ function vueParametres() {
       <p class="sous">Raccourci : la recherche s’ouvre avec <kbd>Ctrl</kbd> <kbd>K</kbd> (ou <kbd>⌘</kbd> <kbd>K</kbd> sur Mac).</p></section>`;
   } else if (s === 'paiements') {
     const stripe = enLigne() && SERVEUR.paiement === 'stripe';
-    corps = `<section class="carte"><div class="carte-tete"><h2>Encaissement</h2>${statut(stripe, 'Stripe actif', enLigne() ? 'Paiement simulé' : 'Démo')}</div>
+    const pret = !!(SERVEUR.paiementsBoutique || {}).pret;   // compte Stripe de la boutique activé
+    corps = `<section class="carte"><div class="carte-tete"><h2>Encaissement</h2>${statut(stripe && pret, 'Stripe actif', stripe ? 'À activer' : enLigne() ? 'Paiement simulé' : 'Démo')}</div>
       <div class="liste-reglages">
-        <div><strong>TWINT</strong><span class="sous">Paiement mobile le plus utilisé en Suisse, uniquement en CHF.</span>${statut(stripe && b.devise === 'CHF', 'Proposé', 'Inactif')}</div>
-        <div><strong>Cartes</strong><span class="sous">Visa, Mastercard et autres cartes acceptées par Stripe.</span>${statut(stripe, 'Proposé', 'Inactif')}</div>
+        <div><strong>TWINT</strong><span class="sous">Paiement mobile le plus utilisé en Suisse, uniquement en CHF.</span>${statut(stripe && pret && b.devise === 'CHF' && !!(SERVEUR.paiementsBoutique || {}).twint, 'Proposé', stripe && pret && b.devise === 'CHF' ? 'En cours de validation par Stripe' : 'Inactif')}</div>
+        <div><strong>Cartes</strong><span class="sous">Visa, Mastercard et autres cartes acceptées par Stripe.</span>${statut(stripe && pret, 'Proposé', 'Inactif')}</div>
       </div>
       ${stripe ? (() => {
         const pb = SERVEUR.paiementsBoutique || {};
@@ -48,8 +51,8 @@ function vueParametres() {
   } else if (s === 'emails') {
     const service = enLigne() ? SERVEUR.emails : null;
     corps = `<section class="carte"><div class="carte-tete"><h2>Envoi des e-mails</h2>${statut(!!service, service === 'brevo' ? 'Brevo actif' : service === 'postmark' ? 'Postmark actif' : 'Actif', enLigne() ? 'File d’attente' : 'Démo')}</div>
-      <p class="sous">${service ? `Les e-mails partent automatiquement : confirmations, expéditions${etatVente() === etat ? ', relances, avis, bienvenue' : ' (relances, avis et bienvenue : avec la formule Croissance)'}.` : 'Sans service d’envoi, les e-mails sont préparés et gardés en file, mais ne partent pas. Branchez Brevo (hébergé en Europe) ou Postmark sur le serveur pour les envoyer.'}</p>
-      <div class="liste-reglages">${['Confirmation de commande', 'Colis expédié, avec suivi', 'Commande prête à retirer', 'Relance de paiement abandonné', 'Bienvenue (newsletter)', 'Demande d’avis', 'Reconquête des inactifs'].map((n, i) => `<div><strong>${n}</strong><span class="sous">${i < 3 ? (i === 2 && !retraitPossible() ? 'Envoyé si le retrait en magasin est activé' : 'Toujours envoyé (e-mail de service)') : etatVente() === etat ? 'Réglable dans <a class="lien" href="#conversion">Conversion</a>' : 'Avec la formule Croissance'}</span></div>`).join('')}</div>
+      <p class="sous">${service ? `Les e-mails partent automatiquement : confirmations, expéditions${fonctionIncluse('conversion') ? ', relances, avis, bienvenue' : ' (relances, avis et bienvenue : avec la formule Croissance)'}.` : 'Sans service d’envoi, les e-mails sont préparés et gardés en file, mais ne partent pas. Branchez Brevo (hébergé en Europe) ou Postmark sur le serveur pour les envoyer.'}</p>
+      <div class="liste-reglages">${['Confirmation de commande', 'Colis expédié, avec suivi', 'Commande prête à retirer', 'Relance de paiement abandonné', 'Bienvenue (newsletter)', 'Demande d’avis', 'Reconquête des inactifs'].map((n, i) => `<div><strong>${n}</strong><span class="sous">${i < 3 ? (i === 2 && !retraitPossible() ? 'Envoyé si le retrait en magasin est activé' : 'Toujours envoyé (e-mail de service)') : fonctionIncluse('conversion') ? 'Réglable dans <a class="lien" href="#conversion">Conversion</a>' : 'Avec la formule Croissance'}</span></div>`).join('')}</div>
       ${enLigne() ? '<div class="rangee"><button class="btn petit fantome" data-action="voir-emails">Voir les derniers e-mails</button></div>' : ''}</section>`;
   } else if (s === 'domaine') {
     const d = b.domaine;
@@ -126,8 +129,9 @@ document.addEventListener('click', async e => {
     if (a === 'abo-changer') {
       const ab = SERVEUR.abonnement || {}, f = Formules.FORMULES[el.dataset.v];
       // Ce qui s'arrête tout de suite en descendant de formule (les réglages restent enregistrés).
-      const perdues = Object.keys(Formules.FONCTIONS).filter(k => Formules.permet(ab.formule, k) && !Formules.permet(el.dataset.v, k)).map(k => Formules.NOMS_FONCTIONS[k]);
-      const avert = perdues.length ? `\n\nS'arrêtent immédiatement : ${perdues.join(', ')}${perdues.includes(Formules.NOMS_FONCTIONS.conversion) ? ' (codes promo, remises par quantité, offres, campagnes, e-mails automatiques)' : ''}${perdues.includes(Formules.NOMS_FONCTIONS.magasin) ? ' (caisse, retrait en magasin)' : ''}${perdues.includes(Formules.NOMS_FONCTIONS.social) ? ' ; les publications programmées redeviennent des brouillons' : ''}. Vos réglages sont gardés et reviennent si vous reprenez la formule.` : '';
+      const DETAIL = { conversion: 'codes promo, remises par quantité, offres, campagnes, e-mails automatiques', magasin: 'caisse, retrait en magasin', social: 'les publications programmées repassent en brouillon à leur date' };
+      const perdues = Object.keys(Formules.FONCTIONS).filter(k => Formules.permet(ab.formule, k) && !Formules.permet(el.dataset.v, k)).map(k => Formules.NOMS_FONCTIONS[k] + (DETAIL[k] ? ` (${DETAIL[k]})` : ''));
+      const avert = perdues.length ? `\n\nS'arrêtent immédiatement :\n– ${perdues.join('\n– ')}\n\nVos réglages sont gardés et reviennent si vous reprenez la formule.` : '';
       if (f && !confirm(`Passer à ${f.nom} pour ${Formules.prixTexte(el.dataset.v, ab.devise)} par mois ? Le changement est immédiat ; ${ab.prestataire === 'stripe' ? 'la différence pour le mois en cours est calculée au prorata et ajoutée à (ou déduite de) votre prochaine facture.' : 'en mode test, rien n’est débité.'}${avert}`)) return;
     }
     try {

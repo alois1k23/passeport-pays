@@ -903,3 +903,43 @@ Nouveau test `connect.test.js`, avec un faux Stripe local. Il vérifie :
 README et `.env.example` sont à jour (étape « webhook Connect »). Tests : 63.
 
 À faire par l'exploitant avant la mise en ligne, et non vérifiable ici sans vrai compte : activer Connect dans le tableau de bord Stripe, déclarer le webhook Connect, puis faire un essai réel en mode test de Stripe.
+
+### Cycle 44 — Relecture des cycles 42 et 43 : 11 défauts corrigés (05 h 25 – 05 h 45)
+
+**Graves**
+
+1. **Webhook Connect manquant.** Si l'exploitant oubliait de le déclarer, les commandes payées restaient « en attente » : pas de baisse de stock, pas d'e-mail au marchand, et des relances « paiement abandonné » envoyées à des clients qui avaient déjà payé.
+   - Le serveur affiche maintenant une alerte au démarrage s'il manque un secret.
+   - Surtout, quand le client revient sur la boutique, la page de sa commande demande directement à Stripe si le paiement est passé (au plus une fois toutes les 10 secondes par paiement).
+2. **TWINT ou Bancontact proposés avant leur activation par Stripe.** TWINT demande une validation à part. Tant qu'elle n'était pas faite, Stripe refusait toute la session de paiement, et chaque commande en CHF échouait en laissant une commande fantôme.
+   - Ces moyens ne sont proposés qu'une fois actifs pour la boutique (suivi par `account.updated`).
+   - Si Stripe refuse quand même la session, la commande est effacée.
+   - La boutique n'annonce TWINT que s'il est vraiment actif.
+
+**Moyens**
+
+3. **Passage des clés de test aux clés réelles.** Les comptes créés en mode test n'étaient pas reconnus comme tels, et la boutique restait bloquée sans issue.
+   - Chaque compte est maintenant enregistré avec son mode (test ou réel) ; un compte de l'autre mode est ignoré.
+   - Un compte supprimé chez Stripe est recréé.
+   - L'état du compte est relu chez Stripe toutes les heures.
+4. **Boutiques pas encore activées.** Les clients remplissaient tout le panier avant d'être refusés.
+   - La boutique annonce maintenant que les paiements arrivent, et le bouton Payer est désactivé.
+   - Ces boutiques ne reçoivent pas de relances automatiques.
+5. **« Avec la formule Croissance » affiché aux clients Croissance et Pro.** La vérification de formule comparait deux objets, toujours différents. Elle passe maintenant par `fonctionIncluse('conversion')`.
+6. **Remise de bienvenue invisible sur la boutique publique.** Elle n'apparaissait que dans l'aperçu. La boutique en ligne reçoit maintenant l'état de la newsletter.
+
+**Mineurs**
+
+7. **Retour d'activation Stripe.** Le retour ouvre maintenant directement Paramètres > Paiements, et un lien expiré en redemande un nouveau automatiquement.
+8. **Paramètres > Paiements.** « Stripe actif » et « Proposé » ne s'affichent qu'une fois le compte de la boutique actif. TWINT indique « En cours de validation par Stripe » tant qu'il n'est pas actif.
+9. **Deux activations simultanées** (deux onglets) créaient deux comptes Stripe. Elles sont maintenant verrouillées par boutique, avec une clé d'idempotence.
+10. **Avertissement de changement de formule.** Chaque fonction perdue a maintenant sa propre explication, et les publications ne repassent en brouillon qu'« à leur date ».
+11. **Compte déconnecté de la plateforme** (`account.application.deauthorized`) : la boutique ferme ses commandes.
+
+Le test Connect couvre aussi :
+- TWINT absent puis présent ;
+- la commande effacée quand Stripe refuse la session ;
+- la confirmation au retour du client sans webhook ;
+- les deux activations simultanées.
+
+Tests : 63.
