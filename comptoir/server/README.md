@@ -106,7 +106,7 @@ La route `/api/tls/autoriser` ne répond « oui » que pour le domaine principal
 
 ## Mise en ligne
 
-- **Docker** : `docker build -t comptoir . && docker run -p 3000:3000 -v comptoir-data:/data --env-file .env comptoir`
+- **Docker** : `docker build -t comptoir . && docker run -p 127.0.0.1:3000:3000 -v comptoir-data:/data --env-file .env comptoir`. Publiez le port sur `127.0.0.1` uniquement : seul Caddy (sur la machine) doit joindre le conteneur, par la passerelle Docker `172.17.0.1`, déclarée dans `PROXY_DE_CONFIANCE` par l'image. Sans cela, tous les clients auraient la même adresse et les limites d'essais vaudraient pour tous à la fois (le serveur l'écrit alors dans son journal). L'image règle aussi l'heure sur Lausanne (`TZ=Europe/Zurich`).
 - Hébergement en Suisse possible chez Infomaniak, Exoscale ou un VPS. Placez la base sur un disque persistant et sauvegardez-la chaque jour. La base est en mode WAL : sauvegardez avec `sqlite3 /data/comptoir.db ".backup '/sauvegardes/comptoir-$(date +%F).db'"` (ou `VACUUM INTO`), pas par simple copie du fichier, et testez la restauration.
 - HTTPS obligatoire. Le cookie passe automatiquement en `Secure` quand `URL_PUBLIQUE` commence par `https://`.
 - En production (`NODE_ENV=production`), les pages de paiement simulé (`/paiement-simule`, `/abonnement-simule`) sont désactivées et, sans clé Stripe, le début d'un abonnement répond 503 (sauf `ABONNEMENT_OBLIGATOIRE=non`).

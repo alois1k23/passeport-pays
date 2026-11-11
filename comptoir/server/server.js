@@ -1,5 +1,8 @@
 // Point d'entrée : `node server/server.js` (Node ≥ 22.13, aucune dépendance à installer).
 'use strict';
+// Heure de Lausanne pour tout ce qui est daté (année des factures, dates des e-mails, jours des statistiques) :
+// un serveur réglé en UTC facturerait un paiement du 1er janvier à 0 h 30 sur l'année précédente.
+process.env.TZ = process.env.TZ || 'Europe/Zurich';
 const http = require('node:http');
 const path = require('node:path');
 const { ouvrir } = require('./src/db');

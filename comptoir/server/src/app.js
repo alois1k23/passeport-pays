@@ -42,8 +42,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const ipClient = req => {
     const pair = req.socket.remoteAddress || '';
     const xff = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (xff.length && !proxiesConfiance.has(pair) && !avertiProxy) {
+      // Tout le trafic semble venir d'une seule adresse (le proxy) : les limites d'essais vaudraient pour tous les clients à la fois.
+      avertiProxy = true;
+      journal.error(`[réseau] En-tête X-Forwarded-For reçu de ${pair}, qui n'est pas un proxy de confiance : ajoutez cette adresse à PROXY_DE_CONFIANCE (voir README, Docker).`);
+    }
     return proxiesConfiance.has(pair) && xff.length ? xff[xff.length - 1] : pair;
   };
+  let avertiProxy = false;
   const vendable = p => p.actif && !p.aVerifier && (fournisseurDemoVendable || p.codeFournisseur !== 'demo');
   // Délai avant que le faux fournisseur expédie (2 min par défaut ; négatif = jamais, pour tester à la main).
   const delaiExpeditionDemo = env.DEMO_DELAI_EXPEDITION_MS === undefined ? 120000 : Number(env.DEMO_DELAI_EXPEDITION_MS);
@@ -470,6 +476,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const exigerCompte = ctx => {
     ctx.marchand = auth.marchandDepuisRequete(db, ctx.cookies);
     if (!ctx.marchand) throw erreur(401, 'Connectez-vous pour continuer.', 'non_connecte');
+    if (ctx.marchand.cookieRenouvele) { ctx.entetes['Set-Cookie'] = auth.cookieSession(ctx.marchand.cookieRenouvele, securise); delete ctx.marchand.cookieRenouvele; }
     ctx.boutique = boutiqueDuMarchand(ctx.marchand.id);
   };
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
@@ -998,7 +1005,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     };
   });
   r.post('/api/public/:slug/commandes', async ctx => {
-    auth.limiter('commande:' + ctx.ip, (Number(env.LIMITE_COMMANDES) || 30) * facteurLimites, 15 * 60000, 'Trop de commandes en peu de temps. Réessayez dans quelques minutes.');
+    auth.limiter(`commande:${ctx.params.slug}:${ctx.ip}`, (Number(env.LIMITE_COMMANDES) || 30) * facteurLimites,   // par boutique : une promotion chez l'une ne bloque pas les autres
+      15 * 60000, 'Trop de commandes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueOuverte(ctx.params.slug);
     const config = configVente(b);
     // Vendre à distance sans adresse du vendeur est interdit (CH : LCD art. 3 s ; FR : LCEN art. 6 ; BE : CDE art. VI.45).

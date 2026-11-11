@@ -30,3 +30,25 @@ for (const [nom, env] of [['brevo', { BREVO_API_KEY: 'k', EMAIL_EXPEDITEUR: 'Com
     }
   });
 }
+
+test('panne du service d’envoi : les e-mails attendent et partent ensuite, sans être perdus', async () => {
+  const db = ouvrir(':memory:');
+  courriel.creerTables(db);
+  for (let k = 0; k < 3; k++) db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le) VALUES (NULL, ?, ?, ?, ?)').run(`c${k}@x.ch`, `Commande n° ${k} confirmée`, 'Merci', Date.now());
+  let panne = true, envoyes = 0;
+  const p = courriel.prestataire({ BREVO_API_KEY: 'k', EMAIL_EXPEDITEUR: 'Comptoir <envoi@comptoir.example>' }, async () => panne ? { ok: false, status: 503 } : (envoyes++, { ok: true, status: 201 }));
+  const reel = Date.now; let t = reel();
+  Date.now = () => t;
+  try {
+    for (let k = 0; k < 8; k++) { await courriel.envoyerFile(db, p, { journal: { error() {} } }); t += 60000; }   // 8 minutes de panne
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM emails WHERE envoye = 0').get().n, 3);
+    panne = false;
+    for (let k = 0; k < 40; k++) { await courriel.envoyerFile(db, p, { journal: { error() {} } }); t += 10 * 60000; }
+    assert.equal(envoyes, 3, 'tous partis après la panne');
+    // Adresse refusée par le service (400) : abandon immédiat, signalé
+    db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le) VALUES (NULL, ?, ?, ?, ?)').run('faux@x', 'Test', 'x', t);
+    const p400 = courriel.prestataire({ BREVO_API_KEY: 'k', EMAIL_EXPEDITEUR: 'Comptoir <envoi@comptoir.example>' }, async () => ({ ok: false, status: 400 }));
+    const erreurs = []; await courriel.envoyerFile(db, p400, { journal: { error: (...a) => erreurs.push(a.join(' ')) } });
+    assert.match(erreurs[0], /ABANDON/);
+  } finally { Date.now = reel; }
+});

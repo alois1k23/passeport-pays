@@ -48,7 +48,14 @@ function marchandDepuisRequete(db, cookies) {
   if (!jeton) return null;
   const s = db.prepare('SELECT marchand_id, expire_le FROM sessions WHERE jeton_hash = ?').get(sha256(jeton));
   if (!s || s.expire_le < Date.now()) return null;
-  return db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(s.marchand_id) || null;
+  const m = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(s.marchand_id) || null;
+  // Session glissante : un marchand qui utilise son espace n'est pas déconnecté au bout de 30 jours ;
+  // passé la moitié de sa durée, elle repart pour 30 jours (le cookie est renouvelé par l'appelant).
+  if (m && s.expire_le - Date.now() < DUREE_SESSION / 2) {
+    db.prepare('UPDATE sessions SET expire_le = ? WHERE jeton_hash = ?').run(Date.now() + DUREE_SESSION, sha256(jeton));
+    m.cookieRenouvele = jeton;
+  }
+  return m;
 }
 
 function supprimerSession(db, cookies) {
