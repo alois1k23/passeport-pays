@@ -904,7 +904,7 @@ README et `.env.example` sont à jour (étape « webhook Connect »). Tests : 63
 
 À faire par l'exploitant avant la mise en ligne, et non vérifiable ici sans vrai compte : activer Connect dans le tableau de bord Stripe, déclarer le webhook Connect, puis faire un essai réel en mode test de Stripe.
 
-### Cycle 44 — Relecture des cycles 42 et 43 : 11 défauts corrigés (05 h 25 – 05 h 45)
+### Cycle 44 — Relecture des cycles 42 et 43 : 11 défauts corrigés (05 h 15 – 05 h 30)
 
 **Graves**
 
