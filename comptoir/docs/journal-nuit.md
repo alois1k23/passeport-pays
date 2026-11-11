@@ -361,3 +361,16 @@ Tests : 41 (refus de commande sans adresse ajouté).
 2. **Boutiques créées avant le cycle 16** : elles gardent les anciens textes d'exemple (« Fabriqué en France », « Expédié sous 48 h »…). Je ne modifie pas le contenu d'un marchand à sa place : une alerte « à vérifier » apparaît dans sa liste de tâches, avec un lien vers l'éditeur.
 
 Contrôles de non-régression sur la démo : aucune erreur, aucun débordement à 360 px, audit d'accessibilité propre (clair et sombre). Tests : 41.
+
+### Cycle 18 — Charge, pannes, sécurité, e-mails
+
+**Contrôles**
+
+- **Gros volume** (500 produits, 10 000 commandes sur 13 mois) : chaque écran se dessine en moins de 65 ms, la boutique publique répond en 8 ms, l'export CSV prend 40 ms ; aucune erreur.
+- **Pannes et doubles clics** (inscription, import, enregistrement, caisse, paiement) : aucun problème. Le scénario a été mis à jour : il saisit l'adresse de l'entreprise et choisit la formule Pro (la caisse en dépend).
+- **Injections** dans tous les champs : aucune exécutée.
+- **API hostile** : rien à signaler (l'absence de limite relevée vient du réglage de test `LIMITES_FACTEUR=1000`, pas du serveur réel).
+
+**Défaut trouvé et corrigé**
+
+- **Expéditeur des e-mails cassé** si le nom de la boutique contient une virgule (« Lumière, Co » était lu comme deux adresses) ou des balises. Le nom est nettoyé et mis entre guillemets.

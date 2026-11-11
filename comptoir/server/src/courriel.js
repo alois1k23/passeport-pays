@@ -17,7 +17,7 @@ function prestataire(env, fetchImpl = fetch) {
         const rep = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
           method: 'POST',
           headers: { 'api-key': env.BREVO_API_KEY, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ sender: { email: adresse, name: nomBoutique || nom || undefined }, to: [{ email: destinataire }], subject: sujet, textContent: corps, ...(repondreA ? { replyTo: { email: repondreA } } : {}), ...(desinscription ? { headers: { 'List-Unsubscribe': `<${desinscription}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } } : {}) })
+          body: JSON.stringify({ sender: { email: adresse, name: (nomBoutique ? nomExpediteur(nomBoutique) : nom) || undefined }, to: [{ email: destinataire }], subject: sujet, textContent: corps, ...(repondreA ? { replyTo: { email: repondreA } } : {}), ...(desinscription ? { headers: { 'List-Unsubscribe': `<${desinscription}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } } : {}) })
         });
         if (!rep.ok) throw new Error(`Brevo ${rep.status}`);
       }
@@ -30,7 +30,7 @@ function prestataire(env, fetchImpl = fetch) {
         const rep = await fetchImpl('https://api.postmarkapp.com/email', {
           method: 'POST',
           headers: { 'X-Postmark-Server-Token': env.POSTMARK_TOKEN, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ From: nomBoutique ? `${nomBoutique.replace(/[<>"]/g, '')} <${adresse}>` : exp, To: destinataire, Subject: sujet, TextBody: corps, MessageStream: 'outbound', ...(repondreA ? { ReplyTo: repondreA } : {}), ...(desinscription ? { Headers: [{ Name: 'List-Unsubscribe', Value: `<${desinscription}>` }, { Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' }] } : {}) })
+          body: JSON.stringify({ From: nomBoutique ? `"${nomExpediteur(nomBoutique)}" <${adresse}>` : exp, To: destinataire, Subject: sujet, TextBody: corps, MessageStream: 'outbound', ...(repondreA ? { ReplyTo: repondreA } : {}), ...(desinscription ? { Headers: [{ Name: 'List-Unsubscribe', Value: `<${desinscription}>` }, { Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' }] } : {}) })
         });
         if (!rep.ok) throw new Error(`Postmark ${rep.status}`);
       }
@@ -38,6 +38,9 @@ function prestataire(env, fetchImpl = fetch) {
   }
   return null;
 }
+
+/* Nom d'expéditeur : sans balises ni caractères qui casseraient l'en-tête From (virgule, guillemets, chevrons). */
+function nomExpediteur(n) { return String(n).replace(/<[^>]*>/g, '').replace(/[<>"\\\r\n]/g, '').replace(/\s+/g, ' ').trim().slice(0, 70); }
 
 function creerTables(db) {
   // Colonnes ajoutées après coup : tentatives et dernière erreur (ignoré si déjà présentes).

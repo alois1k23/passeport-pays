@@ -26,7 +26,7 @@ for (const [nom, env] of [['brevo', { BREVO_API_KEY: 'k', EMAIL_EXPEDITEUR: 'Com
       assert.equal(c.ReplyTo, 'contact@maboutique.ch');
       assert.ok(c.Headers.some(h => h.Name === 'List-Unsubscribe'));
       assert.equal(c.HtmlBody, undefined);
-      assert.match(c.From, /^Ma Boutique <envoi@comptoir\.example>$/);
+      assert.match(c.From, /^"Ma Boutique" <envoi@comptoir\.example>$/);
     }
   });
 }
