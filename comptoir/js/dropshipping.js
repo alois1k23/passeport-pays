@@ -87,6 +87,11 @@ function fraisImportClient(p, prix = p.prix) {
   return { montant: tva, texte: `Envoi depuis l’extérieur de l’UE : TVA d’importation (≈ ${euros(tva)}) et frais du transporteur réclamés au client à la livraison, sauf si le fournisseur utilise le guichet IOSS.` };
 }
 
+function tauxTvaReduit() {
+  const r = etat.entreprise.regime;
+  return r === 'ch-assujetti' ? 0.026 : r === 'normal' ? (etat.boutique.pays === 'be' ? 0.06 : 0.055) : 0;
+}
+function tauxTvaProduit(p) { return p && p.tauxReduit ? tauxTvaReduit() : tauxTvaVente(); }
 function tauxTvaVente() {
   const r = etat.entreprise.regime;
   return r === 'ch-assujetti' ? TVA_CH : r === 'normal' ? droitPays().tva : 0;
@@ -94,7 +99,7 @@ function tauxTvaVente() {
 
 /* Marge nette par vente. Toutes les valeurs sont dans la devise de la boutique (estimations). */
 function margeProduit(p, { prix = p.prix, cpa = reglages().cpa } = {}) {
-  const ht = prix / (1 + tauxTvaVente());
+  const ht = prix / (1 + tauxTvaProduit(p));
   const achat = p.type === 'drop' ? p.cout + (p.portF || 0) : (p.cout || prix * 0.35);
   // Envoi direct du fournisseur au client, droits non payés (le cas habituel du dropshipping) : la TVA d'importation et les frais
   // de dédouanement sont réclamés au CLIENT à la livraison, pas au marchand. Ils ne sortent donc pas de la marge, mais ils

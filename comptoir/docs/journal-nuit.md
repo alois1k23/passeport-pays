@@ -488,3 +488,43 @@ Chaque écran d'un compte réel tout neuf a été parcouru, à la recherche de c
 ### Cycle 26 — Bancontact pour les boutiques belges
 
 **Manque** : le paiement ne proposait que la carte en Belgique, alors que Bancontact est le moyen de paiement le plus utilisé du pays (TWINT l'était déjà en Suisse). La page de paiement Stripe d'une boutique belge propose désormais Bancontact et la carte, et la boutique l'annonce. Test ajouté : Bancontact en Belgique, carte seule en France. Tests : 45.
+
+### Cycle 27 — Factures, avoirs, caisse, export comptable et conformité
+
+Une cinquième relecture (factures et obligations légales) a relevé 15 points. Tous ont été traités, puis vérifiés à l'écran et par les tests.
+
+**Factures**
+
+1. **Changer de régime de TVA réécrivait les factures déjà émises** (CHF 36.00 « TVA 0 » devenait « TVA 2.70 »). Le taux est figé sur chaque facture ; vérifié : une ancienne facture reste identique après le changement.
+2. **Un seul taux de TVA pour toute la boutique** : thé, miel ou chocolat étaient facturés à 8,1 %, 20 % ou 21 %. Chaque produit peut porter le taux réduit des denrées alimentaires (2,6 % en Suisse, 5,5 % en France, 6 % en Belgique) ; il est activé d'office pour les produits d'épicerie importés. La facture détaille la base HT et la TVA par taux.
+3. **Facture d'un assujetti sans numéro de TVA**, et Conformité « En règle » quand même. Une alerte s'affiche sur la facture, et le contrôle passe à « À compléter » (format suisse `CHE-xxx.xxx.xxx TVA` vérifié).
+4. **Remboursement sans avoir** : la facture restait seule, et la démo affichait « avoir émis » sans document. Un remboursement crée maintenant un avoir numéroté, dans la même suite que les factures, qui référence la facture d'origine (montants négatifs par taux).
+5. **Date de la facture** : c'était la date de commande, alors que le numéro était attribué au paiement (numéros hors de l'ordre chronologique). La facture porte sa propre date, celle de la commande est indiquée à part.
+6. **Contenu des factures** :
+   - adresse complète du client ;
+   - prix unitaire HT et taux par ligne pour un assujetti ;
+   - mention « EI » pour un entrepreneur individuel en France ;
+   - pour un non-assujetti ou une franchise, plus de « HT », « TVA 0.00 » ni « TTC » (interdit en Suisse pour un non-assujetti) : un total et la mention légale ;
+   - mention de franchise belge mise à jour (« Régime particulier de franchise des petites entreprises »).
+
+**Caisse**
+
+7. **Espèces en francs** : le client payait le montant arrondi à 5 centimes, mais le ticket gardait le montant exact sans trace de l'écart. Le ticket affiche l'arrondi et le montant encaissé (vérifié : CHF 66.33, arrondi 0.02, encaissé 66.35).
+8. L'adresse du magasin apparaissait comme adresse du client sur les tickets de caisse.
+
+**Export pour la fiduciaire**
+
+9. L'export était illisible dans un Excel en français : point décimal (« 7.00 » lu comme une date), numéros « 1426.00 », dates en heure UTC. Il est réécrit :
+   - virgule décimale et dates locales ;
+   - colonnes HT, TVA, TTC et détail par taux, moyen de paiement ;
+   - une ligne par facture et une ligne négative par avoir.
+
+**Conformité**
+
+10. France : le téléphone de l'éditeur est demandé (obligatoire dans les mentions légales) ; l'hébergeur est indiqué.
+11. Suisse (nLPD) : la déclaration nomme désormais les pays où partent les données (Union européenne, Chine), avec la base légale pour un pays sans protection adéquate : l'exécution de la commande.
+12. France : « facture électronique conforme à la réforme (simulé) » était trompeur. La ligne passe à « À préparer », avec le calendrier (réception dès septembre 2026, émission et e-reporting en septembre 2027) et l'action à faire.
+13. Belgique : le médiateur est indiqué comme facultatif. La facture électronique Peppol entre entreprises (obligatoire depuis 2026) est mentionnée, ainsi que le seuil de franchise de 25 000 €.
+14. Suisse : la page annonçait « retours 30 jours » en dur ; elle reprend le réglage du marchand.
+
+Tests : 46 (taux réduit par ligne, avoir dans la suite continue, arrondi en espèces).

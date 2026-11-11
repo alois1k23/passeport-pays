@@ -41,7 +41,7 @@ function vendues(debut, fin) {
 /* Décompose une commande : TVA, achat, import/douane, paiement, port, bénéfice. */
 function decomposer(c) {
   // Taux figé sur la commande (celui de la facture) ; à défaut, le taux actuel.
-  const taux = typeof c.tauxTva === 'number' ? c.tauxTva : tauxTvaVente(), ttc = c.total, tva = ttc - ttc / (1 + taux);
+  const ttc = c.total, tva = window.tva ? window.tva(c).tva : ttc - ttc / (1 + (typeof c.tauxTva === 'number' ? c.tauxTva : tauxTvaVente()));   // par taux (normal et réduit)
   let achat = 0, douane = 0;
   for (const l of c.lignes) {
     const p = etat.produits.find(x => x.id === l.produitId);
@@ -327,7 +327,7 @@ function exporterCsv() {
   const a = etatAnalyse();
   const [d0, f0] = bornes(tranches(a.periode));
   const champs = ['numero', 'date', 'client', 'ville', 'canal', 'livraison', 'statut', 'total_ttc', 'tva', 'cout_produits', 'douane', 'frais_paiement', 'benefice_estime'];
-  const lignes = vendues(d0, f0).map(c => { const d = decomposer(c); return [c.numero, new Date(c.date).toISOString(), c.client.nom, c.client.ville, c.canal, c.livraison, c.statut, c.total, d.tva, d.achat, d.douane, d.paiement, d.net].map(v => typeof v === 'number' ? v.toFixed(2) : `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'); });
+  const lignes = vendues(d0, f0).map(c => { const d = decomposer(c); return [String(c.numero), csvTexte(csvDate(c.date)), csvTexte(c.client.nom), csvTexte(c.client.ville), csvTexte(c.canal), csvTexte(c.livraison), csvTexte(c.statut), csvMontant(c.total), csvMontant(d.tva), csvMontant(d.achat), csvMontant(d.douane), csvMontant(d.paiement), csvMontant(d.net)].join(';'); });
   const csv = '﻿' + champs.join(';') + '\n' + lignes.join('\n');
   try {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));

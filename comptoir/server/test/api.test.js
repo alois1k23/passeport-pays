@@ -719,3 +719,25 @@ test('droits du client : export puis effacement de ses données (montants conser
   await autre('POST', '/api/auth/inscription', { email: 'autre-rgpd@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Autre', pays: 'ch', secteur: 'maison', sections: [] } } });
   assert.equal((await autre('POST', '/api/admin/clients/effacer', { email: 'lea.durand@exemple.ch' })).json.commandes, 0);
 });
+
+test('factures : taux réduit par ligne, avoir numéroté au remboursement, arrondi des espèces', async () => {
+  const m = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'factures@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Épicerie Test', pays: 'ch', secteur: 'epicerie', sections: [] }, entreprise: { raison: 'Épicerie Test', adresse: 'Rue 1, 1003 Lausanne', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } },
+    produits: [{ nom: 'Miel', prix: 12.33, stock: 10, type: 'stock', tauxReduit: true }, { nom: 'Bougie', prix: 20, stock: 10, type: 'stock' }] });
+  assert.equal(ins.statut, 201);
+  const etat = (await m('GET', '/api/admin/etat')).json;
+  const miel = etat.produits.find(p => p.nom === 'Miel'), bougie = etat.produits.find(p => p.nom === 'Bougie');
+  assert.equal(miel.tauxReduit, true);
+  const v = await m('POST', '/api/admin/caisse', { lignes: [{ produitId: miel.id, qte: 1 }, { produitId: bougie.id, qte: 1 }], moyen: 'especes', cle: 'ticket-factures-1' });
+  assert.equal(v.statut, 201);
+  let c = (await m('GET', '/api/admin/etat')).json.commandes.find(x => x.id === v.json.id);
+  assert.deepEqual(c.lignes.map(l => l.tauxTva), [0.026, 0.081]);
+  assert.equal(c.encaisse, 32.35); assert.equal(c.arrondi, 0.02);   // 32.33 payé 32.35 en espèces
+  assert.match(c.facture, /^FA-\d{4}-\d{4}$/); assert.ok(c.dateFacture);
+  const r = await m('POST', `/api/admin/commandes/${c.id}/statut`, { statut: 'remboursee' });
+  assert.equal(r.statut, 200);
+  c = (await m('GET', '/api/admin/etat')).json.commandes.find(x => x.id === v.json.id);
+  assert.match(c.avoir.numero, /^AV-\d{4}-\d{4}$/);
+  assert.equal(Number(c.avoir.numero.slice(-4)), Number(c.facture.slice(-4)) + 1, 'une seule suite continue');
+  assert.equal(c.facture.slice(0, 2), 'FA', 'la facture d’origine reste');
+});

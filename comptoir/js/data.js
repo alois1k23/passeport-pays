@@ -378,13 +378,15 @@ function completerEtat(e) {
     c.livraison = c.livraison || 'colissimo';
     c.canal = c.canal || 'web';
     if (!c.facture && !['attente', 'annulee'].includes(c.statut)) c.facture = numeroFactureSuivant(e, c.date);
+    // Facture déjà émise sans taux enregistré : figé une fois pour toutes (un changement de régime ne la réécrit plus).
+    if (c.facture && typeof c.tauxTva !== 'number') c.tauxTva = (e.entreprise && e.entreprise.regime === 'ch-assujetti') ? 0.081 : (e.entreprise && e.entreprise.regime === 'normal') ? (DROIT_PAYS[e.boutique.pays] || DROIT_PAYS.fr).tva : 0;
     n++;
   }
   return e;
 }
-function numeroFactureSuivant(e, date) {
+function numeroFactureSuivant(e, date, prefixe = 'FA') {
   e.compteurFacture = (e.compteurFacture || 0) + 1;
-  return `FA-${new Date(date).getFullYear()}-${String(e.compteurFacture).padStart(4, '0')}`;
+  return `${prefixe}-${new Date(date).getFullYear()}-${String(e.compteurFacture).padStart(4, '0')}`;
 }
 
 function dansJours(date) {
@@ -403,7 +405,7 @@ const SOURCES = [
 /* Règles légales et fiscales par pays de l'entreprise (hors Suisse, gérée à part). */
 const DROIT_PAYS = {
   fr: { id: 'SIRET', idCourt: 'SIRET', idExemple: '123 456 789 00012', tva: 0.2, tvaTexte: '20 %', franchise: 'TVA non applicable, art. 293 B du CGI', franchiseNom: 'Franchise en base', formes: ['Micro-entreprise', 'EI', 'EURL', 'SASU', 'SARL', 'SAS'], tvaExemple: 'FR12345678901', recouvrement: true, retractation: 'art. L221-18 du Code de la consommation' },
-  be: { id: 'Numéro d’entreprise (BCE)', idCourt: 'BCE', idExemple: '0123.456.789', tva: 0.21, tvaTexte: '21 %', franchise: 'Régime de la franchise des petites entreprises : TVA non applicable', franchiseNom: 'Franchise des petites entreprises', formes: ['Personne physique', 'SRL', 'SA', 'SC'], tvaExemple: 'BE0123456789', recouvrement: false, retractation: 'art. VI.47 du Code de droit économique' }
+  be: { id: 'Numéro d’entreprise (BCE)', idCourt: 'BCE', idExemple: '0123.456.789', tva: 0.21, tvaTexte: '21 %', franchise: 'Régime particulier de franchise des petites entreprises', franchiseNom: 'Franchise des petites entreprises', formes: ['Personne physique', 'SRL', 'SA', 'SC'], tvaExemple: 'BE0123456789', recouvrement: false, retractation: 'art. VI.47 du Code de droit économique' }
 };
 /* Mention de prix selon le régime de TVA : « TTC » n'a de sens que si l'entreprise facture la TVA. */
 function mentionTva(regime, pays) {

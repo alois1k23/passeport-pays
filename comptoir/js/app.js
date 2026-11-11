@@ -429,11 +429,23 @@ function bonsPreparation(ids) {
 }
 
 function filtresCmdActifs() { return !!(ui.recherche || ui.filtre !== 'tous' || (ui.periodeCmd && ui.periodeCmd !== 'tout') || (ui.canalCmd && ui.canalCmd !== 'tous')); }
+/* Valeurs CSV lisibles par un Excel en français : virgule décimale, dates locales, texte entre guillemets. */
+function csvMontant(n) { return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2).replace('.', ','); }
+function csvDate(t) { if (!t) return ''; const d = new Date(t), z = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; }
+function csvTexte(v) { return `"${String(v ?? '').replace(/"/g, '""')}"`; }
+/* Export pour la fiduciaire : une ligne par facture, et une ligne négative par avoir. */
 function exporterCommandesCsv(liste) {
-  const champs = ['numero', 'date', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total', 'facture', 'suivi'];
-  const lignes = liste.map(c => [c.numero, new Date(c.date).toISOString(), STATUTS[c.statut] ? STATUTS[c.statut].nom : c.statut, c.client.nom, c.client.email, c.client.ville, c.canal, c.livraison, c.lignes.map(l => `${l.qte}× ${l.nom}`).join(' | '), c.remise || 0, c.port || 0, c.total, c.facture || '', c.suivi || '']
-    .map(v => typeof v === 'number' ? v.toFixed(2) : `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'));
-  telechargerTexte(`comptoir-commandes-${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + champs.join(';') + '\n' + lignes.join('\n'), 'text/csv;charset=utf-8', `${liste.length} commande${liste.length > 1 ? 's' : ''} exportée${liste.length > 1 ? 's' : ''}.`);
+  const champs = ['document', 'date_document', 'commande', 'date_commande', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total_ht', 'tva', 'total_ttc', 'detail_tva', 'moyen', 'suivi'];
+  const lignes = [];
+  for (const c of [...liste].sort((a, b) => a.date - b.date)) {
+    const t = tva(c);
+    const base = (signe, doc, date) => [csvTexte(doc), csvTexte(csvDate(date)), String(c.numero), csvTexte(csvDate(c.date)), csvTexte(STATUTS[c.statut] ? STATUTS[c.statut].nom : c.statut), csvTexte(c.client.nom), csvTexte(c.client.email), csvTexte(c.client.ville), csvTexte(c.canal), csvTexte(c.livraison),
+      csvTexte(c.lignes.map(l => `${l.qte}× ${l.nom}`).join(' | ')), csvMontant(signe * (c.remise || 0)), csvMontant(signe * (c.port || 0)), csvMontant(signe * t.ht), csvMontant(signe * t.tva), csvMontant(signe * t.ttc),
+      csvTexte(t.parTaux.map(x => `${pctTva(x.taux)} : ${csvMontant(signe * x.tva)}`).join(' | ')), csvTexte(c.moyen || ''), csvTexte(c.suivi || '')].join(';');
+    lignes.push(base(1, c.facture || '', c.dateFacture || c.date));
+    if (c.avoir) lignes.push(base(-1, c.avoir.numero, c.avoir.date));
+  }
+  telechargerTexte(`comptoir-commandes-${new Date().toISOString().slice(0, 10)}.csv`, '\ufeff' + champs.join(';') + '\n' + lignes.join('\n'), 'text/csv;charset=utf-8', `${liste.length} commande${liste.length > 1 ? 's' : ''} exportée${liste.length > 1 ? 's' : ''}.`);
 }
 function telechargerTexte(nom, contenu, type, message) {
   try {
@@ -473,7 +485,7 @@ function detailCommande(c) {
       <tr class="total"><td></td><td>Total</td><td class="num">${euros(c.total)}</td></tr></tbody></table>
     </div>
     ${c.suivi ? `<div class="bloc"><h3>Suivi ${esc(TOUTES_LIVRAISONS[c.livraison].transporteur || '')}</h3><p class="mono">${esc(c.suivi)}</p></div>` : ''}
-    <div class="rangee">${c.facture ? `<button class="btn petit fantome" data-action="facture" data-id="${c.id}">Facture ${c.facture}</button>` : ''}${c.suivi && !estDropship(c) && TOUTES_LIVRAISONS[c.livraison].transporteur ? `<button class="btn petit fantome" data-action="etiquette" data-id="${c.id}">Étiquette d’envoi</button>` : ''}</div>
+    <div class="rangee">${c.facture ? `<button class="btn petit fantome" data-action="facture" data-id="${c.id}">Facture ${c.facture}</button>` : ''}${c.avoir ? `<button class="btn petit fantome" data-action="avoir" data-id="${c.id}">Avoir ${c.avoir.numero}</button>` : ''}${c.suivi && !estDropship(c) && TOUTES_LIVRAISONS[c.livraison].transporteur ? `<button class="btn petit fantome" data-action="etiquette" data-id="${c.id}">Étiquette d’envoi</button>` : ''}</div>
     <div class="bloc actions">${fluxPour(c).map(([s, nom], i) => `<button class="btn ${i ? 'fantome' : ''} ${s === 'annulee' || s === 'remboursee' ? 'danger' : ''}" data-action="statut" data-id="${c.id}" data-statut="${s}">${nom}</button>`).join('') || '<p class="sous">Aucune action possible : commande clôturée.</p>'}</div>
     <div class="bloc"><h3>Historique</h3><ol class="frise">${[...c.historique].reverse().map(h => `<li><span>${esc(h.texte)}</span><time>${dateHeure(h.date)}</time></li>`).join('')}</ol></div>
     <div class="bloc"><label for="note-${c.id}"><h3>Note interne</h3></label><textarea id="note-${c.id}" rows="2" data-champ="note" data-id="${c.id}" placeholder="Visible uniquement par vous">${esc(c.note)}</textarea></div>
@@ -486,7 +498,8 @@ function changerStatut(id, statut, { silencieux = false } = {}) {
   c.statut = statut;
   if (statut === 'fournisseur') { transmettre(c, false); sauver(); rendre(); return; }
   if (statut === 'expediee' && !c.suivi) c.suivi = TOUTES_LIVRAISONS[c.livraison].transporteur === 'La Poste' ? '99.60.' + Math.floor(100000 + Math.random() * 899999) + '.' + Math.floor(1e7 + Math.random() * 9e7) : ({ relais: 'MR', chronopost: 'XY' }[c.livraison] || '6A') + Math.floor(1e10 + Math.random() * 9e10);
-  if (statut === 'payee' && !c.facture) c.facture = numeroFactureSuivant(etat, Date.now());
+  if (statut === 'payee' && !c.facture) { c.facture = numeroFactureSuivant(etat, Date.now()); c.dateFacture = Date.now(); }
+  if (statut === 'remboursee' && c.facture && !c.avoir) c.avoir = { numero: numeroFactureSuivant(etat, Date.now(), 'AV'), date: Date.now(), montant: c.total };
   if (statut === 'remboursee' || statut === 'annulee') {
     for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); if (p) p.stock += l.qte; }
   }
@@ -553,6 +566,7 @@ function vueProduits() {
       <div id="verdict-ref">${verdictPrixBarre(p)}</div>
       <label class="champ"><span>Catégorie</span><select id="pf-cat" name="categorie">${[...new Set([p.categorie, ...cats])].map(c => `<option ${c === p.categorie ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="case"><input id="pf-actif" type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Visible dans la boutique</label>
+      <label class="case"><input id="pf-taux" type="checkbox" name="tauxReduit" ${p.tauxReduit ? 'checked' : ''}> TVA à taux réduit (denrées alimentaires : ${estSuisse() ? '2,6 %' : etat.boutique.pays === 'be' ? '6 %' : '5,5 %'})</label>
       <div class="rangee"><button class="btn">Enregistrer</button>${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome" data-action="dupliquer-produit" data-id="${p.id}">Dupliquer</button>` : ''}${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome danger" data-action="supprimer-produit" data-id="${p.id}">Supprimer</button>` : ''}</div>
     </form></aside>` : ''}
   </div>`;
@@ -1143,7 +1157,7 @@ document.addEventListener('submit', e => {
   const f = e.target;
   if (f.dataset.form === 'produit') {
     const d = new FormData(f);
-    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined };
+    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined, tauxReduit: d.get('tauxReduit') === 'on' };
     p.historiquePrix = PrixBarres.noterPrix(ui.produitEdite.historiquePrix, p.prix);
     const i = etat.produits.findIndex(x => x.id === p.id);
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);

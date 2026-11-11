@@ -184,7 +184,7 @@ function texteLegal(type) {
     <p><strong>Garantie.</strong> ${ch ? 'Garantie de 2 ans pour les défauts (art. 197 ss CO).' : 'Garantie légale de conformité de 2 ans et garantie des vices cachés.'}</p>
     ${!ch && e.mediateur ? `<p><strong>Médiation.</strong> En cas de litige, vous pouvez recourir gratuitement au médiateur de la consommation : ${esc(e.mediateur)}.</p>` : ''}`;
   return `<h2>${ch ? 'Impressum et protection des données' : 'Mentions légales'}</h2>
-    <p><strong>Exploitant.</strong> ${[e.raison || b.nom, e.forme, e.siret ? `${ch ? 'IDE' : droitPays(b.pays).idCourt} ${e.siret}` : '', e.adresse].filter(Boolean).map(esc).join(', ')}.${e.email ? ` Contact : ${esc(e.email)}.` : ''}</p>
+    <p><strong>Exploitant.</strong> ${[e.raison || b.nom, e.forme, e.siret ? `${ch ? 'IDE' : droitPays(b.pays).idCourt} ${e.siret}` : '', e.adresse].filter(Boolean).map(esc).join(', ')}.${e.email ? ` Contact : ${esc(e.email)}${e.telephone ? `, ${esc(e.telephone)}` : ''}.` : ''}</p>
     ${e.tvaIntra ? `<p><strong>TVA.</strong> ${esc(e.tvaIntra)}</p>` : ''}
     ${!ch && e.mediateur ? `<p><strong>Médiateur de la consommation.</strong> ${esc(e.mediateur)}</p>` : ''}
     <p><strong>Hébergement.</strong> ${donnees.hebergeur ? esc(donnees.hebergeur) : 'Plateforme Comptoir'}.</p>

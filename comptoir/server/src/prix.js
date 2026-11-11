@@ -42,6 +42,19 @@ function fraisPort(mode, sousTotal, seuil = SEUIL_PORT_OFFERT) {
 
 const arrondi = n => Math.round(n * 100) / 100;
 
+/* Taux réduit (denrées alimentaires) : Suisse 2,6 %, France 5,5 %, Belgique 6 %. 0 sans assujettissement. */
+function tauxReduit(config) {
+  const r = config.entreprise && config.entreprise.regime;
+  const pays = config.boutique && config.boutique.pays;
+  return r === 'ch-assujetti' ? 0.026 : r === 'normal' ? (pays === 'be' ? 0.06 : 0.055) : 0;
+}
+/* Taux figé sur chaque ligne au moment de la vente (une facture peut mêler deux taux). */
+function figerTaux(c, config) {
+  const normal = tauxTva(config), reduit = tauxReduit(config);
+  c.tauxTva = normal;
+  for (const l of c.lignes) l.tauxTva = l.tauxReduit ? reduit : normal;
+  return c;
+}
 function tauxTva(config) {
   const r = config.entreprise && config.entreprise.regime;
   const pays = config.boutique && config.boutique.pays;
@@ -61,7 +74,7 @@ function construireLignes(produits, demandes) {
     if (p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');
     const offre = typeof d.offre === 'string' ? d.offre.slice(0, 20) : undefined;
     const ex = !offre && lignes.find(l => l.produitId === p.id && !l.offre);
-    if (ex) ex.qte += qte; else lignes.push({ produitId: p.id, nom: p.nom, prix: Math.round(p.prix * 100) / 100, qte, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null, ...(offre ? { offre } : {}) });
+    if (ex) ex.qte += qte; else lignes.push({ tauxReduit: !!p.tauxReduit, produitId: p.id, nom: p.nom, prix: Math.round(p.prix * 100) / 100, qte, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null, ...(offre ? { offre } : {}) });
   }
   // Contrôle sur la quantité totale par produit (plusieurs lignes du même produit, offres comprises).
   const totaux = {};
@@ -74,4 +87,4 @@ function construireLignes(produits, demandes) {
   return lignes;
 }
 
-module.exports = { LIVRAISONS, modesLivraison, fraisPort, tauxTva, construireLignes, arrondi, SEUIL_PORT_OFFERT };
+module.exports = { LIVRAISONS, modesLivraison, fraisPort, tauxTva, tauxReduit, figerTaux, construireLignes, arrondi, SEUIL_PORT_OFFERT };
