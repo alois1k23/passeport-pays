@@ -759,3 +759,16 @@ test('e-mail de confirmation français : récapitulatif juste avec remise, rétr
   assert.match(mail.corps, /Formulaire de rétractation/);
   assert.match(mail.corps, /Atelier Lyon, 3 rue de la Paix/);
 });
+
+test('effacement : « _ » et « % » dans une adresse ne touchent pas les autres clients', async () => {
+  const m = client();
+  const ins = await m('POST', '/api/auth/inscription', { email: 'jokers@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Jokers', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Jokers', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
+  const bid = db.prepare('SELECT id FROM boutiques WHERE slug = ?').get(ins.json.slug).id;
+  const a = client(), pub = await a('GET', `/api/public/${ins.json.slug}`);
+  const cmd = await a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'A B', email: 'a_b@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } });
+  await m('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'annulee' });
+  for (const cle of ['bienvenue:a_b@x.ch', 'bienvenue:axb@x.ch', 'bienvenue:a_b@x.ch.fr', 'reconquete:axb@x.ch:c_1']) db.prepare('INSERT OR IGNORE INTO envois_auto (boutique_id, cle, date) VALUES (?, ?, ?)').run(bid, cle, Date.now());
+  assert.equal((await m('POST', '/api/admin/clients/effacer', { email: 'a_b@x.ch' })).statut, 200);
+  const restants = db.prepare('SELECT cle FROM envois_auto WHERE boutique_id = ? ORDER BY cle').all(bid).map(r => r.cle);
+  assert.deepEqual(restants, ['bienvenue:a_b@x.ch.fr', 'bienvenue:axb@x.ch', 'reconquete:axb@x.ch:c_1']);
+});

@@ -103,6 +103,12 @@ function renduSection(s, etat, mode) {
       </section>`;
     }
     case 'saison': {
+      // Bannière d'une campagne hors de sa période : invisible en ligne (une remise ne s'annonce pas avant que son code marche).
+      const per = p.code && typeof Remises !== 'undefined' && Remises.periodeCampagne ? Remises.periodeCampagne(etat, p.code) : null;
+      if (per && (per.avant || per.apres)) {
+        if (mode !== 'edition') return '';
+        return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${per.avant ? `Programmée : visible à partir du ${new Date(per.debut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}.` : 'Campagne terminée : cette bannière n’est plus affichée.'}</span></div></section>`;
+      }
       // Côté admin, on vérifie que le code existe vraiment (Conversion ou campagne) ; côté public, le serveur a déjà retiré les codes inconnus.
       const connu = !p.code || typeof etat.campagnes === 'undefined' || typeof Remises === 'undefined' || Remises.codesValables(etat).some(c => c.code === String(p.code).toUpperCase());
       const code = p.code && connu ? `<code>${esc(p.code)}</code>` : p.code && mode === 'edition' ? `<code class="sf-code-inconnu" title="Ce code n’existe pas : créez-le dans Conversion, sinon il n’est pas affiché aux clients">${esc(p.code)} · inconnu</code>` : '';

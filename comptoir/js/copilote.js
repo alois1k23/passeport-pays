@@ -138,7 +138,7 @@ function genererCampagne(etat, evt) {
   const lancement = ['soldes-hiver', 'soldes-ete', 'black-friday'].includes(evt.id) ? evt.date : evt.debut;
 
   return {
-    evt, vedettes, ruptures, caPrevu, code, offre, dateLimite, delaiLong, lancement, finCampagne,
+    evt, vedettes, ruptures, caPrevu, code, offre, dateLimite, delaiMax, delaiLong, lancement, finCampagne,
     banniere: { titre: evt.nom, texte: `${evt.angle}. ${offre}.` },
     email: {
       objet: evt.remise ? `${evt.nom} : -${evt.remise} % chez ${b.nom}` : `${evt.nom} : nos idées cadeaux`,

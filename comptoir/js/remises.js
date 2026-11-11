@@ -27,6 +27,13 @@
   }
 
   /* Tous les codes valables : manuels, campagnes du copilote validées, e-mails automatiques. */
+  /* Campagne liée à un code et hors de sa période (pas encore lancée, ou terminée) : sa bannière ne doit pas s'afficher. */
+  function periodeCampagne(config, code, maintenant) {
+    const t = maintenant || Date.now();
+    const c = Object.values((config && config.campagnes) || {}).find(x => x && x.code && String(x.code).toUpperCase() === String(code || '').toUpperCase());
+    if (!c) return null;
+    return { debut: c.debut || null, expire: c.expire || null, avant: !!(c.debut && c.debut > t), apres: !!(c.expire && c.expire <= t) };
+  }
   function codesValables(config, maintenant) {
     const t = maintenant || Date.now();
     const o = offresDe(config);
@@ -87,7 +94,7 @@
     };
   }
 
-  const api = { OFFRES_DEFAUT, offresDe, codesValables, appliquer, regleApplicable };
+  const api = { OFFRES_DEFAUT, offresDe, codesValables, periodeCampagne, appliquer, regleApplicable };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else racine.Remises = api;
 })(typeof window !== 'undefined' ? window : globalThis);

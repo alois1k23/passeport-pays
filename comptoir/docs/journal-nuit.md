@@ -546,3 +546,32 @@ Les simulateurs dataient d'avant l'abonnement obligatoire et l'adresse exigée d
   - 60 acheteurs : 46 commandes payées, 10 paniers abandonnés, 4 paiements annulés ;
   - aucune anomalie.
 - Contrôles complémentaires : audit d'accessibilité propre (clair et sombre) ; page d'accueil sans débordement à 360 px ; liens Impressum, Protection des données et Conditions en 200.
+
+### Cycle 30 — Relecture des modifications de la nuit : 14 régressions corrigées
+
+Une relecture indépendante de tout ce qui a été modifié depuis minuit a trouvé 14 défauts introduits par les corrections elles-mêmes. Tous sont corrigés.
+
+**Graves**
+
+1. **Bannière de remise affichée avant que son code fonctionne** : en validant le Black Friday le 11 novembre, la boutique annonçait aussitôt « −20 % », sans code valable avant le 27. Pour des soldes françaises, c'était une annonce hors période légale. La bannière d'une campagne reste invisible avant son lancement et après sa fin, côté navigateur comme côté serveur. L'éditeur affiche « Programmée : visible à partir du 27 novembre » au lieu de « code inconnu ».
+2. **Effacement des données d'un client qui touchait d'autres clients** : les caractères « _ » et « % » d'une adresse e-mail servaient de jokers dans la recherche. Effacer a_b@x.ch effaçait aussi la trace de axb@x.ch, qui recevait alors un second e-mail de bienvenue. La comparaison est désormais exacte (test ajouté).
+
+**Moyens**
+
+3. Focus clavier perdu après « Ajouter au panier » depuis une fiche produit.
+4. « Effacer ses données » impossible à confirmer au clavier (le bouton perdait le focus).
+5. **Entonnoir « mesure réelle » faux** : les visiteurs étaient comptés seulement avec leur accord, mais les commandes payées l'étaient toutes, ce qui donnait des taux d'abandon négatifs. La commande payée est mesurée dans la même session, et le texte précise la population mesurée.
+6. Copilote : il annonçait « vos fournisseurs livrent en 7 jours au plus », alors que la date limite affichée venait d'un produit livré en 18 jours. Le délai affiché est celui du calcul.
+7. **Export comptable** : des commandes en attente ou annulées y figuraient en recettes, et les remboursements antérieurs aux avoirs n'avaient pas de ligne négative. L'export ne contient que des factures et des avoirs ; les anciens remboursements reçoivent leur avoir, numéroté dans la même suite.
+
+**Mineurs**
+
+8. Fiche marge d'un produit à taux réduit : « TVA 8,1 % » affiché pour un calcul à 2,6 %.
+9. Code de bienvenue : il était accepté dans le panier puis refusé au paiement pour un client ayant déjà commandé. La condition « valable sur une première commande » s'affiche dès la saisie.
+10. Effacement des données possible alors qu'une commande attendait encore son retrait en magasin.
+11. Conformité : le texte parlait encore de mesure d'audience « par défaut », alors qu'elle n'a lieu qu'après accord.
+12. Domaines : prix de la première année présenté comme prix annuel (.shop à 2,99 puis 34,99 par an). Les deux prix sont affichés.
+13. Échap dans l'administration fermait d'abord une fiche produit invisible.
+14. Canada : devise EUR dans le navigateur contre CAD sur le serveur ; alignée sur CAD.
+
+Tests : 48.

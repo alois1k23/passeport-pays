@@ -379,6 +379,8 @@ function completerEtat(e) {
     c.canal = c.canal || 'web';
     if (!c.facture && !['attente', 'annulee'].includes(c.statut)) c.facture = numeroFactureSuivant(e, c.date);
     // Facture déjà émise sans taux enregistré : figé une fois pour toutes (un changement de régime ne la réécrit plus).
+    // Remboursement antérieur aux avoirs : l'avoir est émis maintenant, une fois, dans la même suite de numéros.
+    if (c.facture && c.statut === 'remboursee' && !c.avoir) { const d = (c.historique || []).slice().reverse().find(h => /rembours/i.test(h.texte)); const quand = d ? d.date : c.date; c.avoir = { numero: numeroFactureSuivant(e, quand, 'AV'), date: quand, montant: c.total }; }
     if (c.facture && typeof c.tauxTva !== 'number') c.tauxTva = (e.entreprise && e.entreprise.regime === 'ch-assujetti') ? 0.081 : (e.entreprise && e.entreprise.regime === 'normal') ? (DROIT_PAYS[e.boutique.pays] || DROIT_PAYS.fr).tva : 0;
     n++;
   }

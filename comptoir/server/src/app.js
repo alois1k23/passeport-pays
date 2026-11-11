@@ -742,7 +742,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/clients/effacer', exigerMarchand, ctx => {
     const email = valider.email(ctx.corps.email).toLowerCase();
     const commandes = commandesDuClient(ctx.boutique.id, email);
-    const ouvertes = commandes.filter(c => ['attente', 'payee', 'preparation', 'fournisseur'].includes(c.statut));
+    const ouvertes = commandes.filter(c => ['attente', 'payee', 'preparation', 'fournisseur', 'prete'].includes(c.statut));
     if (ouvertes.length) throw erreur(409, `Commande n° ${ouvertes[0].numero} encore en cours : effacez les données une fois qu’elle est expédiée ou annulée (l’adresse sert à la livraison).`, 'commande_en_cours');
     transaction(db, () => {
       for (const c of commandes) {
@@ -753,7 +753,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       }
       db.prepare('DELETE FROM abonnes WHERE boutique_id = ? AND email = ?').run(ctx.boutique.id, email);
       db.prepare("DELETE FROM emails WHERE boutique_id = ? AND lower(destinataire) = ?").run(ctx.boutique.id, email);
-      db.prepare("DELETE FROM envois_auto WHERE boutique_id = ? AND lower(cle) LIKE ?").run(ctx.boutique.id, `%:${email}%`);
+      // Clés exactes (« bienvenue:<email> », « reconquete:<email>:<commande> ») : pas de LIKE, dont « _ » et « % » sont des jokers.
+      for (const { cle } of db.prepare('SELECT cle FROM envois_auto WHERE boutique_id = ?').all(ctx.boutique.id)) {
+        const parts = String(cle).split(':');
+        if (parts.length >= 2 && parts[1].toLowerCase() === email) db.prepare('DELETE FROM envois_auto WHERE boutique_id = ? AND cle = ?').run(ctx.boutique.id, cle);
+      }
     });
     // La liste de désinscription garde l'adresse : elle sert justement à ne plus lui écrire.
     return { ok: true, commandes: commandes.length };
@@ -774,10 +778,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Un code promo affiché dans la bannière doit exister au paiement ; un contact d'exemple est remplacé par l'e-mail de l'entreprise.
     const codesOk = new Set(Remises.codesValables(config).map(c => c.code.toUpperCase()));
     const sectionsPubliques = (config.boutique.sections || []).map(s => {
+      if (s.type === 'saison' && s.props && s.props.code) { const per = Remises.periodeCampagne(config, s.props.code); if (per && (per.avant || per.apres)) return null; }   // campagne pas encore lancée ou terminée
       if (s.type === 'saison' && s.props && s.props.code && !codesOk.has(String(s.props.code).toUpperCase())) return { ...s, props: { ...s.props, code: '' } };
       if (s.type === 'pied' && s.props && (!s.props.contact || /@exemple\./i.test(s.props.contact))) return { ...s, props: { ...s.props, contact: config.entreprise.email || '' } };
       return s;
-    });
+    }).filter(Boolean);
     return {
       boutique: { ...config.boutique, sections: sectionsPubliques },
       magasin: { clickCollect: !!config.magasin.clickCollect, adresse: config.magasin.adresse || '' },
@@ -926,7 +931,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
 
   /* Mesure d’audience sans cookie : identifiant de session aléatoire (onglet), aucune adresse IP enregistrée. */
-  const TYPES_EVENEMENTS = ['vue', 'produit', 'panier', 'livraison', 'paiement', 'offre_vue'];
+  const TYPES_EVENEMENTS = ['vue', 'produit', 'panier', 'livraison', 'paiement', 'payee', 'offre_vue'];
   r.post('/api/public/:slug/evenement', ctx => {
     auth.limiter('evenement:' + ctx.ip, 1500 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
@@ -943,7 +948,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const saisi = String(ctx.corps.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const c = Remises.codesValables(lireConfig(b)).find(x => x.code === saisi);
     if (!c) throw erreur(404, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
-    return { code: c.code, remise: c.remise };
+    // Le code de bienvenue ne vaut que pour une première commande : on le dit dès sa saisie (contrôlé au paiement avec l'e-mail).
+    const bv = ((lireConfig(b).automatisations || {}).bienvenue || {});
+    return { code: c.code, remise: c.remise, ...(bv.code && String(bv.code).toUpperCase() === c.code ? { condition: 'Valable sur une première commande.' } : {}) };
   });
   r.post('/api/public/:slug/newsletter', ctx => {
     auth.limiter('newsletter:' + ctx.ip, 20 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');

@@ -95,6 +95,7 @@ function rendre() {
   // Boutons et choix (+, −, livraison, Appliquer…) : retrouvés après le rendu par leurs attributs, pour garder le focus clavier.
   const cleFocus = ae && ae !== document.body && !actif ? ['data-c', 'data-sf', 'data-id', 'data-d', 'name', 'value'].filter(k => ae.hasAttribute(k) && (k !== 'value' || ae.type === 'radio')).map(k => `[${k}="${CSS.escape(ae.getAttribute(k))}"]`).join('') : '';
   const dansTiroir = !!(ae && ae.closest && ae.closest('.tiroir-corps'));
+  const idFocus = ae && ae !== document.body && ae.id ? ae.id : '';
   const etaitOuvert = !!document.querySelector('.tiroir.ouvert');
   const defil = document.querySelector('.tiroir-corps')?.scrollTop || 0;
   rendreBrut();
@@ -111,8 +112,8 @@ function rendre() {
     document.querySelector('#modal .modal-x')?.focus({ preventScroll: true });
   } else if (vue.ouvert && !etaitOuvert) {
     document.querySelector('.tiroir-corps h2')?.focus({ preventScroll: true });   // à l'ouverture, le lecteur d'écran annonce le panier
-  } else if (cleFocus) {
-    const el = document.querySelector(cleFocus + ':not([disabled])');
+  } else if (cleFocus || idFocus) {
+    const el = (cleFocus && document.querySelector(cleFocus + ':not([disabled])')) || (idFocus && document.getElementById(idFocus));
     if (el) el.focus({ preventScroll: true });
     else if (dansTiroir && vue.ouvert) document.querySelector('.tiroir-corps h2')?.focus({ preventScroll: true });
   }
@@ -240,6 +241,7 @@ async function suivreCommande(id, jeton, annule) {
         ${c.offreApres ? `<div class="offre-apres">${visuelProduit({ nom: c.offreApres.nom, teinte: c.offreApres.teinte, image: c.offreApres.image })}<div><small>Uniquement maintenant</small><strong>${esc(c.offreApres.nom)}</strong><span><s>${euros(c.offreApres.prix)}</s> <b>${euros(c.offreApres.prixOffre)}</b> (−${c.offreApres.remise} %), livré dans le même colis, sans frais de port.</span>
           <button class="sf-btn" data-c="complement" data-commande="${esc(id)}" data-jeton="${esc(jeton)}" data-regle="${esc(c.offreApres.regle)}">Ajouter à ma commande</button><button class="bouton-lien" data-c="refuser-offre">Non merci</button></div></div>` : ''}`;
       if (c.offreApres) mesurer('offre_vue', { valeur: c.offreApres.regle });
+      if (c.statut !== 'attente' && !['annulee'].includes(c.statut)) mesurer('payee');   // même session que les étapes précédentes (avec accord)
       rendre();
       if (['expediee', 'livree', 'retiree', 'annulee', 'remboursee'].includes(c.statut)) break;
     } catch { break; }
@@ -328,7 +330,7 @@ async function appliquerCode(code) {
     if (!rep.ok) throw new Error(json.erreur);
     vue.code = json;
     const calc = calculPanier();
-    vue.codeMessage = calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
+    vue.codeMessage = calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.${json.condition ? ' ' + json.condition : ''}` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
   } catch (e) { vue.code = null; vue.codeMessage = e.message || 'Code non reconnu.'; }
   rendre();
 }

@@ -302,14 +302,14 @@ function audienceReelle(d0, f0) {
   const a = (etat.audience || []).filter(x => { const t = new Date(x.jour + 'T12:00:00').getTime(); return t >= d0 && t < f0; });
   if (!a.length) return null;
   const n = type => a.filter(x => x.type === type).reduce((s, x) => s + x.n, 0);
-  return { vue: n('vue'), panier: n('panier'), livraison: n('livraison'), paiement: n('paiement') };
+  return { vue: n('vue'), panier: n('panier'), livraison: n('livraison'), paiement: n('paiement'), payee: n('payee') };
 }
 function blocEntonnoir(d0, f0, cur, visites) {
   const r = audienceReelle(d0, f0);
   const etapes = r
-    ? [{ nom: 'Visites', v: r.vue }, { nom: 'Ajout au panier', v: r.panier }, { nom: 'Saisie de la livraison', v: r.livraison }, { nom: 'Paiement commencé', v: r.paiement }, { nom: 'Commande payée', v: cur.n }]
+    ? [{ nom: 'Visites', v: r.vue }, { nom: 'Ajout au panier', v: r.panier }, { nom: 'Saisie de la livraison', v: r.livraison }, { nom: 'Paiement commencé', v: r.paiement }, { nom: 'Commande payée', v: r.payee }]
     : [{ nom: 'Visites', v: visites, estime: true }, { nom: 'Ajout au panier', v: visites * 0.072, estime: true }, { nom: 'Saisie de la livraison', v: visites * 0.045, estime: true }, { nom: 'Paiement commencé', v: Math.max(cur.n, visites * 0.031), estime: true }, { nom: 'Commande payée', v: cur.n }];
-  const pertes = etapes.slice(1).map((e, i) => ({ de: etapes[i].nom, vers: e.nom, perdus: Math.max(0, etapes[i].v - e.v), taux: etapes[i].v ? 1 - e.v / etapes[i].v : 0 }));
+  const pertes = etapes.slice(1).map((e, i) => ({ de: etapes[i].nom, vers: e.nom, perdus: Math.max(0, etapes[i].v - e.v), taux: etapes[i].v ? Math.max(0, 1 - e.v / etapes[i].v) : 0 }));
   const pire = pertes.slice(1).sort((a, b) => b.taux - a.taux)[0];
   const conseils = {
     'Saisie de la livraison': 'Beaucoup quittent le panier : affichez plus tôt le coût total et la date de livraison. Les frais imprévus sont la première cause d’abandon citée par les acheteurs (Baymard Institute).',
@@ -319,7 +319,7 @@ function blocEntonnoir(d0, f0, cur, visites) {
   return `${entonnoir(etapes)}
     <table class="table compacte abandons"><thead><tr><th>Abandon entre</th><th class="num">Perdus</th><th class="num">Taux</th></tr></thead><tbody>${pertes.map(p => `<tr><td>${esc(p.de)} → ${esc(p.vers)}</td><td class="num">${Math.round(p.perdus).toLocaleString('fr-FR')}</td><td class="num">${fmtPct(p.taux)}</td></tr>`).join('')}</tbody></table>
     ${r && pire && conseils[pire.vers] ? `<p class="encart"><b>Fuite principale : ${esc(pire.de.toLowerCase())} → ${esc(pire.vers.toLowerCase())}.</b> ${conseils[pire.vers]}</p>` : ''}
-    <p class="sous">${r ? 'Mesure réelle, sans cookie ni adresse IP : une session par onglet, comptée une fois par jour et par étape.' : 'Estimation : la mesure réelle démarre dès que la boutique est en ligne sur le serveur Comptoir (sans cookie). Seules les commandes sont réelles ici.'} Abandons par moyen de paiement : disponibles quand le prestataire de paiement est branché.</p>`;
+    <p class="sous">${r ? 'Mesure réelle, sans cookie ni adresse IP, sur les visiteurs qui ont accepté la mesure d’audience : une session par onglet, comptée une fois par jour et par étape (vos commandes totales sont dans les tuiles ci-dessus).' : 'Estimation : la mesure réelle démarre dès que la boutique est en ligne sur le serveur Comptoir (sans cookie). Seules les commandes sont réelles ici.'} Abandons par moyen de paiement : disponibles quand le prestataire de paiement est branché.</p>`;
 }
 
 /* ---------- Export CSV ---------- */

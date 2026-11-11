@@ -40,7 +40,7 @@ function vueCopilote() {
       <div class="bloc"><h3>Stock et délais face à la demande prévue</h3>
         ${camp.ruptures.length ? `<ul class="todo">${camp.ruptures.map(x => `<li class="alerte"><a href="#produits"><span class="todo-n">+${x.manque}</span><span class="todo-t">${esc(x.p.nom)} à commander : ${x.prevision} ventes prévues, ${x.p.stock} en stock</span><span class="todo-fl" aria-hidden="true">›</span></a></li>`).join('')}</ul>`
           : camp.caPrevu === null ? '<p class="sous">La demande sera prévue à partir de vos premières ventes.</p>' : '<p class="sous">Votre stock couvre la demande prévue.</p>'}
-        ${camp.dateLimite ? `<p class="encart">Dropshipping : vos fournisseurs livrent en ${Math.max(...camp.vedettes.filter(x => x.p.delai).map(x => x.p.delai[1]))} jours au plus. Date limite de commande affichée aux clients : <strong>${camp.dateLimite.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</strong>.</p>` : ''}
+        ${camp.dateLimite ? `<p class="encart">Dropshipping : vos fournisseurs livrent en ${camp.delaiMax} jours au plus. Date limite de commande affichée aux clients : <strong>${camp.dateLimite.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</strong>.</p>` : ''}
         ${camp.delaiLong.length ? `<p class="encart alerte-encart">${camp.delaiLong.map(p => esc(p.nom)).join(', ')} : livraison en plus de 10 jours. Retirez-le de la campagne ou passez à un fournisseur européen.</p>` : ''}
       </div>
       <div class="bloc"><h3>Planning</h3><ol class="frise">${camp.planning.map(p => `<li class="${p.passe ? 'passe' : ''}"><span>${esc(p.texte)}</span><time>${p.label}</time></li>`).join('')}</ol></div>
@@ -205,7 +205,7 @@ function vueConformite() {
   ] : [
     ['Mentions légales', !!(e.raison && e.siret && e.adresse && e.email && (etat.boutique.pays === 'be' || e.telephone)), 'Générées à partir de la fiche entreprise', `Renseignez la raison sociale, le ${droitPays().idCourt}, l’adresse, l’e-mail${etat.boutique.pays === 'be' ? '' : ' et le téléphone (obligatoire en France, loi pour la confiance dans l’économie numérique)'}`, 'mentions'],
     ['Conditions générales de vente', true, 'Générées et tenues à jour (livraison, retours, rétractation 14 jours)', '', 'cgv'],
-    ['Bandeau cookies (RGPD)', true, 'Accepter et Refuser au même niveau, mesure d’audience sans cookie par défaut', '', null],
+    ['Bandeau cookies (RGPD)', true, 'Accepter et Refuser au même niveau, mesure d’audience seulement après accord', '', null],
     ['Médiateur de la consommation', etat.boutique.pays === 'be' || !!e.mediateur, etat.boutique.pays === 'be' ? (e.mediateur ? 'Indiqué dans les CGV (facultatif en Belgique)' : 'Facultatif en Belgique : le Service de médiation pour le consommateur reste joignable par vos clients') : 'Indiqué dans les CGV', 'Obligatoire pour vendre aux particuliers en France : indiquez votre médiateur', null],
     ['TVA', e.regime === 'franchise' || !!(e.tvaIntra || '').trim(), e.regime === 'franchise' ? `${droitPays().franchiseNom}${etat.boutique.pays === 'be' ? ' (chiffre d’affaires annuel jusqu’à 25 000 €)' : ''} : « ${droitPays().franchise} » sur les factures` : `TVA détaillée par taux sur chaque facture (${droitPays().tvaTexte}, taux réduit pour les denrées alimentaires), avec votre numéro`, 'Indiquez votre numéro de TVA : obligatoire sur les factures d’une entreprise assujettie', null],
     etat.boutique.pays === 'be'

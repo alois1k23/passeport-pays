@@ -437,13 +437,15 @@ function csvTexte(v) { return `"${String(v ?? '').replace(/"/g, '""')}"`; }
 function exporterCommandesCsv(liste) {
   const champs = ['document', 'date_document', 'commande', 'date_commande', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total_ht', 'tva', 'total_ttc', 'detail_tva', 'moyen', 'suivi'];
   const lignes = [];
-  for (const c of [...liste].sort((a, b) => a.date - b.date)) {
+  // Seulement des documents comptables : commandes facturées (les commandes en attente ou annulées n'ont pas de facture).
+  for (const c of [...liste].filter(x => x.facture).sort((a, b) => (a.dateFacture || a.date) - (b.dateFacture || b.date))) {
     const t = tva(c);
     const base = (signe, doc, date) => [csvTexte(doc), csvTexte(csvDate(date)), String(c.numero), csvTexte(csvDate(c.date)), csvTexte(STATUTS[c.statut] ? STATUTS[c.statut].nom : c.statut), csvTexte(c.client.nom), csvTexte(c.client.email), csvTexte(c.client.ville), csvTexte(c.canal), csvTexte(c.livraison),
       csvTexte(c.lignes.map(l => `${l.qte}× ${l.nom}`).join(' | ')), csvMontant(signe * (c.remise || 0)), csvMontant(signe * (c.port || 0)), csvMontant(signe * t.ht), csvMontant(signe * t.tva), csvMontant(signe * t.ttc),
       csvTexte(t.parTaux.map(x => `${pctTva(x.taux)} : ${csvMontant(signe * x.tva)}`).join(' | ')), csvTexte(c.moyen || ''), csvTexte(c.suivi || '')].join(';');
     lignes.push(base(1, c.facture || '', c.dateFacture || c.date));
     if (c.avoir) lignes.push(base(-1, c.avoir.numero, c.avoir.date));
+    else if (c.statut === 'remboursee') lignes.push(base(-1, 'avoir à émettre', c.date));
   }
   telechargerTexte(`comptoir-commandes-${new Date().toISOString().slice(0, 10)}.csv`, '\ufeff' + champs.join(';') + '\n' + lignes.join('\n'), 'text/csv;charset=utf-8', `${liste.length} commande${liste.length > 1 ? 's' : ''} exportée${liste.length > 1 ? 's' : ''}.`);
 }
@@ -657,7 +659,7 @@ async function effacerClient(email) {
   const cle = email.toLowerCase();
   try {
     if (connecteAuServeur()) { await api('POST', '/api/admin/clients/effacer', { email }); location.reload(); return; }
-    const ouverte = etat.commandes.find(c => (c.client.email || '').toLowerCase() === cle && ['attente', 'payee', 'preparation', 'fournisseur'].includes(c.statut));
+    const ouverte = etat.commandes.find(c => (c.client.email || '').toLowerCase() === cle && ['attente', 'payee', 'preparation', 'fournisseur', 'prete'].includes(c.statut));
     if (ouverte) { toast(`Commande n° ${ouverte.numero} encore en cours : effacez les données une fois qu’elle est expédiée.`); rendre(); return; }
     for (const c of etat.commandes) if ((c.client.email || '').toLowerCase() === cle) { c.client = { nom: 'Client effacé', email: '', adresse: '', npa: '', ville: '', consentement: null }; (c.historique = c.historique || []).push({ date: Date.now(), texte: 'Données personnelles du client effacées à sa demande' }); }
     ui.client = null; sauver(); toast('Données du client effacées.'); rendre();
@@ -679,7 +681,7 @@ function ficheClient(c) {
     </div>
     <p class="sous">Client depuis le ${new Date(c.premiere).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}${delai ? ` · une commande tous les ${Math.round(delai)} jours en moyenne` : ''}.</p>
     ${c.email ? `<div class="bloc"><h3>Données personnelles</h3><p class="sous">À la demande du client (droit d’accès et d’effacement) : l’export contient ses commandes et ses avis ; l’effacement anonymise ses commandes, garde les montants pour la comptabilité et le retire de la newsletter.</p>
-      <div class="rangee"><button class="btn petit fantome" data-action="exporter-client" data-email="${esc(c.email)}">Exporter ses données</button><button class="btn petit fantome danger-doux" data-action="effacer-client" data-email="${esc(c.email)}">${ui.confirmerEffacer === c.email ? 'Confirmer l’effacement' : 'Effacer ses données'}</button></div></div>` : ''}
+      <div class="rangee"><button id="exp-client" class="btn petit fantome" data-action="exporter-client" data-email="${esc(c.email)}">Exporter ses données</button><button id="eff-client" class="btn petit fantome danger-doux" data-action="effacer-client" data-email="${esc(c.email)}">${ui.confirmerEffacer === c.email ? 'Confirmer l’effacement' : 'Effacer ses données'}</button></div></div>` : ''}
     <div class="bloc"><h3>Commandes</h3><table class="table compacte"><tbody>${[...c.commandes].sort((a, b) => b.date - a.date).map(o => `<tr data-action="ouvrir-commande" data-id="${o.id}" tabindex="0"><td class="mono">#${o.numero}</td><td class="sous">${dateCourte(o.date)}</td><td class="num">${euros(o.total)}</td><td>${pill(o.statut)}</td></tr>`).join('')}</tbody></table></div>
   </aside>`;
 }
@@ -787,7 +789,7 @@ function vueDomaines() {
       <td><span class="tag">${esc(r.genre)}</span></td>
       <td><div class="score"><div class="score-barre"><i style="width:${r.score}%"></i></div><b>${r.score}</b></div></td>
       <td>${connecteAuServeur() ? `<span class="pill muted" data-dispo="${esc(r.domaine)}">À vérifier</span> <button class="btn petit fantome" data-srv="dispo" data-d="${esc(r.domaine)}">Vérifier</button>` : r.disponible ? '<span class="pill good">Disponible</span>' : r.prime ? '<span class="pill warn">Premium</span>' : '<span class="pill muted">Déjà pris</span>'}</td>
-      <td class="num">${connecteAuServeur() ? `≈ ${euros(EXTENSIONS[r.ext] ? EXTENSIONS[r.ext].prix : r.prix)}<div class="sous">prix indicatif</div>` : r.disponible || r.prime ? euros(r.prix) + '<div class="sous">puis ' + euros(r.renouv) + '/an</div>' : '—'}</td>
+      <td class="num">${connecteAuServeur() ? `≈ ${euros(EXTENSIONS[r.ext] ? EXTENSIONS[r.ext].prix : r.prix)}<div class="sous">1re année, puis ≈ ${euros(EXTENSIONS[r.ext] ? EXTENSIONS[r.ext].renouv : r.renouv)}/an (indicatif)</div>` : r.disponible || r.prime ? euros(r.prix) + '<div class="sous">puis ' + euros(r.renouv) + '/an</div>' : '—'}</td>
       <td>${r.disponible || connecteAuServeur() ? `<button class="btn petit fantome" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">${b.domaine && b.domaine.domaine === r.domaine ? 'Choisi' : 'Choisir'}</button>` : ''}</td>
     </tr>`;
   const reco = (r, titre, texte) => r ? `<div class="reco"><span class="eyebrow">${titre}</span><div class="mono dom grand">${esc(r.domaine)}</div>
@@ -926,7 +928,7 @@ function vueAssistant() {
     if (!a.domaine && top[0]) a.domaine = top[0].domaine;
     corps = `<p class="sous">Classés selon la demande « ${esc(SECTEURS[a.secteur].nom)} » en ${MOIS_LONG[new Date().getMonth()]} et la facilité à retenir le nom.</p>
       <div class="choix-domaines">${top.map(r => `<label class="choix-dom ${a.domaine === r.domaine ? 'actif' : ''}"><input type="radio" name="as-dom" value="${esc(r.domaine)}" data-assistant="domaine" ${a.domaine === r.domaine ? 'checked' : ''}>
-        <span class="mono">${esc(r.domaine)}</span><b>${r.score}</b><span class="sous">${connecteAuServeur() ? `≈ ${euros(r.prix)} par an, à vérifier chez le registrar` : `${euros(r.prix)} la première année`}</span></label>`).join('')}
+        <span class="mono">${esc(r.domaine)}</span><b>${r.score}</b><span class="sous">${connecteAuServeur() ? `≈ ${euros(r.prix)} la 1re année, puis ≈ ${euros(r.renouv)}/an, à vérifier chez le registrar` : `${euros(r.prix)} la première année`}</span></label>`).join('')}
       <label class="choix-dom ${a.domaine === '' ? 'actif' : ''}"><input type="radio" name="as-dom" value="" data-assistant="domaine" ${a.domaine === '' ? 'checked' : ''}><span>Plus tard, garder l’adresse gratuite</span></label></div>`;
   }
   return `<div class="assistant carte">
@@ -1089,7 +1091,7 @@ document.addEventListener('click', e => {
 
 document.addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr[data-action], [data-section], [data-action][tabindex="0"]:not(button):not(a)')) { e.preventDefault(); e.target.click(); }
-  if (e.key === 'Escape' && !ui.modal && !e.defaultPrevented) { if (ui.panierOuvert) { ui.panierOuvert = false; rendre(); } else if (ui.fiche) { ui.fiche = null; rendre(); } else if (ui.commande) { ui.commande = null; rendre(); } }
+  if (e.key === 'Escape' && !ui.modal && !e.defaultPrevented) { if (ui.route === 'boutique' && ui.panierOuvert) { ui.panierOuvert = false; rendre(); } else if (ui.route === 'boutique' && ui.fiche) { ui.fiche = null; rendre(); } else if (ui.commande) { ui.commande = null; rendre(); } }
 });
 
 document.addEventListener('input', e => {
@@ -1143,7 +1145,7 @@ document.addEventListener('change', e => {
   if (t.dataset.champ === 'dom-marque') { ui.dom.marque = t.value; rendre(); }
   else if (t.dataset.champ === 'dom-kw') { ui.dom.motsCles = t.value; rendre(); }
   else if (t.dataset.champ === 'dom-mois') { ui.dom.mois = Number(t.value); rendre(); }
-  else if (t.dataset.boutiqueDom === 'pays') { etat.boutique.pays = t.value; etat.boutique.devise = t.value === 'ch' ? 'CHF' : 'EUR'; sauver(); rendre(); }
+  else if (t.dataset.boutiqueDom === 'pays') { etat.boutique.pays = t.value; etat.boutique.devise = t.value === 'ch' ? 'CHF' : t.value === 'ca' ? 'CAD' : 'EUR'; sauver(); rendre(); }
   else if (t.dataset.boutique === 'secteur') { rendre(); }
   else if (t.dataset.livraison !== undefined) { ui.livraison = t.value; rendreEnGardantSaisie(); }
   else if (t.dataset.assistant === 'exemples') ui.assistant.exemples = t.checked;
