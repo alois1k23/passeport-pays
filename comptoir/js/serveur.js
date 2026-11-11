@@ -35,6 +35,14 @@ async function initServeur() {
   const params = new URLSearchParams(location.search);
   const formuleUrl = params.get('formule');
   if (formuleUrl) { try { sessionStorage.setItem('comptoir-formule', formuleUrl); } catch { /* ignoré */ } }
+  // Retour de Stripe Checkout : le paiement est vérifié tout de suite (le webhook peut arriver quelques secondes plus tard).
+  if (SERVEUR.connecte && s.abonnement && !s.abonnement.actif && params.get('abonnement') === 'ok') {
+    for (let i = 0; i < 4 && !s.abonnement.actif; i++) {
+      try { s.abonnement = await api('POST', '/api/abonnement/verifier'); } catch { /* nouvel essai */ }
+      if (!s.abonnement.actif) await new Promise(ok => setTimeout(ok, 2000));
+    }
+    SERVEUR.abonnement = s.abonnement;
+  }
   if (SERVEUR.connecte && s.abonnement && !s.abonnement.actif) { installerAbonnement(s.abonnement, params.get('abonnement')); return; }
   if (SERVEUR.connecte) {
     await rechargerEtat(); installerModeConnecte();
@@ -213,7 +221,7 @@ function installerConnexion() {
 function installerAbonnement(etatAbo, retour) {
   modeHorsEspace();
   document.querySelector('.cote').hidden = true;
-  const e = { formules: [], devise: 'CHF', choisie: null, envoi: false, erreur: retour === 'annule' ? 'Le paiement a été annulé. Vous pouvez réessayer quand vous voulez.' : '' };
+  const e = { formules: [], devise: 'CHF', choisie: null, envoi: false, erreur: retour === 'annule' ? 'Le paiement a été annulé. Vous pouvez réessayer quand vous voulez.' : retour === 'ok' ? 'Votre paiement est en cours de confirmation par Stripe. Rechargez la page dans une minute : inutile de payer une seconde fois.' : '' };
   try { e.choisie = sessionStorage.getItem('comptoir-formule'); } catch { /* ignoré */ }
   const prix = (f) => e.devise === 'CHF' ? `CHF ${f.prix}.–` : `${f.prix} €`;
   rendre = function () {

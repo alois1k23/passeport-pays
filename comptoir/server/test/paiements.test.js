@@ -96,9 +96,10 @@ test('abonnement Stripe : changer de formule modifie la souscription (prorata) e
   const { creerGestion } = require('../src/abonnements');
   const db2 = ouvrir(':memory:');
   const appels = [];
+  let sub = { id: 'sub_1', status: 'active', customer: 'cus_1', current_period_end: Math.floor(Date.now() / 1000) + 86400 * 20, cancel_at_period_end: false, metadata: {}, items: { data: [{ id: 'si_1', price: { currency: 'chf', product: 'prod_1' } }] } };
   const fauxFetch = async (url, opts) => {
-    appels.push({ url, methode: opts.method, corps: opts.body ? new URLSearchParams(String(opts.body)) : null });
-    if (opts.method === 'GET') return { ok: true, json: async () => ({ id: 'sub_1', items: { data: [{ id: 'si_1', price: { currency: 'chf', product: 'prod_1' } }] } }) };
+    appels.push({ url, methode: opts.method, corps: opts.body ? new URLSearchParams(String(opts.body)) : null, version: (opts.headers || {})['Stripe-Version'] });
+    if (opts.method === 'GET') return { ok: true, json: async () => sub };
     if (/\/products$/.test(url)) return { ok: true, json: async () => ({ id: 'prod_pro' }) };
     return { ok: true, json: async () => ({ id: 'sub_1' }) };
   };
@@ -111,11 +112,31 @@ test('abonnement Stripe : changer de formule modifie la souscription (prorata) e
   assert.equal(maj.url, 'https://api.stripe.com/v1/subscriptions/sub_1');
   assert.equal(maj.corps.get('items[0][id]'), 'si_1');
   assert.equal(maj.corps.get('items[0][price_data][unit_amount]'), '11900');
-  assert.equal(maj.corps.get('proration_behavior'), 'create_prorations');
+  assert.equal(maj.corps.get('proration_behavior'), 'always_invoice', 'à la hausse : facturé tout de suite');
+  assert.equal(maj.version, '2024-06-20', 'version d’API figée');
   assert.equal(maj.corps.get('items[0][price_data][product]'), 'prod_pro');
   assert.equal(maj.corps.get('cancel_at_period_end'), 'false');
   assert.equal(g.etat('m1').formule, 'pro');
   // Changement fait dans le tableau de bord Stripe : le webhook remet les droits à jour
-  g.evenementStripe({ type: 'customer.subscription.updated', data: { object: { id: 'sub_1', metadata: { formule: 'croissance' }, cancel_at_period_end: false } } });
+  sub = { ...sub, metadata: { formule: 'croissance' } };
+  await g.evenementStripe({ type: 'customer.subscription.updated', data: { object: { id: 'sub_1' } } });
   assert.equal(g.etat('m1').formule, 'croissance');
+  // Facture au format récent (souscription sous parent.subscription_details), avec une ligne de prorata en premier :
+  // la fin de période vient de la souscription relue, pas de la première ligne.
+  const nouvelleFin = Math.floor(Date.now() / 1000) + 86400 * 31;
+  sub = { ...sub, current_period_end: nouvelleFin };
+  await g.evenementStripe({ type: 'invoice.paid', data: { object: { parent: { subscription_details: { subscription: 'sub_1' } }, lines: { data: [{ proration: true, period: { end: Math.floor(Date.now() / 1000) } }] } } } });
+  assert.equal(g.etat('m1').periodeFin, nouvelleFin * 1000);
+  // Paiement refusé : accès conservé pendant le délai de régularisation, e-mail une seule fois
+  sub = { ...sub, status: 'past_due', current_period_end: Math.floor(Date.now() / 1000) - 3600 };
+  const r1 = await g.evenementStripe({ type: 'invoice.payment_failed', data: { object: { subscription: 'sub_1' } } });
+  const r2 = await g.evenementStripe({ type: 'invoice.payment_failed', data: { object: { subscription: 'sub_1' } } });
+  assert.equal(r1.evenement, 'impaye'); assert.equal(r2, true);
+  assert.equal(g.etat('m1').actif, true);
+  // Résiliation : demandée à Stripe directement (fin à l'échéance), pas via le portail
+  sub = { ...sub, status: 'active', current_period_end: nouvelleFin };
+  await g.evenementStripe({ type: 'invoice.paid', data: { object: { subscription: 'sub_1' } } });
+  await g.resilier({ marchand: { id: 'm1' } });
+  assert.equal(appels.filter(a => a.methode === 'POST' && /subscriptions\/sub_1$/.test(a.url)).pop().corps.get('cancel_at_period_end'), 'true');
+  assert.equal(g.etat('m1').finDemandee, true);
 });

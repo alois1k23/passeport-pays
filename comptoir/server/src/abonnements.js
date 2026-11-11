@@ -10,6 +10,9 @@ const { erreur } = require('./http');
 const JOUR = 86400000;
 const PERIODE = 30 * JOUR;
 const GRACE = 3 * JOUR;           // délai de grâce après une échéance non payée
+const GRACE_IMPAYE = 7 * JOUR;    // paiement refusé : Stripe réessaie ; le marchand garde l'accès une semaine pour régulariser
+// Version d'API figée : la forme des objets ne change pas sous nos pieds (Stripe en publie plusieurs par an).
+const VERSION_STRIPE = '2024-06-20';
 // Définition partagée avec l'application et la page de tarifs (js/formules.js).
 const Formules = require('../../js/formules.js');
 const FORMULES = Formules.FORMULES;
@@ -36,7 +39,7 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   const appelerStripe = async (methode, chemin, params = []) => {
     const corps = new URLSearchParams();
     for (const [k, v] of params) corps.append(k, String(v));
-    const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, { method: methode, headers: { Authorization: `Bearer ${stripe}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: methode === 'GET' ? undefined : corps });
+    const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, { method: methode, headers: { Authorization: `Bearer ${stripe}`, 'Stripe-Version': VERSION_STRIPE, 'Content-Type': 'application/x-www-form-urlencoded' }, body: methode === 'GET' ? undefined : corps });
     const json = await rep.json();
     if (!rep.ok) throw erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe');
     return json;
@@ -58,7 +61,7 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   }
   function etat(marchandId, maintenant = Date.now()) {
     const a = actualiser(lire(marchandId), maintenant);
-    const actif = !!a && (a.statut === 'actif' || a.statut === 'impaye') && a.periode_fin && a.periode_fin + (a.statut === 'impaye' ? 0 : GRACE) > maintenant;
+    const actif = !!a && (a.statut === 'actif' || a.statut === 'impaye') && a.periode_fin && a.periode_fin + (a.statut === 'impaye' ? GRACE_IMPAYE : GRACE) > maintenant;
     return {
       obligatoire, prestataire: stripe ? 'stripe' : 'simulation', actif: !obligatoire || actif,
       formule: a ? a.formule : null, statut: a ? a.statut : 'aucun', devise: a ? a.devise : null,
@@ -77,6 +80,12 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
     if (a && a.statut === 'actif' && a.periode_fin > Date.now()) throw erreur(409, 'Votre abonnement est déjà actif.', 'deja_actif');
     // Une souscription Stripe existe encore (impayée, en période de grâce) : on la régularise dans le portail plutôt que d'en créer une seconde.
     if (stripe && a && a.ref_externe && a.statut !== 'resilie' && a.client_externe) return portail(marchand);
+    // Retour de Checkout avant le webhook, ou second onglet : une session déjà payée n'est pas payée deux fois.
+    if (stripe && a && a.session_ref && /^cs_/.test(a.session_ref)) {
+      const ancienne = await appelerStripe('GET', `checkout/sessions/${encodeURIComponent(a.session_ref)}`).catch(() => null);
+      if (ancienne && ancienne.status === 'complete') { await sessionTerminee(a, ancienne); throw erreur(409, 'Votre paiement est déjà enregistré : votre abonnement est actif.', 'deja_actif'); }
+      if (ancienne && ancienne.status === 'open') await appelerStripe('POST', `checkout/sessions/${encodeURIComponent(a.session_ref)}/expire`).catch(() => {});
+    }
     const ref = 'abo_' + crypto.randomBytes(12).toString('base64url');
     if (a) maj(marchand.id, { formule, devise, session_ref: ref, statut: a.statut === 'resilie' ? 'en_attente' : a.statut });
     else db.prepare('INSERT INTO abonnements (marchand_id, formule, statut, devise, session_ref, cree_le, maj_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(marchand.id, formule, 'en_attente', devise, ref, Date.now(), Date.now());
@@ -85,7 +94,7 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
     const s = await appelerStripe('POST', 'checkout/sessions', [
       ['mode', 'subscription'], ['payment_method_types[]', 'card'],
       ['success_url', `${urlPublique}/app?abonnement=ok`], ['cancel_url', `${urlPublique}/app?abonnement=annule`],
-      ['customer_email', marchand.email], ['client_reference_id', marchand.id],
+      ...(a && a.client_externe ? [['customer', a.client_externe]] : [['customer_email', marchand.email]]), ['client_reference_id', marchand.id],   // même client Stripe qu'avant
       ['metadata[abonnement_ref]', ref], ['subscription_data[metadata][marchand_id]', marchand.id], ['subscription_data[metadata][formule]', formule],
       ['line_items[0][quantity]', 1], ['line_items[0][price_data][currency]', devise.toLowerCase()],
       ['line_items[0][price_data][unit_amount]', Math.round(f.prix * 100)],
@@ -125,7 +134,9 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
         ['items[0][price_data][product]', produit.id],
         ['cancel_at_period_end', 'false'],   // changer de formule annule une résiliation demandée, chez Stripe comme ici
         ['items[0][price_data][unit_amount]', Math.round(FORMULES[formule].prix * 100)], ['items[0][price_data][recurring][interval]', 'month'],
-        ['proration_behavior', 'create_prorations'], ['metadata[formule]', formule]
+        // À la hausse : la différence est facturée tout de suite (sinon une résiliation avant l'échéance l'effacerait) ;
+        // à la baisse : nouveau prix dès la prochaine échéance, sans avoir.
+        ['proration_behavior', FORMULES[formule].prix > FORMULES[a.formule].prix ? 'always_invoice' : 'none'], ['metadata[formule]', formule]
       ]);
     }
     maj(marchand.id, { formule, fin_demandee: 0 });
@@ -134,14 +145,15 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   async function resilier({ marchand }) {
     const a = lire(marchand.id);
     if (!a || a.statut !== 'actif') throw erreur(409, 'Aucun abonnement actif.', 'inactif');
-    if (stripe) return portail(marchand);
+    // Avec Stripe : fin à l'échéance demandée directement (le portail pourrait être réglé pour une résiliation immédiate).
+    if (stripe) { if (!a.ref_externe) return portail(marchand); await appelerStripe('POST', `subscriptions/${encodeURIComponent(a.ref_externe)}`, [['cancel_at_period_end', 'true']]); }
     maj(marchand.id, { fin_demandee: 1 });       // accès conservé jusqu'à la fin de la période payée
     return { ok: true };
   }
   async function reprendre({ marchand }) {
     const a = lire(marchand.id);
     if (!a || a.statut !== 'actif') throw erreur(409, 'Aucun abonnement actif.', 'inactif');
-    if (stripe) return portail(marchand);
+    if (stripe) { if (!a.ref_externe) return portail(marchand); await appelerStripe('POST', `subscriptions/${encodeURIComponent(a.ref_externe)}`, [['cancel_at_period_end', 'false']]); }
     maj(marchand.id, { fin_demandee: 0 });
     return { ok: true };
   }
@@ -152,29 +164,53 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
     return { url: s.url };
   }
 
+  /* État local tiré de la souscription Stripe elle-même (relue par l'API) : peu importe l'ordre, les doublons
+     ou la version d'API des événements, et les lignes de prorata d'une facture. */
+  const STATUTS = { active: 'actif', trialing: 'actif', past_due: 'impaye', unpaid: 'resilie', canceled: 'resilie', incomplete: 'en_attente', incomplete_expired: 'resilie', paused: 'resilie' };
+  async function synchroniser(a, subId) {
+    const sub = await appelerStripe('GET', `subscriptions/${encodeURIComponent(subId)}`);
+    const f = sub.metadata && sub.metadata.formule;
+    const champs = { ref_externe: sub.id, client_externe: sub.customer || a.client_externe, statut: STATUTS[sub.status] || a.statut,
+      periode_fin: sub.current_period_end ? sub.current_period_end * 1000 : a.periode_fin, fin_demandee: sub.cancel_at_period_end ? 1 : 0 };
+    if (f && FORMULES[f]) champs.formule = f;
+    maj(a.marchand_id, champs);
+    return lire(a.marchand_id);
+  }
+  async function sessionTerminee(a, session) {
+    maj(a.marchand_id, { session_ref: null, client_externe: session.customer || a.client_externe });
+    return session.subscription ? synchroniser(lire(a.marchand_id), session.subscription) : lire(a.marchand_id);
+  }
+  /* Retour de Checkout (?abonnement=ok) : le paiement est vérifié tout de suite, sans attendre le webhook. */
+  async function verifierRetour(marchandId) {
+    const a = lire(marchandId);
+    if (!stripe || !a || !a.session_ref || !/^cs_/.test(a.session_ref)) return etat(marchandId);
+    const s = await appelerStripe('GET', `checkout/sessions/${encodeURIComponent(a.session_ref)}`);
+    if (s.status === 'complete') await sessionTerminee(a, s);
+    return etat(marchandId);
+  }
+
   /* Événements Stripe déjà vérifiés (signature) par l'appelant. */
-  function evenementStripe(ev) {
+  async function evenementStripe(ev) {
     const o = ev.data && ev.data.object || {};
     if (ev.type === 'checkout.session.completed' && o.mode === 'subscription') {
       const a = db.prepare('SELECT * FROM abonnements WHERE session_ref = ? OR marchand_id = ?').get(o.id, o.client_reference_id || '');
-      if (a) maj(a.marchand_id, { statut: 'actif', periode_fin: Date.now() + PERIODE, ref_externe: o.subscription || null, client_externe: o.customer || null, session_ref: null, fin_demandee: 0 });
-      return a ? { marchandId: a.marchand_id, evenement: 'active' } : true;
+      if (!a) return true;
+      const avant = a.statut;
+      const b = await sessionTerminee(a, o);
+      return avant !== 'actif' && b.statut === 'actif' ? { marchandId: a.marchand_id, evenement: 'active' } : true;
     }
-    const sub = o.subscription || (ev.type.startsWith('customer.subscription') ? o.id : null);
+    // Facture : la souscription est à la racine (anciennes versions) ou sous parent.subscription_details (versions récentes).
+    const sub = (typeof o.subscription === 'string' ? o.subscription : o.subscription && o.subscription.id)
+      || (o.parent && o.parent.subscription_details && o.parent.subscription_details.subscription)
+      || (ev.type.startsWith('customer.subscription') ? o.id : null);
     const a = sub && db.prepare('SELECT * FROM abonnements WHERE ref_externe = ?').get(sub);
     if (!a) return false;
-    if (ev.type === 'invoice.paid') {
-      const fin = o.lines && o.lines.data && o.lines.data[0] && o.lines.data[0].period ? o.lines.data[0].period.end * 1000 : Date.now() + PERIODE;
-      maj(a.marchand_id, { statut: 'actif', periode_fin: fin });
-    } else if (ev.type === 'invoice.payment_failed') { maj(a.marchand_id, { statut: 'impaye' }); return { marchandId: a.marchand_id, evenement: 'impaye' }; }
-    else if (ev.type === 'customer.subscription.deleted') { maj(a.marchand_id, { statut: 'resilie' }); return { marchandId: a.marchand_id, evenement: 'termine' }; }
-    else if (ev.type === 'customer.subscription.updated') {
-      // Formule changée ailleurs (tableau de bord Stripe) : les droits suivent.
-      const f = o.metadata && o.metadata.formule;
-      if (f && FORMULES[f] && f !== a.formule) maj(a.marchand_id, { formule: f });
-      maj(a.marchand_id, { fin_demandee: o.cancel_at_period_end ? 1 : 0 });
-      // E-mail de résiliation seulement quand elle vient d'être demandée (pas à chaque mise à jour de la souscription).
-      if (o.cancel_at_period_end && !a.fin_demandee) return { marchandId: a.marchand_id, evenement: 'resiliation' }; }
+    if (!['invoice.paid', 'invoice.payment_failed', 'customer.subscription.deleted', 'customer.subscription.updated'].includes(ev.type)) return true;
+    const b = await synchroniser(a, sub);
+    if (b.statut === 'impaye' && a.statut !== 'impaye') return { marchandId: a.marchand_id, evenement: 'impaye' };
+    if (b.statut === 'resilie' && a.statut !== 'resilie') return { marchandId: a.marchand_id, evenement: 'termine' };
+    // E-mail de résiliation seulement quand elle vient d'être demandée (pas à chaque mise à jour de la souscription).
+    if (b.fin_demandee && !a.fin_demandee) return { marchandId: a.marchand_id, evenement: 'resiliation' };
     return true;
   }
 
@@ -182,12 +218,12 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   async function arreterDefinitivement(marchandId) {
     const a = lire(marchandId);
     if (stripe && a && a.ref_externe && a.statut !== 'resilie') {
-      const rep = await fetchImpl(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(a.ref_externe)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${stripe}` } });
+      const rep = await fetchImpl(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(a.ref_externe)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${stripe}`, 'Stripe-Version': VERSION_STRIPE } });
       if (!rep.ok && rep.status !== 404) throw erreur(502, 'Stripe ne confirme pas la résiliation : réessayez avant de supprimer le compte.', 'stripe');
     }
   }
 
-  return { arreterDefinitivement, FORMULES, formulesPour, etat, commencer, confirmerSimulation, parRefSimulation, changer, resilier, reprendre, evenementStripe, obligatoire, prestataire: stripe ? 'stripe' : 'simulation' };
+  return { verifierRetour, arreterDefinitivement, FORMULES, formulesPour, etat, commencer, confirmerSimulation, parRefSimulation, changer, resilier, reprendre, evenementStripe, obligatoire, prestataire: stripe ? 'stripe' : 'simulation' };
 }
 
 function pageAbonnementSimule(a, marchandEmail) {

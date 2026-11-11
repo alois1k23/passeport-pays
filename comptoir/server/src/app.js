@@ -900,6 +900,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       // Formule sans réseaux sociaux (après un changement de formule) : rien ne part ; la publication redevient un brouillon,
       // à revalider si le marchand reprend Croissance (l'écran est alors verrouillé : il ne pourrait pas l'annuler).
       const ab = abo.etat(row.marchand_id);
+      if (!ab.actif) continue;   // abonnement terminé ou impayé : rien ne part au nom d'une boutique fermée
       if (ab.obligatoire && !Formules.permet(ab.formule, 'social')) {
         db.prepare("UPDATE publications SET statut = 'brouillon', donnees = ? WHERE id = ?").run(JSON.stringify({ ...JSON.parse(row.donnees), statut: 'brouillon' }), row.id);
         continue;
@@ -1191,7 +1192,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     let n = 0;
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {
       const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));
-      if (!paiementsActifs(b)) continue;   // paiements non activés : une relance renverrait vers un lien qui refuse le paiement
+      if (!paiementsActifs(b) || !abo.etat(b.marchand_id).actif) continue;   // boutique fermée (abonnement) : ses liens mèneraient à une page 404   // paiements non activés : une relance renverrait vers un lien qui refuse le paiement
       n += relances.executer({ db, boutique: b, config: configVente(b), commandes, maintenant, urlPublique, urlBoutique: urlBoutique(b), envoyerEmail, formatMontant,
         enregistrerCommande: c => { const { jeton, ...reste } = c; enregistrerCommande(reste); } });
     }
@@ -1221,6 +1222,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/webhooks/stripe', async ctx => {
     if (paiement.nom !== 'stripe' || !paiement.verifierWebhook(ctx.corpsBrut, ctx.req.headers['stripe-signature'])) throw erreur(400, 'Signature invalide.', 'signature');
     const ev = JSON.parse(ctx.corpsBrut);
+    // Stripe renvoie un même événement en cas de doute : il n'est traité qu'une fois (plus d'e-mail en double).
+    if (ev.id) {
+      db.exec('CREATE TABLE IF NOT EXISTS evenements_stripe (id TEXT PRIMARY KEY, recu_le INTEGER NOT NULL)');
+      if (db.prepare('INSERT OR IGNORE INTO evenements_stripe (id, recu_le) VALUES (?, ?)').run(String(ev.id), Date.now()).changes === 0) return { recu: true, deja: true };
+      db.prepare('DELETE FROM evenements_stripe WHERE recu_le < ?').run(Date.now() - 30 * 86400000);
+    }
     // Événement d'un compte connecté (boutique) : jamais un abonnement Comptoir ; seuls l'état du compte et ses ventes comptent.
     if (ev.account) {
       const objet = (ev.data && ev.data.object) || {};
@@ -1232,7 +1239,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       }
       return { recu: true };
     }
-    const evAbo = abo.evenementStripe(ev);
+    const evAbo = await abo.evenementStripe(ev);
     if (evAbo) { if (evAbo.marchandId) emailAbonnement(evAbo.marchandId, evAbo.evenement); return { recu: true }; }
     const objet = (ev.data && ev.data.object) || {};
     if (((ev.type === 'checkout.session.completed' && objet.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') && objet.metadata && objet.metadata.paiement_id) {
@@ -1420,6 +1427,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 
   /* ---------- Abonnement Comptoir ---------- */
   r.get('/api/abonnement', exigerCompte, ctx => ({ ...abo.etat(ctx.marchand.id), formules: abo.formulesPour(deviseDe(ctx.boutique)), devise: deviseDe(ctx.boutique) }));
+  // Retour de Stripe Checkout : paiement vérifié tout de suite, sans attendre le webhook.
+  r.post('/api/abonnement/verifier', exigerCompte, async ctx => abo.verifierRetour(ctx.marchand.id));
   r.post('/api/abonnement/commencer', exigerCompte, async ctx => {
     if (abo.prestataire === 'simulation' && env.NODE_ENV === 'production' && abo.obligatoire) throw erreur(503, 'Le paiement des abonnements n’est pas encore configuré (clé Stripe manquante).', 'paiement_non_configure');
     return abo.commencer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || ''), devise: deviseDe(ctx.boutique) });

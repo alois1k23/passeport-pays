@@ -943,3 +943,39 @@ Le test Connect couvre aussi :
 - les deux activations simultanées.
 
 Tests : 63.
+
+### Cycle 45 — L'abonnement Comptoir du marchand avec le vrai Stripe (05 h 30 – 05 h 45)
+
+Une relecture du cycle de vie de l'abonnement a trouvé 12 problèmes, et la plupart sont corrigés. Le parcours a aussi été joué en simulation dans le navigateur : inscription, paiement, résiliation, reprise, changement de formule à la baisse puis à la hausse. Il était propre.
+
+**Graves (avec une vraie clé Stripe)**
+
+1. **Renouvellements ignorés.** Les versions récentes de l'API Stripe placent la souscription ailleurs dans la facture. Le paiement mensuel n'était alors plus reconnu, et chaque marchand payant aurait été bloqué au bout d'environ 33 jours.
+   - La version d'API est maintenant figée (`2024-06-20`) sur tous les appels.
+   - Les deux emplacements de la souscription sont lus.
+2. **Fin de période fausse après un changement de formule.** Elle était lue sur la première ligne de la facture, qui peut être une ligne de prorata. Après un changement de formule, le marchand aurait été bloqué 3 jours après avoir payé.
+   - Chaque événement relit maintenant la souscription chez Stripe (statut, fin de période, résiliation demandée, formule). L'ordre des événements, leurs doublons et leur version n'ont plus d'importance.
+3. **Double paiement possible.** Au retour de Stripe, avant l'arrivée du webhook, l'écran proposait de payer à nouveau, ce qui créait une seconde souscription facturée en silence.
+   - Le retour (`?abonnement=ok`) vérifie maintenant le paiement auprès de Stripe, en réessayant quelques secondes. Sinon il affiche « paiement en cours de confirmation, inutile de payer une seconde fois ».
+   - Une nouvelle demande de paiement vérifie d'abord la précédente : déjà payée, elle est enregistrée ; encore ouverte, elle est annulée.
+   - Le même client Stripe est réutilisé.
+
+**Moyens**
+
+4. **Boutiques fermées encore actives.** Après une fin ou un impayé, les publications et e-mails automatiques continuaient, avec des liens vers une boutique fermée (404). Ils s'arrêtent maintenant.
+5. **Paiement refusé.** Le marchand était bloqué immédiatement, alors que Stripe réessaie pendant des jours. Il garde maintenant l'accès 7 jours pour régulariser.
+6. **Hausse de formule jamais payée.** Le supplément était reporté à la facture suivante, qu'une résiliation effaçait. Désormais, il est facturé tout de suite, et une baisse s'applique à l'échéance, sans avoir.
+7. **Événements en double.** Stripe renvoie parfois deux fois le même événement, ce qui provoquait des e-mails en double ou un statut remis à « actif ». Chaque événement n'est plus traité qu'une fois (identifiant gardé 30 jours).
+8. **Résilier et reprendre** passaient par le portail Stripe, qui peut être réglé pour une résiliation immédiate. Ces actions passent maintenant par l'API (fin à l'échéance), comme le promettent l'écran et l'e-mail.
+9. **« Essayer 30 jours »** alors qu'aucun essai gratuit n'existe : le bouton dit maintenant « Créer une boutique de démonstration ».
+
+**Restent pour l'exploitant** (décisions de sa part, voir le rapport du matin) :
+- choisir si les prix sont affichés hors taxes ou TTC, et collecter les numéros de TVA ;
+- fixer une durée de conservation des données des comptes fermés ;
+- prévoir un accès en lecture seule aux commandes après la fin d'un abonnement.
+
+Tests : 63. Le test d'abonnement Stripe couvre aussi :
+- la facture au nouveau format ;
+- la ligne de prorata ;
+- l'impayé avec un seul e-mail ;
+- la résiliation par l'API.

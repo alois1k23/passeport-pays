@@ -22,7 +22,7 @@ function prestataireSimulation({ urlPublique }) {
 /* Stripe Connect : chaque boutique encaisse sur SON compte Stripe (paiement « direct » sur le compte connecté,
    en-tête Stripe-Account). La plateforme ne détient jamais l'argent des ventes des marchands, et ne prend aucune commission. */
 function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fetchImpl = fetch }) {
-  const entetes = compte => ({ Authorization: `Bearer ${cleSecrete}`, ...(compte ? { 'Stripe-Account': compte } : {}) });
+  const entetes = compte => ({ Authorization: `Bearer ${cleSecrete}`, 'Stripe-Version': '2024-06-20', ...(compte ? { 'Stripe-Account': compte } : {}) });   // version figée, comme pour les abonnements
   const lire = async (chemin, compte) => {
     const rep = await fetchImpl(`https://api.stripe.com/v1/${chemin}`, { headers: entetes(compte) });
     const json = await rep.json();
