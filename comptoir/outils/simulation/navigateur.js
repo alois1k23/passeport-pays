@@ -45,6 +45,18 @@ async function marchand(b, i) {
     if (await p.$('#cx-pays')) await p.selectOption('#cx-pays', i % 4 === 3 ? 'fr' : 'ch').catch(() => {});
     if (await p.$('#cx-secteur')) await p.selectOption('#cx-secteur', { index: i % 9 }).catch(() => {});
     await p.click('#form-auth button[type="submit"], #form-auth button:not([type])'); await p.waitForTimeout(2500);
+    // Nouveau parcours : choix et paiement de la formule (simulé), puis adresse de l'entreprise (sans elle, pas de commandes).
+    if (await p.$('[data-abo="payer"]')) {
+      await p.check('input[data-abo="formule"][value="pro"]', { force: true }).catch(() => {});
+      await p.click('[data-abo="payer"]'); await p.waitForURL(/abonnement-simule/, { timeout: 15000 });
+      await p.click('button:has-text("Payer")'); await p.waitForTimeout(4000);
+      if (!/\/app/.test(p.url())) await p.goto(base + '/app');
+      await p.waitForTimeout(1500);
+    }
+    if (await p.evaluate(() => typeof SERVEUR !== 'undefined' && SERVEUR.connecte)) {
+      await p.evaluate(() => { location.hash = 'conformite'; }); await p.waitForTimeout(600);
+      if (await p.$('#en-adresse')) { await p.fill('#en-adresse', 'Rue de Bourg 1, 1003 Lausanne'); await p.press('#en-adresse', 'Tab'); await p.waitForTimeout(2000); }
+    }
     const co = await p.evaluate(() => typeof SERVEUR !== 'undefined' && SERVEUR.connecte);
     if (!co) { note(qui, 'inscription par le formulaire impossible', await p.evaluate(() => document.querySelector('.erreur-form, #toast')?.innerText || document.body.innerText.slice(0, 200))); await ctx.close(); return null; }
     ok('inscription');

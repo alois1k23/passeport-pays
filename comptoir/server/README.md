@@ -105,9 +105,26 @@ La route `/api/tls/autoriser` ne répond « oui » que pour le domaine principal
 - HTTPS obligatoire. Le cookie passe automatiquement en `Secure` quand `URL_PUBLIQUE` commence par `https://`.
 - En production (`NODE_ENV=production`), la page de paiement simulé est désactivée.
 
+## Avant l'ouverture au public (obligatoire)
+
+- **Identité de l'exploitant** : `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL`, `EXPLOITANT_IDE` (pages `/mentions-legales`, `/confidentialite`, `/conditions`), et `HEBERGEUR` (nom, adresse et téléphone de l'hébergeur, repris dans les mentions légales des boutiques). Tant qu'ils manquent, les pages légales l'affichent.
+- **Un vrai fournisseur** : avec une clé Stripe de production, les produits du fournisseur de démonstration sont masqués et refusés à la commande (il n'expédie rien). Branchez au moins un fournisseur réel (contrat d'API dans `src/fournisseurs.js`).
+- **Réseaux sociaux** : sans application validée par Meta, TikTok et Pinterest, la publication est manuelle (le pilote prépare les textes, le marchand les publie). `SOCIAL_SIMULATION=1` réactive la simulation pour une démonstration.
+- **Adresse du vendeur** : une boutique n'accepte aucune commande tant que son adresse n'est pas renseignée (Conformité).
+
+## Réglages ajoutés en novembre 2026
+
+| Variable | Rôle |
+|---|---|
+| `RDAP_URL` | Registre interrogé pour la disponibilité des domaines (tests). Par défaut : SWITCH (.ch, .li), AFNIC (.fr), Verisign (.com, .net), rdap.org pour les autres. |
+| `HEBERGEUR`, `EXPLOITANT_*` | Voir ci-dessus. |
+| `SOCIAL_SIMULATION` | `1` : publication et statistiques des réseaux simulées. |
+
+Paiement : la carte partout, TWINT en CHF, Bancontact pour les boutiques belges (Stripe Checkout).
+
 ## Limites actuelles (prochaines étapes)
 
 - Sans domaine personnalisé, les boutiques restent servies sur le domaine de l'admin (`/s/<slug>`). Pour plus de sûreté, servez l'admin et les boutiques sur des domaines différents.
-- La réservation des domaines (API d'un registrar) et l'API La Poste pour les étiquettes ne sont pas encore branchées.
+- La réservation des domaines (API d'un registrar) et l'API La Poste pour les étiquettes ne sont pas encore branchées ; la disponibilité d'un nom est, elle, vérifiée auprès du registre (RDAP).
 - Pas encore de double authentification.
 - Abandons par moyen de paiement : à brancher sur les événements du prestataire de paiement.
