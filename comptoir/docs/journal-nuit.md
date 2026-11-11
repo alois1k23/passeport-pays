@@ -528,3 +528,11 @@ Une cinquième relecture (factures et obligations légales) a relevé 15 points.
 14. Suisse : la page annonçait « retours 30 jours » en dur ; elle reprend le réglage du marchand.
 
 Tests : 46 (taux réduit par ligne, avoir dans la suite continue, arrondi en espèces).
+
+### Cycle 28 — Promesses glissées dans les contenus générés
+
+Les textes que Comptoir rédige pour le marchand (campagnes, publications) engagent le marchand vis-à-vis de ses clients. Trois promesses intenables ont été retirées :
+
+1. **« Emballage cadeau offert »**, offre par défaut des campagnes sans remise : un fournisseur de dropshipping n'emballe pas en cadeau. Remplacé par « Notre sélection pour l'occasion » ; pour Noël, « livraison prévue avant Noël pour toute commande passée avant le … » (date calculée).
+2. **« Un cadeau fait main »** (fête des mères) et les mots-clés `#faitmain #commercelocal` ajoutés à toutes les publications : réservés aux boutiques qui vendent leurs propres produits.
+3. **Vidéos « coulisses »** (« vos mains qui emballent une commande ») proposées à des boutiques entièrement en dropshipping, où le marchand n'expédie rien lui-même : plus proposées dans ce cas. L'accroche « on en refuse 9 sur 10 », chiffre inventé, est retirée.

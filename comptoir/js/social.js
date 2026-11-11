@@ -42,7 +42,7 @@ const ACCROCHES = {
   probleme: [p => `${p.probleme.charAt(0).toUpperCase() + p.probleme.slice(1)} ? On a la solution.`, p => `Arrête de subir ${p.probleme}. Voici ce qu’on fait à la place.`, p => `Le problème de ${p.probleme}, réglé en 10 secondes.`],
   produit: [p => `POV : tu découvres ${p.nom.toLowerCase()}`, p => `Personne ne parle de ce produit, et pourtant…`, p => `3 raisons pour lesquelles tout le monde veut ${p.nom.toLowerCase()}`, p => `Je ne pensais pas qu’un ${p.categorie.toLowerCase().replace(/s$/, '')} pouvait faire ça`],
   avis: [p => p.citation ? `${p.citation}` : `${p.prenom}, de ${p.ville}, nous a envoyé cette vidéo`, () => `Ce que nos clients disent après une semaine`, () => `On a lu vos 50 derniers avis. Voici le plus drôle.`],
-  coulisses: [p => `On prépare vos commandes${p.ch ? ' depuis la Suisse romande' : ''} : viens voir`, () => `Comment on choisit nos produits (on en refuse 9 sur 10)`, () => `Une journée dans notre petite boutique en ligne`],
+  coulisses: [p => `On prépare vos commandes${p.ch ? ' depuis la Suisse romande' : ''} : viens voir`, () => `Comment on choisit nos produits`, () => `Une journée dans notre petite boutique en ligne`],
   saison: [p => `${p.evt} arrive dans ${p.jours} jours : voici l’idée cadeau`, p => `L’idée cadeau ${p.evt} que personne n’aura`, p => `Dernière ligne droite avant ${p.evt}`],
   offre: [p => `${p.remise} jusqu’à dimanche avec le code ${p.code}`, p => `Notre seule promo du mois : ${p.remise}`, () => `Plus que quelques pièces. Après, c’est fini.`]
 };
@@ -136,7 +136,9 @@ function genererPlanning(jours = 14) {
   const appris = apprentissage();
   const prochains = prochainsTempsForts(3).filter(e => (e.date - Date.now()) / 86400000 <= 30);
   const campagne = prochains.map(e => etat.campagnes[e.cle] && { e, c: etat.campagnes[e.cle] }).find(Boolean);
-  const piliers = r.piliers.filter(k => k !== 'saison' || prochains.length).filter(k => k !== 'offre' || campagne);
+  // Tout en dropshipping : le marchand n'emballe rien lui-même, les « coulisses » d'expédition seraient une mise en scène.
+  const toutDrop = produits.every(p => p.type === 'drop');
+  const piliers = r.piliers.filter(k => k !== 'saison' || prochains.length).filter(k => k !== 'offre' || campagne).filter(k => k !== 'coulisses' || !toutDrop);
   if (!piliers.length) return { erreur: r.piliers.length ? 'Les types cochés (saison, offre) n’ont rien à annoncer ces 30 prochains jours : cochez aussi « Produit » ou « Problème résolu ».' : 'Choisissez au moins un type de contenu.' };
   const poidsPilier = k => ({ probleme: 3, produit: 3, avis: 2, coulisses: 1.5, saison: 2, offre: 1 }[k] || 1) * Math.max(0.5, Math.min(2, appris.piliers[k] ? appris.piliers[k].indice : 1));
   const tirage = (liste, poids, graine) => { const tot = liste.reduce((a, x) => a + poids(x), 0); let v = hacheTexte(graine) * tot; for (const x of liste) { v -= poids(x); if (v <= 0) return x; } return liste[0]; };

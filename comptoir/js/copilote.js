@@ -44,7 +44,7 @@ function tempsFortsAnnee(an, pays = (typeof etat !== 'undefined' && etat ? etat.
     { id: 'soldes-hiver', nom: 'Soldes d’hiver', kw: 'soldes', date: soldesH, duree: 28, remise: 30, cadeau: false, angle: 'Dernières pièces de la saison à prix doux' },
     { id: 'saint-valentin', nom: 'Saint-Valentin', kw: 'saint-valentin', date: new Date(an, 1, 14), duree: 10, remise: 10, cadeau: true, angle: 'Le cadeau à offrir à deux' },
     { id: 'paques', nom: 'Pâques', kw: 'paques', date: p, duree: 10, remise: 10, cadeau: true, angle: 'Petites attentions de printemps' },
-    { id: 'fete-des-meres', nom: 'Fête des mères', kw: 'fete-des-meres', date: fdm, duree: 14, remise: 10, cadeau: true, angle: 'Pour celle qui a tout, un cadeau fait main' },
+    { id: 'fete-des-meres', nom: 'Fête des mères', kw: 'fete-des-meres', date: fdm, duree: 14, remise: 10, cadeau: true, angle: 'Pour celle qui a tout, un cadeau choisi avec soin' },
     { id: 'fete-des-peres', nom: 'Fête des pères', kw: 'fete-des-peres', date: fdp, duree: 12, remise: 10, cadeau: true, angle: 'Le cadeau qu’il n’achèterait pas lui-même' },
     { id: 'soldes-ete', nom: 'Soldes d’été', kw: 'soldes', date: soldesEte, duree: 28, remise: 30, cadeau: false, angle: 'Faites de la place pour la rentrée' },
     { id: 'rentree', nom: 'Rentrée', kw: 'rentree', date: new Date(an, 8, 1), duree: 14, remise: 10, cadeau: false, angle: 'Nouvelle saison, nouvelles envies' },
@@ -129,7 +129,8 @@ function genererCampagne(etat, evt) {
   const dateLimite = delaiMax && (evt.cadeau || evt.id === 'noel') ? ajouterJours(evt.date, -(delaiMax + 1)) : null;
   const racines = { soldes: 'SOLDES', 'saint-valentin': 'VALENTIN', paques: 'PAQUES', 'fete-des-meres': 'MAMAN', 'fete-des-peres': 'PAPA', rentree: 'RENTREE', halloween: 'HALLOWEEN', 'black-friday': 'BLACKFRIDAY', noel: 'NOEL', 'singles-day': 'SINGLES', '1er-aout': 'AOUT' };
   const code = evt.remise ? (racines[evt.kw] || racines[evt.id] || evt.kw.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 12)) + evt.remise : '';
-  const offre = evt.remise ? `-${evt.remise} % avec le code ${code}` : evt.id === 'noel' ? 'Emballage cadeau offert, livraison prévue avant Noël pour toute commande passée à temps' : 'Emballage cadeau offert';
+  // Sans remise, aucune promesse que le marchand ne pourrait tenir (un fournisseur de dropshipping n'emballe pas en cadeau).
+  const offre = evt.remise ? `-${evt.remise} % avec le code ${code}` : evt.id === 'noel' ? `Livraison prévue avant Noël pour toute commande passée${dateLimite ? ` avant le ${dateLimite.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}` : ' à temps'}` : 'Notre sélection pour l’occasion';
   const delaiLong = produits.filter(x => x.p.type === 'drop' && x.p.delai && x.p.delai[1] > 10).map(x => x.p);
   const dateTxt = evt.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const finCampagne = evt.id === 'noel' ? (dateLimite || ajouterJours(evt.date, -5)) : ['soldes-hiver', 'soldes-ete'].includes(evt.id) ? ajouterJours(evt.date, evt.duree) : evt.id === 'black-friday' ? ajouterJours(evt.date, 3) : evt.date;
@@ -143,7 +144,7 @@ function genererCampagne(etat, evt) {
       objet: evt.remise ? `${evt.nom} : -${evt.remise} % chez ${b.nom}` : `${evt.nom} : nos idées cadeaux`,
       corps: `Bonjour,\n\n${evt.angle}. Pour ${evt.nom.toLowerCase().startsWith('soldes') ? 'les ' : ''}${evt.nom}, nous avons sélectionné pour vous :\n${vedettes.map(x => `• ${x.p.nom} (${euros(x.p.prix)})`).join('\n')}\n\n${offre}.\n\nÀ très vite,\nL’équipe ${b.nom}`
     },
-    post: `${evt.angle}\n${vedettes.map(x => x.p.nom).join(' · ')}\n${offre}\n#${evt.kw.replace(/-/g, '')} #${slugifier(b.nom).replace(/-/g, '')} #${secteur.kws[0][0]} #faitmain #commercelocal`,
+    post: `${evt.angle}\n${vedettes.map(x => x.p.nom).join(' · ')}\n${offre}\n#${evt.kw.replace(/-/g, '')} #${slugifier(b.nom).replace(/-/g, '')} #${secteur.kws[0][0]}${b.modele === 'stock' ? ' #faitmain #commercelocal' : ''}`,
     domaine: `${evt.kw}-${slugifier(b.nom)}.${b.pays || 'fr'}`,
     planning: [
       { date: ajouterJours(lancement, -21), texte: drops.length ? 'Vérification des stocks et délais fournisseurs, préparation des visuels' : 'Réassort des produits en rupture, préparation des visuels' },
