@@ -1328,3 +1328,5 @@ html, body { overflow-x: clip; }
   .segment button { min-height: 36px; }
   input[type="radio"], input[type="checkbox"] { width: 20px; height: 20px; }
 }
+/* Sur téléphone, l'aperçu a déjà la taille d'un téléphone : le choix Ordinateur / Mobile n'a pas de sens. */
+@media (max-width: 900px) { .segment[aria-label="Appareil"] { display: none; } }

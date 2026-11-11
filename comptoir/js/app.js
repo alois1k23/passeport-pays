@@ -764,7 +764,7 @@ function vueEditeur() {
       <div class="bloc"><h3>Adresse</h3><p class="mono">${esc(adresseBoutique())}</p><a href="#domaines" class="lien">Changer de domaine</a></div>`;
   }
   return `
-  <div class="tete"><div><h1>Éditeur du site</h1><p class="sous">Cliquez sur une section de l’aperçu pour la modifier.</p></div>
+  <div class="tete"><div><h1>Éditeur du site</h1><p class="sous">Choisissez une section à modifier (dans l’aperçu ou la liste) ; l’aperçu montre le résultat.</p></div>
     <div class="rangee">
       <div class="segment" role="group" aria-label="Appareil">
         <button class="${ui.appareil === 'ordinateur' ? 'actif' : ''}" data-action="appareil" data-id="ordinateur">Ordinateur</button>

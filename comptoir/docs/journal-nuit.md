@@ -1076,8 +1076,9 @@ Parcours complet sur iPhone 13, Pixel 7 et un écran de 360 × 640 :
 11. **Délai de livraison.** La fiche produit promettait une livraison plus rapide que l'envoi standard proposé dans le panier. Elle annonce maintenant le même délai.
 12. **Encadré de marge.** Sans coût d'achat saisi, la marge reposait sur une estimation non signalée. L'encadré indique maintenant « estimé à 35 % du prix : saisissez le vôtre ».
 
+13. **Éditeur sur téléphone.** Le choix Ordinateur / Mobile de l'aperçu, sans effet sur un téléphone, y est masqué, et la consigne est réécrite.
+
 **Non traité cette nuit** (pour la suite) :
-- bascule « Mobile » de l'aperçu sans effet sur téléphone ;
 - fournisseurs du catalogue de démonstration marqués « (démo) » : ils disparaissent avec un vrai fournisseur.
 
 Tests : 64.
