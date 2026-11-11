@@ -942,7 +942,7 @@ Le test Connect couvre aussi :
 - la confirmation au retour du client sans webhook ;
 - les deux activations simultanées.
 
-Tests : 63 (le test Connect vérifie aussi qu’un webhook en échec est bien retraité à la tentative suivante).
+Tests : 63.
 
 ### Cycle 45 — L'abonnement Comptoir du marchand avec le vrai Stripe (05 h 25 – 05 h 40)
 
