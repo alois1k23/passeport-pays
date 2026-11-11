@@ -3,6 +3,50 @@
 Boucle demandée : tester, analyser et améliorer Comptoir sans relâche jusqu'à 7 h 00 (heure de Lausanne), sans rien laisser passer.
 Chaque cycle : un domaine, des tests réels (navigateur, serveur, scripts), les corrections, `npm test`, puis commit et push.
 
+## Synthèse de la nuit (0 h 10 – 6 h 50)
+
+47 cycles, environ 65 commits poussés sur `claude/nice-mccarthy-59mfb5`. Tests du serveur : 64, tous verts.
+
+À chaque cycle : un domaine testé pour de vrai (navigateur, serveur, scripts de simulation), les corrections, puis une relecture indépendante des corrections elles-mêmes. Ces relectures ont trouvé plusieurs régressions introduites pendant la nuit ; elles sont toutes corrigées et décrites dans leur cycle.
+
+**Les défauts les plus graves trouvés et corrigés**
+- **Argent des ventes** (cycles 43 à 46). Toutes les ventes de toutes les boutiques arrivaient sur l'unique compte Stripe de la plateforme. L'exploitant serait devenu intermédiaire de paiement, ce qui demande une autorisation. Désormais, chaque boutique encaisse sur son propre compte Stripe (Stripe Connect), sans commission.
+- **Abonnements des marchands avec le vrai Stripe** (cycles 45 et 46).
+  - Renouvellements ignorés : chaque client payant aurait été bloqué au bout d'environ 33 jours.
+  - Double paiement possible au retour de Stripe.
+  - Impayés gardant un mois d'accès en plus.
+  - Webhook en échec jamais retraité.
+- **Détournement de domaine à l'inscription** (cycle 40) : on pouvait déclarer comme actif le domaine d'un autre marchand.
+- **Fonctions payantes non appliquées par le serveur** (cycles 40 à 42) : codes promo, remises, campagnes et e-mails automatiques marchaient même avec la formule Lancement.
+- **Limites d'essais de mot de passe contournables** (cycles 40 et 41) : en parallèle, ou par adresses IPv6.
+- **Colis fictifs** (cycles 20 et 47) : de l'argent réel était encaissé pour un fournisseur de démonstration, et de faux numéros de suivi étaient envoyés aux clients.
+- **Promesses non tenues**, retirées de l'application et de l'accueil :
+  - remises annoncées, délais de livraison plus rapides que la réalité ;
+  - publication automatique sur les réseaux sociaux ;
+  - éléments de tarifs inexistants (« assistance prioritaire », « fiche Google ») ;
+  - « Essayer 30 jours » alors qu'aucun essai gratuit n'existe.
+
+**Contrôles finaux sur le code de la fin de nuit**
+- 100 boutiques de dropshipping : aucune anomalie.
+- 100 utilisateurs dans un vrai navigateur (40 marchands, 46 commandes payées) : aucune anomalie.
+- API, pannes et doubles clics, XSS, accessibilité : propres.
+- Parcours d'un nouveau marchand sur téléphone (iPhone, Pixel, 360 px) et contrôle de chaque formule dans le navigateur : corrections faites aux cycles 42 et 47.
+
+**À faire par l'exploitant avant la mise en ligne** (impossible ici sans ses comptes ni ses décisions)
+1. **Identité légale** : renseigner `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL`, `EXPLOITANT_IDE` et `HEBERGEUR` (mentions légales, confidentialité, conditions).
+2. **Stripe**
+   - Compte de la plateforme avec Connect (comptes Express), TWINT et Bancontact activés pour les comptes connectés.
+   - Deux webhooks : plateforme et Connect, avec `STRIPE_WEBHOOK_SECRET` et `STRIPE_CONNECT_WEBHOOK_SECRET`.
+   - Version d'API du webhook : `2024-06-20`.
+   - Un essai complet en mode test.
+3. **Un vrai fournisseur** branché selon le contrat décrit dans `server/README.md`. Tant qu'il n'y en a pas, les produits du fournisseur de démonstration ne sont ni affichés ni vendus avec une clé Stripe réelle.
+4. **Envoi des e-mails** : brancher Brevo ou Postmark. Sans cela, les e-mails restent en file d'attente.
+5. **Réseaux sociaux** : connecter les API officielles. En attendant, la publication reste manuelle (texte préparé, copié par le marchand).
+6. **Décisions à prendre**
+   - Prix des abonnements affichés hors taxes ou TTC, et collecte des numéros de TVA.
+   - Durée de conservation des données des comptes fermés.
+   - Accès en lecture seule aux commandes après la fin d'un abonnement.
+
 ## Domaines prévus
 
 1. Sécurité : XSS stockée, en-têtes HTTP, cookies, fichiers statiques, saisies extrêmes de l'API

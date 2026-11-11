@@ -70,6 +70,7 @@ Rafraîchissement : Google Trends et fichier au démarrage puis toutes les 6 heu
    - Le marchand active ses paiements dans Paramètres > Paiements : Stripe vérifie son identité et son IBAN. Tant que ce n'est pas fait, sa boutique n'accepte aucune commande.
 2. Définissez `STRIPE_SECRET_KEY` et `URL_PUBLIQUE`.
 3. Dans Stripe, ajoutez un webhook vers `https://<votre-domaine>/api/webhooks/stripe` pour les événements `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` et `customer.subscription.deleted` (commandes et abonnements), puis copiez son secret dans `STRIPE_WEBHOOK_SECRET`. Activez le portail client Stripe (changement de carte, de formule, résiliation).
+   Choisissez la version d'API `2024-06-20` pour les deux webhooks : c'est celle que le serveur utilise pour tous ses appels.
 4. Ajoutez un second webhook, de type **Connect** (« événements des comptes connectés »), vers la même adresse, pour `checkout.session.completed`, `checkout.session.async_payment_succeeded` et `account.updated` ; son secret va dans `STRIPE_CONNECT_WEBHOOK_SECRET`.
 
 ### Un vrai fournisseur
