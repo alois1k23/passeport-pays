@@ -21,9 +21,13 @@ const ralentir = async (ctx, ms) => ctx.route('**/api/**', async r => { await ne
   const erreurAff = await p.evaluate(() => document.querySelector('.alerte-encart')?.innerText || '');
   if (/existe déjà/.test(erreurAff)) constats.push('double clic à l’inscription : message « compte existe déjà » affiché à tort');
   if (!(await p.$('[data-abo="payer"]'))) constats.push('double clic à l’inscription : écran de paiement absent ' + erreurAff);
+  await p.check('input[data-abo="formule"][value="pro"]', { force: true }).catch(() => {}); await p.waitForTimeout(200);   // la caisse est dans la formule Pro
   await p.dblclick('[data-abo="payer"]'); await p.waitForURL(/abonnement-simule/, { timeout: 15000 });
   await p.click('button:has-text("Payer")'); await p.waitForTimeout(9000);
-  // 2. Import catalogue : double clic
+  // Adresse de l'entreprise (sans elle, la boutique n'accepte pas de commandes), saisie comme un marchand dans Conformité
+  await p.evaluate(() => { location.hash = 'conformite'; }); await p.waitForTimeout(800);
+  await p.fill('#en-adresse', 'Rue de Bourg 1, 1003 Lausanne'); await p.press('#en-adresse', 'Tab'); await p.waitForTimeout(2500);
+    // 2. Import catalogue : double clic
   await p.evaluate(() => { location.hash = 'sourcing'; }); await p.waitForTimeout(800);
   const avantImport = await p.evaluate(() => etat.produits.length);
   const bouton = p.locator('[data-action="importer-produit"]').first();
