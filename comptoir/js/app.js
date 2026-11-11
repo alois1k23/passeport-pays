@@ -738,9 +738,9 @@ function vueDomaines() {
       <td><div class="mono dom">${esc(r.domaine)}</div><div class="sous">${esc(r.raisons.slice(0, 2).join(' · '))}</div></td>
       <td><span class="tag">${esc(r.genre)}</span></td>
       <td><div class="score"><div class="score-barre"><i style="width:${r.score}%"></i></div><b>${r.score}</b></div></td>
-      <td>${r.disponible ? '<span class="pill good">Disponible</span>' : r.prime ? '<span class="pill warn">Premium</span>' : '<span class="pill muted">Déjà pris</span>'}</td>
-      <td class="num">${r.disponible || r.prime ? euros(r.prix) + '<div class="sous">puis ' + euros(r.renouv) + '/an</div>' : '—'}</td>
-      <td>${r.disponible ? `<button class="btn petit fantome" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">${b.domaine && b.domaine.domaine === r.domaine ? 'Choisi' : 'Choisir'}</button>` : ''}</td>
+      <td>${connecteAuServeur() ? `<span class="pill muted" data-dispo="${esc(r.domaine)}">À vérifier</span> <button class="btn petit fantome" data-srv="dispo" data-d="${esc(r.domaine)}">Vérifier</button>` : r.disponible ? '<span class="pill good">Disponible</span>' : r.prime ? '<span class="pill warn">Premium</span>' : '<span class="pill muted">Déjà pris</span>'}</td>
+      <td class="num">${connecteAuServeur() ? `≈ ${euros(EXTENSIONS[r.ext] ? EXTENSIONS[r.ext].prix : r.prix)}<div class="sous">prix indicatif</div>` : r.disponible || r.prime ? euros(r.prix) + '<div class="sous">puis ' + euros(r.renouv) + '/an</div>' : '—'}</td>
+      <td>${r.disponible || connecteAuServeur() ? `<button class="btn petit fantome" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">${b.domaine && b.domaine.domaine === r.domaine ? 'Choisi' : 'Choisir'}</button>` : ''}</td>
     </tr>`;
   const reco = (r, titre, texte) => r ? `<div class="reco"><span class="eyebrow">${titre}</span><div class="mono dom grand">${esc(r.domaine)}</div>
       <div class="detail-score">${Object.entries({ Demande: r.detail.demande, Saison: r.detail.saison, Brièveté: r.detail.court, Mémorisation: r.detail.memo, Extension: r.detail.extension }).map(([k, v]) => `<div><span>${k}</span><div class="score-barre"><i style="width:${v}%"></i></div><b>${v}</b></div>`).join('')}</div>
@@ -772,11 +772,11 @@ function vueDomaines() {
     ${reco(res.campagne, 'Domaine de campagne', `Redirigé vers votre boutique le temps de « ${esc(res.campagne ? res.campagne.saison.nom : '')} » : utile pour la publicité et les réseaux sociaux.`)}
   </div>
   <section class="carte sans-pad">
-    <div class="carte-tete pad"><h2>Toutes les suggestions</h2><span class="sous">${res.resultats.filter(r => r.disponible).length} disponibles sur ${res.resultats.length}</span></div>
+    <div class="carte-tete pad"><h2>Toutes les suggestions</h2><span class="sous">${connecteAuServeur() ? `${res.resultats.length} suggestions` : `${res.resultats.filter(r => r.disponible).length} disponibles sur ${res.resultats.length}`}</span></div>
     <div class="table-wrap"><table class="table"><thead><tr><th>Domaine</th><th>Type</th><th>Score</th><th>Disponibilité</th><th class="num">Première année</th><th></th></tr></thead>
     <tbody>${res.resultats.map(ligne).join('')}</tbody></table></div>
   </section>
-  <p class="note">Démo : volumes de recherche, disponibilité et prix sont simulés. En production, ils viennent de l’API d’un registrar et de Google Trends.</p>`;
+  <p class="note">${connecteAuServeur() ? 'Volumes de recherche estimés. « Vérifier » interroge le registre officiel du domaine (RDAP) ; les prix sont indicatifs : la réservation se fait chez le registrar de votre choix.' : 'Démo : volumes de recherche, disponibilité et prix sont simulés. En production, ils viennent de l’API d’un registrar et de Google Trends.'}</p>`;
 }
 
 /* ---------- Boutique en ligne (vue client) ---------- */
@@ -878,7 +878,7 @@ function vueAssistant() {
     if (!a.domaine && top[0]) a.domaine = top[0].domaine;
     corps = `<p class="sous">Classés selon la demande « ${esc(SECTEURS[a.secteur].nom)} » en ${MOIS_LONG[new Date().getMonth()]} et la facilité à retenir le nom.</p>
       <div class="choix-domaines">${top.map(r => `<label class="choix-dom ${a.domaine === r.domaine ? 'actif' : ''}"><input type="radio" name="as-dom" value="${esc(r.domaine)}" data-assistant="domaine" ${a.domaine === r.domaine ? 'checked' : ''}>
-        <span class="mono">${esc(r.domaine)}</span><b>${r.score}</b><span class="sous">${euros(r.prix)} la première année</span></label>`).join('')}
+        <span class="mono">${esc(r.domaine)}</span><b>${r.score}</b><span class="sous">${connecteAuServeur() ? `≈ ${euros(r.prix)} par an, à vérifier chez le registrar` : `${euros(r.prix)} la première année`}</span></label>`).join('')}
       <label class="choix-dom ${a.domaine === '' ? 'actif' : ''}"><input type="radio" name="as-dom" value="" data-assistant="domaine" ${a.domaine === '' ? 'checked' : ''}><span>Plus tard, garder l’adresse gratuite</span></label></div>`;
   }
   return `<div class="assistant carte">

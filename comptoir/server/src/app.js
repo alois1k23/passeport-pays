@@ -446,6 +446,29 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
 
   /* Domaine personnalisé : actif quand le DNS pointe vers Comptoir (enregistrement CNAME ou même adresse IP). */
+  // Disponibilité réelle d'un nom de domaine, d'après le registre (RDAP, protocole officiel des registres) :
+  // 404 = aucun enregistrement, donc libre ; 200 = déjà enregistré. Toute autre réponse : inconnu.
+  const cacheRdap = new Map();
+  r.get('/api/admin/domaine/disponible', exigerMarchand, async ctx => {
+    const d = String(ctx.query.get('d') || '').toLowerCase().trim();
+    if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.[a-z]{2,24}$/.test(d)) throw erreur(400, 'Nom de domaine invalide.', 'domaine_invalide');
+    auth.limiter('rdap:' + ctx.marchand.id, 60 * facteurLimites, 10 * 60000, 'Trop de vérifications en peu de temps. Réessayez dans quelques minutes.');
+    const vu = cacheRdap.get(d);
+    if (vu && Date.now() - vu.t < 10 * 60000) return vu.r;
+    let resultat = { domaine: d, etat: 'inconnu' };
+    // Registre interrogé directement quand on le connaît (rdap.org répond aussi 404 pour une extension qu'il ne connaît pas,
+    // par exemple .ch : un 404 n'y prouve donc la disponibilité que s'il vient du registre, après redirection).
+    const ext = d.split('.').pop();
+    const REGISTRES = { ch: 'https://rdap.nic.ch', li: 'https://rdap.nic.ch', fr: 'https://rdap.nic.fr', com: 'https://rdap.verisign.com/com/v1', net: 'https://rdap.verisign.com/net/v1' };
+    const direct = env.RDAP_URL || REGISTRES[ext];
+    try {
+      const rep = await fetchImpl(`${direct || 'https://rdap.org'}/domain/${encodeURIComponent(d)}`, { headers: { Accept: 'application/rdap+json' }, redirect: 'follow', signal: AbortSignal.timeout(8000) });
+      const libre = rep.status === 404 && (direct || rep.redirected);
+      resultat = { domaine: d, etat: libre ? 'libre' : rep.ok ? 'pris' : 'inconnu' };
+    } catch { /* registre injoignable : inconnu */ }
+    if (resultat.etat !== 'inconnu') cacheRdap.set(d, { t: Date.now(), r: resultat });
+    return resultat;
+  });
   r.post('/api/admin/domaine/verifier', exigerMarchand, async ctx => {
     const config = lireConfig(ctx.boutique);
     const d = config.boutique.domaine;

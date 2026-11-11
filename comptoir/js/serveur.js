@@ -278,6 +278,16 @@ function installerModeConnecte() {
   document.addEventListener('click', async e => {
     const srv = e.target.closest('[data-srv]');
     if (srv && srv.dataset.srv === 'deconnexion') { await api('POST', '/api/auth/deconnexion'); location.reload(); return; }
+    if (srv && srv.dataset.srv === 'dispo') {
+      srv.disabled = true;
+      const pill = document.querySelector(`[data-dispo="${CSS.escape(srv.dataset.d)}"]`);
+      try {
+        const r = await api('GET', `/api/admin/domaine/disponible?d=${encodeURIComponent(srv.dataset.d)}`);
+        if (pill) { pill.className = 'pill ' + ({ libre: 'good', pris: 'muted', inconnu: 'warn' }[r.etat]); pill.textContent = { libre: 'Libre', pris: 'Déjà pris', inconnu: 'Registre injoignable' }[r.etat]; }
+        if (r.etat !== 'inconnu') srv.remove(); else srv.disabled = false;
+      } catch (err) { srv.disabled = false; toast(err.message); }
+      return;
+    }
     if (srv && srv.dataset.srv === 'verifier-dns') {
       srv.disabled = true;
       try { const r = await api('POST', '/api/admin/domaine/verifier'); await rafraichir(`Domaine actif : ${r.url}`); } catch (err) { srv.disabled = false; toast(err.message); }

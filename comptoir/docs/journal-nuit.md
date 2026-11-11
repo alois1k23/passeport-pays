@@ -374,3 +374,15 @@ Contrôles de non-régression sur la démo : aucune erreur, aucun débordement �
 **Défaut trouvé et corrigé**
 
 - **Expéditeur des e-mails cassé** si le nom de la boutique contient une virgule (« Lumière, Co » était lu comme deux adresses) ou des balises. Le nom est nettoyé et mis entre guillemets.
+
+### Cycle 19 — Noms de domaine : disponibilité réelle
+
+**Défaut** : sur un compte réel, la page Domaines affichait « Disponible » ou « Déjà pris » et des prix, alors que tout était simulé (et la note disait « Démo »). Un client pouvait choisir un nom déjà pris.
+
+**Correction** :
+- en compte réel, chaque suggestion porte « À vérifier » et un bouton « Vérifier », qui interroge le registre officiel du domaine (protocole RDAP) : SWITCH pour .ch et .li, AFNIC pour .fr, Verisign pour .com et .net, l'annuaire rdap.org pour les autres ;
+- piège évité : rdap.org répond « introuvable » même pour google.ch, parce qu'il ne connaît pas le registre suisse. Interrogé naïvement, il aurait affiché « Libre » pour un domaine pris. Un « introuvable » ne compte donc comme « libre » que s'il vient du registre lui-même ; sinon, l'écran affiche « Registre injoignable » ;
+- vérifié en direct : google.ch, google.fr et google.com sont pris ; un nom inventé est libre en .ch, .fr et .com ;
+- les prix sont marqués « indicatifs » et la réservation se fait chez le registrar choisi ; la démo garde ses données simulées, signalées comme telles.
+
+Tests : 42 (registre simulé : libre, pris, injoignable, saisie invalide, cache).
