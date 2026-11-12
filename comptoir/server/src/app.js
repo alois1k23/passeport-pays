@@ -16,6 +16,7 @@ const FactureElectronique = require('./facture-electronique');
 const FacturxPdf = require('./facturx-pdf');
 const CartesCadeaux = require('./cartes-cadeaux');
 const Devis = require('./devis');
+const Fidelite = require('./fidelite');
 const JournalInalterable = require('./journal-inalterable');
 const WebPush = require('./webpush');
 const { AsyncLocalStorage } = require('node:async_hooks');
@@ -327,7 +328,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Sous-clé dédiée (HKDF) : les empreintes des cartes ne dépendent pas directement de la clé des autres usages.
   // Changer SECRET_CHIFFREMENT rend les cartes en cours introuvables : la clé ne se change pas sans migration.
   const Cartes = CartesCadeaux.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:cartes-cadeaux', 32)));
-  const DV = Devis.creer(db);   // codes des cartes cadeaux : empreinte HMAC, jamais en clair
+  const DV = Devis.creer(db);
+  const FID = Fidelite.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:fidelite', 32)));   // codes des cartes cadeaux : empreinte HMAC, jamais en clair
   auth.persisterLimites(db, cleChiffrement);   // compteurs anti-abus rechargés (empreintes HMAC) : un redémarrage ne les remet pas à zéro
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
@@ -405,6 +407,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     ...(c.remise ? [`  (prix après remise${c.motifRemise ? ` : ${c.motifRemise}` : ''}, soit ${formatMontant(c.remise, config)} d’économie)`] : []),
     c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
     `Total payé : ${formatMontant(c.total, config)}`,
+    ...(c.fidelite && c.fidelite.gagnes ? [`Points de fidélité gagnés : ${c.fidelite.gagnes}`] : []),
     ...(c.carteCadeau && c.carteCadeau.montant ? [`  dont ${formatMontant(c.carteCadeau.montant, config)} par carte cadeau ····${c.carteCadeau.fin}, reste ${formatMontant(Math.max(0, c.total - c.carteCadeau.montant), config)}`] : [])
   ].join('\n');
   const lienTransporteur = (transporteur, suivi, pays) => {
@@ -638,6 +641,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (pr) { const parent = lireCommande(pr); parent.complements = [...(parent.complements || []), c.id]; historique(parent, `Complément n° ${c.numero} ajouté après l’achat : à expédier dans le même colis`); enregistrerCommande(parent); }
     }
     historique(c, texte);
+    // Fidélité : points utilisés débités maintenant (paiement reçu), points gagnés crédités sur les articles payés.
+    if (c.client && c.client.email && ['web', 'devis'].includes(c.canal || 'web')) {
+      const reg = FID.reglages(row.boutique_id);
+      if (c.fidelite && c.fidelite.points && c.fidelite.debite === undefined) {
+        c.fidelite.debite = FID.debiter(row.boutique_id, c.client.email, c.fidelite.points, { commandeId: c.id });
+        if (c.fidelite.debite < c.fidelite.points) historique(c, `Points de fidélité : ${c.fidelite.debite} débités sur ${c.fidelite.points} (solde utilisé entre-temps)`);
+      }
+      if (reg.actif && !(c.fidelite && c.fidelite.gagnes)) {
+        const gagnes = FID.gagnes(reg, Math.round(c.lignes.reduce((a, l) => a + l.prix * l.qte, 0) * 100));
+        if (gagnes > 0) { FID.crediter(row.boutique_id, c.client.email, gagnes, { commandeId: c.id }); c.fidelite = { ...(c.fidelite || {}), gagnes }; }
+      }
+    }
     // Stock : la vente est faite (le client a payé), mais une rupture est signalée au lieu d'être cachée.
     const prods = listerProduits(row.boutique_id);
     const manques = c.lignes.filter(l => l.type !== 'drop').map(l => ({ l, p: prods.find(x => x.id === l.produitId) })).filter(x => {
@@ -759,7 +774,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
   // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
-  const LECTURE_SEULE = new Set(['GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
+  const LECTURE_SEULE = new Set(['GET /api/admin/fidelite', 'GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
     verifierRole(ctx);
@@ -1697,6 +1712,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
     if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1);   // vendu : le stock baisse comme pour un paiement en ligne
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1);
+    // Fidélité : points gagnés retirés, points utilisés rendus (une seule fois).
+    if ((cible === 'remboursee' || cible === 'annulee') && c.fidelite && !c.fidelite.annule && c.client && c.client.email) {
+      if (c.fidelite.gagnes) FID.debiter(ctx.boutique.id, c.client.email, c.fidelite.gagnes, { commandeId: c.id, type: 'annulation' });
+      if (c.fidelite.debite) FID.crediter(ctx.boutique.id, c.client.email, c.fidelite.debite, { commandeId: c.id, type: 'remboursement' });
+      if (c.fidelite.gagnes || c.fidelite.debite) { c.fidelite.annule = Date.now(); historique(c, 'Points de fidélité de la commande annulés'); }
+    }
     // Partie payée par carte cadeau : rendue sur la carte (le reste est remboursé par le moyen de paiement d'origine).
     if ((cible === 'remboursee' || cible === 'annulee') && c.carteCadeau && !c.carteCadeau.liberee && !c.carteCadeau.rendue) {
       Cartes.crediter(c.carteCadeau.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} ${cible === 'annulee' ? 'annulée' : 'remboursée'}`, type: 'remboursement' });
@@ -1962,6 +1983,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       produits, avisRecents,
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: Remises.offresDe(config).seuilPort,
+      fidelite: (() => { const f = FID.reglages(b.id); return f.actif ? { pointsParUnite: f.pointsParUnite, valeurPour100: f.valeurPour100, seuil: f.seuil, plafondPct: f.plafondPct } : null; })(),
       offres: (({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles }) => ({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles: regles.filter(r => r.actif && r.type === 'panier') }))(Remises.offresDe(config)),
       newsletter: relances.nettoyer(config.automatisations).bienvenue,
       paiement: paiement.nom,
@@ -2023,10 +2045,24 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         .some(r => { try { return String(JSON.parse(r.donnees).client.email || '').toLowerCase() === client.email.toLowerCase(); } catch { return false; } });
       if (deja) throw erreur(400, `Le code ${bienvenue.code} est réservé à une première commande.`, 'code_premiere_commande');
     }
-    const lignes = calcul.lignes;
-    const sousTotal = calcul.sousTotal, remise = calcul.remise;
-    const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);
-    const total = prix.arrondi(calcul.apresRemise + port);
+    let lignes = calcul.lignes, remise = calcul.remise, apresRemise = calcul.apresRemise;
+    const sousTotal = calcul.sousTotal;
+    // Points de fidélité : seulement avec le code reçu par e-mail (vérifié ici, consommé dans la transaction).
+    // Les points déjà engagés par une autre commande en attente de ce client ne sont pas comptés deux fois.
+    let fidelite = null;
+    if (ctx.corps.fidelite) {
+      const reg = FID.reglages(b.id);
+      if (!reg.actif) throw erreur(400, 'Le programme de fidélité n’est pas actif.', 'fidelite_inactive');
+      auth.limiter(`fidelite-commande:${b.id}:${ctx.ip}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
+      if (!FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''))) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
+      const engages = db.prepare("SELECT COALESCE(SUM(json_extract(donnees, '$.fidelite.points')), 0) n FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ? AND lower(json_extract(donnees, '$.client.email')) = ? AND json_extract(donnees, '$.fidelite.debite') IS NULL").get(b.id, Date.now() - 2 * 3600000, client.email.toLowerCase()).n;
+      const res = Fidelite.appliquerPoints(lignes, reg, Math.max(0, FID.solde(b.id, client.email) - engages));
+      if (!res) throw erreur(400, `Pas assez de points pour une remise (minimum ${reg.seuil} points).`, 'fidelite_insuffisant');
+      lignes = res.lignes; remise = prix.arrondi(remise + res.remise / 100); apresRemise = prix.arrondi(apresRemise - res.remise / 100);
+      fidelite = { points: res.points, montant: res.remise / 100 };
+    }
+    const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);   // seuil de port offert : avant les points
+    const total = prix.arrondi(apresRemise + port);
     if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(port)) throw erreur(400, 'Montant de la commande invalide.', 'montant_invalide');
     const devise = config.boutique.devise || 'EUR';
     // Paiement sur facture QR : pas de paiement en ligne ; facture émise tout de suite, payable à l'échéance.
@@ -2058,7 +2094,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const { commande, pmt, payee } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
-      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes, sousTotal, remise, motifRemise: calcul.motif ? calcul.motif.libelle : null, port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${calcul.motif.libelle})` : '') }] };
+      if (fidelite && !FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''), { consommer: true })) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
+      const motifs = [calcul.motif ? calcul.motif.libelle : null, fidelite ? `${fidelite.points} points de fidélité` : null].filter(Boolean);
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
@@ -2201,6 +2239,34 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     ctx.entetes['Content-Disposition'] = `attachment; filename="${nom}.pdf"`;
     return { binaire: FacturxPdf.produire(c, config, { avoir, devise, xml }), type: 'application/pdf' };
   });
+  /* ---------- Programme de fidélité ---------- */
+  r.get('/api/admin/fidelite', exigerMarchand, ctx => ({ reglages: FID.reglages(ctx.boutique.id), stats: FID.stats(ctx.boutique.id), registreCoherent: !FID.verifier(ctx.boutique.id).length }));
+  r.put('/api/admin/fidelite', exigerMarchand, ctx => { const reg = FID.ecrireReglages(ctx.boutique.id, ctx.corps); noterActivite(ctx.marchand.id, 'fidelite', reg.actif ? 'Programme activé ou modifié' : 'Programme désactivé', ctx); return { reglages: reg }; });
+  // Code pour utiliser ses points : même réponse que l'adresse ait des points ou non (aucune information sur les clients) ;
+  // un e-mail n'est envoyé qu'aux adresses qui ont des points (pas d'envoi à une adresse quelconque).
+  r.post('/api/public/:slug/fidelite/code', ctx => {
+    const b = boutiqueOuverte(ctx.params.slug), reg = FID.reglages(b.id);
+    if (!reg.actif) throw erreur(404, 'Programme de fidélité inactif.', 'fidelite_inactive');
+    const email = valider.email(ctx.corps.email);
+    auth.limiter(`fidelite-code:${b.id}:${ctx.ip}`, 5 * facteurLimites, 15 * 60000, 'Trop de demandes de code. Réessayez dans quelques minutes.');
+    auth.limiter(`fidelite-code-email:${b.id}:${email.toLowerCase()}`, 3 * facteurLimites, 3600000, 'Un code a déjà été envoyé à cette adresse : vérifiez vos e-mails.');
+    const points = FID.solde(b.id, email);
+    if (points > 0) {
+      const config = lireConfig(b), code = FID.nouveauCode(b.id, email);
+      envoyerEmail(b.id, email, `${config.boutique.nom} : votre code pour utiliser vos points`, `Bonjour,\n\nVous avez ${points} points de fidélité chez ${config.boutique.nom} (${formatMontant(FID.valeur(reg, points) / 100, config)}).\n\nVotre code pour les utiliser sur votre commande : ${code}\nIl est valable 15 minutes.\n\nVous n'avez rien demandé ? Ignorez cet e-mail : sans ce code, personne ne peut utiliser vos points.\n\n${config.boutique.nom}`);
+    }
+    return { ok: true };
+  });
+  r.post('/api/public/:slug/fidelite/solde', ctx => {
+    const b = boutiqueOuverte(ctx.params.slug), reg = FID.reglages(b.id);
+    if (!reg.actif) throw erreur(404, 'Programme de fidélité inactif.', 'fidelite_inactive');
+    const email = valider.email(ctx.corps.email);
+    auth.limiter(`fidelite-solde:${b.id}:${ctx.ip}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
+    if (!FID.verifierCode(b.id, email, String(ctx.corps.code || ''))) throw erreur(400, 'Code invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
+    const points = FID.solde(b.id, email);
+    return { points, valeur: FID.valeur(reg, points) / 100, seuil: reg.seuil, plafondPct: reg.plafondPct, utilisable: points >= reg.seuil };
+  });
+
   /* ---------- Devis pour les clients professionnels ---------- */
   const FEUILLE_DEVIS = feuille(`*{box-sizing:border-box}body{margin:0;background:#F4F5F7;color:#151821;font:15px/1.5 system-ui,sans-serif}main{max-width:820px;margin:24px auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .haut{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap}.haut h1{margin:0;font-size:22px}.sous{color:#5B6170;font-size:14px}.num{text-align:right;white-space:nowrap}
