@@ -1,0 +1,33 @@
+// Export complet de la boutique : propriétaire seulement, mot de passe redemandé, aucun secret, toutes les données.
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const { ouvrir } = require('../src/db');
+const { creerApp } = require('../src/app');
+
+test('export complet', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length) cookie = sc.map(x => x.split(';')[0]).join('; '); return r; };
+  const mdp = 'un mot de passe solide';
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'ex@exemple.ch', motDePasse: mdp, config: { boutique: { nom: 'Export', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'E', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
+    const slug = db.prepare('SELECT slug FROM boutiques').get().slug, pid = (await (await c('GET', '/api/admin/etat')).json()).produits[0].id;
+    const cmd = await (await fetch(`${base}/api/public/${slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: pid, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Léa Martin', email: 'lea@exemple.ch', adresse: 'Rue 2', npa: '1004', ville: 'Lausanne' } }) })).json();
+    await fetch(cmd.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    assert.equal((await c('POST', '/api/admin/export-complet', { motDePasse: 'faux mot de passe' })).status, 401);
+    const r = await c('POST', '/api/admin/export-complet', { motDePasse: mdp });
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-disposition'), /attachment; filename="comptoir-.*\.json"/); assert.match(r.headers.get('cache-control'), /no-store/);
+    const texte = await r.text(), d = JSON.parse(texte);
+    assert.equal(d.format, 'comptoir-export'); assert.equal(d.produits.length, 1); assert.equal(d.commandes.length, 1);
+    assert.equal(d.clients[0].email, 'lea@exemple.ch'); assert.equal(d.configuration.boutique.nom, 'Export');
+    assert.ok(d.journalVentes.length >= 1, 'journal des ventes inclus');
+    const jeton = db.prepare('SELECT jeton_client FROM commandes').get().jeton_client;
+    assert.ok(!texte.includes(jeton), 'jeton du client absent'); assert.doesNotMatch(texte, /mot_de_passe|scrypt\$/);
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE sujet = 'Export complet de votre boutique Comptoir'").get(), 'propriétaire prévenu');
+  } finally { s.close(); }
+});

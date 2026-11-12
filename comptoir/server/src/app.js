@@ -1718,6 +1718,38 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
      L'effacement anonymise les commandes : montants, numéros et factures restent pour la comptabilité (conservation légale). */
   const commandesDuClient = (boutiqueId, email) => db.prepare('SELECT * FROM commandes WHERE boutique_id = ?').all(boutiqueId).map(lireCommande)
     .filter(c => String(c.client && c.client.email || '').toLowerCase() === email);
+  /* Export complet de la boutique (portabilité) : tout ce qui appartient au marchand, en un fichier JSON lisible.
+     Propriétaire seulement, mot de passe (et code de double authentification) redemandés : le fichier contient les données
+     des clients. Aucun secret n'en sort (mots de passe, sessions, clés d'API, secrets de webhooks, jetons des clients). */
+  r.post('/api/admin/export-complet', exigerProprietaire, async ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    const df = deuxFacteursDe(m.id);
+    if (df && df.actif) {
+      auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
+      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa');
+    }
+    auth.limiter('export-complet:' + ctx.boutique.id, 5, 3600000, 'Export déjà fait plusieurs fois cette heure : réessayez plus tard.');
+    const b = ctx.boutique, config = lireConfig(b), iso = t => t ? new Date(t).toISOString() : null;
+    const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? ORDER BY numero').all(b.id).map(row => { const { jeton, ...c } = lireCommande(row); void jeton; return { ...c, date: iso(c.date) }; });
+    const donnees = {
+      format: 'comptoir-export', version: 1, exporteLe: new Date().toISOString(), boutique: { slug: b.slug, creeLe: iso(b.cree_le), compteurFactures: b.compteur_facture },
+      configuration: config,
+      produits: listerProduits(b.id, true).map(avecImage),
+      commandes,
+      clients: [...commandes.reduce((map, c) => { const e = String((c.client && c.client.email) || '').toLowerCase(); if (!e) return map; const x = map.get(e) || { email: e, nom: c.client.nom, commandes: 0, total: 0, premiere: c.date, derniere: c.date }; x.commandes++; x.total = Math.round((x.total + (c.total || 0)) * 100) / 100; x.derniere = c.date; map.set(e, x); return map; }, new Map()).values()],
+      avis: db.prepare('SELECT produit_id, commande_id, note, texte, prenom, ville, cree_le, reponse FROM avis WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
+      abonnes: db.prepare('SELECT email, cree_le, langue FROM abonnes WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
+      desinscriptions: db.prepare('SELECT email, cree_le FROM desinscriptions WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
+      alertesStock: db.prepare('SELECT produit_id, variante_id, email, langue, cree_le FROM alertes_stock WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
+      journalVentes: db.prepare('SELECT seq, type, ref, commande_id, le, contenu, empreinte FROM journal_inalterable WHERE boutique_id = ? ORDER BY seq').all(b.id).map(e => ({ ...e, le: iso(e.le), contenu: JSON.parse(e.contenu) }))
+    };
+    noterActivite(m.id, 'export-complet', `${commandes.length} commandes`, ctx);
+    envoyerEmail(null, m.email, 'Export complet de votre boutique Comptoir', `Bonjour,\n\nUn export complet de votre boutique (commandes, clients, produits) vient d’être téléchargé.\n\nCe n’est pas vous ? Changez votre mot de passe tout de suite et écrivez-nous.\n\nL’équipe Comptoir`);
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    ctx.entetes['Content-Disposition'] = `attachment; filename="comptoir-${b.slug}-${new Date().toISOString().slice(0, 10)}.json"`;
+    return { binaire: Buffer.from(JSON.stringify(donnees, null, 1), 'utf8'), type: 'application/json; charset=utf-8' };
+  });
   r.get('/api/admin/clients/export', exigerMarchand, ctx => {
     const email = valider.email(ctx.query.get('email') || '').toLowerCase();
     const commandes = commandesDuClient(ctx.boutique.id, email);

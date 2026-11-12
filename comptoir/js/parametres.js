@@ -129,7 +129,10 @@ function vueParametres() {
     corps = vueIntegrations();
   } else if (s === 'sensible') {
     corps = enLigne()
-      ? `<section class="carte zone-sensible"><div class="carte-tete"><h2>Supprimer le compte</h2></div>
+      ? `<section class="carte"><div class="carte-tete"><h2>Exporter toutes vos données</h2></div>
+        <p class="sous">Vos données vous appartiennent : configuration, produits et photos, commandes et factures, clients, avis, abonnés et journal des ventes, en un fichier JSON lisible par n’importe quel outil. Il contient les données de vos clients : gardez-le en lieu sûr.</p>
+        <form data-form="export-complet" class="rangee"><input type="password" name="motDePasse" required placeholder="Mot de passe" autocomplete="current-password" aria-label="Mot de passe"><input name="code" placeholder="Code (si double authentification)" autocomplete="one-time-code" maxlength="12" aria-label="Code de l’application ou code de secours"><button class="btn petit">Télécharger l’export</button></form></section>
+      <section class="carte zone-sensible"><div class="carte-tete"><h2>Supprimer le compte</h2></div>
         <p class="sous">Supprime définitivement la boutique, les produits, les commandes, les factures, les clients et les avis. Exportez vos données avant : vos factures doivent être conservées 10 ans.</p>
         <form data-form="supprimer-compte" class="rangee"><input type="password" name="motDePasse" placeholder="Votre mot de passe" required autocomplete="current-password" aria-label="Mot de passe"><button class="btn danger">Supprimer définitivement</button></form></section>`
       : `<section class="carte zone-sensible"><div class="carte-tete"><h2>Réinitialiser la démo</h2></div>
@@ -405,4 +408,20 @@ document.addEventListener('click', async e => {
     }
   } catch (err) { toast(err.message || 'Notifications indisponibles sur cet appareil.'); }
   rendre();
+});
+
+/* Export complet : téléchargé seulement si le serveur l'a accepté (sinon, le message d'erreur s'affiche). */
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('[data-form="export-complet"]'); if (!f) return;
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(f)), bouton = f.querySelector('button'); bouton.disabled = true;
+  try {
+    const r = await fetch('/api/admin/export-complet', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motDePasse: d.motDePasse, code: d.code || undefined }) });
+    if (!r.ok) { let m = 'Export impossible.'; try { m = (await r.json()).erreur || m; } catch { /* ignoré */ } toast(m); return; }
+    const nom = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'comptoir-export.json';
+    const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+    a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    f.reset(); toast('Export téléchargé. Un e-mail de confirmation vous a été envoyé.');
+  } catch { toast('Pas de connexion : réessayez dans un instant.'); }
+  finally { bouton.disabled = false; }
 });

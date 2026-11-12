@@ -753,3 +753,9 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - Vérifié en France, en Belgique et en Suisse (trois taux avec port et remise, avoir sur une facture d'un trimestre précédent, espèces arrondies, nom de client piégé) : toutes les écritures sont équilibrées.
 - Reste à confirmer : l'encodage admis par l'administration (UTF-8 limité aux caractères latins, ou ISO 8859-15).
 - 117 tests sur 117, bout en bout 51 sur 51.
+
+## Cycle 60 (04 h 30) : export complet des données (portabilité)
+
+- Paramètres, Zone sensible : « Exporter toutes vos données ». Un fichier JSON lisible par n'importe quel outil contient la configuration, les produits avec leurs photos, les commandes et factures, les clients, les avis, les abonnés, les désinscriptions, les demandes « Prévenez-moi » et le journal des ventes. Les données appartiennent au marchand, qui peut partir avec.
+- Réservé au propriétaire, avec mot de passe redemandé (et code de double authentification si elle est active) ; 5 exports par heure au plus ; e-mail de confirmation au propriétaire. Aucun secret ne sort : ni mot de passe, ni session, ni clé d'API, ni secret de webhook, ni jeton de suivi des clients. Disponible même avec un abonnement terminé.
+- Test ajouté (`export-complet.test.js`) et vérification dans un vrai navigateur (refus avec un mauvais mot de passe, fichier complet sinon). 118 tests sur 118.
