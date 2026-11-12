@@ -398,3 +398,14 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Abonnement** : l'équipe utilise celui du propriétaire. S'il est inactif, le membre voit « Boutique en pause », sans écran de paiement.
 - La suppression du compte du propriétaire supprime aussi les comptes de son équipe. L'effacement des inscriptions jamais payées épargne les membres d'équipe.
 - Testé : parcours complet automatique (invitation, acceptation, permissions des deux rôles, traçabilité, retrait, suppression), puis dans un vrai navigateur (invitation envoyée, écran d'acceptation, menu réduit du rôle « Commandes »). 95 tests sur 95.
+
+## Cycle 26 (02 h 10) : demandes de retour
+
+- Sur la page de suivi de sa commande, le client peut **demander un retour** : articles et quantités, motif facultatif. C'est possible pendant le délai légal (14 jours en France et en Belgique, droit de rétractation) ou, en Suisse, pendant le délai de retour choisi par le marchand (aucun par défaut, le droit suisse n'imposant pas de rétractation). Le délai court depuis la livraison ou le retrait.
+- Le client reçoit par e-mail l'adresse de retour. Le marchand est prévenu par e-mail et par notification. La commande porte la mention « Retour » dans la liste, et un encadré détaille les articles, le montant au prix réellement payé et le motif. Le remboursement clôt le retour.
+- Une seule demande par commande, et le jeton de la commande est exigé. Les nouveaux textes sont traduits (allemand, italien, anglais).
+- Testé :
+  - France : retour possible, demande enregistrée, e-mails envoyés, remboursement qui clôt le retour ;
+  - Suisse sans politique de retour : aucune demande possible ;
+  - mauvais jeton refusé, deuxième demande refusée.
+- 96 tests sur 96.

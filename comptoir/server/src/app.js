@@ -1293,6 +1293,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/commandes/:id/statut', exigerMarchand, async ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     const cible = ctx.corps.statut;
+    if (cible === 'remboursee' && c.retour && c.retour.statut === 'demande') c.retour.statut = 'rembourse';
     if (ctx.role === 'commandes' && ['remboursee', 'annulee'].includes(cible)) throw erreur(403, 'Rembourser ou annuler une commande est réservé au propriétaire ou à la gestion complète.', 'role');
     if (!transitionsPossibles(c).includes(cible)) throw erreur(409, `Impossible de passer de « ${c.statut} » à « ${cible} ».`, 'transition_invalide');
     const config = lireConfig(ctx.boutique);
@@ -2083,6 +2084,37 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   }
 
   const verifsSession = new Map();
+  /* Retours : France et Belgique, 14 jours après réception (droit de rétractation) ; Suisse, le délai choisi par le
+     marchand (sinon aucun). Point de départ : la livraison ou le retrait (sinon l'expédition, puis la commande). */
+  const delaiRetour = (b, c) => {
+    if (!['expediee', 'livree', 'retiree'].includes(c.statut) || c.canal === 'magasin') return 0;
+    const config = lireConfig(b), jours = config.boutique.pays === 'ch' ? Number((config.entreprise || {}).retoursJours) || 0 : Math.max(14, Number((config.entreprise || {}).retoursJours) || 0);
+    if (!jours) return 0;
+    const recu = [...(c.historique || [])].reverse().find(h => /^(Livrée|Remise au client|Retirée|Expédiée)/.test(h.texte));
+    return (recu ? recu.date : c.date) + (jours + (c.statut === 'expediee' ? 7 : 0)) * 86400000;   // colis en route : 7 jours d'acheminement en plus
+  };
+  r.post('/api/public/:slug/commandes/:id/retour', ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    auth.limiter('retour:' + ctx.ip, 10 * facteurLimites, 3600000, 'Trop de demandes. Réessayez plus tard.');
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
+    if (!row || !auth.egal(String(ctx.corps.jeton || ''), row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    const c = lireCommande(row);
+    if (c.retour) throw erreur(409, 'Un retour est déjà demandé pour cette commande.', 'retour_existant');
+    if (delaiRetour(b, c) <= Date.now()) throw erreur(409, 'Le délai de retour de cette commande est dépassé.', 'retour_hors_delai');
+    const voulus = Array.isArray(ctx.corps.lignes) ? ctx.corps.lignes : [];
+    const lignes = c.lignes.map(l => { const v = voulus.find(x => x && x.produitId === l.produitId); const q = v ? Math.max(0, Math.min(l.qte, parseInt(v.qte, 10) || 0)) : 0; return q ? { produitId: l.produitId, nom: l.nom, qte: q, prix: l.prix } : null; }).filter(Boolean);
+    if (!lignes.length) throw erreur(400, 'Choisissez au moins un article à retourner.', 'retour_vide');
+    const motif = String(ctx.corps.motif || '').trim().slice(0, 500);
+    c.retour = { date: Date.now(), lignes, motif, statut: 'demande', montant: prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0)) };
+    historique(c, `Retour demandé par le client : ${lignes.map(l => `${l.qte} × ${l.nom}`).join(', ')}${motif ? ` (motif : ${motif.slice(0, 120)})` : ''}`);
+    enregistrerCommande(c);
+    const config = lireConfig(b), e = config.entreprise || {}, f = m => formatMontant(m, config);
+    const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+    if (mch) envoyerEmail(null, mch.email, `Retour demandé : commande n° ${c.numero}`, `Bonjour,\n\n${c.client.nom} demande à retourner :\n${lignes.map(l => `- ${l.qte} × ${l.nom} (${f(l.prix * l.qte)})`).join('\n')}\n${motif ? `\nMotif : ${motif}\n` : ''}\nÀ réception des articles, remboursez depuis Commandes (n° ${c.numero}).\n${urlPublique}/app#commandes\n\nL’équipe Comptoir`);
+    envoyerEmail(b.id, c.client.email, `Votre demande de retour (commande n° ${c.numero})`, `Bonjour ${c.client.nom},\n\nNous avons bien reçu votre demande de retour :\n${lignes.map(l => `- ${l.qte} × ${l.nom}`).join('\n')}\n\nRenvoyez les articles à cette adresse, dans leur emballage si possible :\n${e.raison || config.boutique.nom}\n${e.adresse || ''}\n\nLe remboursement intervient dès réception${config.boutique.pays === 'ch' ? '' : ', au plus tard 14 jours après votre demande'}.\n\n${config.boutique.nom}`);
+    notifierPush(b.marchand_id, { titre: `Retour demandé · n° ${c.numero}`, texte: `${lignes.reduce((a, l) => a + l.qte, 0)} article(s), ${f(c.retour.montant)}`, url: '/app#commandes' }).catch(() => {});
+    return { statut: 201, corps: { ok: true } };
+  });
   r.get('/api/public/:slug/commandes/:id', async ctx => {
     const b = boutiqueParSlug(ctx.params.slug);
     let row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
@@ -2099,7 +2131,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);
     }
     const c = lireCommande(row);
-    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map(l => ({ produitId: l.produitId, nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c) };
+    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map(l => ({ produitId: l.produitId, nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c), retour: c.retour ? { statut: c.retour.statut, date: c.retour.date } : null, retourPossible: delaiRetour(b, c) > Date.now() && !c.retour };
   });
 
   /* ---------- Webhooks ---------- */

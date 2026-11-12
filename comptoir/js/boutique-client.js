@@ -255,6 +255,10 @@ async function suivreCommande(id, jeton, annule) {
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
+        ${c.retour ? `<p class="encart">Retour demandé le ${new Date(c.retour.date).toLocaleDateString('fr-CH')}${c.retour.statut === 'rembourse' ? ' : remboursé.' : ' : renvoyez les articles à l’adresse reçue par e-mail.'}</p>` : c.retourPossible ? `<details class="retour-client"><summary>Demander un retour</summary><form data-retour="${esc(id)}" data-jeton="${esc(jeton)}">
+          ${c.lignes.map(l => `<label class="champ"><span data-sans-traduction>${esc(l.nom)}</span><select name="q-${esc(l.produitId)}" aria-label="Quantité à retourner : ${esc(l.nom)}">${Array.from({ length: l.qte + 1 }, (_, n) => `<option value="${n}">${n}</option>`).join('')}</select></label>`).join('')}
+          <label class="champ"><span>Motif (facultatif)</span><textarea name="motif" maxlength="500" rows="2"></textarea></label>
+          <button class="sf-btn">Envoyer la demande de retour</button></form></details>` : ''}
         <button class="sf-btn plein" data-c="fermer">Continuer mes achats</button></div>
         ${c.offreApres ? `<div class="offre-apres">${visuelProduit({ nom: c.offreApres.nom, teinte: c.offreApres.teinte, image: c.offreApres.image })}<div><small>Uniquement maintenant</small><strong>${esc(c.offreApres.nom)}</strong><span><s>${euros(c.offreApres.prix)}</s> <b>${euros(c.offreApres.prixOffre)}</b> (−${c.offreApres.remise} %), livré dans le même colis, sans frais de port.</span>
           <button class="sf-btn" data-c="complement" data-commande="${esc(id)}" data-jeton="${esc(jeton)}" data-regle="${esc(c.offreApres.regle)}">Ajouter à ma commande</button><button class="bouton-lien" data-c="refuser-offre">Non merci</button></div></div>` : ''}`;
@@ -460,3 +464,17 @@ document.addEventListener('input', e => {
   clearTimeout(minuterieRecherche); minuterieRecherche = setTimeout(() => rechercher(champ), 120);
 });
 document.addEventListener('compositionend', e => { const champ = e.target.closest('[data-sf-recherche]'); if (champ) rechercher(champ); });
+
+/* Demande de retour depuis le suivi de commande. */
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('[data-retour]'); if (!f) return;
+  e.preventDefault();
+  const d = new FormData(f), lignes = [...d].filter(([k]) => k.startsWith('q-')).map(([k, v]) => ({ produitId: k.slice(2), qte: Number(v) })).filter(x => x.qte > 0);
+  const bouton = f.querySelector('button'); bouton.disabled = true;
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(f.dataset.retour)}/retour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton: f.dataset.jeton, lignes, motif: d.get('motif') }) });
+    const json = await rep.json();
+    if (!rep.ok) throw new Error(json.erreur);
+    f.closest('details').outerHTML = '<p class="encart" role="status">Demande de retour envoyée. Vous recevez un e-mail avec l’adresse de retour.</p>';
+  } catch (err) { bouton.disabled = false; alert(err.message || 'Envoi impossible. Réessayez dans un instant.'); }
+});
