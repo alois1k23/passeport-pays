@@ -862,7 +862,7 @@ Relecture de la récupération différée, sous l'angle de l'attaquant qui contr
 
 - Tests automatiques : 118 sur 118. Parcours de bout en bout dans un vrai navigateur : 51 contrôles réussis.
 - Simulation de 100 marchands sur 60 jours (8 502 commandes) : 0 anomalie, aucune erreur serveur, p95 de 7 ms, journal des ventes vérifié chez chaque marchand.
-- Démo (artefact) republiée, version 21, chargée sans erreur sur sept écrans.
+- Démo (artefact) republiée, version 22 (05 h 15), chargée sans erreur JavaScript sur sept écrans.
 
 ### Cycle 65 (05 h 10) : audit des injections dans l'interface (XSS)
 
