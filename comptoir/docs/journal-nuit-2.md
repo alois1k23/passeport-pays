@@ -669,3 +669,4 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - Espace marchand et accueil : aucun défaut.
 - Boutique sans section d'en-tête : la page n'avait aucun titre principal (`h1`), ce qui gêne les lecteurs d'écran et le référencement. Le nom de la boutique sert désormais de titre principal, invisible à l'écran.
 - Contraste des textes (seuil WCAG AA : 4,5:1, 3:1 pour les grands textes), mesuré dans un vrai navigateur : espace marchand en mode clair et sombre (5 écrans), boutique avec chacun des 5 thèmes (Brume, Nocturne, Craie, Léman, Argile). **Aucun texte sous le seuil.** Le contrôle a été validé sur une page témoin, où il détecte bien les textes illisibles.
+- Clavier : focus visible vérifié sur 40 éléments du tableau de bord et 25 de la boutique. Les liens de la liste « À faire » n'avaient aucun contour de focus (`outline: 0`) : corrigé. La fiche produit (fenêtre de dialogue) prend le focus à l'ouverture et se ferme avec Échap.
