@@ -13,6 +13,9 @@ const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const EmailsClients = require('./emails-clients');
 const WebPush = require('./webpush');
+const { AsyncLocalStorage } = require('node:async_hooks');
+// Auteur de la requête en cours (membre de l'équipe) : l'historique des commandes porte son nom.
+const requeteCourante = new AsyncLocalStorage();
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
 const totp = require('./totp');
@@ -156,10 +159,20 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Adresse publique d’une boutique : son domaine personnalisé s’il est actif, sinon /s/<slug>. */
   const domaineDe = b => { const d = lireConfig(b).boutique.domaine; return d && d.actif && d.domaine ? String(d.domaine).toLowerCase() : null; };
   const urlBoutique = b => domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}`;
-  const boutiqueDuMarchand = marchandId => {
+  db.exec(`CREATE TABLE IF NOT EXISTS equipe (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE, role TEXT NOT NULL, cree_le INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS invitations (id TEXT PRIMARY KEY, jeton_hash TEXT NOT NULL UNIQUE, boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE, email TEXT NOT NULL, role TEXT NOT NULL, expire_le INTEGER NOT NULL, cree_le INTEGER NOT NULL);`);
+  // Boutique d'un compte : celle qu'il possède, sinon celle dont il est membre de l'équipe (avec son rôle).
+  const accesDe = marchandId => {
     const b = db.prepare('SELECT * FROM boutiques WHERE marchand_id = ? ORDER BY cree_le LIMIT 1').get(marchandId);
-    if (!b) throw erreur(404, 'Aucune boutique pour ce compte.', 'sans_boutique');
-    return b;
+    if (b) return { boutique: b, role: 'proprietaire' };
+    const e = db.prepare('SELECT b.*, e.role AS role_equipe FROM equipe e JOIN boutiques b ON b.id = e.boutique_id WHERE e.marchand_id = ?').get(marchandId);
+    if (e) { const { role_equipe, ...boutique } = e; return { boutique, role: role_equipe }; }
+    return null;
+  };
+  const boutiqueDuMarchand = marchandId => {
+    const a = accesDe(marchandId);
+    if (!a) throw erreur(404, 'Aucune boutique pour ce compte.', 'sans_boutique');
+    return a.boutique;
   };
   const boutiqueParSlug = slug => {
     const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(slug);
@@ -224,7 +237,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       catch (e) { journal.error('[webhook]', e.message); }
     }
   };
-  const historique = (c, texte) => c.historique.push({ date: Date.now(), texte });
+  const historique = (c, texte) => { const r0 = requeteCourante.getStore(); c.historique.push({ date: Date.now(), texte: r0 && r0.auteur ? `${texte} (par ${r0.auteur})` : texte }); };
   // Factures et avoirs partagent une seule suite de numéros, continue et sans trou.
   const prochaineFacture = (boutiqueId, date, prefixe = 'FA') => {
     const b = db.prepare('UPDATE boutiques SET compteur_facture = compteur_facture + 1 WHERE id = ? RETURNING compteur_facture').get(boutiqueId);
@@ -639,7 +652,20 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     renouvelerCookie(ctx, ctx.marchand);
     const h = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
     db.prepare('UPDATE sessions SET vu_le = ? WHERE jeton_hash = ? AND (vu_le IS NULL OR vu_le < ?)').run(Date.now(), h, Date.now() - 300000);
-    ctx.boutique = boutiqueDuMarchand(ctx.marchand.id);
+    const acces = accesDe(ctx.marchand.id);
+    if (!acces) throw erreur(404, 'Aucune boutique pour ce compte.', 'sans_boutique');
+    ctx.boutique = acces.boutique; ctx.role = acces.role;
+    const r0 = requeteCourante.getStore(); if (r0 && acces.role !== 'proprietaire') r0.auteur = ctx.marchand.email;
+  };
+  /* Rôles de l'équipe. « commandes » : préparer, expédier, transmettre, encaisser à la caisse (pas de remboursement,
+     pas de réglages). « complet » : tout, sauf l'abonnement, l'équipe, les paiements, les intégrations et la remise à zéro. */
+  const PERMIS_COMMANDES = /^(GET \/api\/admin\/(etat|signature|flux|commandes\/[\w-]+\/facture-qr)|POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)|PATCH \/api\/admin\/commandes\/[\w-]+|POST \/api\/admin\/caisse)$/;
+  const INTERDIT_COMPLET = /^(\w+ \/api\/admin\/(integrations|equipe|paiements\/activer|reinitialiser)(\/.*)?)$/;
+  const exigerProprietaire = ctx => { exigerCompte(ctx); if (ctx.role !== 'proprietaire') throw erreur(403, 'Seul le propriétaire de la boutique gère l’abonnement et l’équipe.', 'role'); };
+  const verifierRole = ctx => {
+    if (!ctx.role || ctx.role === 'proprietaire') return;
+    const route = `${ctx.req.method} ${new URL(ctx.req.url, 'http://x').pathname}`;
+    if (ctx.role === 'commandes' ? !PERMIS_COMMANDES.test(route) : INTERDIT_COMPLET.test(route)) throw erreur(403, 'Votre rôle dans l’équipe ne donne pas accès à cette action. Demandez au propriétaire de la boutique.', 'role');
   };
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
@@ -647,7 +673,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const LECTURE_SEULE = new Set(['GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
-    const e = abo.etat(ctx.marchand.id);
+    verifierRole(ctx);
+    const e = abo.etat(ctx.boutique.marchand_id);   // abonnement du propriétaire, aussi pour son équipe
     if (e.actif) return;
     const route = `${ctx.req.method} ${new URL(ctx.req.url, 'http://x').pathname}`;
     // Les commandes déjà payées doivent pouvoir être expédiées, transmises ou remboursées : les clients ont payé.
@@ -659,7 +686,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   // Fonction réservée à une formule (réseaux sociaux : Croissance ; caisse : Pro). Sans abonnement obligatoire : tout est ouvert.
   const exigerFonction = fonction => ctx => {
     exigerMarchand(ctx);
-    const e = abo.etat(ctx.marchand.id);
+    const e = abo.etat(ctx.boutique.marchand_id);
     if (e.obligatoire && !Formules.permet(e.formule, fonction)) throw erreur(403, `${Formules.NOMS_FONCTIONS[fonction]} : disponible avec la formule ${Formules.FORMULES[Formules.FONCTIONS[fonction]].nom}. Changez de formule dans Paramètres > Abonnement.`, 'formule_insuffisante');
   };
 
@@ -667,8 +694,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/api/session', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     renouvelerCookie(ctx, m);
-    const b = m && db.prepare('SELECT slug FROM boutiques WHERE marchand_id = ?').get(m.id);
-    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(m.id) : null };
+    const acces = m && accesDe(m.id), b = acces && acces.boutique;
+    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, role: acces ? acces.role : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
   });
   r.post('/api/auth/inscription', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
@@ -908,6 +935,65 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     noterActivite(ctx.marchand.id, 'session-revoquee', null, ctx);
     return { ok: true };
   });
+  /* ---------- Équipe : le propriétaire invite des collaborateurs (rôle « commandes » ou « complet »). Chacun a son propre
+     compte (mot de passe, double authentification, clés d'accès) ; ses actions sur les commandes portent son nom. ---------- */
+  const ROLES = { commandes: 'Commandes (préparer, expédier, caisse)', complet: 'Gestion complète (sauf abonnement, équipe, paiements)' };
+  r.get('/api/admin/equipe', exigerProprietaire, ctx => ({
+    membres: db.prepare('SELECT m.id, m.email, e.role, e.cree_le FROM equipe e JOIN marchands m ON m.id = e.marchand_id WHERE e.boutique_id = ? ORDER BY e.cree_le').all(ctx.boutique.id),
+    invitations: db.prepare('SELECT id, email, role, expire_le FROM invitations WHERE boutique_id = ? AND expire_le > ? ORDER BY cree_le').all(ctx.boutique.id, Date.now()),
+    roles: ROLES
+  }));
+  r.post('/api/admin/equipe/inviter', exigerProprietaire, ctx => {
+    const email = valider.email(ctx.corps.email).toLowerCase(), role = String(ctx.corps.role || '');
+    if (!ROLES[role]) throw erreur(400, 'Rôle inconnu.', 'role');
+    auth.limiter('invitation:' + ctx.boutique.id, 20, 86400000, 'Trop d’invitations aujourd’hui.');
+    if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(email)) throw erreur(409, 'Cette adresse a déjà un compte Comptoir : invitez une autre adresse (un compte ne sert qu’à une boutique).', 'email_pris');
+    if (db.prepare('SELECT COUNT(*) n FROM equipe WHERE boutique_id = ?').get(ctx.boutique.id).n + db.prepare('SELECT COUNT(*) n FROM invitations WHERE boutique_id = ? AND expire_le > ?').get(ctx.boutique.id, Date.now()).n >= 5) throw erreur(409, '5 membres au plus dans l’équipe.', 'equipe_pleine');
+    db.prepare('DELETE FROM invitations WHERE boutique_id = ? AND email = ?').run(ctx.boutique.id, email);
+    const jeton = crypto.randomBytes(24).toString('base64url');
+    db.prepare('INSERT INTO invitations (id, jeton_hash, boutique_id, email, role, expire_le, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(auth.nouvelId('inv_'), auth.sha256(jeton), ctx.boutique.id, email, role, Date.now() + 7 * 86400000, Date.now());
+    const nom = lireConfig(ctx.boutique).boutique.nom;
+    envoyerEmail(null, email, `Invitation à rejoindre ${nom} sur Comptoir`, `Bonjour,\n\n${ctx.marchand.email} vous invite à rejoindre l’équipe de la boutique ${nom} sur Comptoir, avec le rôle : ${ROLES[role]}.\n\nPour accepter, choisissez votre mot de passe ici (lien valable 7 jours) :\n${urlPublique}/app?invitation=${jeton}\n\nVous ne connaissez pas cette boutique ? Ignorez cet e-mail.\n\nL’équipe Comptoir`);
+    noterActivite(ctx.marchand.id, 'membre-invite', `${email} (${role})`, ctx);
+    return { statut: 201, corps: { ok: true } };
+  });
+  r.post('/api/admin/equipe/invitations/:id/annuler', exigerProprietaire, ctx => { db.prepare('DELETE FROM invitations WHERE id = ? AND boutique_id = ?').run(String(ctx.params.id), ctx.boutique.id); return { ok: true }; });
+  r.post('/api/admin/equipe/:id/retirer', exigerProprietaire, ctx => {
+    const m = db.prepare('SELECT m.email FROM equipe e JOIN marchands m ON m.id = e.marchand_id WHERE e.marchand_id = ? AND e.boutique_id = ?').get(String(ctx.params.id), ctx.boutique.id);
+    if (!m) throw erreur(404, 'Membre inconnu.', 'introuvable');
+    // Le compte du membre est supprimé (il ne servait qu'à cette boutique) : sessions, clés d'accès et notifications avec lui.
+    db.prepare('DELETE FROM marchands WHERE id = ?').run(String(ctx.params.id));
+    noterActivite(ctx.marchand.id, 'membre-retire', m.email, ctx);
+    return { ok: true };
+  });
+  // Invitation : lecture (pour l'écran d'accueil) et acceptation (création du compte du membre)
+  const invitationDe = jeton => db.prepare('SELECT i.*, b.config FROM invitations i JOIN boutiques b ON b.id = i.boutique_id WHERE i.jeton_hash = ? AND i.expire_le > ?').get(auth.sha256(String(jeton || '')), Date.now());
+  r.get('/api/auth/invitation', ctx => {
+    auth.limiter('invitation-lecture:' + ctx.ip, 30 * facteurLimites, 15 * 60000, 'Trop de requêtes.');
+    const i = invitationDe(ctx.query.get('jeton'));
+    if (!i) throw erreur(404, 'Invitation expirée ou déjà utilisée. Demandez-en une nouvelle au propriétaire de la boutique.', 'invitation');
+    return { email: i.email, role: ROLES[i.role], boutique: JSON.parse(i.config).boutique.nom };
+  });
+  r.post('/api/auth/invitation', async ctx => {
+    auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
+    const mdp = valider.texte(ctx.corps.motDePasse, 'Le mot de passe', { min: 10, max: 200 });
+    const i = invitationDe(ctx.corps.jeton);
+    if (!i) throw erreur(404, 'Invitation expirée ou déjà utilisée. Demandez-en une nouvelle au propriétaire de la boutique.', 'invitation');
+    await exigerMotDePasseSolide(mdp, { email: i.email, noms: [JSON.parse(i.config).boutique.nom] });
+    const hash = await auth.hacherMotDePasse(mdp);
+    const id = auth.nouvelId('m_');
+    transaction(db, () => {
+      if (!db.prepare('DELETE FROM invitations WHERE id = ? RETURNING id').get(i.id)) throw erreur(404, 'Invitation déjà utilisée.', 'invitation');   // usage unique
+      if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(i.email)) throw erreur(409, 'Cette adresse a déjà un compte Comptoir.', 'email_pris');
+      db.prepare('INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES (?, ?, ?, ?)').run(id, i.email, hash, Date.now());
+      db.prepare('INSERT INTO equipe (marchand_id, boutique_id, role, cree_le) VALUES (?, ?, ?, ?)').run(id, i.boutique_id, i.role, Date.now());
+    });
+    const proprio = db.prepare('SELECT m.id, m.email FROM boutiques b JOIN marchands m ON m.id = b.marchand_id WHERE b.id = ?').get(i.boutique_id);
+    if (proprio) { noterActivite(proprio.id, 'membre-arrive', i.email, ctx); envoyerEmail(null, proprio.email, `${i.email} a rejoint votre équipe`, `Bonjour,\n\n${i.email} a accepté votre invitation et rejoint l’équipe de ${JSON.parse(i.config).boutique.nom} (rôle : ${ROLES[i.role]}).\n\nVous pouvez retirer cet accès à tout moment dans Paramètres > Équipe.\n${urlPublique}/app\n\nL’équipe Comptoir`); }
+    ouvrirSession(ctx, db.prepare('SELECT * FROM marchands WHERE id = ?').get(id));
+    return { statut: 201, corps: { ok: true } };
+  });
+
   /* ---------- Notifications push (Web Push) : une alerte sur le téléphone ou l'ordinateur du marchand à chaque
      commande payée, même application fermée. Le message est chiffré pour l'appareil (le service push ne le lit pas). ---------- */
   db.exec('CREATE TABLE IF NOT EXISTS abonnements_push (endpoint TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, appareil TEXT, cree_le INTEGER NOT NULL)');
@@ -1083,6 +1169,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails', 'comptes_stripe']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
+      for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) db.prepare('DELETE FROM marchands WHERE id IN (SELECT marchand_id FROM equipe WHERE boutique_id = ?)').run(b.id);   // comptes de l'équipe
       db.prepare('DELETE FROM marchands WHERE id = ?').run(m.id); // boutiques, produits, commandes, sessions : suppression en cascade
     });
   }
@@ -1099,7 +1186,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         `Bonjour,\n\nVotre abonnement Comptoir est terminé depuis bientôt un an. Sans nouvel abonnement, votre compte, votre boutique et ses données seront effacés définitivement le ${new Date(a.periode_fin + 365 * JOUR).toLocaleDateString('fr-FR')}.\n\nPensez à exporter vos commandes, factures et clients (conservation comptable obligatoire de votre côté) : ${urlPublique}/app\n\nL’équipe Comptoir`);
     }
     // Inscriptions jamais payées (aucune période payée) depuis plus de 90 jours
-    for (const m of db.prepare('SELECT m.* FROM marchands m LEFT JOIN abonnements a ON a.marchand_id = m.id WHERE m.cree_le < ? AND (a.marchand_id IS NULL OR a.periode_fin IS NULL)').all(maintenant - 90 * JOUR)) {
+    for (const m of db.prepare('SELECT m.* FROM marchands m LEFT JOIN abonnements a ON a.marchand_id = m.id WHERE m.cree_le < ? AND (a.marchand_id IS NULL OR a.periode_fin IS NULL) AND m.id NOT IN (SELECT marchand_id FROM equipe)').all(maintenant - 90 * JOUR)) {
       await supprimerCompte(m).catch(e => journal.error('[conservation]', e.message));
     }
   }
@@ -1206,6 +1293,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/commandes/:id/statut', exigerMarchand, async ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     const cible = ctx.corps.statut;
+    if (ctx.role === 'commandes' && ['remboursee', 'annulee'].includes(cible)) throw erreur(403, 'Rembourser ou annuler une commande est réservé au propriétaire ou à la gestion complète.', 'role');
     if (!transitionsPossibles(c).includes(cible)) throw erreur(409, `Impossible de passer de « ${c.statut} » à « ${cible} ».`, 'transition_invalide');
     const config = lireConfig(ctx.boutique);
     if (cible === 'fournisseur') return { commande: await transmettreAuFournisseur(ctx.boutique, c, false) };
@@ -2308,14 +2396,14 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   });
 
   /* ---------- Abonnement Comptoir ---------- */
-  r.get('/api/abonnement', exigerCompte, ctx => ({ ...abo.etat(ctx.marchand.id), formules: abo.formulesPour(deviseDe(ctx.boutique)), devise: deviseDe(ctx.boutique) }));
+  r.get('/api/abonnement', exigerProprietaire, ctx => ({ ...abo.etat(ctx.marchand.id), formules: abo.formulesPour(deviseDe(ctx.boutique)), devise: deviseDe(ctx.boutique) }));
   // Retour de Stripe Checkout : paiement vérifié tout de suite, sans attendre le webhook.
-  r.post('/api/abonnement/verifier', exigerCompte, async ctx => {
+  r.post('/api/abonnement/verifier', exigerProprietaire, async ctx => {
     const { etat: e, devenuActif } = await abo.verifierRetour(ctx.marchand.id);
     if (devenuActif) emailAbonnement(ctx.marchand.id, 'active');   // le webhook arrivera après : c'est ici que l'abonnement devient actif
     return e;
   });
-  r.post('/api/abonnement/commencer', exigerCompte, async ctx => {
+  r.post('/api/abonnement/commencer', exigerProprietaire, async ctx => {
     if (abo.prestataire === 'simulation' && env.NODE_ENV === 'production' && abo.obligatoire) throw erreur(503, 'Le paiement des abonnements n’est pas encore configuré (clé Stripe manquante).', 'paiement_non_configure');
     return abo.commencer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || ''), devise: deviseDe(ctx.boutique) });
   });
@@ -2452,7 +2540,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
         } else if (type.startsWith('application/json') && ctx.corpsBrut) ctx.corps = JSON.parse(ctx.corpsBrut);
       }
       let resultat;
-      for (const g of route.gestionnaires) resultat = await g(ctx);
+      await requeteCourante.run({ auteur: null }, async () => { for (const g of route.gestionnaires) resultat = await g(ctx); });
       if (resultat && resultat.diffusion) return;   // flux SSE : la réponse reste ouverte
       if (resultat && resultat.binaire) { res.writeHead(200, { 'Content-Type': resultat.type, 'Cache-Control': 'public, max-age=3600', ...ctx.entetes }); res.end(resultat.binaire); return; }
       if (resultat && resultat.redirection) { res.writeHead(303, { Location: resultat.redirection, ...ctx.entetes }); res.end(); return; }

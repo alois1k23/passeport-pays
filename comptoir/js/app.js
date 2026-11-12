@@ -151,7 +151,10 @@ function rendre() {
   const aTraiter = etat.commandes.filter(c => c.statut === 'payee' || c.statut === 'preparation').length;
   const aValider = prochainsTempsForts(2).filter(e => !etat.campagnes[e.cle]).length;
   let groupe = '';
-  $('#nav').innerHTML = NAV.map(([id, nom, g]) => {
+  // Membre de l'équipe avec le rôle « commandes » : seulement ce qui sert à préparer et expédier.
+  const roleCommandes = typeof SERVEUR !== 'undefined' && SERVEUR.role === 'commandes';
+  const navVisible = roleCommandes ? NAV.filter(([id]) => ['tableau', 'commandes', 'clients', 'magasin', 'parametres'].includes(id)) : NAV;
+  $('#nav').innerHTML = navVisible.map(([id, nom, g]) => {
     const tete = g !== groupe ? `<div class="nav-groupe">${(groupe = g)}</div>` : '';
     const verrouille = !fonctionIncluse(id);
     return `${tete}<a href="#${id}" class="${route === id ? 'actif' : ''}${verrouille ? ' verrouille' : ''}" ${route === id ? 'aria-current="page"' : ''} ${verrouille ? `title="Formule ${Formules.FORMULES[Formules.FONCTIONS[id]].nom}"` : ''}>${icone(id)}<span>${nom}</span>${verrouille ? '<i class="cadenas" aria-label="Non inclus dans votre formule">🔒</i>' : ''}${id === 'commandes' && aTraiter ? `<b class="badge">${aTraiter}</b>` : ''}${id === 'copilote' && aValider && !verrouille ? `<b class="badge">${aValider}</b>` : ''}</a>`;

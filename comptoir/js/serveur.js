@@ -68,11 +68,19 @@ async function initServeur() {
     document.addEventListener('click', e => { if (e.target.closest('[data-lecture="reprendre"]')) { try { sessionStorage.removeItem('comptoir-lecture'); } catch { /* ignoré */ } location.reload(); } });
     return;
   }
+  // Membre de l'équipe et abonnement de la boutique inactif : c'est au propriétaire d'agir.
+  if (SERVEUR.connecte && s.role && s.role !== 'proprietaire' && s.abonnement && !s.abonnement.actif) {
+    $('#vue').innerHTML = '<div class="assistant carte connexion"><span class="eyebrow">Comptoir</span><h1>Boutique en pause</h1><p class="sous">L’abonnement de cette boutique n’est pas actif. Seul son propriétaire peut le reprendre : prévenez-le.</p></div>';
+    return;
+  }
   if (SERVEUR.connecte && s.abonnement && !s.abonnement.actif) { installerAbonnement(s.abonnement, params.get('abonnement')); return; }
   if (SERVEUR.connecte) {
     await rechargerEtat(); installerModeConnecte();
+    // Rôle « commandes » : la boutique ne se modifie pas depuis ce compte (les réglages ne sont pas envoyés).
+    if (SERVEUR.role === 'commandes') sauver = function () { /* lecture des réglages seulement */ };
     if (params.get('abonnement') === 'ok') { history.replaceState(null, '', location.pathname + '#tableau'); setTimeout(() => toast(String((etat.entreprise || {}).adresse || '').trim() && !/compléter/.test((etat.entreprise || {}).adresse || '') ? 'Paiement reçu : votre boutique est en ligne. Bienvenue !' : 'Paiement reçu. Dernière étape avant vos premières ventes : l’adresse de votre entreprise (Conformité).'), 300); }
-  } else installerConnexion();
+  } else if (typeof afficherInvitation === 'function' && await afficherInvitation()) { /* invitation affichée */ }
+  else installerConnexion();
 }
 
 /* Enregistrement différé de la configuration. Avant tout rechargement depuis le serveur, la modification en

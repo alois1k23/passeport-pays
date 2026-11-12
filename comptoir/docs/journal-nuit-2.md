@@ -381,3 +381,20 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Une boutique proposée en plusieurs langues annonce chaque version aux moteurs de recherche : balises `hreflang` (fr, de, it, en, plus `x-default`).
 - Chaque version (`?lang=de`) est sa propre page canonique, comme le demande Google pour que `hreflang` soit pris en compte.
 - Vérifié : la page de la boutique contient les bonnes balises. Tests : 94 sur 94.
+
+## Cycle 25 (02 h 20) : équipe (comptes collaborateurs)
+
+- Le propriétaire invite jusqu'à 5 collaborateurs par e-mail (Paramètres > Équipe), avec l'un de deux rôles :
+  - **Commandes** : voir et préparer les commandes, les expédier, les transmettre au fournisseur, encaisser à la caisse. Ni remboursement, ni annulation, ni modification de la boutique. Son menu ne montre que Vue d'ensemble, Commandes, Clients, Magasin et Paramètres (E-mails, Sécurité).
+  - **Gestion complète** : tout, sauf l'abonnement, l'équipe, l'activation des paiements, les intégrations et la remise à zéro.
+- Chaque membre a **son propre compte** : mot de passe soumis à la même politique, double authentification, clés d'accès, appareils, notifications.
+- **Traçabilité** : chaque action d'un membre sur une commande est inscrite dans l'historique avec son nom (« … (par leo@…) »), grâce au contexte de requête (AsyncLocalStorage), ce qui couvre toutes les actions sans en oublier.
+- **Invitation** :
+  - lien valable 7 jours, à usage unique, gardé en empreinte ;
+  - écran « Rejoindre la boutique » ;
+  - une adresse qui a déjà un compte est refusée (un compte sert une seule boutique) ;
+  - le propriétaire est prévenu par e-mail de chaque arrivée, et son journal garde les invitations, arrivées et retraits.
+- **Retrait** : l'accès est coupé immédiatement. Le compte du membre est supprimé, avec ses sessions, ses clés d'accès et ses notifications.
+- **Abonnement** : l'équipe utilise celui du propriétaire. S'il est inactif, le membre voit « Boutique en pause », sans écran de paiement.
+- La suppression du compte du propriétaire supprime aussi les comptes de son équipe. L'effacement des inscriptions jamais payées épargne les membres d'équipe.
+- Testé : parcours complet automatique (invitation, acceptation, permissions des deux rôles, traçabilité, retrait, suppression), puis dans un vrai navigateur (invitation envoyée, écran d'acceptation, menu réduit du rôle « Commandes »). 95 tests sur 95.

@@ -1,13 +1,20 @@
 /* Comptoir — paramètres : tout ce qui configure la boutique et le compte, au même endroit. */
 
-const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['securite', 'Sécurité'], ['integrations', 'Intégrations'], ['sensible', 'Zone sensible']];
+/* Sections selon le rôle : le propriétaire voit tout ; un membre de l'équipe, ce que son rôle permet. */
+function sectionsVisibles() {
+  const role = typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? SERVEUR.role : 'proprietaire';
+  if (role === 'commandes') return SECTIONS_PARAM.filter(([k]) => ['securite', 'emails'].includes(k));
+  if (role === 'complet') return SECTIONS_PARAM.filter(([k]) => !['abonnement', 'integrations', 'equipe', 'sensible'].includes(k));
+  return SECTIONS_PARAM.filter(([k]) => k !== 'equipe' || (typeof SERVEUR !== 'undefined' && SERVEUR.connecte));
+}
+const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['securite', 'Sécurité'], ['integrations', 'Intégrations'], ['equipe', 'Équipe'], ['sensible', 'Zone sensible']];
 
 function enLigne() { return typeof SERVEUR !== 'undefined' && SERVEUR.connecte; }
 
 function vueParametres() {
   // Retour de la page d'activation Stripe (?section=paiements) : la bonne section s'ouvre.
   if (!ui.sectionParam) { try { const q = new URLSearchParams(location.search).get('section'); if (q && SECTIONS_PARAM.some(([k]) => k === q)) ui.sectionParam = q; } catch { /* ignoré */ } }
-  const s = ui.sectionParam || 'general';
+  const s = sectionsVisibles().some(([k]) => k === ui.sectionParam) ? ui.sectionParam : sectionsVisibles()[0][0];
   const b = etat.boutique, e = etat.entreprise || {};
   const statut = (ok, oui, non) => `<span class="pill ${ok ? 'good' : 'warn'}">${ok ? oui : non}</span>`;
   let corps = '';
@@ -116,6 +123,8 @@ function vueParametres() {
   } else if (s === 'securite') {
     corps = enLigne() ? vueSecurite() : `<section class="carte"><div class="carte-tete"><h2>Sécurité du compte</h2><span class="pill muted">Démo</span></div>
       <p class="sous">Sur Comptoir : double authentification (application Google Authenticator, 1Password, Bitwarden…), codes de secours, liste des appareils connectés avec déconnexion à distance, journal d’activité et alerte par e-mail à chaque connexion depuis un nouvel appareil.</p></section>`;
+  } else if (s === 'equipe') {
+    corps = typeof vueEquipe === 'function' ? vueEquipe() : '';
   } else if (s === 'integrations') {
     corps = vueIntegrations();
   } else if (s === 'sensible') {
@@ -135,7 +144,7 @@ function vueParametres() {
   return `
   <div class="tete"><div><h1>Paramètres</h1><p class="sous">Boutique, paiements, livraison, e-mails, domaine, abonnement et données.</p></div></div>
   <div class="parametres">
-    <nav class="param-nav" aria-label="Sections des paramètres">${SECTIONS_PARAM.map(([k, n]) => `<button class="${s === k ? 'actif' : ''}" data-action="section-param" data-v="${k}" ${s === k ? 'aria-current="page"' : ''}>${n}</button>`).join('')}</nav>
+    <nav class="param-nav" aria-label="Sections des paramètres">${sectionsVisibles().map(([k, n]) => `<button class="${s === k ? 'actif' : ''}" data-action="section-param" data-v="${k}" ${s === k ? 'aria-current="page"' : ''}>${n}</button>`).join('')}</nav>
     <div class="param-corps">${corps}</div>
   </div>`;
 }
@@ -243,7 +252,7 @@ document.addEventListener('submit', async e => {
 
 /* ---------- Sécurité du compte (mode connecté) ---------- */
 const SECURITE = { donnees: null, chargement: false, mise: null, codes: null, erreur: '' };
-const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-acces': 'Connexion par clé d’accès', 'cle-acces-ajoutee': 'Clé d’accès ajoutée', 'cle-acces-supprimee': 'Clé d’accès supprimée', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé' };
+const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-acces': 'Connexion par clé d’accès', 'cle-acces-ajoutee': 'Clé d’accès ajoutée', 'cle-acces-supprimee': 'Clé d’accès supprimée', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé', 'membre-invite': 'Membre invité', 'membre-arrive': 'Membre arrivé dans l’équipe', 'membre-retire': 'Membre retiré' };
 function chargerSecurite() {
   if (SECURITE.chargement) return;
   SECURITE.chargement = true;
