@@ -358,7 +358,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **E-mails traduits** : le pied de page (contact, désinscription) est aussi dans la langue du client.
 - Tests : 94 sur 94. Recherche revérifiée dans un vrai navigateur.
 
-## Cycle 22 (01 h 50) : plus aucune requête vers Google (polices hébergées)
+## Cycle 22 (01 h 40) : plus aucune requête vers Google (polices hébergées)
 
 - Toutes les pages chargeaient les polices depuis Google Fonts : l'adresse IP de chaque visiteur, y compris les clients des boutiques, partait chez Google. Un tribunal allemand (LG München, janvier 2022) a jugé cette pratique contraire au RGPD.
 - Les 22 fichiers de police (woff2, sous-ensembles latin et latin étendu, environ 600 Ko, licence SIL Open Font License) sont maintenant servis par Comptoir (`fonts/`, `css/polices.css`), avec ETag et cache du service worker.
