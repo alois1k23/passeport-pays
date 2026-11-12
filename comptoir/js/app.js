@@ -1062,7 +1062,7 @@ document.addEventListener('change', async e => {
   if (e.target.id !== 'pf-photo' || !ui.produitEdite) return;
   const f = e.target.files[0];
   if (!f) return;
-  try { ui.produitEdite.image = await reduireImage(f, 640); rendreEnGardantProduit(); setTimeout(() => document.getElementById('pf-photo-btn')?.focus(), 0); toast('Photo prête : enregistrez le produit pour la publier.'); }
+  try { ui.produitEdite.image = await reduireImage(f); rendreEnGardantProduit(); setTimeout(() => document.getElementById('pf-photo-btn')?.focus(), 0); toast('Photo prête : enregistrez le produit pour la publier.'); }
   catch { toast(`${f.name} : format non lisible. Exportez la photo en JPEG ou PNG.`); }
 });
 function rendreEnGardantSaisie() {

@@ -362,7 +362,9 @@ function redigerDescription(nom, cat) {
   return `${nom} : une pièce de notre collection ${cat.toLowerCase()}, sélectionnée par ${b.nom}.`;
     // Aucun délai, aucune condition de retour inventés (CGV et fiche) ; pas de texte « à compléter » qui finirait tel quel sous les yeux des clients.
 }
-function reduireImage(fichier, taille = 480) {
+/* Photo produit : 1000 px au plus (nette sur un écran de téléphone récent), en WebP si le navigateur sait l'encoder
+   (environ 30 % plus léger que le JPEG à qualité égale), sinon JPEG ; qualité réduite par paliers sous 280 Ko. */
+function reduireImage(fichier, taille = 1000) {
   return new Promise((ok, ko) => {
     const lecteur = new FileReader();
     lecteur.onerror = ko;
@@ -374,7 +376,10 @@ function reduireImage(fichier, taille = 480) {
         const cv = document.createElement('canvas');
         cv.width = Math.round(img.width * r); cv.height = Math.round(img.height * r);
         cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        ok(cv.toDataURL('image/jpeg', 0.78));
+        const webp = cv.toDataURL('image/webp', 0.82).startsWith('data:image/webp');
+        let q = 0.82, url = cv.toDataURL(webp ? 'image/webp' : 'image/jpeg', q);
+        while (url.length > 370000 && q > 0.45) { q -= 0.08; url = cv.toDataURL(webp ? 'image/webp' : 'image/jpeg', q); }
+        ok(url);
       };
       img.src = lecteur.result;
     };

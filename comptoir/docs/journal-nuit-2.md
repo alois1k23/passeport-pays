@@ -481,7 +481,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Pas de compte à créer. La réponse est identique que l'adresse soit connue ou non, donc personne ne peut savoir qui est client. Les liens ne partent qu'à l'adresse elle-même. Limite de 3 demandes par jour et par adresse, et de 10 par heure et par réseau.
 - Traduit (allemand, italien, anglais). Testé. 99 tests sur 99.
 
-## Cycle 32 (02 h 45) : corrections de la revue des variantes, des retours et de la console
+## Cycle 32 (02 h 30) : corrections de la revue des variantes, des retours et de la console
 
 - **Complément après achat** : il ne propose plus un produit à variantes. Avant, il l'ajoutait sans taille, au prix de base, et faussait le stock.
 - **Demande de retour** : les lignes sont repérées par leur position. Deux tailles du même produit ne se confondent plus (avant, retourner un S retournait aussi le L).
@@ -499,3 +499,9 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - l'adresse doit être prouvée par un lien unique reçu par e-mail : quelqu'un qui aurait inscrit l'adresse de l'exploitant avant lui n'obtient rien ;
   - le volume vendu est donné par devise, hors remboursements.
 - Tests ajoutés (stock préservé à la modification, stock saisi pris en compte, preuve d'adresse). 99 tests sur 99. Parcours des variantes revérifié dans un vrai navigateur.
+
+## Cycle 33 (02 h 35) : photos plus nettes et plus légères
+
+- Les photos produits étaient réduites à 480 pixels (640 dans la fiche) : floues sur la page produit d'un téléphone récent. Elles passent à 1000 pixels.
+- Format WebP quand le navigateur sait l'encoder (environ 30 % plus léger que le JPEG à qualité égale), sinon JPEG. La qualité baisse par paliers pour rester sous la limite de 300 Ko.
+- Vérifié : une photo très chargée de 3000 × 2000 pixels donne un WebP de 1000 × 667 pixels et 145 Ko. Le type est conservé quand l'image est servie.
