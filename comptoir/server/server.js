@@ -11,6 +11,15 @@ const { creerApp } = require('./src/app');
 const env = process.env;
 
 /* Vérification avant la mise en ligne : `node server/server.js --verifier` liste ce qui manque ou cloche, puis s'arrête. */
+// Restauration d'une sauvegarde chiffrée : node server/server.js --restaurer comptoir-AAAA-MM-JJ.db.enc destination.db
+const Sauvegarde = require('./src/sauvegarde');
+if (process.argv.includes('--restaurer')) {
+  const [source, destination] = process.argv.slice(process.argv.indexOf('--restaurer') + 1);
+  if (!source || !destination || !Sauvegarde.cleValide(env.SAUVEGARDE_CLE)) { console.error('Usage : SAUVEGARDE_CLE=… node server/server.js --restaurer <sauvegarde.db.enc> <destination.db>'); process.exit(1); }
+  if (require('node:fs').existsSync(destination)) { console.error('La destination existe déjà : choisissez un autre nom (rien n’est écrasé).'); process.exit(1); }
+  Sauvegarde.dechiffrer(source, destination, env.SAUVEGARDE_CLE).then(() => { console.log(`Sauvegarde restaurée dans ${destination}.`); process.exit(0); }, e => { console.error(e.message); process.exit(1); });
+  return;
+}
 if (process.argv.includes('--verifier')) {
   (async () => {
     const res = [];
@@ -31,6 +40,7 @@ if (process.argv.includes('--verifier')) {
     v(env.VERIFIER_FUITES !== 'non', 'mots de passe parus dans des fuites refusés (VERIFIER_FUITES)', 'retirez VERIFIER_FUITES=non');
     { let hote = ''; try { hote = new URL(url).hostname; } catch { /* vide */ }
       v(!env.WEBAUTHN_RP_ID || hote === env.WEBAUTHN_RP_ID || hote.endsWith('.' + env.WEBAUTHN_RP_ID), `clés d’accès liées au domaine ${env.WEBAUTHN_RP_ID || hote || '(URL_PUBLIQUE)'}`, 'WEBAUTHN_RP_ID doit être le domaine de URL_PUBLIQUE ou un domaine parent'); }
+    v(Sauvegarde.cleValide(env.SAUVEGARDE_CLE), 'sauvegardes chiffrées (SAUVEGARDE_CLE)', 'générez-la avec « openssl rand -hex 32 », gardez-la hors du serveur : les copies envoyées ailleurs seront illisibles sans elle');
     v(!env.INTEGRATIONS_HTTP_LOCAL, 'webhooks marchands : adresses locales interdites', 'retirez INTEGRATIONS_HTTP_LOCAL (réservé aux essais)');
     if (env.STRIPE_SECRET_KEY && !env.STRIPE_API_URL) {
       try {
@@ -74,12 +84,17 @@ setInterval(() => { try { gerer.actualiserVentesTendances(); } catch (e) { conso
 {
   const fs = require('node:fs');
   const dossier = env.SAUVEGARDE_DOSSIER || path.join(path.dirname(env.BASE_DE_DONNEES || path.join(__dirname, 'donnees', 'comptoir.db')), 'sauvegardes');
-  const sauvegarder = () => {
+  const sauvegarder = async () => {
     try {
       fs.mkdirSync(dossier, { recursive: true });
       const nom = path.join(dossier, `comptoir-${new Date().toISOString().slice(0, 10)}.db`);
-      if (!fs.existsSync(nom)) db.exec(`VACUUM INTO '${nom.replace(/'/g, "''")}'`);
-      const fichiers = fs.readdirSync(dossier).filter(f => /^comptoir-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
+      const chiffree = Sauvegarde.cleValide(env.SAUVEGARDE_CLE);
+      if (!fs.existsSync(nom) && !fs.existsSync(nom + '.enc')) {
+        db.exec(`VACUUM INTO '${nom.replace(/'/g, "''")}'`);
+        // Clé fournie : la copie est chiffrée, puis la version en clair est effacée.
+        if (chiffree) await Sauvegarde.chiffrer(nom, nom + '.enc', env.SAUVEGARDE_CLE).then(() => fs.rmSync(nom));
+      }
+      const fichiers = fs.readdirSync(dossier).filter(f => /^comptoir-\d{4}-\d{2}-\d{2}\.db(\.enc)?$/.test(f)).sort();
       for (const f of fichiers.slice(0, -14)) fs.rmSync(path.join(dossier, f));
     } catch (e) { console.error('[sauvegarde] ÉCHEC', e.message); }
   };

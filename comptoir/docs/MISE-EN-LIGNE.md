@@ -50,6 +50,7 @@ Renseignez ensuite `FOURNISSEUR_URL_API`, `FOURNISSEUR_CLE_API` et `FOURNISSEUR_
    - l'identité de l'exploitant : `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL`, `EXPLOITANT_IDE` ;
    - `HEBERGEUR` ;
    - `SECRET_CHIFFREMENT` : générez-le avec `openssl rand -hex 32` et gardez-en une copie hors du serveur (gestionnaire de mots de passe). **À fixer avant d'ouvrir et à ne plus changer.** Il chiffre les secrets de double authentification des marchands : s'il change, leurs codes ne marchent plus ;
+   - `SAUVEGARDE_CLE` : générée de la même façon, gardée hors du serveur. Les sauvegardes quotidiennes sont alors chiffrées : vous pouvez les copier sur un stockage externe sans risque. Pour restaurer : `SAUVEGARDE_CLE=… node server/server.js --restaurer comptoir-AAAA-MM-JJ.db.enc nouvelle.db` ;
    - `WEBAUTHN_RP_ID` : laissez vide pour utiliser le domaine de `URL_PUBLIQUE`. Ne le changez plus une fois que des marchands ont créé des clés d'accès.
 4. Lancez `node server/server.js --verifier` : chaque ligne marquée ✗ dit quoi corriger.
 5. Les sauvegardes sont automatiques et quotidiennes, dans `/data/sauvegardes`. **Copiez ce dossier ailleurs** (stockage objet, autre serveur) et faites une fois l'essai de restauration.
