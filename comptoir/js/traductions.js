@@ -37,6 +37,7 @@ const Traductions = (() => {
       'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.': 'Dieser Shop vervollständigt seine rechtlichen Angaben: Bestellungen sind bald möglich.',
       'Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.': 'Dieser Shop aktiviert gerade seine Online-Zahlungen: Bestellungen sind bald möglich.',
       'Pas de livraison offerte.': 'Kein Gratisversand.', 'Carte': 'Karte', 'TWINT ou carte': 'TWINT oder Karte',
+      'Rechercher un produit': 'Produkt suchen', '@Rechercher un produit': 'Produkt suchen',
       '@Navigation de la boutique': 'Shop-Navigation', '@Ouvrir le panier': 'Warenkorb öffnen', '@Retirer un': 'Eins entfernen', '@Ajouter un': 'Eins hinzufügen', '@Code promo': 'Rabattcode', '@Cookies': 'Cookies', '@Langue': 'Sprache'
     },
     it: {
@@ -70,6 +71,7 @@ const Traductions = (() => {
       'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.': 'Questo negozio sta completando le informazioni legali: gli ordini apriranno a breve.',
       'Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.': 'Questo negozio sta attivando i pagamenti online: gli ordini apriranno a breve.',
       'Pas de livraison offerte.': 'Nessuna spedizione gratuita.', 'Carte': 'Carta', 'TWINT ou carte': 'TWINT o carta',
+      'Rechercher un produit': 'Cerca un prodotto', '@Rechercher un produit': 'Cerca un prodotto',
       '@Navigation de la boutique': 'Navigazione del negozio', '@Ouvrir le panier': 'Apri il carrello', '@Retirer un': 'Togli uno', '@Ajouter un': 'Aggiungi uno', '@Code promo': 'Codice sconto', '@Cookies': 'Cookie', '@Langue': 'Lingua'
     },
     en: {
@@ -103,6 +105,7 @@ const Traductions = (() => {
       'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.': 'This shop is completing its legal information: orders open very soon.',
       'Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.': 'This shop is activating its online payments: orders open very soon.',
       'Pas de livraison offerte.': 'No free shipping.', 'Carte': 'Card', 'TWINT ou carte': 'TWINT or card',
+      'Rechercher un produit': 'Search for a product', '@Rechercher un produit': 'Search for a product',
       '@Navigation de la boutique': 'Shop navigation', '@Ouvrir le panier': 'Open cart', '@Retirer un': 'Remove one', '@Ajouter un': 'Add one', '@Code promo': 'Promo code', '@Cookies': 'Cookies', '@Langue': 'Language'
     }
   };
@@ -121,18 +124,21 @@ const Traductions = (() => {
       [/^(.+) utilise uniquement des cookies nécessaires au panier\. Aucune mesure d’audience n’est activée sans votre accord\.$/, m => `${m[1]} verwendet nur für den Warenkorb nötige Cookies. Ohne Ihre Zustimmung wird keine Reichweitenmessung aktiviert.`],
       [/^Facture QR, payable sous (\d+) jours \(expédition dès réception du paiement\)$/, m => `QR-Rechnung, zahlbar innert ${m[1]} Tagen (Versand nach Zahlungseingang)`], [/^(TWINT ou carte|Carte), maintenant$/, m => `${m[1] === 'Carte' ? 'Karte' : 'TWINT oder Karte'}, jetzt`],
       [/^(.+?) En payant, vous acceptez les$/, m => `${D.de[m[1]] || m[1]} Mit der Zahlung akzeptieren Sie die`],
+      [/^(\d+) résultats?$/, m => `${m[1]} Treffer`], [/^Aucun produit ne correspond à « (.+) »\.$/, m => `Kein Produkt entspricht « ${m[1]} ».`],
       [/^Commande n° (\d+)$/, m => `Bestellung Nr. ${m[1]}`]],
     it: [[/^Livré entre le (.+) et le (.+)$/, (m, l) => `Consegna tra ${date(m[1], l)} e ${date(m[2], l)}`], [/^Livré le (.+)$/, (m, l) => `Consegna il ${date(m[1], l)}`],
       [/^Payer (.+)$/, m => `Paga ${m[1]}`], [/^Ajoutez (\d+) articles? :$/, m => `Aggiungi ${m[1]} ${m[1] === '1' ? 'articolo' : 'articoli'}:`], [/^Voir (.+)$/, m => `Vedi ${m[1]}`],
       [/^(.+) utilise uniquement des cookies nécessaires au panier\. Aucune mesure d’audience n’est activée sans votre accord\.$/, m => `${m[1]} usa solo i cookie necessari al carrello. Nessuna misurazione del pubblico senza il tuo consenso.`],
       [/^Facture QR, payable sous (\d+) jours \(expédition dès réception du paiement\)$/, m => `Fattura QR, pagabile entro ${m[1]} giorni (spedizione alla ricezione del pagamento)`], [/^(TWINT ou carte|Carte), maintenant$/, m => `${m[1] === 'Carte' ? 'Carta' : 'TWINT o carta'}, subito`],
       [/^(.+?) En payant, vous acceptez les$/, m => `${D.it[m[1]] || m[1]} Pagando accetti le`],
+      [/^(\d+) résultats?$/, m => `${m[1]} ${m[1] === "1" ? "risultato" : "risultati"}`], [/^Aucun produit ne correspond à « (.+) »\.$/, m => `Nessun prodotto corrisponde a « ${m[1]} ».`],
       [/^Commande n° (\d+)$/, m => `Ordine n. ${m[1]}`]],
     en: [[/^Livré entre le (.+) et le (.+)$/, (m, l) => `Delivered between ${date(m[1], l)} and ${date(m[2], l)}`], [/^Livré le (.+)$/, (m, l) => `Delivered on ${date(m[1], l)}`],
       [/^Payer (.+)$/, m => `Pay ${m[1]}`], [/^Ajoutez (\d+) articles? :$/, m => `Add ${m[1]} item${m[1] === '1' ? '' : 's'}:`], [/^Voir (.+)$/, m => `View ${m[1]}`],
       [/^(.+) utilise uniquement des cookies nécessaires au panier\. Aucune mesure d’audience n’est activée sans votre accord\.$/, m => `${m[1]} only uses cookies needed for the cart. No audience measurement without your consent.`],
       [/^Facture QR, payable sous (\d+) jours \(expédition dès réception du paiement\)$/, m => `QR invoice, payable within ${m[1]} days (shipped once payment is received)`], [/^(TWINT ou carte|Carte), maintenant$/, m => `${m[1] === 'Carte' ? 'Card' : 'TWINT or card'}, now`],
       [/^(.+?) En payant, vous acceptez les$/, m => `${D.en[m[1]] || m[1]} By paying, you accept the`],
+      [/^(\d+) résultats?$/, m => `${m[1]} ${m[1] === "1" ? "result" : "results"}`], [/^Aucun produit ne correspond à « (.+) »\.$/, m => `No product matches « ${m[1]} ».`],
       [/^Commande n° (\d+)$/, m => `Order no. ${m[1]}`]]
   };
   const NOMS = { fr: 'Français', de: 'Deutsch', it: 'Italiano', en: 'English' };

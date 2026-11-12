@@ -87,7 +87,24 @@ function prixBarreAffiche(p, etat) {
   return p.prixReference && typeof PrixBarres !== 'undefined' && PrixBarres.verifier(p, etat.boutique.pays === 'ch' ? 'ch' : 'ue').ok ? p.prixReference : 0;
 }
 /* Affichage de la vitrine (pas enregistré avec la boutique) : « Voir tous les produits » et catégorie choisie. */
-const vueVitrine = { tout: null, cat: '' };
+const vueVitrine = { tout: null, cat: '', q: '' };
+/* Recherche instantanée : sans accents ni majuscules, chaque mot cherché doit commencer un mot du produit
+   (nom, catégorie, description), avec une faute de frappe tolérée pour les mots de 4 lettres et plus. */
+const sansAccents = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function procheDe(a, b) {   // distance d'édition ≤ 1 (une lettre en trop, en moins ou différente)
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, ecarts = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++ecarts > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return ecarts + (a.length - i) + (b.length - j) <= 1;
+}
+function correspondRecherche(x, q) {
+  const mots = sansAccents(`${x.nom} ${x.categorie || ''} ${x.description || ''}`).split(/[^a-z0-9]+/).filter(Boolean);
+  return sansAccents(q).split(/[^a-z0-9]+/).filter(Boolean).every(m => mots.some(w => w.startsWith(m) || (m.length >= 4 && procheDe(m, w.slice(0, m.length + 1)) || (m.length >= 4 && procheDe(m, w)))));
+}
 function renduSection(s, etat, mode) {
   const p = s.props;
   const prods = etat.produits.filter(x => x.actif);
@@ -129,10 +146,12 @@ function renduSection(s, etat, mode) {
       const dispo = prods.filter(x => !p.categorie || x.categorie === p.categorie);
       const cats = [...new Set(dispo.map(x => x.categorie).filter(Boolean))];
       const filtres = tout ? dispo.filter(x => !vueVitrine.cat || x.categorie === vueVitrine.cat) : dispo;
-      const liste = tout ? filtres : dispo.slice(0, Number(p.nombre) || 4);
+      const recherche = mode !== 'edition' && dispo.length >= 8, q = recherche ? vueVitrine.q.trim() : '';
+      const liste = q ? dispo.filter(x => correspondRecherche(x, q)) : tout ? filtres : dispo.slice(0, Number(p.nombre) || 4);
       const premiere = (etat.boutique.sections || []).find(x => x.type === 'produits');
       return `<section class="sf-produits" id="${!premiere || premiere.id === s.id ? 'sf-collection' : 'sf-collection-' + esc(s.id)}">
         <h2>${esc(tout ? 'Tous nos produits' : p.titre)}</h2>
+        ${recherche ? `<div class="sf-recherche"><input type="search" data-sf-recherche="${esc(s.id)}" value="${esc(vueVitrine.q)}" placeholder="Rechercher un produit" aria-label="Rechercher un produit" autocomplete="off">${q ? `<span class="sf-nb" role="status">${liste.length} résultat${liste.length > 1 ? 's' : ''}</span>` : ''}</div>` : ''}
         ${tout && cats.length > 1 ? `<div class="sf-cats" role="group" aria-label="Catégories"><button type="button" class="${!vueVitrine.cat ? 'actif' : ''}" data-sf="cat" data-v="" aria-pressed="${!vueVitrine.cat}">Tout (${dispo.length})</button>${cats.map(c => `<button type="button" class="${vueVitrine.cat === c ? 'actif' : ''}" data-sf="cat" data-v="${esc(c)}" aria-pressed="${vueVitrine.cat === c}">${esc(c)}</button>`).join('')}</div>` : ''}
         <div class="sf-grille">${liste.map(x => `
           <article class="sf-carte">
@@ -140,8 +159,8 @@ function renduSection(s, etat, mode) {
             <div class="sf-carte-infos"><h3><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${prixBarreAffiche(x, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(x, etat))}</s> ` : ''}${euros(x.prix)}</span></div>
             ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}<small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}</small>
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
-          </article>`).join('') || (prods.length ? '<p class="sf-vide">Aucun produit dans cette catégorie.</p>' : '<p class="sf-vide">Nos produits arrivent très bientôt.</p>')}
-        </div>${mode !== 'edition' && dispo.length > (Number(p.nombre) || 4) ? `<p class="sf-tout"><button type="button" class="sf-btn" data-sf="tout-voir" data-id="${esc(s.id)}">${tout ? 'Voir moins' : `Voir tous les produits (${dispo.length})`}</button></p>` : ''}</section>`;
+          </article>`).join('') || (q ? `<p class="sf-vide">Aucun produit ne correspond à « ${esc(q)} ».</p>` : prods.length ? '<p class="sf-vide">Aucun produit dans cette catégorie.</p>' : '<p class="sf-vide">Nos produits arrivent très bientôt.</p>')}
+        </div>${mode !== 'edition' && !q && dispo.length > (Number(p.nombre) || 4) ? `<p class="sf-tout"><button type="button" class="sf-btn" data-sf="tout-voir" data-id="${esc(s.id)}">${tout ? 'Voir moins' : `Voir tous les produits (${dispo.length})`}</button></p>` : ''}</section>`;
     }
     case 'arguments':
       return `<section class="sf-arguments">${[p.a1, p.a2, p.a3].filter(Boolean).map(a => `<div>${esc(a)}</div>`).join('')}</section>`;

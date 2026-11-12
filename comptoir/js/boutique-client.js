@@ -433,3 +433,13 @@ document.addEventListener('keydown', e => {
   if (e.shiftKey && (i <= 0)) { e.preventDefault(); f[f.length - 1].focus(); }
   else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
 });
+
+/* Recherche instantanée de la vitrine : le champ garde le focus et le curseur à chaque nouvel affichage. */
+document.addEventListener('input', e => {
+  const champ = e.target.closest('[data-sf-recherche]'); if (!champ) return;
+  const id = champ.dataset.sfRecherche, pos = champ.selectionStart;
+  vueVitrine.q = champ.value.slice(0, 60);
+  rendre();
+  const n = document.querySelector(`[data-sf-recherche="${CSS.escape(id)}"]`);
+  if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch { /* ignoré */ } }
+});

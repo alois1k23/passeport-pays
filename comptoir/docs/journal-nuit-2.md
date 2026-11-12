@@ -262,10 +262,17 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - Un seul envoi par semaine (table `rapports_hebdo`). Le rapport se désactive dans Paramètres > E-mails (« Rapport du lundi »).
 - Test : 3 commandes la semaine passée, rapport envoyé une seule fois avec les bons chiffres, sans « undefined » ni « NaN ». 90 tests sur 90.
 
-## Cycle 15 (01 h 20) : sauvegardes chiffrées, vérification d'accessibilité
+## Cycle 15 (01 h 15) : sauvegardes chiffrées, vérification d'accessibilité
 
 - **Sauvegardes chiffrées** (`server/src/sauvegarde.js`) : avec `SAUVEGARDE_CLE`, chaque copie quotidienne est chiffrée en flux (AES-256-GCM), puis la version en clair est effacée. Une copie envoyée hors du serveur est illisible sans la clé ; une copie modifiée ou abîmée est refusée.
 - Restauration : `node server/server.js --restaurer fichier.db.enc nouvelle.db`. Elle n'écrase jamais un fichier existant et ne laisse rien derrière elle en cas d'échec.
 - Testé : aller-retour, mauvaise clé, octet modifié, restauration par la commande.
 - La vérification de mise en ligne signale l'absence de `SAUVEGARDE_CLE`, et le guide l'explique.
 - **Accessibilité** : vérification automatique sur 6 écrans de l'espace marchand, la boutique et le panier (images sans texte, boutons ou liens sans nom, champs sans étiquette, identifiants en double, langue de la page) : aucun problème trouvé.
+
+## Cycle 16 (01 h 25) : recherche instantanée dans la boutique
+
+- Dès 8 produits, la vitrine propose un champ « Rechercher un produit ». Les résultats s'affichent pendant la frappe, avec le nombre trouvé, et le champ garde le curseur.
+- La recherche ignore les accents et les majuscules : « gres » trouve « Vase en grès ». Elle tolère une faute de frappe dans les mots de 4 lettres ou plus. Elle porte sur le nom, la catégorie et la description.
+- La recherche est traduite (allemand, italien, anglais), et le message « Aucun produit ne correspond à … » l'est aussi.
+- Vérifié dans un vrai navigateur avec 10 produits.
