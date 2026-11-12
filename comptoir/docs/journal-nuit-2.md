@@ -759,3 +759,13 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - Paramètres, Zone sensible : « Exporter toutes vos données ». Un fichier JSON lisible par n'importe quel outil contient la configuration, les produits avec leurs photos, les commandes et factures, les clients, les avis, les abonnés, les désinscriptions, les demandes « Prévenez-moi » et le journal des ventes. Les données appartiennent au marchand, qui peut partir avec.
 - Réservé au propriétaire, avec mot de passe redemandé (et code de double authentification si elle est active) ; 5 exports par heure au plus ; e-mail de confirmation au propriétaire. Aucun secret ne sort : ni mot de passe, ni session, ni clé d'API, ni secret de webhook, ni jeton de suivi des clients. Disponible même avec un abonnement terminé.
 - Test ajouté (`export-complet.test.js`) et vérification dans un vrai navigateur (refus avec un mauvais mot de passe, fichier complet sinon). 118 tests sur 118.
+
+### Cycle 61 (04 h 35) : corrections de la revue n° 15 (export complet)
+
+Relecture indépendante de l'export : aucune fuite de secret, aucun contournement d'accès. Quatre points corrigés :
+- **Grosses boutiques** : avec 1000 produits à photo maximale et 20 000 commandes, l'export bloquait le serveur 2 s puis échouait au-delà de 1400 produits. Désormais, les photos sont dans le fichier jusqu'à 40 Mo en tout, et au-delà chaque produit porte un lien de téléchargement réservé au propriétaire. Le fichier n'est plus indenté (moitié moins de mémoire), et le serveur reste disponible entre les sections. L'e-mail et le journal du compte n'interviennent qu'une fois le fichier prêt.
+- **Produits supprimés** : marqués `supprime: true` (ils sortaient comme des produits actifs).
+- **Limite d'export** vérifiée avant le code de double authentification : un code de secours n'est plus consommé pour un export refusé.
+- **Effacement d'un client (RGPD)** : le motif de retour qu'il avait écrit, et sa reprise dans l'historique, sont effacés aussi.
+- Limite notée : un compte qui n'utilise que sa clé d'accès doit connaître son mot de passe pour exporter.
+- 118 tests sur 118, bout en bout 51 sur 51 ; simulation de 60 jours juste avant : 0 anomalie.

@@ -1724,18 +1724,26 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/export-complet', exigerProprietaire, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    // Limite vérifiée avant le code : un code de secours n'est pas consommé pour un export refusé.
+    auth.limiter('export-complet:' + ctx.boutique.id, 5, 3600000, 'Export déjà fait plusieurs fois cette heure : réessayez plus tard.');
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
       auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
       if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa');
     }
-    auth.limiter('export-complet:' + ctx.boutique.id, 5, 3600000, 'Export déjà fait plusieurs fois cette heure : réessayez plus tard.');
     const b = ctx.boutique, config = lireConfig(b), iso = t => t ? new Date(t).toISOString() : null;
+    const pause = () => new Promise(r2 => setImmediate(r2));   // le serveur reste disponible pour les autres boutiques
+    // Produits, supprimés compris mais marqués. Photos dans le fichier jusqu'à 40 Mo en tout ; au-delà, un lien de téléchargement par photo.
+    const produitsBruts = db.prepare('SELECT id, donnees, supprime FROM produits WHERE boutique_id = ? ORDER BY ordre, rowid').all(b.id).map(r2 => ({ ...JSON.parse(r2.donnees), id: r2.id, ...(r2.supprime ? { supprime: true } : {}) }));
+    const poidsImages = db.prepare('SELECT COALESCE(SUM(LENGTH(i.donnees)), 0) n FROM images_produits i JOIN produits p ON p.id = i.produit_id WHERE p.boutique_id = ?').get(b.id).n;
+    const imagesDansFichier = poidsImages <= 40 * 1024 * 1024;
+    const produits = produitsBruts.map(p2 => p2.image !== IMG ? p2 : imagesDansFichier ? { ...p2, image: imageDe(p2.id) } : { ...p2, image: `${urlPublique}/api/admin/export-complet/image/${encodeURIComponent(p2.id)}` });
+    await pause();
     const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? ORDER BY numero').all(b.id).map(row => { const { jeton, ...c } = lireCommande(row); void jeton; return { ...c, date: iso(c.date) }; });
     const donnees = {
       format: 'comptoir-export', version: 1, exporteLe: new Date().toISOString(), boutique: { slug: b.slug, creeLe: iso(b.cree_le), compteurFactures: b.compteur_facture },
       configuration: config,
-      produits: listerProduits(b.id, true).map(avecImage),
+      produits, photos: imagesDansFichier ? 'dans le fichier' : 'à télécharger depuis le lien de chaque produit (connecté à Comptoir)',
       commandes,
       clients: [...commandes.reduce((map, c) => { const e = String((c.client && c.client.email) || '').toLowerCase(); if (!e) return map; const x = map.get(e) || { email: e, nom: c.client.nom, commandes: 0, total: 0, premiere: c.date, derniere: c.date }; x.commandes++; x.total = Math.round((x.total + (c.total || 0)) * 100) / 100; x.derniere = c.date; map.set(e, x); return map; }, new Map()).values()],
       avis: db.prepare('SELECT produit_id, commande_id, note, texte, prenom, ville, cree_le, reponse FROM avis WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
@@ -1744,11 +1752,22 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       alertesStock: db.prepare('SELECT produit_id, variante_id, email, langue, cree_le FROM alertes_stock WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
       journalVentes: db.prepare('SELECT seq, type, ref, commande_id, le, contenu, empreinte FROM journal_inalterable WHERE boutique_id = ? ORDER BY seq').all(b.id).map(e => ({ ...e, le: iso(e.le), contenu: JSON.parse(e.contenu) }))
     };
+    await pause();
+    const corps = Buffer.from(JSON.stringify(donnees), 'utf8');   // sans indentation : moitié moins de mémoire
+    // Prévenu seulement une fois le fichier prêt (un export qui échoue ne déclenche pas d'e-mail).
     noterActivite(m.id, 'export-complet', `${commandes.length} commandes`, ctx);
     envoyerEmail(null, m.email, 'Export complet de votre boutique Comptoir', `Bonjour,\n\nUn export complet de votre boutique (commandes, clients, produits) vient d’être téléchargé.\n\nCe n’est pas vous ? Changez votre mot de passe tout de suite et écrivez-nous.\n\nL’équipe Comptoir`);
     ctx.entetes['Cache-Control'] = 'private, no-store';
     ctx.entetes['Content-Disposition'] = `attachment; filename="comptoir-${b.slug}-${new Date().toISOString().slice(0, 10)}.json"`;
-    return { binaire: Buffer.from(JSON.stringify(donnees, null, 1), 'utf8'), type: 'application/json; charset=utf-8' };
+    return { binaire: corps, type: 'application/json; charset=utf-8' };
+  });
+  // Photo d'un produit (supprimé compris) pour un export trop lourd pour contenir les photos : propriétaire connecté seulement.
+  r.get('/api/admin/export-complet/image/:id', exigerProprietaire, ctx => {
+    const p = db.prepare('SELECT id FROM produits WHERE id = ? AND boutique_id = ?').get(String(ctx.params.id), ctx.boutique.id);
+    const m = p && /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(imageDe(p.id) || '');
+    if (!m) throw erreur(404, 'Image introuvable.', 'introuvable');
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    return { binaire: Buffer.from(m[3], 'base64'), type: m[1] };
   });
   r.get('/api/admin/clients/export', exigerMarchand, ctx => {
     const email = valider.email(ctx.query.get('email') || '').toLowerCase();
@@ -1770,6 +1789,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     transaction(db, () => {
       for (const c of commandes) {
         c.client = { nom: 'Client effacé', email: '', adresse: '', npa: '', ville: '', consentement: null };
+        // Texte libre écrit par le client (motif de retour, repris dans l'historique) : effacé aussi.
+        if (c.retour && c.retour.motif) { const motif = c.retour.motif; c.retour.motif = ''; c.historique = (c.historique || []).map(h => h.texte && h.texte.includes(motif) ? { ...h, texte: h.texte.split(motif).join('(effacé)') } : h); }
         historique(c, 'Données personnelles du client effacées à sa demande');
         enregistrerCommande(c);
         db.prepare("UPDATE avis SET prenom = 'Client', ville = '' WHERE boutique_id = ? AND commande_id = ?").run(ctx.boutique.id, c.id);

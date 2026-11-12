@@ -14,16 +14,20 @@ test('export complet', async () => {
   const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length) cookie = sc.map(x => x.split(';')[0]).join('; '); return r; };
   const mdp = 'un mot de passe solide';
   try {
-    await c('POST', '/api/auth/inscription', { email: 'ex@exemple.ch', motDePasse: mdp, config: { boutique: { nom: 'Export', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'E', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
+    await c('POST', '/api/auth/inscription', { email: 'ex@exemple.ch', motDePasse: mdp, config: { boutique: { nom: 'Export', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'E', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }, { nom: 'Ancien', prix: 10, stock: 1, type: 'stock' }] });
     const slug = db.prepare('SELECT slug FROM boutiques').get().slug, pid = (await (await c('GET', '/api/admin/etat')).json()).produits[0].id;
     const cmd = await (await fetch(`${base}/api/public/${slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: pid, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Léa Martin', email: 'lea@exemple.ch', adresse: 'Rue 2', npa: '1004', ville: 'Lausanne' } }) })).json();
     await fetch(cmd.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    const ancien = (await (await c('GET', '/api/admin/etat')).json()).produits.find(x => x.nom === 'Ancien');
+    assert.equal((await c('DELETE', `/api/admin/produits/${ancien.id}`)).status, 200);
     assert.equal((await c('POST', '/api/admin/export-complet', { motDePasse: 'faux mot de passe' })).status, 401);
     const r = await c('POST', '/api/admin/export-complet', { motDePasse: mdp });
     assert.equal(r.status, 200);
     assert.match(r.headers.get('content-disposition'), /attachment; filename="comptoir-.*\.json"/); assert.match(r.headers.get('cache-control'), /no-store/);
     const texte = await r.text(), d = JSON.parse(texte);
-    assert.equal(d.format, 'comptoir-export'); assert.equal(d.produits.length, 1); assert.equal(d.commandes.length, 1);
+    assert.equal(d.format, 'comptoir-export'); assert.equal(d.produits.length, 2);
+    assert.equal(d.produits.find(x => x.nom === 'Ancien').supprime, true, 'produit supprimé marqué'); assert.ok(!d.produits.find(x => x.nom === 'Vase').supprime);
+    assert.equal(d.photos, 'dans le fichier'); assert.equal(d.commandes.length, 1);
     assert.equal(d.clients[0].email, 'lea@exemple.ch'); assert.equal(d.configuration.boutique.nom, 'Export');
     assert.ok(d.journalVentes.length >= 1, 'journal des ventes inclus');
     const jeton = db.prepare('SELECT jeton_client FROM commandes').get().jeton_client;
