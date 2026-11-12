@@ -68,6 +68,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 ### Conformité
 
 - Mentions légales, CGV, factures et avoirs numérotés sans trou.
+- **Facture électronique** : chaque facture et chaque avoir au format XML de la norme européenne EN 16931 (celui de Factur-X), valide selon le schéma officiel.
 - Droit de rétractation (France, Belgique), effacement des données d'un client sur demande.
 
 ## Exploiter la plateforme
@@ -86,4 +87,5 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Notifications push** : à vérifier sur un vrai téléphone. Sur iPhone, Comptoir doit d'abord être ajouté à l'écran d'accueil.
 - **Variantes** : pas encore pour les produits en dropshipping.
 - **Traductions** : les noms et descriptions des produits restent ceux saisis par le marchand. La page sans JavaScript reste en français.
+- **Facture électronique** : XML seul (pas encore le PDF Factur-X avec XML intégré), sans transmission à une plateforme agréée. Les règles détaillées de la norme (schematron) restent à vérifier avec le validateur public.
 - **Publication sur les réseaux sociaux** : préparée par Comptoir, mais publiée par copier-coller, en attendant les connexions officielles des réseaux.

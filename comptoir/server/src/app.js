@@ -12,6 +12,7 @@ const MotDePasse = require('./motdepasse');
 const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const EmailsClients = require('./emails-clients');
+const FactureElectronique = require('./facture-electronique');
 const WebPush = require('./webpush');
 const { AsyncLocalStorage } = require('node:async_hooks');
 // Auteur de la requête en cours (membre de l'équipe) : l'historique des commandes porte son nom.
@@ -1782,6 +1783,21 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const c = lireCommande(row);
     if (c.moyen !== 'facture') throw erreur(404, 'Facture introuvable.', 'introuvable');
     return { html: pageFactureQr(b, c, lireConfig(b)) };
+  });
+  /* Facture électronique (XML CII, norme EN 16931, format de Factur-X) : pour le logiciel comptable ou une plateforme agréée. */
+  r.get('/api/admin/commandes/:id/facture-electronique', exigerMarchand, ctx => {
+    const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id), config = lireConfig(ctx.boutique);
+    const avoir = ctx.query.get('avoir') === '1';
+    if (avoir && !c.avoir) throw erreur(404, 'Cette commande n’a pas d’avoir.', 'introuvable');
+    const manque = FactureElectronique.manques(c, config);
+    if (manque.length) throw erreur(409, `Facture électronique impossible : il manque : ${manque.join(', ')}. À compléter dans Paramètres, Conformité.`, 'incomplet');
+    const xml = FactureElectronique.produire(c, config, { avoir, devise: config.boutique.devise || 'EUR' });
+    const incoherences = FactureElectronique.verifier(xml);
+    if (incoherences.length) { journal.error('[facture-electronique]', c.id, incoherences.join(', ')); throw erreur(500, 'Facture électronique incohérente : elle n’a pas été produite. Signalez-le au support.', 'incoherent'); }
+    const nom = String(avoir ? c.avoir.numero : c.facture).replace(/[^\w.-]/g, '_');
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    ctx.entetes['Content-Disposition'] = `attachment; filename="${nom}.xml"`;
+    return { binaire: Buffer.from(xml, 'utf8'), type: 'application/xml; charset=utf-8' };
   });
   r.get('/api/admin/commandes/:id/facture-qr', exigerMarchand, ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);

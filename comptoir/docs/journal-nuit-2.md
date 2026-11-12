@@ -548,3 +548,17 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
 - **Photos** : si la qualité ne suffit pas, les dimensions sont réduites jusqu'à passer sous la limite. Fond blanc pour les PNG transparents.
 - « Mes commandes » : une adresse sans commande ne consomme plus les demandes du vrai client. « Commander à nouveau » demande avant de remplacer un panier non vide.
 - 103 tests sur 103, bout en bout 51 sur 51.
+
+## Cycle 39 (02 h 55) : facture électronique EN 16931 (XML de Factur-X)
+
+- Chaque facture et chaque avoir se téléchargent au format XML CII de la norme européenne EN 16931, celui de Factur-X (France) et de ZUGFeRD : bouton « XML EN 16931 » dans la fiche commande. Utile pour le logiciel comptable, et pour la réforme française de la facture électronique (réception obligatoire pour toutes les entreprises depuis septembre 2026).
+- Les montants reprennent exactement la facture imprimée : lignes HT au taux figé à la vente, port et remises répartis par taux, base et TVA par taux identiques, total TTC égal au montant encaissé. Franchise de TVA (France, Belgique, Suisse) avec la mention d'exonération.
+- Avant de produire le fichier, Comptoir vérifie les mentions (raison sociale, adresse, numéro de TVA ou identifiant) et dit ce qui manque, au lieu de produire un fichier incomplet. Un contrôle des règles de calcul de la norme (BR-CO-10, 13, 15, 16, BR-S-08, BR-CO-17) refuse tout fichier incohérent.
+- Vérifié :
+  - 2000 commandes aléatoires (deux taux, port, remise) : toutes cohérentes ;
+  - les fichiers produits (facture suisse avec QR, franchise française, avoir belge, fichier téléchargé dans un vrai navigateur) sont **valides selon le schéma XSD officiel Factur-X 1.09 EN 16931** (xmllint) ;
+  - 105 tests sur 105.
+- Limites :
+  - les règles « schematron » de la norme n'ont pas été exécutées, car ce sont des feuilles de transformation téléchargées et je n'exécute pas de code externe. À contrôler une fois avec le validateur public du FNFE-MPE avant d'annoncer la conformité ;
+  - le PDF/A-3 avec le XML intégré (Factur-X complet) n'est pas encore produit ;
+  - Comptoir ne transmet rien à une plateforme agréée (PA).
