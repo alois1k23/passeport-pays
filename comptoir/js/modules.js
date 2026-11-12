@@ -244,6 +244,7 @@ function vueConformite() {
       ${ch ? `<label class="champ"><span>Retours acceptés (au-delà de la garantie, facultatif en Suisse)</span><select id="en-retours" data-entreprise="retoursJours">${[['', 'Aucun, sauf défaut'], ['14', '14 jours'], ['30', '30 jours']].map(([v, n]) => `<option value="${v}" ${String(e.retoursJours || '') === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : `<label class="champ"><span>Médiateur de la consommation</span><input id="en-med" value="${esc(e.mediateur)}" data-entreprise="mediateur" placeholder="Nom et site du médiateur"></label>`}
     </section>
   </div>
+  ${typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? carteJournalInalterable() : ''}
   <section class="carte sans-pad">
     <div class="carte-tete pad"><h2>Factures</h2><span class="sous">${factures.length} facture${factures.length > 1 ? 's' : ''}, numérotation continue</span></div>
     <div class="table-wrap"><table class="table table-cartes"><thead><tr><th>N° facture</th><th>Date</th><th>Client</th><th>Canal</th><th class="num">HT</th><th class="num">TVA</th><th class="num">TTC</th><th></th></tr></thead>
@@ -251,6 +252,18 @@ function vueConformite() {
       <td class="num" data-label="HT">${euros(t.ht)}</td><td class="num" data-label="TVA">${t.franchise ? '—' : euros(t.tva)}</td><td class="num" data-label="TTC">${euros(t.ttc)}</td><td class="num"><button class="btn petit fantome" data-action="facture" data-id="${c.id}">Voir</button></td></tr>`; }).join('')}</tbody></table></div>
     ${pagination(factures.length, pageF, 25, 'page-facture')}
   </section>`;
+}
+
+/* Journal inaltérable (serveur) : état chargé à l'affichage, vérifiable et exportable. */
+function carteJournalInalterable() {
+  const j = ui.journalInalterable;
+  if (!j && !ui.journalInalterableEnCours && typeof verifierJournalInalterable === 'function') setTimeout(verifierJournalInalterable, 0);
+  const etatTexte = !j ? '<p class="sous">Vérification en cours…</p>' : j.erreur ? `<p class="encart alerte-encart">${esc(j.erreur)}</p>`
+    : j.ok ? `<p><span class="pill good">Intact</span> ${j.pieces} pièce${j.pieces > 1 ? 's' : ''} scellée${j.pieces > 1 ? 's' : ''} (factures, tickets, avoirs), ${j.clotures ? `${j.clotures} clôture${j.clotures > 1 ? 's' : ''} journalière${j.clotures > 1 ? 's' : ''}` : 'première clôture demain'}.${j.derniereCloture ? ` Grand total perpétuel au ${esc(j.derniereCloture.jour)} : <b>${euros(j.derniereCloture.grandTotal / 100)}</b>.` : ''}</p>${j.empreinte ? `<p class="sous">Empreinte actuelle : <span class="mono">${esc(j.empreinte.slice(0, 16))}…</span></p>` : ''}`
+    : `<div class="encart alerte-encart"><b>${j.nbAnomalies} anomalie${j.nbAnomalies > 1 ? 's' : ''} : des pièces ont été modifiées ou supprimées après leur émission.</b><ul>${j.anomalies.slice(0, 5).map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>`;
+  return `<section class="carte"><div class="carte-tete"><h2>Journal inaltérable des ventes</h2><div class="rangee"><button class="btn petit fantome" data-action="journal-verifier">Vérifier maintenant</button><button class="btn petit fantome" data-action="journal-exporter">Exporter (archivage)</button></div></div>
+    ${etatTexte}
+    <p class="sous">Chaque facture, ticket et avoir est scellé dès son émission dans une chaîne d’empreintes (SHA-256) : toute modification ou suppression après coup se voit. Chaque jour est clôturé avec son total et le grand total perpétuel, et l’empreinte de la dernière clôture vous est envoyée chaque lundi. ${etat.boutique.pays === 'fr' ? 'Ce sont les conditions d’inaltérabilité, de sécurisation, de conservation et d’archivage demandées aux logiciels de caisse (art. 286 du CGI) ; la certification elle-même (NF 525 ou attestation de l’éditeur) reste à obtenir.' : 'Une preuve simple de l’intégrité de vos ventes en cas de contrôle.'}</p></section>`;
 }
 
 function texteMentions() {

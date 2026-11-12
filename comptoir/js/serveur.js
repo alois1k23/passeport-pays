@@ -628,3 +628,26 @@ document.addEventListener('click', async e => {
     a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch { toast('Pas de connexion : réessayez dans un instant.'); }
 });
+
+/* Journal inaltérable : vérification complète (côté serveur) et export CSV pour l'archivage. */
+async function verifierJournalInalterable() {
+  ui.journalInalterableEnCours = true;
+  try {
+    const r = await fetch('/api/admin/journal-inalterable', { credentials: 'same-origin' });
+    const j = await r.json().catch(() => ({}));
+    ui.journalInalterable = r.ok ? j : { erreur: j.erreur || 'Vérification impossible pour l’instant.' };
+  } catch { ui.journalInalterable = { erreur: 'Pas de connexion : vérification impossible pour l’instant.' }; }
+  finally { ui.journalInalterableEnCours = false; }
+  if (location.hash.startsWith('#conformite')) rendre();
+}
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action="journal-verifier"], [data-action="journal-exporter"]'); if (!el) return;
+  if (el.dataset.action === 'journal-verifier') { ui.journalInalterable = null; rendre(); await verifierJournalInalterable(); toast(ui.journalInalterable && ui.journalInalterable.ok ? 'Journal vérifié : intact.' : 'Vérification terminée.'); return; }
+  try {
+    const r = await fetch('/api/admin/journal-inalterable/export', { credentials: 'same-origin' });
+    if (!r.ok) { toast('Export impossible pour l’instant.'); return; }
+    const nom = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'journal-inalterable.csv';
+    const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+    a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch { toast('Pas de connexion : réessayez dans un instant.'); }
+});

@@ -592,3 +592,13 @@ Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 30
 - **Contrôle** : le vérificateur lit désormais le fichier bloc par bloc (catégories S, E, O ; BR-CO-14 et 16 avec l'arrondi ; motif d'exonération obligatoire).
 - **E-mails traduits** : les pages de confirmation, de lien invalide et de désinscription s'affichent dans la langue du client (le lien du pied d'e-mail la transmet), avec la bonne langue déclarée dans la page. Recherche de langue protégée (`Object.hasOwn`).
 - Nouveaux cas validés par le schéma XSD officiel (espèces arrondies, hors champ, facture annulée, avoir non payé). 107 tests sur 107 ; fuzz de la relecture (30 000 commandes) sans écart ; bout en bout 51 sur 51.
+
+## Cycle 43 (03 h 15) : journal inaltérable des ventes
+
+- Chaque facture, ticket de caisse et avoir est **scellé dès son émission** dans une chaîne d'empreintes SHA-256 propre à la boutique : numéro, date, montant, articles, port et remise. Modifier une pièce, réécrire ou supprimer une entrée du journal se voit à la vérification.
+- **Clôture de chaque jour d'activité** : nombre de pièces, total du jour, **grand total perpétuel**. L'empreinte de la dernière clôture part dans le rapport du lundi : une copie hors du serveur, qui empêche de recalculer toute la chaîne en silence.
+- Aucune donnée personnelle du client dans le sceau : l'effacement d'un client (RGPD) reste possible sans casser le journal.
+- Conformité : carte « Journal inaltérable » avec l'état (intact ou anomalies), vérification à la demande et export CSV pour l'archivage. Accessible aussi avec un abonnement terminé.
+- Les pièces émises avant ce journal sont reprises une fois au démarrage, dans l'ordre de leur date.
+- Ce sont les conditions d'inaltérabilité, de sécurisation, de conservation et d'archivage demandées en France aux logiciels de caisse (art. 286 du CGI). **Ce n'est pas une certification** (NF 525 ou attestation de l'éditeur) : c'est écrit tel quel dans l'application.
+- Vérifié : test avec trois falsifications détectées (montant modifié en base, entrée réécrite, entrée supprimée), clôture et grand total exacts ; carte et export dans un vrai navigateur. 108 tests sur 108. La simulation de 60 jours vérifie désormais le journal des 100 marchands.

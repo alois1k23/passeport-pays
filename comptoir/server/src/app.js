@@ -13,6 +13,7 @@ const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const EmailsClients = require('./emails-clients');
 const FactureElectronique = require('./facture-electronique');
+const JournalInalterable = require('./journal-inalterable');
 const WebPush = require('./webpush');
 const { AsyncLocalStorage } = require('node:async_hooks');
 // Auteur de la requête en cours (membre de l'équipe) : l'historique des commandes porte son nom.
@@ -228,10 +229,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Données personnelles du client : seulement avec la permission clients:lecture (sinon le pays de livraison suffit).
     client: !c.client ? null : client ? { nom: c.client.nom, email: c.client.email, adresse: c.client.adresse, npa: c.client.npa, ville: c.client.ville, pays: c.client.pays || null } : { pays: c.client.pays || null },
     lignes: (c.lignes || []).map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock' })) });
+  /* Journal inaltérable : chaque facture, ticket ou avoir est scellé dès qu'il existe (une seule fois). */
+  JournalInalterable.creerTables(db);
+  const sceller = (boutiqueId, c) => { try { JournalInalterable.sceller(db, boutiqueId, c); } catch (e) { journal.error('[journal-inalterable]', c.id, e.message); } };
   const enregistrerCommande = c => {
     const { id, numero, date, statut, ...donnees } = c;
     const avant = db.prepare('SELECT statut, boutique_id FROM commandes WHERE id = ?').get(id);
     db.prepare('UPDATE commandes SET statut = ?, donnees = ?, maj_le = ? WHERE id = ?').run(statut, JSON.stringify(donnees), Date.now(), id);
+    if ((donnees.facture || donnees.avoir) && avant) sceller(avant.boutique_id, c);
     // Changement de statut : les webhooks du marchand sont prévenus (commande.payee, .expediee, .remboursee…).
     if (avant && avant.statut !== statut) {
       try { const b = db.prepare('SELECT config FROM boutiques WHERE id = ?').get(avant.boutique_id); integ.emettre(avant.boutique_id, `commande.${statut}`, commandeApi({ ...c }, (JSON.parse(b.config).boutique || {}).devise || 'CHF')); }
@@ -713,7 +718,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
   // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
-  const LECTURE_SEULE = new Set(['GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
+  const LECTURE_SEULE = new Set(['GET /api/admin/journal-inalterable', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
     verifierRole(ctx);
@@ -1504,6 +1509,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       // Espèces en francs : le client paie le montant arrondi à 5 centimes ; l'écart est noté sur le ticket.
       if (ctx.corps.moyen === 'especes' && config.boutique.pays === 'ch') { const enc = Math.round(total * 20) / 20; donnees.encaisse = prix.arrondi(enc); donnees.arrondi = prix.arrondi(enc - total); }
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, ctx.boutique.id, numero, now, 'retiree', auth.nouvelId(), JSON.stringify(donnees));
+      sceller(ctx.boutique.id, { id, numero, date: now, statut: 'retiree', ...donnees });   // ticket de caisse scellé à l'encaissement
       ajusterStock(ctx.boutique.id, lignes, -1);
       if (horsLigne) {
         const manque = lignes.filter(l => typeof l.retireStock === 'number' && l.retireStock < l.qte);
@@ -1742,6 +1748,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
+      if (donnees.facture) sceller(b.id, c);   // facture QR émise à la commande
       if (parFacture) return { commande: { ...c, jeton }, pmt: null };
       const p = { id: auth.nouvelId('pay_'), commande_id: c.id };
       db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le, compte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(p.id, c.id, paiement.nom, Math.round(total * 100), devise, 'cree', now, compte);
@@ -1792,6 +1799,19 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const c = lireCommande(row);
     if (c.moyen !== 'facture') throw erreur(404, 'Facture introuvable.', 'introuvable');
     return { html: pageFactureQr(b, c, lireConfig(b)) };
+  });
+  /* Reprise : les pièces émises avant le journal sont scellées une fois, dans l'ordre de leur date. */
+  for (const { id: bid } of db.prepare('SELECT id FROM boutiques WHERE id NOT IN (SELECT DISTINCT boutique_id FROM journal_inalterable)').all()) {
+    const pieces = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND (json_extract(donnees, '$.facture') IS NOT NULL OR json_extract(donnees, '$.avoir') IS NOT NULL)").all(bid).map(lireCommande)
+      .sort((a, b2) => (a.dateFacture || a.date) - (b2.dateFacture || b2.date));
+    for (const c of pieces) sceller(bid, c);
+  }
+  /* Journal inaltérable : état, vérification complète, export pour l'archivage. */
+  r.get('/api/admin/journal-inalterable', exigerMarchand, ctx => JournalInalterable.verifier(db, ctx.boutique.id, id => { const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(id, ctx.boutique.id); return row ? lireCommande(row) : null; }));
+  r.get('/api/admin/journal-inalterable/export', exigerMarchand, ctx => {
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    ctx.entetes['Content-Disposition'] = `attachment; filename="journal-inalterable-${ctx.boutique.slug}.csv"`;
+    return { binaire: Buffer.from(JournalInalterable.exporterCsv(db, ctx.boutique.id), 'utf8'), type: 'text/csv; charset=utf-8' };
   });
   /* Facture électronique (XML CII, norme EN 16931, format de Factur-X) : pour le logiciel comptable ou une plateforme agréée. */
   r.get('/api/admin/commandes/:id/facture-electronique', exigerMarchand, ctx => {
@@ -2303,6 +2323,8 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
         ...(echues.length ? [`- ${echues.length} facture${echues.length > 1 ? 's' : ''} QR échue${echues.length > 1 ? 's' : ''} non payée${echues.length > 1 ? 's' : ''} (n° ${echues.slice(0, 5).map(c => c.numero).join(', ')}) : importez votre relevé bancaire ou relancez le client`] : []),
         ...(risquees.length ? [`- ${risquees.length} commande${risquees.length > 1 ? 's' : ''} à risque de fraude à vérifier (n° ${risquees.slice(0, 5).map(c => c.numero).join(', ')})`] : []),
         ...ruptures.map(x => `- Rupture prévue dans ${x.jours} jour${x.jours > 1 ? 's' : ''} : ${x.p.nom} (stock ${x.p.stock})`),
+        ...(() => { const cl = db.prepare("SELECT ref, empreinte FROM journal_inalterable WHERE boutique_id = ? AND type = 'cloture' ORDER BY seq DESC LIMIT 1").get(b.id);
+          return cl ? ['', `Journal inaltérable des ventes : clôture du ${cl.ref}, empreinte ${cl.empreinte}`, 'Gardez cet e-mail : cette empreinte prouve que vos factures n’ont pas été modifiées depuis.'] : []; })(),
         '', `Votre tableau de bord : ${urlPublique}/app#tableau`, '', 'Ce rapport arrive chaque lundi. Pour ne plus le recevoir : Paramètres > E-mails.', '', 'L’équipe Comptoir'
       ];
       envoyerEmail(null, mch.email, `Votre semaine : ${f(ca(sem))}, ${sem.length} commande${sem.length > 1 ? 's' : ''} (${config.boutique.nom})`, lignes.join('\n'));
@@ -2315,6 +2337,10 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     entretien(maintenant);
     try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
     try { alertesRetourStock(maintenant); } catch (e) { journal.error('[retour-stock]', e.message); }
+    // Clôture journalière du journal inaltérable (jours terminés), pour chaque boutique qui a des pièces.
+    for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT boutique_id FROM journal_inalterable').all()) {
+      try { JournalInalterable.cloturer(db, bid, maintenant); } catch (e) { journal.error('[journal-inalterable] clôture', bid, e.message); }
+    }
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {
       if (!paiementsActifs(b) || !abo.etat(b.marchand_id).actif) continue;   // vérifié avant de lire les commandes (coût)
       const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));

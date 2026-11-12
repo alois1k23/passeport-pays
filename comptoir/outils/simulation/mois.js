@@ -329,6 +329,13 @@ const durees = [];
     const n = db.prepare('SELECT COUNT(*) n FROM commandes WHERE boutique_id = ?').get(b.id).n;
     if (e.s === 200 && e.j.commandes.length !== n) note(`marchand ${m.i}`, 'commandes manquantes dans l’espace marchand', `${e.j.commandes.length} affichées sur ${n}`);
   }
+  // Journal inaltérable : intact chez chaque marchand (aucune opération normale ne casse un sceau), et clôtures faites.
+  for (const m of marchands.filter(x => !x.supprime && !x.resilieFini)) {
+    const j = await m.c('GET', '/api/admin/journal-inalterable');
+    if (j.s !== 200) { note(`marchand ${m.i}`, 'journal inaltérable illisible', j.s); continue; }
+    if (!j.j.ok) note(`marchand ${m.i}`, 'journal inaltérable : anomalie', j.j.anomalies.slice(0, 2).join(' | '));
+    if (j.j.pieces && !j.j.clotures) note(`marchand ${m.i}`, 'journal inaltérable : aucune clôture', `${j.j.pieces} pièces`);
+  }
   // Isolation : un marchand ne lit jamais les commandes d'un autre
   if (marchands.length > 1) { const [m1, m2] = marchands; const e = await m1.c('GET', '/api/admin/etat'); const b2 = db.prepare('SELECT id FROM boutiques WHERE slug = ?').get(m2.slug); if (JSON.stringify(e.j).includes(b2.id)) note('isolation', 'données d’une autre boutique visibles'); }
 
