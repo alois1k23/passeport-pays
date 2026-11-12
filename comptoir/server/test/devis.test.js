@@ -15,9 +15,14 @@ const client = { raison: 'Hôtel du Lac SA', contact: 'Mme Roux', email: 'achats
 test('calcul : catalogue et lignes libres, remise, port ; montants repris par la facture électronique', () => {
   const produits = [{ id: 'p1', nom: 'Vase', prix: 60, actif: true }, { id: 'p2', nom: 'Thé', prix: 10.55, actif: true, tauxReduit: true }];
   const d = Devis.preparer({ client, remisePct: 10, port: 25, lignes: [{ produitId: 'p1', qte: 12 }, { produitId: 'p2', qte: 40 }, { nom: 'Pose sur site', qte: 1, prixHt: 350 }] }, produits, config);
-  assert.equal(d.lignes[0].prix, 54); assert.equal(d.lignes[1].prix, 9.5); assert.equal(d.lignes[2].prixTtc, 420); assert.equal(d.lignes[2].prix, 378);
-  assert.equal(d.total, 54 * 12 + 9.5 * 40 + 378 + 25);
-  assert.equal(d.remise, Math.round((60 * 12 + 10.55 * 40 + 420 - (54 * 12 + 9.5 * 40 + 378)) * 100) / 100);
+  assert.deepEqual(d.lignes.map(l => l.totalTtc), [648, 379.8, 378], 'totaux calculés par ligne');
+  assert.equal(d.total, 648 + 379.8 + 378 + 25);
+  assert.equal(d.remise, Math.round((720 + 422 + 420 - (648 + 379.8 + 378)) * 100) / 100);
+  // Grande quantité en HT : pas de dérive d'arrondi unitaire (9,99 HT × 1000 = 9 990,00 HT = 11 988,00 TTC).
+  const g = Devis.preparer({ client, lignes: [{ nom: 'Gobelets', qte: 1000, prixHt: 9.99 }] }, produits, config);
+  assert.equal(g.total, 11988); assert.equal(g.lignes[0].prixHtSaisi, 9.99);
+  const vg = Devis.ventiler(g, config); assert.equal(vg[0].ht, 9990);
+  assert.throws(() => Devis.preparer({ client: { ...client, pays: 'de' }, lignes: [{ nom: 'X', qte: 1, prixHt: 1 }] }, produits, config), /autre pays/);
   // La commande née du devis produit une facture électronique cohérente au même total.
   const c = { numero: 1, facture: 'FA-1', date: Date.now(), statut: 'payee', lignes: d.lignes, port: d.port, total: d.total, tauxTva: d.tauxTva, client: { nom: client.raison, tva: client.tva } };
   const xml = F.produire(c, { ...config, entreprise: { ...config.entreprise, tvaIntra: 'FR12345678901' } });
@@ -62,10 +67,11 @@ test('parcours : création, envoi, consultation, acceptation unique, commande pa
     assert.doesNotMatch(page.headers.get('content-security-policy'), /unsafe-inline/);
     assert.equal((await fetch(lien.replace(jeton, jeton.slice(0, -2) + 'xx'))).status, 404);
     // Acceptation sans case cochée : refusée.
-    assert.equal((await formulaire(`/devis/atelier/${id}/accepter`, { jeton, nom: 'M. Roux' })).status, 400);
+    let rep = await formulaire(`/devis/atelier/${id}/accepter`, { jeton, nom: 'M. Roux' });
+    assert.equal(rep.status, 200); assert.match(await rep.text(), /cochez « bon pour accord »/, 'erreur affichée dans la page du devis');
     // Deux acceptations simultanées : une seule commande.
     const [a1, a2] = await Promise.all([formulaire(`/devis/atelier/${id}/accepter`, { jeton, nom: 'C. Roux, directrice', accord: 'oui' }), formulaire(`/devis/atelier/${id}/accepter`, { jeton, nom: 'C. Roux, directrice', accord: 'oui' })]);
-    assert.deepEqual([a1.status, a2.status].sort(), [303, 409]);
+    assert.deepEqual([a1.status, a2.status].sort(), [200, 303], 'une acceptation, l’autre réaffiche la page');
     assert.equal(db.prepare("SELECT COUNT(*) n FROM commandes WHERE json_extract(donnees, '$.devis.id') = ?").get(id).n, 1);
     const d = (await api('GET', `/api/admin/devis/${id}`)).json.devis;
     assert.equal(d.statut, 'accepte'); assert.equal(d.acceptation.nom, 'C. Roux, directrice'); assert.match(d.acceptation.empreinte, /^[0-9a-f]{64}$/);
@@ -74,7 +80,7 @@ test('parcours : création, envoi, consultation, acceptation unique, commande pa
     assert.equal(row.statut, 'attente'); assert.equal(c.total, d.total); assert.equal(c.client.nom, 'Hôtel du Lac SA'); assert.equal(c.client.tva, client.tva);
     // Le devis accepté ne change plus.
     assert.equal((await api('PUT', `/api/admin/devis/${id}`, { client, lignes: [{ nom: 'X', qte: 1, prixHt: 1 }] })).statut, 409);
-    assert.equal((await formulaire(`/devis/atelier/${id}/refuser`, { jeton })).status, 409);
+    assert.match(await (await formulaire(`/devis/atelier/${id}/refuser`, { jeton })).text(), /plus en attente de réponse/);
     // Paiement en ligne depuis la page du devis : montant = total du devis, puis commande payée et facturée.
     page = await fetch(lien); assert.match(await page.text(), /Payer .* en ligne/);
     const payer = await formulaire(`/devis/atelier/${id}/payer`, { jeton });
@@ -84,8 +90,10 @@ test('parcours : création, envoi, consultation, acceptation unique, commande pa
     const apres = db.prepare('SELECT statut, donnees FROM commandes WHERE id = ?').get(d.commande.id);
     assert.equal(apres.statut, 'payee'); assert.ok(JSON.parse(apres.donnees).facture);
     assert.equal(JSON.parse(db.prepare('SELECT donnees FROM produits WHERE id = ?').get(produit).donnees).stock, 90, 'stock du catalogue ; la ligne libre n’y touche pas');
-    const xml = await api('GET', `/api/admin/commandes/${d.commande.id}/facture-electronique`);
-    assert.ok(xml.statut === 409 || xml.statut === 200);
+    const cfg = JSON.parse(db.prepare('SELECT config FROM boutiques').get().config); cfg.entreprise.tvaIntra = 'FR12345678901'; cfg.entreprise.siret = '12345678901234'; db.prepare('UPDATE boutiques SET config = ?').run(JSON.stringify(cfg));
+    const c2 = { ...JSON.parse(apres.donnees), numero: 1 };
+    const xml = F.produire(c2, cfg); assert.deepEqual(F.verifier(xml), []); assert.ok(xml.includes(`<ram:GrandTotalAmount>${d.total.toFixed(2)}</ram:GrandTotalAmount>`));
+    assert.ok(!c2.lignes.some(l => l.type === 'drop' && !l.codeFournisseur));
   } finally { s.close(); }
 });
 
@@ -97,7 +105,7 @@ test('refus, expiration, modification après envoi (ancien lien désactivé), an
     let id = await nouveau(); let jeton = new URL((await api('POST', `/api/admin/devis/${id}/envoyer`)).json.lien).searchParams.get('jeton');
     assert.equal((await formulaire(`/devis/atelier/${id}/refuser`, { jeton })).status, 303);
     assert.equal((await api('GET', `/api/admin/devis/${id}`)).json.devis.statut, 'refuse');
-    assert.equal((await formulaire(`/devis/atelier/${id}/accepter`, { jeton, nom: 'X', accord: 'oui' })).status, 409);
+    assert.match(await (await formulaire(`/devis/atelier/${id}/accepter`, { jeton, nom: 'X', accord: 'oui' })).text(), /plus en attente/);
     // Modification après envoi : le lien envoyé ne marche plus ; un nouvel envoi en donne un autre.
     id = await nouveau(); jeton = new URL((await api('POST', `/api/admin/devis/${id}/envoyer`)).json.lien).searchParams.get('jeton');
     assert.equal((await api('PUT', `/api/admin/devis/${id}`, { client, lignes: [{ produitId: produit, qte: 3 }] })).json.devis.statut, 'brouillon');
@@ -128,6 +136,6 @@ test('expiration : un devis échu ne s’accepte plus', async () => {
     d.valableJusquau = Date.now() - 1000; db.prepare('UPDATE devis SET donnees = ? WHERE id = ?').run(JSON.stringify(d), id);
     assert.equal((await api('GET', `/api/admin/devis/${id}`)).json.devis.statut, 'expire');
     assert.match(await (await fetch(`${base}/devis/atelier/${id}?jeton=${jeton}`)).text(), /a expiré/);
-    assert.equal((await formulaire(`/devis/atelier/${id}/accepter`, { jeton, nom: 'X', accord: 'oui' })).status, 409);
+    assert.match(await (await formulaire(`/devis/atelier/${id}/accepter`, { jeton, nom: 'X', accord: 'oui' })).text(), /a expiré/);
   } finally { s.close(); }
 });

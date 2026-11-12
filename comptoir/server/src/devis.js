@@ -39,16 +39,24 @@ function preparer(saisie, produits, config) {
       const v = Array.isArray(p.variantes) && p.variantes.length ? p.variantes.find(x => x.id === l.varianteId) : null;
       if (Array.isArray(p.variantes) && p.variantes.length && !v) throw erreur(400, `Ligne ${i + 1} : choisissez une variante de « ${p.nom} ».`, 'variante_requise');
       const t = p.tauxReduit ? reduit : normal, prixTtc = r2(v && typeof v.prix === 'number' ? v.prix : p.prix);
-      return { produitId: p.id, ...(v ? { varianteId: v.id } : {}), nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, qte, tauxTva: t, tauxReduit: !!p.tauxReduit, prixTtc, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null };
+      return { produitId: p.id, ...(v ? { varianteId: v.id } : {}), nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, qte, tauxTva: t, tauxReduit: !!p.tauxReduit, prixTtc, type: p.type || 'stock', source: p.source || null, fournisseur: p.fournisseur || null, ...(p.codeFournisseur ? { codeFournisseur: p.codeFournisseur } : {}) };
     }
     const nom = texte(l.nom, 200, `Ligne ${i + 1}, désignation`, { requis: true });
     const ht = Number(l.prixHt);
     if (!Number.isFinite(ht) || ht < 0 || ht > 1000000) throw erreur(400, `Ligne ${i + 1} : prix HT entre 0 et 1 000 000.`, 'prix_invalide');
     const t = l.tauxReduit ? reduit : normal;
-    return { produitId: null, nom, qte, tauxTva: t, tauxReduit: !!l.tauxReduit, prixTtc: r2(ht * (1 + t)), type: 'libre' };
+    return { produitId: null, nom, qte, tauxTva: t, tauxReduit: !!l.tauxReduit, prixHtSaisi: ht, prixTtc: ht * (1 + t), type: 'libre' };
   });
-  // Prix net unitaire TTC (remise comprise), arrondi au centime : la commande et la facture utiliseront ces prix.
-  for (const l of lignes) { l.prix = r2(l.prixTtc * (1 - remisePct / 100)); l.prixHt = Math.round(l.prixTtc / (1 + l.tauxTva) * 10000) / 10000; }
+  // Calcul par ligne (pas par unité) : le total d'une ligne de 1000 unités n'accumule pas l'arrondi de chaque unité.
+  // Ligne libre : total HT = prix HT saisi × quantité, arrondi, puis TTC ; ligne du catalogue : prix TTC × quantité.
+  // Le prix unitaire net (prix) est total ÷ quantité, non arrondi : les sommes de la commande et de la facture
+  // retrouvent exactement ces totaux de ligne.
+  for (const l of lignes) {
+    const f = 1 - remisePct / 100;
+    if (l.type === 'libre') { const htBrut = r2(l.prixHtSaisi * l.qte); l.totalTtcBrut = r2(htBrut * (1 + l.tauxTva)); l.totalTtc = r2(r2(htBrut * f) * (1 + l.tauxTva)); }
+    else { l.totalTtcBrut = r2(l.prixTtc * l.qte); l.totalTtc = r2(l.totalTtcBrut * f); }
+    l.prix = l.totalTtc / l.qte;
+  }
   const port = s.port === undefined || s.port === null || s.port === '' ? 0 : r2(Number(s.port));
   if (!Number.isFinite(port) || port < 0 || port > 100000) throw erreur(400, 'Frais de livraison : entre 0 et 100 000.', 'port_invalide');
   const validiteJours = s.validiteJours === undefined || s.validiteJours === null || s.validiteJours === '' ? 30 : Number(s.validiteJours);
@@ -61,8 +69,10 @@ function preparer(saisie, produits, config) {
     adresse: texte(c.adresse, 200, 'Adresse'), npa: texte(c.npa, 10, 'Code postal'), ville: texte(c.ville, 100, 'Ville'),
     pays: /^(fr|ch|be|de|it|lu|at|es|nl)$/.test(String(c.pays || '')) ? c.pays : config.boutique.pays, tva: texte(c.tva, 30, 'N° de TVA du client')
   };
-  const sousTotal = r2(lignes.reduce((a, l) => a + l.prixTtc * l.qte, 0));
-  const totalLignes = r2(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
+  // Client d'un autre pays : TVA intracommunautaire (exonération, autoliquidation) ou export pas encore gérés ici.
+  if (client.pays !== config.boutique.pays) throw erreur(400, 'Devis pour un client d’un autre pays : le régime de TVA (exonération intracommunautaire, autoliquidation, export) n’est pas encore géré par Comptoir. Établissez ce devis avec votre fiduciaire.', 'pays_client');
+  const sousTotal = r2(lignes.reduce((a, l) => a + l.totalTtcBrut, 0));
+  const totalLignes = r2(lignes.reduce((a, l) => a + l.totalTtc, 0));
   const total = r2(totalLignes + port);
   if (!(total > 0)) throw erreur(400, 'Le montant du devis doit être positif.', 'montant_invalide');
   return { client, lignes, remisePct, port, sousTotal, remise: r2(sousTotal - totalLignes), total, validiteJours, objet: texte(s.objet, 200, 'Objet'), conditions: texte(s.conditions, 2000, 'Conditions'), tauxTva: normal };

@@ -395,7 +395,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   /* France et Belgique : l'information sur la rétractation et le formulaire type doivent figurer sur un support durable (directive 2011/83, art. 8.7). */
   const infoRetractation = (bq, c, config) => {
     const pays = config.boutique.pays;
-    if (pays === 'ch' || c.canal === 'magasin') return '';
+    if (pays === 'ch' || c.canal === 'magasin' || c.canal === 'devis') return '';   // vente en personne ou à un professionnel : pas de droit de rétractation
     const article = pays === 'be' ? 'art. VI.47 du Code de droit économique' : 'art. L221-18 du Code de la consommation';
     const e = config.entreprise || {};
     const vendeur = [e.raison || config.boutique.nom, e.adresse, e.email].filter(Boolean).join(', ');
@@ -1954,7 +1954,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   });
   // Liens personnels des clients (confirmation d'inscription, désinscription) masqués : le marchand voit l'e-mail, pas le jeton.
   r.get('/api/admin/emails', exigerMarchand, ctx => db.prepare('SELECT destinataire, sujet, corps, cree_le FROM emails WHERE boutique_id = ? ORDER BY id DESC LIMIT 50').all(ctx.boutique.id)
-    .map(e => ({ ...e, corps: String(e.corps || '').replace(/(\/(?:reinscription|desinscription)\?j=)[^\s"'<>]+/g, '$1…') })));
+    .map(e => ({ ...e, corps: String(e.corps || '').replace(/(\/(?:reinscription|desinscription)\?j=)[^\s"'<>]+/g, '$1…').replace(/([?&]jeton=)[^\s"'<>&]+/g, '$1…') })));   // liens personnels (devis, commandes) masqués
 
   /* ---------- Boutique publique ---------- */
   r.get('/api/public/:slug', ctx => {
@@ -2017,7 +2017,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     for (const r2 of db.prepare("SELECT date, donnees FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ?").all(b.id, Date.now() - 90 * 86400000)) {
       const d = JSON.parse(r2.donnees);
       // 30 minutes pour un paiement en ligne, 48 heures pour une facture QR (une commande fictive sur facture ne bloque pas le stock un mois).
-      const active = r2.date > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : 30 * 60000);
+      // Devis accepté : payé souvent par virement, stock réservé 7 jours.
+      const active = r2.date > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 30 * 60000);
       if (!active || String((d.client || {}).email || '').toLowerCase() === emailClient) continue;   // son propre essai précédent ne bloque pas le client
       for (const l of d.lignes || []) if (l.type !== 'drop') { reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0); if (l.varianteId) reserve[`${l.produitId}:${l.varianteId}`] = (reserve[`${l.produitId}:${l.varianteId}`] || 0) + (l.qte || 0); }
     }
@@ -2285,14 +2286,14 @@ button:focus-visible,input:focus-visible{outline:3px solid #1F5F8B;outline-offse
   r.post('/api/admin/devis', exigerMarchand, ctx => {
     auth.limiter(`devis:${ctx.boutique.id}`, 500 * facteurLimites, 86400000, 'Trop de devis créés aujourd’hui.');
     const config = lireConfig(ctx.boutique);
-    const contenu = Devis.preparer(ctx.corps, listerProduits(ctx.boutique.id), config);
+    const contenu = Devis.preparer(ctx.corps, listerProduits(ctx.boutique.id).filter(vendable), config);
     return { statut: 201, corps: { devis: resumeDevis(DV.nouveau(ctx.boutique.id, contenu)) } };
   });
   r.put('/api/admin/devis/:id', exigerMarchand, ctx => {
     const d = DV.deBoutique(ctx.boutique.id, ctx.params.id);
     // Un devis accepté, refusé ou annulé ne change plus. Modifier un devis envoyé le repasse en brouillon : l'ancien lien ne marche plus.
     if (!['brouillon', 'envoye'].includes(d.statut)) throw erreur(409, 'Ce devis ne peut plus être modifié : dupliquez-le.', 'fige');
-    const contenu = Devis.preparer(ctx.corps, listerProduits(ctx.boutique.id), lireConfig(ctx.boutique));
+    const contenu = Devis.preparer(ctx.corps, listerProduits(ctx.boutique.id).filter(vendable), lireConfig(ctx.boutique));
     const etaitEnvoye = d.statut === 'envoye';
     Object.assign(d, contenu, { statut: 'brouillon', valableJusquau: null });
     d.historique.push({ date: Date.now(), texte: etaitEnvoye ? 'Modifié après envoi : repassé en brouillon, ancien lien désactivé' : 'Modifié' });
@@ -2307,7 +2308,8 @@ button:focus-visible,input:focus-visible{outline:3px solid #1F5F8B;outline-offse
     auth.limiter(`devis-envoi:${ctx.boutique.id}`, 200 * facteurLimites, 86400000, 'Trop de devis envoyés aujourd’hui.');
     const jeton = DV.nouveauJeton(d.id);
     // Validité : à compter du premier envoi (un renvoi ne la prolonge pas).
-    if (d.statut === 'brouillon' || !d.valableJusquau) d.valableJusquau = maintenant + d.validiteJours * 86400000;
+    // (sauf devis expiré : le renvoyer lui redonne sa durée de validité, le marchand le confirme ainsi).
+    if (d.statut === 'brouillon' || !d.valableJusquau || d.valableJusquau < maintenant) d.valableJusquau = maintenant + d.validiteJours * 86400000;
     d.statut = 'envoye'; d.envoyeLe = maintenant;
     d.historique.push({ date: maintenant, texte: `Envoyé à ${d.client.email}` });
     DV.ecrire(d);
@@ -2327,8 +2329,8 @@ button:focus-visible,input:focus-visible{outline:3px solid #1F5F8B;outline-offse
     const d = DV.deBoutique(ctx.boutique.id, ctx.params.id);
     // Recalcul à partir de la saisie : prix du catalogue d'aujourd'hui, remise et lignes libres reprises telles quelles.
     const saisie = { client: d.client, objet: d.objet, conditions: d.conditions, remisePct: d.remisePct, port: d.port, validiteJours: d.validiteJours,
-      lignes: d.lignes.map(l => l.produitId ? { produitId: l.produitId, varianteId: l.varianteId, qte: l.qte } : { nom: l.nom, qte: l.qte, prixHt: Math.round(l.prixTtc / (1 + l.tauxTva) * 100) / 100, tauxReduit: l.tauxReduit }) };
-    const contenu = Devis.preparer(saisie, listerProduits(ctx.boutique.id), lireConfig(ctx.boutique));
+      lignes: d.lignes.map(l => l.produitId ? { produitId: l.produitId, varianteId: l.varianteId, qte: l.qte } : { nom: l.nom, qte: l.qte, prixHt: l.prixHtSaisi ?? Math.round(l.prixTtc / (1 + l.tauxTva) * 100) / 100, tauxReduit: l.tauxReduit }) };
+    const contenu = Devis.preparer(saisie, listerProduits(ctx.boutique.id).filter(vendable), lireConfig(ctx.boutique));
     const n = DV.nouveau(ctx.boutique.id, contenu);
     n.historique.push({ date: Date.now(), texte: `Copie du devis ${d.numero}` }); DV.ecrire(n);
     return { statut: 201, corps: { devis: resumeDevis(n) } };
@@ -2369,7 +2371,7 @@ ${message ? `<div class="encart ${/accept|reçu/.test(message) ? 'ok' : ''}" rol
 <p><span class="sous">Pour</span><br><b>${escHtml(d.client.raison)}</b>${d.client.contact ? `<br>${escHtml(d.client.contact)}` : ''}${d.client.adresse ? `<br>${escHtml(d.client.adresse)}` : ''}${d.client.npa || d.client.ville ? `<br>${escHtml(`${d.client.npa} ${d.client.ville}`.trim())}` : ''}${d.client.tva ? `<br>N° TVA ${escHtml(d.client.tva)}` : ''}</p>
 ${d.objet ? `<p><b>Objet :</b> ${escHtml(d.objet)}</p>` : ''}
 <table><thead><tr><th>Désignation</th><th class="num">Qté</th><th class="num">${sansTva ? 'Prix unitaire' : 'PU HT'}</th>${sansTva ? '' : '<th class="num">TVA</th>'}<th class="num">Total ${sansTva ? '' : 'TTC'}</th></tr></thead><tbody>
-${d.lignes.map(l => `<tr><td>${escHtml(l.nom)}</td><td class="num">${l.qte}</td><td class="num">${m(sansTva ? l.prixTtc : l.prixTtc / (1 + l.tauxTva))}</td>${sansTva ? '' : `<td class="num">${pct(l.tauxTva)}</td>`}<td class="num">${m(l.prixTtc * l.qte)}</td></tr>`).join('')}
+${d.lignes.map(l => `<tr><td>${escHtml(l.nom)}</td><td class="num">${l.qte}</td><td class="num">${m(sansTva ? l.prixTtc : typeof l.prixHtSaisi === 'number' ? l.prixHtSaisi : l.prixTtc / (1 + l.tauxTva))}</td>${sansTva ? '' : `<td class="num">${pct(l.tauxTva)}</td>`}<td class="num">${m(l.totalTtcBrut ?? l.prixTtc * l.qte)}</td></tr>`).join('')}
 ${d.remise ? `<tr><td>Remise ${String(d.remisePct).replace('.', ',')} %</td><td></td><td></td>${sansTva ? '' : '<td></td>'}<td class="num">−${m(d.remise)}</td></tr>` : ''}
 ${d.port ? `<tr><td>Livraison</td><td class="num">1</td><td></td>${sansTva ? '' : '<td class="num">au prorata</td>'}<td class="num">${m(d.port)}</td></tr>` : ''}</tbody></table>
 <div class="totaux">${sansTva ? '' : vent.map(v => `<div><span>Base HT ${pct(v.taux)}</span><span>${m(v.ht)}</span></div><div><span>TVA ${pct(v.taux)}</span><span>${m(v.tva)}</span></div>`).join('')}<div class="total"><span>Total ${sansTva ? '' : 'TTC'}</span><span>${m(d.total)}</span></div></div>
@@ -2384,7 +2386,17 @@ ${bloc}</main></body></html>`;
     if (!d.consulteLe && d.statut === 'envoye') { d.consulteLe = Date.now(); d.historique.push({ date: d.consulteLe, texte: 'Consulté par le client' }); DV.ecrire(d); }
     return { html: pageDevis(b, d, config, jeton, ctx.query.get('ok') === 'accepte' ? 'Devis accepté : votre commande est enregistrée.' : ctx.query.get('ok') === 'refuse' ? 'Votre refus est enregistré.' : '') };
   });
-  r.post('/devis/:slug/:id/accepter', async ctx => {
+  /* Erreur sur la page publique (double clic, devis expiré, trop d'essais) : la page du devis est réaffichée avec le
+     message, au lieu d'une réponse technique. */
+  const repondreDevis = async (ctx, fn) => {
+    try { return await fn(); } catch (e) {
+      if (!e.statut || e.statut >= 500 || e.code === 'introuvable') throw e;
+      const f = lireFormulaire(ctx);
+      let page; try { const { b, d, config } = devisPublic(ctx, f.jeton); page = pageDevis(b, d, config, f.jeton, e.message); } catch { throw e; }
+      return { html: page };
+    }
+  };
+  const accepterDevis = async ctx => {
     const f = lireFormulaire(ctx);
     auth.limiter(`devis-public:${ctx.ip}`, 30 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
     const { b, d, config } = devisPublic(ctx, f.jeton);
@@ -2397,13 +2409,19 @@ ${bloc}</main></body></html>`;
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const c = { id: auth.nouvelId('c_'), numero, date: maintenant, statut: 'attente',
         client: { nom: frais.client.raison, contact: frais.client.contact, email: frais.client.email, adresse: frais.client.adresse, npa: frais.client.npa, ville: frais.client.ville, pays: frais.client.pays, tva: frais.client.tva },
-        lignes: frais.lignes.map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, prix: l.prix, qte: l.qte, type: l.type, tauxTva: l.tauxTva, tauxReduit: l.tauxReduit, source: l.source || null, fournisseur: l.fournisseur || null })),
+        lignes: frais.lignes.map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, prix: l.prix, qte: l.qte, type: l.type, tauxTva: l.tauxTva, tauxReduit: l.tauxReduit, source: l.source || null, fournisseur: l.fournisseur || null, ...(l.codeFournisseur ? { codeFournisseur: l.codeFournisseur } : {}) })),
         sousTotal: frais.sousTotal, remise: frais.remise, motifRemise: frais.remise ? `Remise du devis ${frais.numero} (${frais.remisePct} %)` : null, port: frais.port, total: frais.total, tauxTva: frais.tauxTva,
         livraison: 'devis', canal: 'devis', devis: { id: frais.id, numero: frais.numero }, suivi: '', note: '',
         historique: [{ date: maintenant, texte: `Commande issue du devis ${frais.numero}, accepté en ligne par ${nom}` }] };
       const jetonCommande = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jetonCommande, JSON.stringify(donnees));
+      // Stock : l'acceptation n'est pas bloquée (le marchand peut réassortir), mais un manque est signalé tout de suite.
+      const prods = listerProduits(b.id);
+      const manques = frais.lignes.filter(l => l.produitId && l.type !== 'drop').filter(l => { const p = prods.find(x => x.id === l.produitId); if (!p) return true; const v = l.varianteId && Array.isArray(p.variantes) ? p.variantes.find(x => x.id === l.varianteId) : null; return (v ? v.stock : p.stock) < l.qte; }).map(l => l.nom);
+      if (manques.length) c.historique.push({ date: maintenant, texte: `Stock insuffisant à l’acceptation : ${manques.join(', ')}. Réassortissez avant l’expédition.` });
+      if (manques.length) { const { id: _i, numero: _n, date: _d, statut: _s, ...dn } = c; db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(JSON.stringify(dn), c.id); }
+      frais.manques = manques;
       frais.statut = 'accepte';
       frais.acceptation = { le: maintenant, nom, reseau: crypto.createHmac('sha256', cleChiffrement).update(`devis:${ctx.ip}`).digest('hex').slice(0, 32), empreinte: Devis.empreinteContenu(frais.numero, frais) };
       frais.commande = { id: c.id, numero };
@@ -2412,11 +2430,12 @@ ${bloc}</main></body></html>`;
       return { c, frais };
     });
     const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
-    if (mch) envoyerEmail(null, mch.email, `Devis ${res.frais.numero} accepté : ${formatMontant(res.frais.total, config)}`, `Bonjour,\n\n${res.frais.client.raison} a accepté le devis ${res.frais.numero} (signataire : ${nom}).\nCommande n° ${res.c.numero} créée, en attente de paiement (en ligne ou par virement). Marquez-la payée à réception d'un virement.\n\nVoir la commande : ${urlPublique}/app#commandes\n\nComptoir`);
+    if (mch) envoyerEmail(null, mch.email, `Devis ${res.frais.numero} accepté : ${formatMontant(res.frais.total, config)}`, `Bonjour,\n\n${res.frais.client.raison} a accepté le devis ${res.frais.numero} (signataire : ${nom}).\nCommande n° ${res.c.numero} créée, en attente de paiement (en ligne ou par virement). Marquez-la payée à réception d'un virement.${res.frais.manques && res.frais.manques.length ? `\n\nAttention, stock insuffisant : ${res.frais.manques.join(', ')}.` : ''}\n\nVoir la commande : ${urlPublique}/app#commandes\n\nComptoir`);
     envoyerEmail(b.id, res.frais.client.email, `Devis ${res.frais.numero} accepté : commande n° ${res.c.numero}`, `Bonjour,\n\nNous avons bien reçu votre accord pour le devis ${res.frais.numero} (${formatMontant(res.frais.total, config)}). Votre commande n° ${res.c.numero} est enregistrée.\n\nPaiement en ligne ou coordonnées de virement : ${urlPublique}/devis/${encodeURIComponent(b.slug)}/${res.frais.id}?jeton=${encodeURIComponent(f.jeton)}\n\n${(config.entreprise || {}).raison || config.boutique.nom}`);
     return { redirection: `/devis/${encodeURIComponent(b.slug)}/${encodeURIComponent(d.id)}?jeton=${encodeURIComponent(f.jeton)}&ok=accepte` };
-  });
-  r.post('/devis/:slug/:id/refuser', ctx => {
+  };
+  r.post('/devis/:slug/:id/accepter', ctx => repondreDevis(ctx, () => accepterDevis(ctx)));
+  const refuserDevis = ctx => {
     const f = lireFormulaire(ctx);
     auth.limiter(`devis-public:${ctx.ip}`, 30 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
     const { b, d } = devisPublic(ctx, f.jeton);
@@ -2428,15 +2447,17 @@ ${bloc}</main></body></html>`;
     const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
     if (mch) envoyerEmail(null, mch.email, `Devis ${d.numero} refusé`, `Bonjour,\n\n${d.client.raison} a refusé le devis ${d.numero}.\n\nComptoir`);
     return { redirection: `/devis/${encodeURIComponent(b.slug)}/${encodeURIComponent(d.id)}?jeton=${encodeURIComponent(f.jeton)}&ok=refuse` };
-  });
-  r.post('/devis/:slug/:id/payer', async ctx => {
+  };
+  r.post('/devis/:slug/:id/refuser', ctx => repondreDevis(ctx, () => refuserDevis(ctx)));
+  const payerDevis = async ctx => {
     const f = lireFormulaire(ctx);
     auth.limiter(`devis-public:${ctx.ip}`, 30 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
     const { b, d } = devisPublic(ctx, f.jeton);
     const row = d.commande && db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(d.commande.id, b.id);
     if (!row || row.statut !== 'attente') return { redirection: `/devis/${encodeURIComponent(b.slug)}/${encodeURIComponent(d.id)}?jeton=${encodeURIComponent(f.jeton)}` };
     return { redirection: (await ouvrirPaiement(b, row)).paiementUrl };
-  });
+  };
+  r.post('/devis/:slug/:id/payer', ctx => repondreDevis(ctx, () => payerDevis(ctx)));
   /* ---------- Cartes cadeaux ---------- */
   // Carte vide parce que son solde est réservé par une commande en attente de paiement : message distinct (le client
   // qui vient d'annuler son paiement comprend pourquoi, et sait que le montant revient).
@@ -2693,7 +2714,7 @@ ${bloc}</main></body></html>`;
     const liste = Array.isArray(ctx.corps.avis) ? ctx.corps.avis.filter(x => x && typeof x === 'object').slice(0, 20) : [];
     let n = 0;
     for (const a of liste) {
-      if (!c.lignes.some(l => l.produitId === a.produitId)) continue;
+      if (!a.produitId || !c.lignes.some(l => l.produitId === a.produitId)) continue;   // jamais d'avis sans produit (ligne libre)
       const note = Math.round(Number(a.note));
       if (!(note >= 1 && note <= 5)) throw erreur(400, 'Note entre 1 et 5 étoiles.', 'note_invalide');
       n += db.prepare('INSERT OR IGNORE INTO avis (id, boutique_id, commande_id, produit_id, note, texte, prenom, ville, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -2709,7 +2730,7 @@ ${bloc}</main></body></html>`;
     if (!row || !auth.egal(jeton, row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     const c = lireCommande(row);
     const deja = new Set(db.prepare('SELECT produit_id FROM avis WHERE commande_id = ?').all(c.id).map(x => x.produit_id));
-    return { prenom: c.client.nom.split(' ')[0], produits: c.lignes.filter(l => !deja.has(l.produitId)).map(l => ({ produitId: l.produitId, nom: l.nom })) };
+    return { prenom: c.client.nom.split(' ')[0], produits: c.lignes.filter(l => l.produitId && !deja.has(l.produitId)).map(l => ({ produitId: l.produitId, nom: l.nom })) };   // lignes libres (devis) : pas d'avis
   });
   r.patch('/api/admin/avis/:id', exigerMarchand, ctx => {
     const res = db.prepare('UPDATE avis SET reponse = ? WHERE id = ? AND boutique_id = ?').run(String(ctx.corps.reponse || '').slice(0, 1000) || null, ctx.params.id, ctx.boutique.id);
@@ -3099,7 +3120,7 @@ ${bloc}</main></body></html>`;
   /* Retours : France et Belgique, 14 jours après réception (droit de rétractation) ; Suisse, le délai choisi par le
      marchand (sinon aucun). Point de départ : la livraison ou le retrait (sinon l'expédition, puis la commande). */
   const delaiRetour = (b, c) => {
-    if (!['expediee', 'livree', 'retiree'].includes(c.statut) || c.canal === 'magasin') return 0;
+    if (!['expediee', 'livree', 'retiree'].includes(c.statut) || c.canal === 'magasin' || c.canal === 'devis') return 0;
     const config = lireConfig(b), jours = config.boutique.pays === 'ch' ? Number((config.entreprise || {}).retoursJours) || 0 : Math.max(14, Number((config.entreprise || {}).retoursJours) || 0);
     if (!jours) return 0;
     const recu = [...(c.historique || [])].reverse().find(h => /^(Livrée|Remise au client|Retirée|Expédiée)/.test(h.texte));

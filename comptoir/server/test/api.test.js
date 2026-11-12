@@ -314,7 +314,9 @@ test('relance de paiement abandonné, reprise et récupération ; demande d’av
   gerer.automatisationsEcheances(maintenant + 25 * 3600000);
   const relances = await mails();
   assert.equal(relances.length, 2);
-  const lien = /reprendre=([^&]+)&jeton=(\S+)/.exec(relances[0].corps);
+  // Le lien personnel est masqué dans la liste des e-mails de l'espace marchand : lu dans la file d'envoi.
+  assert.match(relances[0].corps, /jeton=…/);
+  const lien = /reprendre=([^&]+)&jeton=(\S+)/.exec(db.prepare('SELECT corps FROM emails WHERE destinataire = ? ORDER BY rowid').get('dana@exemple.ch').corps);
   const rep = await acheteur('POST', `/api/public/${slug}/commandes/${decodeURIComponent(lien[1])}/reprendre`, { jeton: decodeURIComponent(lien[2]) });
   assert.match(rep.json.paiementUrl, /paiement-simule/);
   await fetch(rep.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });

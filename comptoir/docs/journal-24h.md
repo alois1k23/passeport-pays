@@ -170,3 +170,27 @@ Relecture indépendante des cartes cadeaux : scénarios rejoués sur une copie d
 - **Boutique** : « Cette commande vous rapporte N points », puis « Utiliser mes points de fidélité » (e-mail, code, case à cocher). La remise s'affiche dans les totaux et l'e-mail est prérempli dans la commande.
 - Vérifié dans un vrai navigateur : activation, 1re commande (100 points), code reçu, 2e commande à 95 € au lieu de 100 €. Aucune erreur.
 - 2 nouveaux tests (module et parcours complet) : 139 tests sur 139.
+
+### Cycle 11 (00 h 15) : corrections de la relecture des devis
+
+Relecture indépendante des devis : 5000 devis aléatoires contrôlés par les règles EN 16931, parcours complet rejoué. Points corrigés :
+- **Grave, fournisseur** : une commande issue d'un devis avec un article en dropshipping perdait l'identifiant du fournisseur. Elle aurait été transmise au fournisseur de démonstration au lieu du vrai. L'identifiant est désormais repris, et seuls les produits vendables (visibles, vérifiés) peuvent figurer dans un devis.
+- **Grave, relances** : le client professionnel qui avait accepté un devis recevait les relances de « panier abandonné ». Les commandes issues d'un devis en sont exclues.
+- **Grave, arrondis** : le calcul se faisait par unité. Pour 9,99 HT × 1000, le devis affichait 9 991,67 HT au lieu de 9 990,00, et une remise sur des prix très bas pouvait doubler. Le calcul se fait maintenant par ligne : total HT saisi × quantité, puis TTC. Le prix HT saisi est conservé (modification, duplication), et le paiement en ligne porte sur le montant exact.
+- **Grave, droit de rétractation** : il était annoncé à des professionnels, avec le parcours de retour des particuliers. Une commande issue d'un devis n'en a pas.
+- **Page du devis** : une erreur (double clic, devis expiré, trop d'essais) réaffiche la page avec le message, au lieu d'une réponse technique.
+- **Liens personnels** : ils sont masqués dans la liste des e-mails de l'espace marchand.
+- **Facture électronique** : le numéro de TVA du client n'est repris que s'il est valide et que le vendeur est assujetti (règles BR-O-02 et BR-CO-09).
+- **Client d'un autre pays** : la TVA intracommunautaire n'est pas encore gérée. Un tel devis est donc refusé avec une explication, au lieu d'appliquer à tort la TVA du pays de la boutique.
+- **Stock** : un manque est signalé dès l'acceptation (historique et e-mail au marchand). Le stock est réservé 7 jours pour une commande issue d'un devis, le temps d'un virement.
+- **Écran Devis** :
+  - pays du client ;
+  - une ligne sans prix n'est plus enregistrée à 0 ;
+  - le formulaire n'est plus redessiné pendant la saisie, et la liste se met à jour quand un client accepte ;
+  - confirmation avant de fermer sans enregistrer ;
+  - message clair si l'envoi échoue ;
+  - filtre « Devis » dans les commandes.
+- Les lignes libres (prestations) ne donnent plus lieu à une demande d'avis.
+- Un devis expiré qu'on renvoie retrouve sa durée de validité.
+- **Restent ouverts** : un instantané de la page acceptée (preuve plus complète), et les mentions B2B françaises (pénalités de retard, indemnité de 40 €) sur la facture.
+- Tests renforcés : la facture électronique d'une commande issue d'un devis est vérifiée. Grande quantité, client d'un autre pays : 139 tests sur 139. Vérifié dans un vrai navigateur.

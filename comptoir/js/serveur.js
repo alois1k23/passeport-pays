@@ -516,11 +516,12 @@ function installerModeConnecte() {
   const dejaNotifiees = new Set();   // hors de « etat », qui est remplacé à chaque rechargement
   const titreDeBase = document.title;
   const appliquer = async (nouvelles = []) => {
-    if (ui.produitEdite || ['editeur', 'creer'].includes(ui.route)) { enAttente = true; return; }   // pas pendant une saisie
+    if (ui.produitEdite || ui.devisEdition || ['editeur', 'creer'].includes(ui.route)) { enAttente = true; return; }   // pas pendant une saisie (fiche produit, devis)
     enAttente = false;
     const avant = etat.commandes.length, statuts = etat.commandes.map(c => c.statut).join();
     try { await rechargerEtat(); } catch { return; }
     if (etat.commandes.length === avant && etat.commandes.map(c => c.statut).join() === statuts) return;
+    ui.devisListe = null;   // une nouvelle commande peut venir d'un devis accepté : liste à recharger
     rendre();
     const payees = nouvelles.filter(n => !dejaNotifiees.has(n.numero));
     if (payees.length) {

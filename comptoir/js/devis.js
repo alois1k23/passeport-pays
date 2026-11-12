@@ -2,7 +2,7 @@
    Rédaction (articles du catalogue ou lignes libres HT, remise, livraison, validité), envoi par lien secret,
    suivi (consulté, accepté, refusé, expiré), duplication. Le client accepte en ligne ; le devis devient une commande. */
 const STATUTS_DEVIS = { brouillon: ['Brouillon', ''], envoye: ['Envoyé', 'info'], accepte: ['Accepté', 'good'], refuse: ['Refusé', 'bad'], expire: ['Expiré', 'warn'], annule: ['Annulé', ''] };
-const devisVide = () => ({ id: null, client: { raison: '', contact: '', email: '', adresse: '', npa: '', ville: '', tva: '' }, objet: '', lignes: [], remisePct: 0, port: 0, validiteJours: 30, conditions: '' });
+const devisVide = () => ({ id: null, client: { raison: '', contact: '', email: '', adresse: '', npa: '', ville: '', tva: '', pays: etat.boutique.pays }, objet: '', lignes: [], remisePct: 0, port: 0, validiteJours: 30, conditions: '' });
 
 function vueDevis() {
   if (!connecteAuServeur()) return `<div class="tete"><div><h1>Devis</h1><p class="sous">Devis en ligne pour vos clients professionnels : envoyés par lien, acceptés en un clic, transformés en commande.</p></div></div>
@@ -44,7 +44,7 @@ function formulaireDevis(e) {
     <fieldset class="groupe-champs"><legend>Client professionnel</legend><div class="grille-2">
       ${champ('raison', 'Raison sociale', 'required maxlength="150" autocomplete="organization"')}${champ('contact', 'Contact (facultatif)', 'maxlength="100"')}
       ${champ('email', 'E-mail', 'type="email" required maxlength="200"')}${champ('tva', `N° de TVA${ch ? ' / IDE' : ' intracommunautaire'} (facultatif)`, 'maxlength="30"')}
-      ${champ('adresse', 'Adresse', 'maxlength="200" autocomplete="street-address"')}<div class="deux">${champ('npa', ch ? 'NPA' : 'Code postal', 'maxlength="10"')}${champ('ville', 'Ville', 'maxlength="100"')}</div>
+      ${champ('adresse', 'Adresse', 'maxlength="200" autocomplete="street-address"')}<label class="champ"><span>Pays du client</span><select data-dv="client.pays">${[['ch', 'Suisse'], ['fr', 'France'], ['be', 'Belgique'], ['de', 'Allemagne'], ['it', 'Italie'], ['lu', 'Luxembourg'], ['at', 'Autriche'], ['es', 'Espagne'], ['nl', 'Pays-Bas']].map(([k, n]) => `<option value="${k}" ${(e.client.pays || etat.boutique.pays) === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>${(e.client.pays || etat.boutique.pays) !== etat.boutique.pays ? '<p class="sous alerte-texte" role="status">Client d’un autre pays : le régime de TVA (exonération, autoliquidation, export) n’est pas encore géré. Ce devis sera refusé.</p>' : ''}<div class="deux">${champ('npa', ch ? 'NPA' : 'Code postal', 'maxlength="10"')}${champ('ville', 'Ville', 'maxlength="100"')}</div>
     </div></fieldset>
     <label class="champ"><span>Objet (facultatif)</span><input data-dv="objet" value="${esc(e.objet || '')}" maxlength="200" placeholder="Décoration du hall d’accueil"></label>
     <table class="table compacte"><caption class="sous">Lignes du devis</caption><thead><tr><th>Désignation</th><th class="num">Qté</th><th class="num">Prix unitaire</th><th></th></tr></thead><tbody>
@@ -64,7 +64,7 @@ function formulaireDevis(e) {
       <label class="champ"><span>Validité (jours)</span><input data-dv="validiteJours" type="number" min="1" max="365" step="1" value="${esc(e.validiteJours)}"></label>
     </div>
     <label class="champ"><span>Conditions (facultatif)</span><textarea data-dv="conditions" maxlength="2000" rows="3" placeholder="Acompte, délai de livraison, modalités de paiement…">${esc(e.conditions || '')}</textarea></label>
-    <p>Total estimé : <b id="dv-total">${euros(estimation)}</b> TTC <span class="sous">(montant exact calculé à l’enregistrement)</span></p>
+    <p aria-live="polite">Total estimé : <b id="dv-total">${euros(estimation)}</b> TTC <span class="sous">(montant exact calculé à l’enregistrement)</span></p>
     <div class="rangee"><button class="btn" data-action="devis-enregistrer">Enregistrer</button><button class="btn fantome" data-action="devis-enregistrer" data-envoyer="1">Enregistrer et envoyer</button></div>
   </section>`;
 }
@@ -91,7 +91,7 @@ document.addEventListener('click', async ev => {
   const a = el.dataset.action, e = ui.devisEdition;
   try {
     if (a === 'devis-nouveau') { ui.devisEdition = devisVide(); ui.devisLien = null; rendre(); document.querySelector('[data-dv="client.raison"]')?.focus(); }
-    else if (a === 'devis-fermer') { ui.devisEdition = null; rendre(); }
+    else if (a === 'devis-fermer') { if ((e.lignes.length || e.client.raison) && !confirm('Fermer sans enregistrer ? Les modifications seront perdues.')) return; ui.devisEdition = null; rendre(); }
     else if (a === 'devis-ligne-libre') { e.lignes.push({ produitId: null, nom: '', qte: 1, prixHt: '' }); rendre(); document.querySelector(`[data-dv="lignes.${e.lignes.length - 1}.nom"]`)?.focus(); }
     else if (a === 'devis-ligne-article') {
       const [pid, vid] = (document.getElementById('dv-article').value || '').split('|'); if (!pid) { toast('Choisissez un article.'); return; }
@@ -100,19 +100,25 @@ document.addEventListener('click', async ev => {
     }
     else if (a === 'devis-ligne-retirer') { e.lignes.splice(Number(el.dataset.i), 1); rendre(); }
     else if (a === 'devis-enregistrer') {
+      // Contrôles avant envoi : une ligne libre sans désignation ou sans prix n'est pas enregistrée à 0 en silence.
+      const vide = e.lignes.findIndex(l => !l.produitId && (!String(l.nom || '').trim() || l.prixHt === '' || !Number.isFinite(Number(l.prixHt))));
+      if (vide >= 0) { toast(`Ligne ${vide + 1} : indiquez la désignation et le prix HT.`); document.querySelector(`[data-dv="lignes.${vide}.${String(e.lignes[vide].nom || '').trim() ? 'prixHt' : 'nom'}"]`)?.focus(); return; }
+      if (!String(e.client.raison || '').trim() || !String(e.client.email || '').trim()) { toast('Indiquez la raison sociale et l’e-mail du client.'); document.querySelector(`[data-dv="client.${String(e.client.raison || '').trim() ? 'email' : 'raison'}"]`)?.focus(); return; }
       el.disabled = true;
       const corps = { client: e.client, objet: e.objet, conditions: e.conditions, remisePct: Number(e.remisePct) || 0, port: Number(e.port) || 0, validiteJours: Number(e.validiteJours) || 30,
-        lignes: e.lignes.map(l => l.produitId ? { produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), qte: Number(l.qte) } : { nom: l.nom, qte: Number(l.qte), prixHt: Number(l.prixHt) }) };
+        lignes: e.lignes.map(l => l.produitId ? { produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), qte: Number(l.qte) } : { nom: l.nom, qte: Number(l.qte), prixHt: Number(l.prixHt), ...(l.tauxReduit ? { tauxReduit: true } : {}) }) };
       const r = e.id ? await api('PUT', `/api/admin/devis/${encodeURIComponent(e.id)}`, corps) : await api('POST', '/api/admin/devis', corps);
       ui.devisEdition = null;
-      if (el.dataset.envoyer) await envoyerDevis(r.devis.id); else toast(`Devis ${r.devis.numero} enregistré (${euros(r.devis.total)} TTC).`);
-      ui.devisListe = null; rendre();
+      ui.devisListe = null;
+      try { if (el.dataset.envoyer) await envoyerDevis(r.devis.id); else toast(`Devis ${r.devis.numero} enregistré (${euros(r.devis.total)} TTC).`); }
+      catch (err) { toast(`Devis ${r.devis.numero} enregistré, mais pas envoyé : ${err.message}`); }
+      rendre();
     }
     else if (a === 'devis-envoyer') { el.disabled = true; await envoyerDevis(el.dataset.id); ui.devisListe = null; rendre(); }
     else if (a === 'devis-modifier') {
       const d = (await api('GET', `/api/admin/devis/${encodeURIComponent(el.dataset.id)}`)).devis;
       ui.devisEdition = { id: d.id, numero: d.numero, statut: d.statut, client: { ...devisVide().client, ...d.client }, objet: d.objet, conditions: d.conditions, remisePct: d.remisePct, port: d.port, validiteJours: d.validiteJours,
-        lignes: d.lignes.map(l => l.produitId ? { produitId: l.produitId, varianteId: l.varianteId, nom: l.nom, qte: l.qte, prixTtc: l.prixTtc } : { produitId: null, nom: l.nom, qte: l.qte, prixHt: Math.round(l.prixTtc / (1 + l.tauxTva) * 100) / 100 }) };
+        lignes: d.lignes.map(l => l.produitId ? { produitId: l.produitId, varianteId: l.varianteId, nom: l.nom, qte: l.qte, prixTtc: l.prixTtc } : { produitId: null, nom: l.nom, qte: l.qte, prixHt: l.prixHtSaisi ?? Math.round(l.prixTtc / (1 + l.tauxTva) * 100) / 100, tauxReduit: l.tauxReduit }) };
       ui.devisLien = null; rendre(); window.scrollTo(0, 0);
     }
     else if (a === 'devis-dupliquer') { const r = await api('POST', `/api/admin/devis/${encodeURIComponent(el.dataset.id)}/dupliquer`, {}); toast(`Copie créée : ${r.devis.numero} (brouillon, prix du catalogue actuels).`); ui.devisListe = null; rendre(); }

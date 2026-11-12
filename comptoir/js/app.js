@@ -412,7 +412,7 @@ function vueCommandes() {
   <div class="barre-filtres">
     <input id="recherche-commandes" type="search" placeholder="Rechercher un n°, un client, une ville…" value="${esc(ui.recherche)}" data-champ="recherche" aria-label="Rechercher une commande">
     <select data-cmd="periodeCmd" aria-label="Période">${[['tout', 'Toute la période'], ['1', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['90', '90 derniers jours']].map(([v, n]) => `<option value="${v}" ${(ui.periodeCmd || 'tout') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
-    <select data-cmd="canalCmd" aria-label="Canal">${[['tous', 'Tous les canaux'], ['web', 'En ligne'], ['magasin', 'En personne']].map(([v, n]) => `<option value="${v}" ${(ui.canalCmd || 'tous') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    <select data-cmd="canalCmd" aria-label="Canal">${[['tous', 'Tous les canaux'], ['web', 'En ligne'], ['magasin', 'En personne'], ['devis', 'Devis']].map(([v, n]) => `<option value="${v}" ${(ui.canalCmd || 'tous') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
   </div>
   ${sel.length ? `<div class="barre-groupee" role="region" aria-label="Actions groupées"><b>${sel.length} sélectionnée${sel.length > 1 ? 's' : ''}</b>
     <button class="btn petit fantome" data-action="groupe-statut" data-statut="preparation">Mettre en préparation</button>

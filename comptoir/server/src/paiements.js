@@ -62,9 +62,10 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
       // Belgique : Bancontact, le moyen de paiement le plus utilisé du pays (Stripe le propose en EUR).
       if (d === 'eur' && pays === 'be' && permis('bancontact')) params.push(['payment_method_types[]', 'bancontact']);
       // Partie payée par carte cadeau : une seule ligne, du montant restant à payer (Checkout ne connaît pas les cartes cadeaux).
-      if (commande.carteCadeau && Number.isInteger(paiement.montant_centimes)) {
+      // Devis : prix unitaires non arrondis (totaux calculés par ligne) ; le montant exact est celui du paiement.
+      if ((commande.carteCadeau || commande.canal === 'devis') && Number.isInteger(paiement.montant_centimes)) {
         params.push(['line_items[0][quantity]', 1], ['line_items[0][price_data][currency]', d], ['line_items[0][price_data][unit_amount]', paiement.montant_centimes],
-          ['line_items[0][price_data][product_data][name]', `Commande n° ${commande.numero} (après carte cadeau)`]);
+          ['line_items[0][price_data][product_data][name]', commande.carteCadeau ? `Commande n° ${commande.numero} (après carte cadeau)` : `Commande n° ${commande.numero} (devis ${commande.devis ? commande.devis.numero : ''})`]);
         const s = await appeler('checkout/sessions', params, compte);
         return { url: s.url, refExterne: s.id };
       }
