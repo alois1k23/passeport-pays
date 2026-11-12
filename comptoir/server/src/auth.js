@@ -63,55 +63,92 @@ function supprimerSession(db, cookies) {
   if (cookies[COOKIE]) db.prepare('DELETE FROM sessions WHERE jeton_hash = ?').run(sha256(cookies[COOKIE]));
 }
 
+/* Compteurs anti-abus (essais de connexion, échecs, limites de débit).
+   En mémoire pour la vitesse, et recopiés en base toutes les 2 secondes et à l'arrêt, puis rechargés au démarrage :
+   un redémarrage du serveur (même provoqué) ne remet pas les compteurs à zéro.
+   Les clés (qui contiennent des adresses IP ou des e-mails) ne sont jamais écrites en clair : seulement leur empreinte. */
+const QUART = 15 * 60 * 1000;
+const empreinteCle = cle => crypto.createHash('sha256').update('limite|' + cle).digest('hex').slice(0, 32);
+const modifies = new Set();   // « type|empreinte » à recopier en base
+let basePersistance = null, minuteur = null;
+function marquer(type, k) { if (basePersistance) modifies.add(`${type}|${k}`); }
+function persisterLimites(db) {
+  db.exec('CREATE TABLE IF NOT EXISTS limites (type TEXT NOT NULL, cle TEXT NOT NULL, n INTEGER NOT NULL, depuis INTEGER NOT NULL, fenetre INTEGER NOT NULL, PRIMARY KEY (type, cle))');
+  const maintenant = Date.now();
+  db.prepare('DELETE FROM limites WHERE depuis + fenetre < ?').run(maintenant);
+  for (const r of db.prepare('SELECT * FROM limites').all()) {
+    const carte = r.type === 'essais' ? essais : r.type === 'echecs' ? echecs : compteurs;
+    const e = carte.get(r.cle);
+    if (!e || e.depuis < r.depuis || (e.depuis === r.depuis && e.n < r.n)) carte.set(r.cle, { n: r.n, depuis: r.depuis, fenetre: r.fenetre });
+  }
+  basePersistance = db;
+  if (!minuteur) { minuteur = setInterval(() => ecrireLimites(), 2000); minuteur.unref(); }
+}
+function ecrireLimites() {
+  const db = basePersistance; if (!db || !modifies.size) return;
+  const lot = [...modifies]; modifies.clear();
+  try {
+    db.exec('BEGIN');
+    const ecr = db.prepare('INSERT OR REPLACE INTO limites (type, cle, n, depuis, fenetre) VALUES (?, ?, ?, ?, ?)'), eff = db.prepare('DELETE FROM limites WHERE type = ? AND cle = ?');
+    for (const t of lot) {
+      const i = t.indexOf('|'), type = t.slice(0, i), k = t.slice(i + 1);
+      const e = (type === 'essais' ? essais : type === 'echecs' ? echecs : compteurs).get(k);
+      if (e) ecr.run(type, k, e.n, e.depuis, e.fenetre || QUART); else eff.run(type, k);
+    }
+    db.prepare('DELETE FROM limites WHERE depuis + fenetre < ?').run(Date.now());
+    db.exec('COMMIT');
+  } catch { try { db.exec('ROLLBACK'); } catch { /* base fermée */ } }
+}
+
 /* Limite les essais de connexion : 10 par adresse IP et par quart d'heure. */
 const essais = new Map();
 function limiterConnexion(ip, max = 10) {
-  const maintenant = Date.now();
-  const e = essais.get(ip) || { n: 0, depuis: maintenant };
-  if (maintenant - e.depuis > 15 * 60 * 1000) { e.n = 0; e.depuis = maintenant; }
+  const maintenant = Date.now(), k = empreinteCle(ip);
+  const e = essais.get(k) || { n: 0, depuis: maintenant, fenetre: QUART };
+  if (maintenant - e.depuis > QUART) { e.n = 0; e.depuis = maintenant; }
   e.n++;
-  essais.set(ip, e);
-  if (essais.size > 50000) for (const [k, v] of essais) if (maintenant - v.depuis > 15 * 60 * 1000) essais.delete(k);
+  essais.set(k, e); marquer('essais', k);
+  if (essais.size > 50000) for (const [k2, v] of essais) if (maintenant - v.depuis > QUART) { essais.delete(k2); marquer('essais', k2); }
   if (e.n > max) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
 }
 
 /* Connexion : seuls les ÉCHECS comptent (une connexion réussie ne bloque personne), par adresse et par compte visé. */
 const echecs = new Map();
 function compteEchecs(cle) {
-  const e = echecs.get(cle);
+  const e = echecs.get(empreinteCle(cle));
   if (!e || Date.now() - e.depuis > 15 * 60 * 1000) return 0;
   return e.n;
 }
 function verifierEchecs(cles, max) {
   if (cles.some(c => compteEchecs(c) >= max)) throw erreur(429, 'Trop d’essais de connexion. Réessayez dans 15 minutes.', 'trop_essais');
 }
-function oublierEchecs(cles) { for (const c of cles) echecs.delete(c); }
+function oublierEchecs(cles) { for (const c of cles) { const k = empreinteCle(c); echecs.delete(k); marquer('echecs', k); } }
 /* Essai de mot de passe compté AVANT le calcul (asynchrone) : des requêtes parallèles ne passent pas toutes la limite
    avant qu'un seul échec soit noté. Un essai réussi est ensuite décompté. */
 async function essayerMotDePasse(cles, max, mdp, stocke) {
   verifierEchecs(cles, max);
   noterEchec(cles);
   const ok = !!stocke && await verifierMotDePasse(mdp, stocke);
-  if (ok) for (const c of cles) { const e = echecs.get(c); if (e && e.n > 0) e.n--; }
+  if (ok) for (const c of cles) { const k = empreinteCle(c), e = echecs.get(k); if (e && e.n > 0) { e.n--; marquer('echecs', k); } }
   return ok;
 }
 function noterEchec(cles) {
   const maintenant = Date.now();
   // Purge : la table ne grossit pas sans limite (adresses et e-mails choisis par un attaquant).
-  if (echecs.size > 20000) for (const [k, e] of echecs) if (maintenant - e.depuis > 15 * 60 * 1000) echecs.delete(k);
-  for (const c of cles) { const e = echecs.get(c); if (!e || maintenant - e.depuis > 15 * 60 * 1000) echecs.set(c, { n: 1, depuis: maintenant }); else e.n++; }
+  if (echecs.size > 20000) for (const [k, e] of echecs) if (maintenant - e.depuis > QUART) { echecs.delete(k); marquer('echecs', k); }
+  for (const c of cles) { const k = empreinteCle(c), e = echecs.get(k); if (!e || maintenant - e.depuis > QUART) echecs.set(k, { n: 1, depuis: maintenant, fenetre: QUART }); else e.n++; marquer('echecs', k); }
 }
 
 /* Limite de débit générique (mémoire du processus) : max requêtes par fenêtre pour une clé (ex. « commande:<ip> »). */
 const compteurs = new Map();
 function limiter(cle, max, fenetreMs, message) {
-  const maintenant = Date.now();
-  const e = compteurs.get(cle) || { n: 0, depuis: maintenant };
+  const maintenant = Date.now(), k = empreinteCle(cle);
+  const e = compteurs.get(k) || { n: 0, depuis: maintenant, fenetre: fenetreMs };
   if (maintenant - e.depuis > fenetreMs) { e.n = 0; e.depuis = maintenant; }
-  e.n++;
-  compteurs.set(cle, e);
-  if (compteurs.size > 50000) for (const [k, v] of compteurs) if (maintenant - v.depuis > fenetreMs) compteurs.delete(k);
+  e.n++; e.fenetre = fenetreMs;
+  compteurs.set(k, e); marquer('compteurs', k);
+  if (compteurs.size > 50000) for (const [k2, v] of compteurs) if (maintenant - v.depuis > (v.fenetre || fenetreMs)) { compteurs.delete(k2); marquer('compteurs', k2); }
   if (e.n > max) throw erreur(429, message, 'trop_de_requetes');
 }
 
-module.exports = { compteEchecs, essayerMotDePasse, egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };
+module.exports = { persisterLimites, ecrireLimites, compteEchecs, essayerMotDePasse, egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };

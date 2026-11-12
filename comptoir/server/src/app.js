@@ -42,6 +42,7 @@ const IMAGE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = console }) {
   const r = creerRouteur();
   const securise = urlPublique.startsWith('https://');
+  auth.persisterLimites(db);   // compteurs anti-abus rechargés : un redémarrage ne les remet pas à zéro
   const paiement = choisirPrestataire(env, urlPublique, fetchImpl);
   const simulationAutorisee = paiement.nom === 'simulation' && env.NODE_ENV !== 'production';
   // Le fournisseur de démonstration n'expédie rien : ses produits ne se vendent jamais contre de l'argent réel

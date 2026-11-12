@@ -91,7 +91,22 @@ setInterval(() => { try { gerer.actualiserVentesTendances(); } catch (e) { conso
   if (env.SAUVEGARDE !== 'non') { setTimeout(sauvegarder, 60000).unref(); setInterval(sauvegarder, 6 * 3600000).unref(); }
 }
 
-http.createServer(gerer).listen(port, () => {
+const serveurHttp = http.createServer(gerer);
+/* Arrêt propre (déploiement, redémarrage) : plus de nouvelles requêtes, celles en cours se terminent,
+   les compteurs anti-abus sont écrits, la base est fermée proprement. */
+let arretEnCours = false;
+function arreter(signal) {
+  if (arretEnCours) return; arretEnCours = true;
+  console.log(`${signal} reçu : arrêt propre.`);
+  const fin = () => { try { require('./src/auth').ecrireLimites(); } catch { /* ignoré */ } try { db.close(); } catch { /* déjà fermée */ } process.exit(0); };
+  serveurHttp.close(fin);
+  if (serveurHttp.closeIdleConnections) serveurHttp.closeIdleConnections();
+  setTimeout(() => { if (serveurHttp.closeAllConnections) serveurHttp.closeAllConnections(); }, 2000).unref();   // flux en direct encore ouverts
+  setTimeout(fin, 10000).unref();   // requêtes trop longues (flux en direct) : on n'attend pas plus de 10 s
+}
+process.on('SIGTERM', () => arreter('SIGTERM'));
+process.on('SIGINT', () => arreter('SIGINT'));
+serveurHttp.listen(port, () => {
   console.log(`Comptoir écoute sur ${urlPublique}`);
   console.log(`Paiements : ${env.STRIPE_SECRET_KEY ? 'Stripe Connect (chaque boutique encaisse sur son compte)' : 'simulation (aucune clé Stripe)'}`);
   // Sans ces secrets, Stripe ne peut pas confirmer les paiements : les commandes payées resteraient « en attente ».
