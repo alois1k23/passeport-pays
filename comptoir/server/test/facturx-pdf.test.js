@@ -214,3 +214,17 @@ test('relecture : texte géant en temps linéaire, métadonnées propres, noms l
     assert.ok(texte.split('\n').every(l => l.length < 160), 'aucune ligne hors de la page');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('relecture des cartes cadeaux : une facture payée ne demande jamais de paiement', () => {
+  for (const carte of [null, { id: 'cc', fin: 'AB12', montant: 10 }]) {
+    const c = commande(2); if (carte) c.carteCadeau = carte;
+    const cfg = { ...config, entreprise: { ...config.entreprise, iban: 'FR7630006000011234567890189' } };
+    const pdf = FX.produire(c, cfg, { xml: F.produire(c, cfg) });
+    analyser(pdf);
+    let texte = '';   // texte extrait par pdftotext (test ignoré sans poppler)
+    try { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'fxp-')); const f = path.join(d, 'a.pdf'); fs.writeFileSync(f, pdf); texte = execFileSync('pdftotext', [f, '-']).toString(); fs.rmSync(d, { recursive: true, force: true }); } catch { return; }
+    assert.doesNotMatch(texte, /Montant à payer|IBAN/, carte ? 'avec carte' : 'sans carte');
+    assert.match(texte, /Paiement reçu/);
+    if (carte) assert.match(texte, /Dont 10,00 € réglés par carte cadeau ····AB12/);
+  }
+});

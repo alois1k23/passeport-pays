@@ -126,3 +126,29 @@ Une relecture indépendante a vérifié la structure du PDF octet par octet, le 
 - Duplication d'un devis : nouvelle numérotation (DE-2026-0002…), prix du catalogue du jour.
 - Vérifié dans un vrai navigateur : rédaction, envoi, page publique, acceptation, paiement, suivi dans la liste. Aucune erreur.
 - 4 nouveaux tests (calcul, parcours complet, double acceptation simultanée, refus, expiration, modification après envoi, annulation, droits) : 134 tests sur 134.
+
+### Cycle 9 (00 h 20) : corrections de la relecture des cartes cadeaux
+
+Relecture indépendante des cartes cadeaux : scénarios rejoués sur une copie du code, argent suivi au centime. Points corrigés :
+- **Grave, factures PDF** : depuis l'ajout de la mention « carte cadeau », une facture déjà payée (et chaque avoir) affichait « Montant à payer » avec l'IBAN. Le client risquait de payer deux fois. Corrigé, avec un test qui vérifie qu'une facture payée ne demande jamais de paiement.
+- **Paiement repris** : la libération automatique (2 heures) comptait depuis la date de la commande. Après une reprise, la carte était donc recréditée 5 minutes plus tard et le nouveau lien de paiement fermé. Le délai compte désormais depuis la dernière réservation.
+- **Commande marquée payée à la main** après la libération : la carte n'était pas débitée à nouveau, et sa part était donc offerte. Elle est maintenant débitée ; si le solde ne suffit plus, le changement est refusé avec une explication.
+- **Paiement annulé par le client** : la carte restait bloquée 2 heures et le message était trompeur. Elle est rendue dès le retour sur la boutique. Une carte réservée par une commande en cours affiche maintenant un message distinct.
+- **Minimum du prestataire** (0,50) : un petit reste à payer faisait échouer le paiement. La carte laisse désormais au moins 0,50 à payer en ligne ; le serveur et la boutique calculent la même chose.
+- **Caisse** :
+  - le solde de la carte est vérifié avant d'encaisser, et la monnaie à rendre comme l'arrondi portent sur le reste ;
+  - après une coupure réseau, une vente avec carte n'est jamais mise en file hors ligne, et un nouveau ticket sans la carte demande une confirmation (pas de double paiement) ;
+  - la carte du client précédent n'est plus préremplie.
+- **Traçabilité** :
+  - la part payée par carte est scellée dans le journal des ventes, affichée dans la fiche commande et dans les e-mails ;
+  - les frais de paiement estimés ne portent que sur le reste ;
+  - l'émission d'une carte est notée dans le journal d'activité, et le propriétaire est prévenu quand un membre de l'équipe émet une carte.
+- **Sécurité** :
+  - les empreintes des codes utilisent une sous-clé dédiée (HKDF) ;
+  - seuls les essais en échec sont limités (par boutique en ligne, par vendeur en caisse), si bien qu'un tiers ne peut plus bloquer les cartes des clients ;
+  - la liste des cartes reste consultable abonnement terminé.
+- **Règles** : en Belgique, une carte est valable au moins 2 ans (loi du 22 avril 2019). Le texte sur la TVA est nuancé : bon à usage unique ou multiple selon les cas, à voir avec la fiduciaire.
+- **Restent ouverts** :
+  - un crédit sur une carte expirée ou désactivée (après annulation) reste bloqué : le marchand émet une nouvelle carte ;
+  - l'export CSV n'a pas encore de colonne « carte cadeau ».
+- 3 nouveaux tests ; vérifié dans un vrai navigateur (caisse : carte vérifiée, 50 € sur la carte, 30 € en espèces, 20 € rendus). 137 tests sur 137.

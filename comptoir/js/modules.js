@@ -77,6 +77,10 @@ function vueMagasin() {
   const retraits = etat.commandes.filter(c => c.livraison === 'retrait' && c.canal === 'web' && ['payee', 'preparation', 'prete'].includes(c.statut)).sort((a, b) => a.date - b.date);
   const ventesMag = etat.commandes.filter(c => c.canal === 'magasin' && c.date > Date.now() - 30 * 86400000);
   const totalCaisse = ui.caisse.reduce((a, l) => a + l.prix * l.qte, 0);
+  if (!ui.caisse.length) { ui.carteCaisse = ''; ui.carteCaisseInfo = null; }   // ticket vidé : la carte du client précédent ne reste pas
+  // Carte cadeau vérifiée (solde lu sur le serveur) : déduite du ticket ; monnaie et arrondi portent sur le reste.
+  const carteSaisie = !!String(ui.carteCaisse || '').trim(), carteOk = carteSaisie && ui.carteCaisseInfo && ui.carteCaisseInfo.code === String(ui.carteCaisse).trim();
+  const partCarte = carteOk ? Math.min(ui.carteCaisseInfo.solde, Math.round(totalCaisse * 100) / 100) : 0, resteCaisse = Math.round((totalCaisse - partCarte) * 100) / 100;
   const visibles = etat.produits.filter(p => p.actif && p.stock > 0).length;
   return `
   <div class="tete"><div><h1>Magasin et caisse</h1><p class="sous">Boutique physique et site partagent le même stock. ${ventesMag.length} ventes en boutique sur 30 jours (${euros(ventesMag.reduce((a, c) => a + c.total, 0))}).</p></div></div>
@@ -93,9 +97,11 @@ function vueMagasin() {
         ${ui.caisse.length ? `<table class="table compacte"><tbody>${ui.caisse.map(l => `<tr><td class="num">${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td><td class="num"><button class="icone" data-action="caisse-retire" data-id="${l.produitId}" data-variante="${esc(l.varianteId || '')}" aria-label="Retirer ${esc(l.nom)}">×</button></td></tr>`).join('')}</tbody></table>`
           : '<p class="sous ticket-vide">Touchez un produit pour l’ajouter au ticket.</p>'}
         <div class="ticket-total"><span>Total TTC</span><strong>${euros(totalCaisse)}</strong></div>
-        ${estSuisse() && ui.caisse.length && Math.round(totalCaisse * 20) / 20 !== Math.round(totalCaisse * 100) / 100 ? `<p class="sous">En espèces : ${euros(Math.round(totalCaisse * 20) / 20)} (arrondi aux 5 centimes).</p>` : ''}
-        ${ui.caisse.length ? (() => { const du = estSuisse() ? Math.round(totalCaisse * 20) / 20 : Math.round(totalCaisse * 100) / 100, recu = Number(ui.recuCaisse) || 0; return `<label class="champ rendu-monnaie"><span>Espèces reçues</span><input id="cs-recu" type="number" min="0" step="0.05" inputmode="decimal" value="${ui.recuCaisse || ''}" data-caisse="recu" data-du="${du}" placeholder="${du.toFixed(2)}"></label><p id="cs-rendu" aria-live="polite">${texteRendu(du, recu)}</p>`; })() : ''}
-        ${ui.caisse.length && connecteAuServeur() ? `<label class="champ"><span>Carte cadeau (facultatif)</span><input id="cs-carte" data-caisse="carte" value="${esc(ui.carteCaisse || '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="24"></label><p class="sous">Le solde de la carte est utilisé en premier ; le reste est encaissé avec le moyen choisi ci-dessous.</p>` : ''}
+        ${ui.caisse.length && connecteAuServeur() ? `<div class="rangee carte-caisse"><label class="champ"><span>Carte cadeau (facultatif)</span><input id="cs-carte" data-caisse="carte" value="${esc(ui.carteCaisse || '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="24"></label><button class="btn petit fantome" data-action="caisse-carte-verifier">Vérifier</button></div>
+          ${carteSaisie && !carteOk ? '<p class="sous" role="status">Vérifiez la carte : son solde est déduit du ticket, et le reste (espèces, monnaie à rendre) est calculé ensuite.</p>' : ''}
+          ${carteOk ? `<div class="ticket-total"><span>Carte cadeau ····${esc(ui.carteCaisseInfo.fin)} (solde ${euros(ui.carteCaisseInfo.solde)})</span><strong>−${euros(partCarte)}</strong></div><div class="ticket-total"><span>Reste à encaisser</span><strong>${euros(resteCaisse)}</strong></div>` : ''}` : ''}
+        ${estSuisse() && ui.caisse.length && resteCaisse > 0 && !(carteSaisie && !carteOk) && Math.round(resteCaisse * 20) / 20 !== Math.round(resteCaisse * 100) / 100 ? `<p class="sous">En espèces : ${euros(Math.round(resteCaisse * 20) / 20)} (arrondi aux 5 centimes).</p>` : ''}
+        ${ui.caisse.length && resteCaisse > 0 && !(carteSaisie && !carteOk) ? (() => { const du = estSuisse() ? Math.round(resteCaisse * 20) / 20 : Math.round(resteCaisse * 100) / 100, recu = Number(ui.recuCaisse) || 0; return `<label class="champ rendu-monnaie"><span>Espèces reçues</span><input id="cs-recu" type="number" min="0" step="0.05" inputmode="decimal" value="${ui.recuCaisse || ''}" data-caisse="recu" data-du="${du}" placeholder="${du.toFixed(2)}"></label><p id="cs-rendu" aria-live="polite">${texteRendu(du, recu)}</p>`; })() : ''}
         <div class="rangee">${estSuisse() ? `<button class="btn" data-action="encaisser" data-moyen="twint" ${ui.caisse.length ? '' : 'disabled'}>TWINT</button>` : ''}<button class="btn${estSuisse() ? ' fantome' : ''}" data-action="encaisser" data-moyen="carte" ${ui.caisse.length ? '' : 'disabled'}>Carte</button><button class="btn fantome" data-action="encaisser" data-moyen="especes" ${ui.caisse.length ? '' : 'disabled'}>Espèces</button></div>
       </div>
     </section>
@@ -567,12 +573,12 @@ function vueCartesCadeaux() {
   const actives = cartes.filter(c => c.statut === 'active' && c.solde > 0 && !(c.expireLe && c.expireLe < Date.now()));
   return `<section class="carte" aria-labelledby="cc-titre">
     <div class="carte-tete"><h2 id="cc-titre">Cartes cadeaux</h2><span class="sous">${actives.length} en cours · ${euros(actives.reduce((a, c) => a + c.solde, 0))} à utiliser</span></div>
-    <p class="sous">Utilisables en ligne et à la caisse. Une carte est un moyen de paiement : la TVA s’applique aux articles achetés avec, pas à la vente de la carte.</p>
+    <p class="sous">Utilisables en ligne et à la caisse, comme moyen de paiement : la TVA figure sur la facture des articles achetés avec la carte. Si vous vendez une carte, demandez à votre fiduciaire comment la comptabiliser (bon à usage unique ou multiple selon vos taux de TVA).</p>
     ${ui.carteEmise ? `<div class="encart" role="status"><b>Carte de ${euros(ui.carteEmise.carte.initial)} émise.</b> Code à remettre au client : <span class="mono code-carte">${esc(ui.carteEmise.code)}</span>
       <p class="sous">Notez-le ou imprimez-le maintenant : pour votre sécurité, il ne sera plus jamais affiché.</p><button class="btn petit fantome" data-action="carte-imprimer">Imprimer la carte</button> <button class="btn petit fantome" data-action="carte-masquer">J’ai noté le code</button></div>` : ''}
     <form data-form="carte-cadeau" class="rangee">
       <label class="champ"><span>Montant</span><input name="montant" type="number" min="1" max="10000" step="0.01" inputmode="decimal" required></label>
-      <label class="champ"><span>Validité</span><select name="expireMois"><option value="">Sans limite</option><option value="12">1 an</option><option value="24" selected>2 ans</option><option value="36">3 ans</option></select></label>
+      <label class="champ"><span>Validité</span><select name="expireMois"><option value="">Sans limite</option>${etat.boutique.pays === 'be' ? '' : '<option value="12">1 an</option>'}<option value="24" selected>2 ans</option><option value="36">3 ans</option></select></label>
       <label class="champ"><span>Pour (facultatif)</span><input name="destinataire" maxlength="100" autocomplete="off"></label>
       <button class="btn">Émettre la carte</button>
     </form>

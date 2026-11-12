@@ -211,11 +211,11 @@ function composer(c, config, { avoir, devise }) {
   if (sansTva) mentions.push(`${franchise}.`);
   if (avoir) mentions.push(paye ? 'Montant remboursé.' : 'Cet avoir solde la facture, qui n’a pas été payée.');
   else if (paye) mentions.push(ch ? 'Paiement reçu. Merci pour votre achat.' : 'Paiement reçu.');
-  if (!avoir && c.carteCadeau && c.carteCadeau.montant > 0) mentions.push(`Dont ${brut(c.carteCadeau.montant)} réglés par carte cadeau ····${c.carteCadeau.fin}.`);
   else {
     mentions.push(`Montant à payer : ${argent(ttc)}${c.echeance ? `, au plus tard le ${dateFr(c.echeance)}` : ''}.`);
     if (e.iban) mentions.push(`IBAN : ${String(e.iban).replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim()}${c.referenceQr ? ` · Référence : ${c.referenceQr}` : ''}`);
   }
+  if (!avoir && c.carteCadeau && c.carteCadeau.montant > 0) mentions.push(`Dont ${brut(c.carteCadeau.montant)} réglés par carte cadeau ····${c.carteCadeau.fin}.`);
   mentions.push('Ce PDF/A-3 contient la facture électronique structurée (fichier joint factur-x.xml, norme européenne EN 16931).');
   const morceauxMentions = mentions.map(m => t.couper(m, 8.5, L - 2 * MARGE, 'r', 4));
   place(morceauxMentions.reduce((a, m) => a + m.length * 12, 0));   // les mentions restent ensemble

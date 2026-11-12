@@ -75,9 +75,9 @@ test('en ligne : carte partielle, totale, paiement abandonné puis repris, annul
     assert.equal(mixte.statut, 201); assert.match(mixte.json.paiementUrl, /paiement-simule/);
     const pid = mixte.json.paiementUrl.split('/').pop();
     assert.equal(db.prepare('SELECT montant_centimes FROM paiements WHERE id = ?').get(pid).montant_centimes, 7190);
-    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).statut, 404, 'solde réservé : carte épuisée');
-    // Carte épuisée : une seconde commande est refusée, rien n'est débité.
-    assert.equal((await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false)).statut, 400);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).statut, 409, 'solde réservé par la commande en attente : message distinct');
+    // Carte réservée : une seconde commande est refusée (409, montant réservé), rien n'est débité.
+    assert.equal((await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false)).statut, 409);
 
     // Paiement abandonné : 2 heures plus tard, la carte est recréditée et le lien fermé.
     app.automatisationsEcheances(Date.now() + 2 * 3600000 + 60000);
@@ -89,7 +89,10 @@ test('en ligne : carte partielle, totale, paiement abandonné puis repris, annul
     assert.equal(rep.statut, 200, JSON.stringify(rep.json));
     const pid2 = rep.json.paiementUrl.split('/').pop();
     assert.equal(db.prepare('SELECT montant_centimes FROM paiements WHERE id = ?').get(pid2).montant_centimes, 7190);
-    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).statut, 404);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).statut, 409);
+    // Relance de la maintenance peu après la reprise : la réservation (comptée depuis la reprise) n'est pas libérée.
+    app.automatisationsEcheances(Date.now() + 5 * 60000);
+    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pid2).statut, 'cree', 'nouveau lien intact');
     assert.equal((await appel('POST', `/paiement-simule/${pid2}/confirmer`, null, false)).statut, 303);
     assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(mixte.json.commandeId).statut, 'payee');
 
@@ -149,5 +152,58 @@ test('caisse : carte puis reste en espèces, hors ligne refusé ; droits et limi
     let dernier = 0;
     for (let i = 0; i < 22; i++) dernier = (await appel('POST', `/api/public/${slug}/carte-cadeau`, { code: crypto.randomBytes(8).toString('hex') }, false)).statut;
     assert.equal(dernier, 429);
+  } finally { s.close(); }
+});
+
+test('relecture : payée à la main après libération, abandon du paiement, minimum de 0,50, vérification en caisse', async () => {
+  const { db, s, appel, slug, produit, app } = await boutique();
+  try {
+    // Marquée payée à la main après la libération : la carte est débitée à nouveau (sinon sa part serait offerte).
+    let { code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 20 })).json;
+    let cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false);
+    app.automatisationsEcheances(Date.now() + 3 * 3600000);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 20);
+    assert.equal((await appel('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'payee' })).statut, 200);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).statut, 404, 'carte débitée');
+    // Si la carte a été vidée entre-temps : refus clair, commande inchangée.
+    ({ code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 20 })).json);
+    cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false);
+    app.automatisationsEcheances(Date.now() + 3 * 3600000);
+    assert.equal((await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 1 }], moyen: 'carte', carteCadeau: code, cle: 'vide' })).statut, 201);
+    const r = await appel('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'payee' });
+    assert.equal(r.statut, 409); assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cmd.json.commandeId).statut, 'attente');
+
+    // Paiement annulé par le client : la carte revient tout de suite, un nouvel essai fonctionne.
+    ({ code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 15 })).json);
+    cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false);
+    assert.equal((await appel('POST', `/api/public/${slug}/commandes/${cmd.json.commandeId}/abandonner`, { jeton: 'faux' }, false)).statut, 404);
+    assert.equal((await appel('POST', `/api/public/${slug}/commandes/${cmd.json.commandeId}/abandonner`, { jeton: cmd.json.jeton }, false)).statut, 200);
+    assert.equal((await appel('POST', `/api/public/${slug}/commandes/${cmd.json.commandeId}/abandonner`, { jeton: cmd.json.jeton }, false)).statut, 200, 'idempotent');
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 15);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM paiements WHERE commande_id = ? AND statut = 'cree'").get(cmd.json.commandeId).n, 0);
+    assert.equal((await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false)).statut, 201);
+
+    // Reste inférieur au minimum du prestataire (0,50) : la carte laisse 0,50 à payer en ligne.
+    ({ code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 45.7 })).json);
+    cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false);
+    const pid = cmd.json.paiementUrl.split('/').pop();
+    assert.equal(db.prepare('SELECT montant_centimes FROM paiements WHERE id = ?').get(pid).montant_centimes, 50);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 0.3, 'le reste de la carte reste utilisable');
+
+    // Caisse : vérification du solde avant d'encaisser ; seuls les échecs sont limités.
+    ({ code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 12 })).json);
+    for (let i = 0; i < 40; i++) assert.equal((await appel('POST', '/api/admin/caisse/carte', { code })).json.solde, 12);
+    let dernier = 0; for (let i = 0; i < 32; i++) dernier = (await appel('POST', '/api/admin/caisse/carte', { code: 'AAAA-BBBB-CCCC-DDDD' })).statut;
+    assert.equal(dernier, 429);
+  } finally { s.close(); }
+});
+
+test('Belgique : validité d’au moins 2 ans', async () => {
+  const { db, s, appel } = await boutique();
+  try {
+    const cfg = JSON.parse(db.prepare('SELECT config FROM boutiques').get().config); cfg.boutique.pays = 'be';
+    db.prepare('UPDATE boutiques SET config = ?').run(JSON.stringify(cfg));
+    assert.equal((await appel('POST', '/api/admin/cartes-cadeaux', { montant: 10, expireMois: 12 })).statut, 400);
+    assert.equal((await appel('POST', '/api/admin/cartes-cadeaux', { montant: 10, expireMois: 24 })).statut, 201);
   } finally { s.close(); }
 });

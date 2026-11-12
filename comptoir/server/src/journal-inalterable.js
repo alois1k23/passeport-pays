@@ -31,6 +31,8 @@ function contenuPiece(type, c) {
     canal: c.canal || 'web', total: (avoir ? -1 : 1) * centimes(avoir ? (c.avoir.montant ?? c.total) : c.total),
     port: centimes(c.port), remise: centimes(c.remise), tva: typeof c.tauxTva === 'number' ? Math.round(c.tauxTva * 1000) : null, lignes,
     // Caisse : moyen de paiement et arrondi des espèces (montant réellement encaissé)
+    // Part payée par carte cadeau (moyen de paiement, pas une remise) : scellée avec la pièce.
+    carteCadeau: c.carteCadeau && c.carteCadeau.montant ? centimes(c.carteCadeau.montant) : undefined,
     moyen: c.canal === 'magasin' ? (c.moyen || null) : undefined, encaisse: typeof c.encaisse === 'number' ? centimes(c.encaisse) : undefined, arrondi: typeof c.arrondi === 'number' ? centimes(c.arrondi) : undefined,
     factureOrigine: avoir ? c.facture : undefined
   });

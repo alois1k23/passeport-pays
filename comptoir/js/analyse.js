@@ -50,7 +50,9 @@ function decomposer(c) {
     achat += m.achat * l.qte; douane += (m.importTva + m.douane) * l.qte;
   }
   // Frais de paiement estimés : aucun en espèces, terminal ou TWINT en boutique 1,7 %, en ligne 2,5 % + 0.30.
-  const paiement = c.moyen === 'especes' ? 0 : c.canal === 'magasin' ? ttc * 0.017 : ttc * 0.025 + 0.3;
+  // Part payée par carte cadeau : aucun frais (déjà encaissée à la vente de la carte).
+  const reste = Math.max(0, ttc - (c.carteCadeau ? c.carteCadeau.montant || 0 : 0));
+  const paiement = c.moyen === 'especes' || c.moyen === 'carte-cadeau' || !reste ? 0 : c.canal === 'magasin' ? reste * 0.017 : reste * 0.025 + 0.3;
   const port = c.canal === 'magasin' || c.livraison === 'retrait' || estDropship(c) ? 0 : 7;
   return { ttc, tva, achat, douane, paiement, port, net: ttc - tva - achat - douane - paiement - port };
 }

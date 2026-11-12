@@ -147,7 +147,11 @@ function rendreBrut() {
   const total = calc.apresRemise;
   const port = total ? fraisPortClient(vue.livraison, total) : 0;
   // Carte cadeau : déduite du total (au plus son solde) ; le serveur refait le calcul et débite la carte.
-  const partCarte = vue.carte ? Math.min(vue.carte.solde, Math.round((total + port) * 100) / 100) : 0, aPayer = Math.round((total + port - partCarte) * 100) / 100;
+  // Comme le serveur : s'il resterait moins de 0,50 à payer en ligne (minimum du prestataire), la carte laisse 0,50.
+  const du = Math.round((total + port) * 100);
+  let centimesCarte = vue.carte ? Math.min(Math.round(vue.carte.solde * 100), du) : 0;
+  if (du - centimesCarte > 0 && du - centimesCarte < 50) centimesCarte = Math.max(0, du - 50);
+  const partCarte = centimesCarte / 100, aPayer = Math.round((total + port - partCarte) * 100) / 100;
   const seuil = donnees.seuilPortOffert;
   const regle = vue.panier.length ? Remises.regleApplicable({ offres: donnees.offres }, vue.panier, 'panier') : null;
   const produitOffre = regle ? donnees.produits.find(p => p.id === regle.alors && !aVariantes(p) && (p.type === 'drop' || p.stock > 0)) : null;   // offre en un clic : pas pour un produit à variantes
@@ -250,6 +254,8 @@ async function envoyerCommande(form) {
 
 async function suivreCommande(id, jeton, annule) {
   vue.ouvert = true;
+  // Paiement annulé : la carte cadeau éventuellement réservée par cette commande est rendue tout de suite (nouvel essai possible).
+  if (annule && id && jeton) fetch(`/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(id)}/abandonner`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton }) }).catch(() => {});
   if (annule) { vue.message = '<p>Le paiement a été annulé. Votre panier est conservé : vous pouvez réessayer.</p>'; history.replaceState(null, '', racineBoutique); vue.message += '<button class="sf-btn" data-c="retour-panier">Revenir au panier</button>'; return; }
   const libelles = { attente: 'Paiement en cours de confirmation…', payee: 'Paiement reçu. Nous préparons votre commande.', fournisseur: 'Paiement reçu. Votre commande est en préparation chez notre partenaire.', preparation: 'Votre commande est en préparation.', expediee: 'Votre colis est en route.', livree: 'Votre colis a été livré.', prete: 'Votre commande vous attend en boutique.', retiree: 'Commande retirée. Merci !', annulee: 'Commande annulée.', remboursee: 'Commande remboursée.' };
   for (let i = 0; i < 20; i++) {

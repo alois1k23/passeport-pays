@@ -5,8 +5,9 @@
    - Montants en centimes entiers. Chaque débit est une seule instruction conditionnelle (solde suffisant, carte
      active, non expirée) : deux paiements simultanés ne peuvent pas dépenser deux fois le même solde.
    - Chaque mouvement est inscrit au registre avec le solde qui en résulte : solde = somme des mouvements, vérifiable.
-   Sur le plan fiscal, une carte utilisable pour tout le catalogue est un « bon à usages multiples » : pas de TVA à la
-   vente de la carte, la TVA est due sur les articles achetés avec. La carte est donc un moyen de paiement, pas une remise. */
+   La carte est un moyen de paiement, pas une remise : la facture des articles achetés avec elle porte leur TVA.
+   Fiscalité de la vente d'une carte : bon « à usages multiples » (TVA à l'utilisation) dans le cas général ; dans l'UE,
+   une boutique à un seul taux qui ne vend que dans son pays émet un bon « à usage unique » (TVA dès la vente). */
 'use strict';
 const crypto = require('node:crypto');
 const { erreur } = require('./http');

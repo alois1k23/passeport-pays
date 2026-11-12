@@ -324,7 +324,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'chiffrement'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('chiffrement', ?)").run(crypto.randomBytes(32).toString('hex'));
   // Clé de chiffrement des secrets (TOTP) : SECRET_CHIFFREMENT (64 caractères hexadécimaux) si l'exploitant la garde hors de la base.
   const cleChiffrement = Buffer.from(/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? env.SECRET_CHIFFREMENT : db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
-  const Cartes = CartesCadeaux.creer(db, cleChiffrement);
+  // Sous-clé dédiée (HKDF) : les empreintes des cartes ne dépendent pas directement de la clé des autres usages.
+  // Changer SECRET_CHIFFREMENT rend les cartes en cours introuvables : la clé ne se change pas sans migration.
+  const Cartes = CartesCadeaux.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:cartes-cadeaux', 32)));
   const DV = Devis.creer(db);   // codes des cartes cadeaux : empreinte HMAC, jamais en clair
   auth.persisterLimites(db, cleChiffrement);   // compteurs anti-abus rechargés (empreintes HMAC) : un redémarrage ne les remet pas à zéro
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
@@ -402,7 +404,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Les prix des articles sont déjà remisés : la remise est indiquée pour information, pas soustraite une seconde fois.
     ...(c.remise ? [`  (prix après remise${c.motifRemise ? ` : ${c.motifRemise}` : ''}, soit ${formatMontant(c.remise, config)} d’économie)`] : []),
     c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
-    `Total payé : ${formatMontant(c.total, config)}`
+    `Total payé : ${formatMontant(c.total, config)}`,
+    ...(c.carteCadeau && c.carteCadeau.montant ? [`  dont ${formatMontant(c.carteCadeau.montant, config)} par carte cadeau ····${c.carteCadeau.fin}, reste ${formatMontant(Math.max(0, c.total - c.carteCadeau.montant), config)}`] : [])
   ].join('\n');
   const lienTransporteur = (transporteur, suivi, pays) => {
     const n = encodeURIComponent(String(suivi || '').replace(/\s/g, ''));
@@ -707,7 +710,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
           historique(c1, 'Paiement reçu, mais la carte cadeau n’a plus le solde nécessaire : paiement à rembourser, commande non validée.'); enregistrerCommande(c1);
           return { aRembourser: { ...p, statut: 'a_rembourser', ref_externe: refExterne || p.ref_externe } };
         }
-        delete c1.carteCadeau.liberee; historique(c1, 'Carte cadeau débitée à nouveau au paiement'); enregistrerCommande(c1);
+        delete c1.carteCadeau.liberee; c1.carteCadeau.reserveLe = Date.now(); historique(c1, 'Carte cadeau débitée à nouveau au paiement'); enregistrerCommande(c1);
       }
       db.prepare("UPDATE paiements SET statut = 'paye', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
       // Les autres liens de paiement encore ouverts pour cette commande ne servent plus.
@@ -745,7 +748,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   };
   /* Rôles de l'équipe. « commandes » : préparer, expédier, transmettre, encaisser à la caisse (pas de remboursement,
      pas de réglages). « complet » : tout, sauf l'abonnement, l'équipe, les paiements, les intégrations et la remise à zéro. */
-  const PERMIS_COMMANDES = /^(GET \/api\/admin\/(etat|signature|flux|commandes\/[\w-]+\/(facture-qr|facture-electronique|facture-pdf))|POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)|PATCH \/api\/admin\/commandes\/[\w-]+|POST \/api\/admin\/caisse)$/;
+  const PERMIS_COMMANDES = /^(GET \/api\/admin\/(etat|signature|flux|commandes\/[\w-]+\/(facture-qr|facture-electronique|facture-pdf))|POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)|PATCH \/api\/admin\/commandes\/[\w-]+|POST \/api\/admin\/caisse(\/carte)?)$/;
   const INTERDIT_COMPLET = /^(\w+ \/api\/admin\/(integrations|equipe|paiements|domaine|reinitialiser)(\/.*)?)$/;
   const exigerProprietaire = ctx => { exigerCompte(ctx); if (ctx.role !== 'proprietaire') throw erreur(403, 'Seul le propriétaire de la boutique gère l’abonnement et l’équipe.', 'role'); };
   const verifierRole = ctx => {
@@ -756,7 +759,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
   // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
-  const LECTURE_SEULE = new Set(['GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
+  const LECTURE_SEULE = new Set(['GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
     verifierRole(ctx);
@@ -1683,6 +1686,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // À partir d'ici, plus d'attente : numéros de pièces attribués et commande enregistrée d'un seul tenant (transaction :
     // une erreur ne consomme pas de numéro sans pièce).
     transaction(db, () => {
+    // Carte cadeau recréditée (paiement abandonné) : débitée à nouveau avant de marquer payée, sinon la part de la carte serait offerte.
+    if (cible === 'payee' && c.carteCadeau && c.carteCadeau.liberee) {
+      if (!Cartes.debiter(c.carteCadeau.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} (marquée payée)` })) throw erreur(409, `La carte cadeau ····${c.carteCadeau.fin} n’a plus le solde réservé pour cette commande (${formatMontant(c.carteCadeau.montant, config)}) : encaissez ce montant autrement, puis annulez et recréez la commande.`, 'carte_solde');
+      delete c.carteCadeau.liberee; c.carteCadeau.reserveLe = Date.now(); historique(c, 'Carte cadeau débitée à nouveau');
+    }
     if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
     if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
     // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
@@ -1707,6 +1715,20 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Idempotence de la caisse : une même clé de ticket n'enregistre qu'une vente (double clic, renvoi après coupure).
   const ticketsVus = new Map();
   db.exec('CREATE TABLE IF NOT EXISTS tickets_caisse (cle TEXT PRIMARY KEY, reponse TEXT NOT NULL, le INTEGER NOT NULL)');
+  /* Carte cadeau présentée en caisse : seuls les échecs comptent, par membre de l'équipe (une faute de frappe d'un vendeur
+     ne bloque pas la caisse des autres ; l'essai de codes au hasard est arrêté). */
+  const carteCaisse = (ctx, code) => {
+    const carte = Cartes.trouver(ctx.boutique.id, code), devise = lireConfig(ctx.boutique).boutique.devise || 'EUR';
+    if (!carte || !Cartes.disponible(carte) || carte.devise !== devise) {
+      auth.limiter(`carte-caisse:${ctx.boutique.id}:${ctx.marchand.id}`, 30 * facteurLimites, 15 * 60000, 'Trop de cartes cadeaux refusées : réessayez dans quelques minutes.');
+      throw carteRefusee(ctx.boutique, carte);
+    }
+    return carte;
+  };
+  r.post('/api/admin/caisse/carte', exigerFonction('magasin'), ctx => {
+    const carte = carteCaisse(ctx, ctx.corps.code);
+    return { solde: Cartes.disponible(carte) / 100, fin: carte.fin, expireLe: carte.expire_le };
+  });
   r.post('/api/admin/caisse', exigerFonction('magasin'), ctx => {
     const cleTicket = typeof ctx.corps.cle === 'string' ? `${ctx.boutique.id}:${ctx.corps.cle.slice(0, 60)}` : null;
     if (cleTicket && ticketsVus.has(cleTicket)) return ticketsVus.get(cleTicket);
@@ -1730,10 +1752,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     let carte = null, centimesCarte = 0;
     if (ctx.corps.carteCadeau) {
       if (horsLigne) throw erreur(400, 'Carte cadeau : son solde se vérifie en ligne. Encaissez cette vente autrement.', 'carte_hors_ligne');
-      auth.limiter(`carte-caisse:${ctx.boutique.id}`, 60 * facteurLimites, 15 * 60000, 'Trop d’essais de carte cadeau. Réessayez dans quelques minutes.');
-      carte = Cartes.trouver(ctx.boutique.id, ctx.corps.carteCadeau);
+      carte = carteCaisse(ctx, ctx.corps.carteCadeau);
       const dispo = Cartes.disponible(carte);
-      if (!carte || !dispo || carte.devise !== (lireConfig(ctx.boutique).boutique.devise || 'EUR')) throw erreur(400, 'Carte cadeau inconnue, expirée ou épuisée.', 'carte_invalide');
       centimesCarte = Math.min(dispo, Math.round(total * 100));
       if (centimesCarte === Math.round(total * 100)) moyen = 'carte cadeau';
     }
@@ -2026,8 +2046,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (parFacture) throw erreur(400, 'La carte cadeau se combine avec le paiement en ligne, pas avec le paiement sur facture.', 'carte_facture');
       carte = Cartes.trouver(b.id, ctx.corps.carteCadeau);
       const dispo = Cartes.disponible(carte);
-      if (!carte || !dispo || carte.devise !== devise) throw erreur(400, 'Carte cadeau inconnue, expirée ou épuisée.', 'carte_invalide');
+      if (!carte || !dispo || carte.devise !== devise) throw carteRefusee(b, carte);
       centimesCarte = Math.min(dispo, Math.round(total * 100));
+      // Le prestataire de paiement refuse moins de 0,50 : la carte laisse alors 0,50 à payer en ligne.
+      const reste = Math.round(total * 100) - centimesCarte;
+      if (reste > 0 && reste < 50) centimesCarte = Math.round(total * 100) - 50;
+      if (centimesCarte <= 0) throw erreur(400, 'Montant trop faible pour combiner carte cadeau et paiement en ligne.', 'carte_montant');
     }
     const resteCentimes = Math.round(total * 100) - centimesCarte;
     const compte = parFacture || !resteCentimes ? null : compteVente(b);   // avant toute écriture : sans compte de paiement actif, aucune commande n'est créée
@@ -2052,7 +2076,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         c.historique = [...(c.historique || []), { date: now, texte: `Facture QR ${c.facture} émise, payable jusqu’au ${new Date(c.echeance).toLocaleDateString('fr-CH')}` }];
       }
       if (carte) {
-        c.carteCadeau = { id: carte.id, fin: carte.fin, montant: centimesCarte / 100 };
+        c.carteCadeau = { id: carte.id, fin: carte.fin, montant: centimesCarte / 100, reserveLe: now };
         c.historique.push({ date: now, texte: `Carte cadeau ····${carte.fin} : ${formatMontant(centimesCarte / 100, config)} réservés${resteCentimes ? `, reste ${formatMontant(resteCentimes / 100, config)} à payer en ligne` : ''}` });
       }
       const jeton = auth.nouvelId();
@@ -2348,6 +2372,13 @@ ${bloc}</main></body></html>`;
     return { redirection: (await ouvrirPaiement(b, row)).paiementUrl };
   });
   /* ---------- Cartes cadeaux ---------- */
+  // Carte vide parce que son solde est réservé par une commande en attente de paiement : message distinct (le client
+  // qui vient d'annuler son paiement comprend pourquoi, et sait que le montant revient).
+  const carteRefusee = (b, carte) => {
+    const reservee = carte && carte.statut === 'active' && db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND json_extract(donnees, '$.carteCadeau.id') = ? AND json_extract(donnees, '$.carteCadeau.liberee') IS NULL LIMIT 1").get(b.id, carte.id);
+    return reservee ? erreur(409, 'Le solde de cette carte est réservé par une commande en attente de paiement. Il revient sur la carte si ce paiement n’aboutit pas (au plus tard 2 heures après).', 'carte_reservee')
+      : erreur(400, 'Carte cadeau inconnue, expirée ou épuisée.', 'carte_invalide');
+  };
   r.get('/api/admin/cartes-cadeaux', exigerMarchand, ctx => ({ cartes: Cartes.lister(ctx.boutique.id), registreCoherent: !Cartes.verifier(ctx.boutique.id).length }));
   r.get('/api/admin/cartes-cadeaux/:id', exigerMarchand, ctx => Cartes.detail(ctx.boutique.id, ctx.params.id));
   // Émettre une carte crée un moyen de paiement : réservé au propriétaire et à la gestion complète (le rôle « commandes » n'y a pas accès).
@@ -2356,9 +2387,14 @@ ${bloc}</main></body></html>`;
     const config = lireConfig(ctx.boutique), b = ctx.corps;
     const mois = b.expireMois === undefined || b.expireMois === null || b.expireMois === '' ? null : Number(b.expireMois);
     if (mois !== null && (!Number.isInteger(mois) || mois < 1 || mois > 120)) throw erreur(400, 'Validité : entre 1 et 120 mois, ou sans limite.', 'validite_invalide');
+    // Belgique : un titre-cadeau vaut au moins 2 ans (loi du 22 avril 2019).
+    if (mois !== null && config.boutique.pays === 'be' && mois < 24) throw erreur(400, 'En Belgique, une carte cadeau est valable au moins 2 ans.', 'validite_invalide');
     const texte = (v, max) => typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null;
     const expireLe = mois ? (() => { const d = new Date(); d.setMonth(d.getMonth() + mois); return d.getTime(); })() : null;
     const r2 = Cartes.emettre(ctx.boutique.id, { montant: Number(b.montant), devise: config.boutique.devise || 'EUR', expireLe, destinataire: texte(b.destinataire, 100), note: texte(b.note, 200) });
+    // Émettre une carte crée un moyen de paiement : noté dans le journal d'activité ; le propriétaire est prévenu si un membre l'a fait.
+    noterActivite(ctx.marchand.id, 'carte-cadeau', `${formatMontant(r2.carte.initial, config)}, carte ····${r2.carte.fin}`, ctx);
+    if (ctx.role && ctx.role !== 'proprietaire') { const p = db.prepare('SELECT email FROM marchands WHERE id = ?').get(ctx.boutique.marchand_id); if (p) envoyerEmail(null, p.email, `Carte cadeau émise par ${ctx.marchand.email}`, `Bonjour,\n\n${ctx.marchand.email} a émis une carte cadeau de ${formatMontant(r2.carte.initial, config)} (····${r2.carte.fin}) sur ${config.boutique.nom}.\n\nToutes les cartes : ${urlPublique}/app#magasin\n\nComptoir`); }
     return { statut: 201, corps: r2 };
   });
   r.post('/api/admin/cartes-cadeaux/:id/desactiver', exigerMarchand, ctx => ({ carte: Cartes.desactiver(ctx.boutique.id, ctx.params.id) }));
@@ -2366,9 +2402,10 @@ ${bloc}</main></body></html>`;
   r.post('/api/public/:slug/carte-cadeau', ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
     auth.limiter(`carte:${b.id}:${ctx.ip}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais de carte cadeau. Réessayez dans quelques minutes.');
-    auth.limiter(`carte-boutique:${b.id}`, 2000 * facteurLimites, 3600000, 'Vérification des cartes cadeaux momentanément indisponible.');
     const carte = Cartes.trouver(b.id, ctx.corps.code), dispo = Cartes.disponible(carte);
-    if (!carte || !dispo) throw erreur(404, 'Carte cadeau inconnue, expirée ou épuisée.', 'carte_invalide');
+    if (!carte || !dispo || carte.devise !== (lireConfig(b).boutique.devise || 'EUR')) {
+      if (!carte) auth.limiter(`carte-boutique:${b.id}`, 2000 * facteurLimites, 3600000, 'Vérification des cartes cadeaux momentanément indisponible.');   // seuls les codes inconnus comptent
+      const e = carteRefusee(b, carte); if (e.code === 'carte_invalide') e.statut = 404; throw e; }
     return { solde: dispo / 100, devise: carte.devise, fin: carte.fin, expireLe: carte.expire_le };
   });
   r.get('/api/admin/commandes/:id/facture-qr', exigerMarchand, ctx => {
@@ -2777,6 +2814,24 @@ ${bloc}</main></body></html>`;
     else envoyerEmail(b.id, email, `Confirmez votre inscription chez ${nom}`, `Bonjour,\n\nVous (ou quelqu'un d'autre) avez demandé à recevoir les nouvelles et offres de ${nom}. Pour confirmer, cliquez ici :\n${lien}\n\nSi ce n'est pas vous, ignorez cet e-mail : vous ne recevrez rien d'autre.\n\n${nom}`);
     return { ok: true, confirmation: true };
   });
+  /* Paiement annulé par le client (retour « annuler » du prestataire) : la carte cadeau réservée est recréditée tout de
+     suite, pour qu'il puisse réessayer. La commande reste en attente : reprendre son paiement débite la carte à nouveau. */
+  r.post('/api/public/:slug/commandes/:id/abandonner', async ctx => {
+    const b = boutiqueOuverte(ctx.params.slug);
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
+    if (!row || !auth.egal(String(ctx.corps.jeton || ''), row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    const ouverts = transaction(db, () => {
+      const frais = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id), c = lireCommande(frais);
+      if (frais.statut !== 'attente' || !c.carteCadeau || c.carteCadeau.liberee) return [];
+      const liens = db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id);
+      db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND statut = 'cree'").run(c.id);
+      Cartes.crediter(c.carteCadeau.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} : paiement annulé par le client` });
+      c.carteCadeau.liberee = Date.now(); historique(c, 'Paiement annulé par le client : montant de la carte cadeau recrédité'); enregistrerCommande(c);
+      return liens;
+    });
+    for (const p of ouverts) if (p.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(p).catch(e => journal.error('[paiement] expiration', e.message));
+    return { ok: true };
+  });
   r.post('/api/public/:slug/commandes/:id/reprendre', async ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
@@ -2800,7 +2855,7 @@ ${bloc}</main></body></html>`;
       const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
       if (frais.statut !== 'attente' || !frais.carteCadeau || !frais.carteCadeau.liberee) return;
       if (!Cartes.debiter(frais.carteCadeau.id, Math.round(frais.carteCadeau.montant * 100), { commandeId: frais.id, texte: `Commande n° ${frais.numero} (paiement repris)` })) throw erreur(409, 'Le solde de la carte cadeau ne suffit plus pour cette commande : passez une nouvelle commande.', 'carte_solde');
-      delete frais.carteCadeau.liberee; historique(frais, 'Paiement repris : carte cadeau débitée à nouveau'); enregistrerCommande(frais);
+      delete frais.carteCadeau.liberee; frais.carteCadeau.reserveLe = Date.now(); historique(frais, 'Paiement repris : carte cadeau débitée à nouveau'); enregistrerCommande(frais);
       Object.assign(c, frais);
     });
     const resteCentimes = Math.round(c.total * 100) - (c.carteCadeau ? Math.round(c.carteCadeau.montant * 100) : 0);
@@ -2820,7 +2875,8 @@ ${bloc}</main></body></html>`;
      et le montant revient sur la carte. Si le paiement arrive quand même, la carte est débitée à nouveau (ou l'argent
      est rendu si son solde ne suffit plus) : jamais de commande payée à moitié. */
   function libererCartes(maintenant) {
-    const rows = db.prepare("SELECT * FROM commandes WHERE statut = 'attente' AND date < ? AND json_extract(donnees, '$.carteCadeau.id') IS NOT NULL AND json_extract(donnees, '$.carteCadeau.liberee') IS NULL LIMIT 200").all(maintenant - 2 * 3600000);
+    // Délai compté depuis la dernière réservation (création, reprise du paiement), pas depuis la commande.
+    const rows = db.prepare("SELECT * FROM commandes WHERE statut = 'attente' AND json_extract(donnees, '$.carteCadeau.id') IS NOT NULL AND json_extract(donnees, '$.carteCadeau.liberee') IS NULL AND COALESCE(json_extract(donnees, '$.carteCadeau.reserveLe'), date) < ? LIMIT 200").all(maintenant - 2 * 3600000);
     for (const row of rows) {
       const ouverts = transaction(db, () => {
         const frais = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);

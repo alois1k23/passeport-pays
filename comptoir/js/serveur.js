@@ -423,12 +423,20 @@ function installerModeConnecte() {
         // Clé unique du ticket : le serveur n'enregistre jamais deux fois la même vente.
         ui.cleTicket = ui.cleTicket || `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
         const carte = String(ui.carteCaisse || '').trim();
+        if (carte && !(ui.carteCaisseInfo && ui.carteCaisseInfo.code === carte)) { toast('Vérifiez d’abord la carte cadeau : son solde est déduit avant d’encaisser le reste.'); return; }
+        // Vente avec carte restée sans réponse (coupure réseau) : elle a peut-être été enregistrée. Un nouveau ticket sans
+        // cette carte n'est créé qu'après confirmation (sinon le client paierait deux fois).
+        if (ui.cleTicketCarte && ui.cleTicketCarte === ui.cleTicket && !carte) {
+          if (!confirm('La vente précédente avec carte cadeau n’a pas reçu de réponse : elle a peut-être été enregistrée. Vérifiez dans Commandes. Encaisser malgré tout ce ticket comme une nouvelle vente ?')) return;
+          ui.cleTicket = null; ui.cleTicketCarte = null;
+        }
         const ticket = { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}) })), moyen: el.dataset.moyen, cle: ui.cleTicket, ...(carte ? { carteCadeau: carte } : {}) };
         let r;
         try { r = await api('POST', '/api/admin/caisse', ticket); }
         catch (err) {
           // Le solde d'une carte cadeau se vérifie en ligne : sans réseau, la vente n'est pas gardée (encaisser autrement).
-          if (carte && !(err.statut && err.statut < 500)) { toast('Pas de connexion : la carte cadeau ne peut pas être vérifiée. Retirez le code et encaissez autrement.'); return; }
+          // Avec une carte : jamais mise en file hors ligne. Même ticket (même clé) à renvoyer : aucun risque de double vente.
+          if (carte && !(err.statut && err.statut < 500)) { ui.cleTicketCarte = ui.cleTicket; toast('Pas de réponse du serveur : la vente avec carte cadeau n’est peut-être pas enregistrée. Touchez à nouveau le même bouton dès le retour du réseau (elle ne sera pas comptée deux fois).'); return; }
           // Pas de réseau (marché, sous-sol) ou serveur indisponible : la vente est gardée sur l'appareil et envoyée plus tard.
           // La clé du ticket empêche tout doublon quand elle repart.
           if (err.statut && err.statut < 500) throw err;
@@ -441,7 +449,7 @@ function installerModeConnecte() {
           ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null;
           toast('Pas de connexion : la vente est gardée sur cet appareil et sera envoyée dès le retour du réseau.'); rendre(); return;
         }
-        ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; ui.carteCaisse = '';
+        ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; ui.carteCaisse = ''; ui.carteCaisseInfo = null; ui.cleTicketCarte = null;
         if (r.carteCadeau) ui.cartesCadeaux = null;   // soldes à recharger
         await rafraichir(r.carteCadeau ? `Vente de ${r.total} : ${r.carteCadeau} sur la carte cadeau (solde restant ${r.soldeCarte})${r.reste ? `, ${r.reste} à encaisser` : ', rien d’autre à encaisser'}. Facture ${r.facture}.` : `Vente de ${r.total} encaissée. Facture ${r.facture}.`);
       } else if (action === 'as-creer') {
@@ -676,7 +684,7 @@ document.addEventListener('click', async e => {
 /* Cartes cadeaux : liste, émission (le code n'est gardé qu'en mémoire, le temps de le noter), désactivation. */
 async function chargerCartesCadeaux() {
   ui.cartesEnCours = true;
-  try { ui.cartesCadeaux = await api('GET', '/api/admin/cartes-cadeaux'); } catch { ui.cartesCadeaux = { cartes: [], registreCoherent: true }; }
+  try { ui.cartesCadeaux = await api('GET', '/api/admin/cartes-cadeaux'); } catch (err) { ui.cartesCadeaux = { cartes: [], registreCoherent: true }; toast(`Cartes cadeaux indisponibles : ${err.message}`); }
   finally { ui.cartesEnCours = false; }
   if (location.hash.startsWith('#magasin')) rendre();
 }
@@ -706,4 +714,14 @@ document.addEventListener('click', async e => {
     try { await api('POST', `/api/admin/cartes-cadeaux/${encodeURIComponent(el.dataset.id)}/desactiver`, {}); ui.cartesCadeaux = null; toast('Carte désactivée.'); rendre(); }
     catch (err) { toast(err.message); }
   }
+});
+
+/* Caisse : solde de la carte cadeau lu avant d'encaisser (monnaie à rendre calculée sur le reste). */
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action="caisse-carte-verifier"]'); if (!el) return;
+  const code = String(ui.carteCaisse || '').trim(); if (!code) { toast('Saisissez le code de la carte.'); return; }
+  el.disabled = true;
+  try { const r = await api('POST', '/api/admin/caisse/carte', { code }); ui.carteCaisseInfo = { code, solde: r.solde, fin: r.fin }; }
+  catch (err) { ui.carteCaisseInfo = null; toast(err.message); }
+  rendre();
 });
