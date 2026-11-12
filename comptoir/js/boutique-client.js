@@ -319,7 +319,7 @@ document.addEventListener('click', e => {
     // Même panier qu'une commande passée : seuls les articles encore en vente, au prix d'aujourd'hui, dans la limite du stock.
     let lignes = []; try { lignes = JSON.parse(el.dataset.lignes); } catch { /* ignoré */ }
     let absents = 0;
-    if (vue.panier.length && !confirm('Remplacer le contenu de votre panier par les articles de cette commande ?')) return;
+    if (vue.panier.length && !confirm(trad('Remplacer le contenu de votre panier par les articles de cette commande ?'))) return;
     vue.panier = [];
     for (const [pid, vid, qte] of lignes) {
       const p = donnees.produits.find(x => x.id === pid), v = p && vid && aVariantes(p) ? p.variantes.find(x => x.id === vid) : null;
@@ -328,7 +328,7 @@ document.addEventListener('click', e => {
       vue.panier.push(v ? ligneVariante(p, v, Math.min(qte, dispo)) : { produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(qte, dispo) });
     }
     garderPanier(); vue.message = null; vue.ouvert = true; history.replaceState(null, '', racineBoutique); rendre();
-    if (absents) setTimeout(() => alert(`${absents} article${absents > 1 ? 's ne sont' : ' n’est'} plus disponible${absents > 1 ? 's' : ''} : le panier contient le reste.`), 50);
+    if (absents) setTimeout(() => alert(trad('Certains articles ne sont plus disponibles : le panier contient le reste.')), 50);
   }
   else if (c === 'retirer-offre') { vue.panier = vue.panier.filter(x => !x.offre); garderPanier(); rendre(); }
   else if (c === 'retour-panier') { vue.message = null; rendre(); }
@@ -508,7 +508,7 @@ document.addEventListener('submit', async e => {
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur);
     f.closest('details').outerHTML = '<p class="encart" role="status">Demande de retour envoyée. Vous recevez un e-mail avec l’adresse de retour.</p>';
-  } catch (err) { bouton.disabled = false; alert(err.message || 'Envoi impossible. Réessayez dans un instant.'); }
+  } catch (err) { bouton.disabled = false; alert(trad(err.message || 'Envoi impossible. Réessayez dans un instant.')); }
 });
 
 /* Fiche d'un produit à variantes : le prix et la disponibilité suivent le choix. */
@@ -531,6 +531,8 @@ document.addEventListener('submit', async e => {
   f.outerHTML = '<p class="encart" role="status">Si des commandes existent pour cette adresse, un e-mail avec leurs liens vient de partir. Pensez à regarder dans les indésirables.</p>';
 });
 
+/* Texte d'une fenêtre du navigateur (alert, confirm) dans la langue de la boutique, si la traduction est connue. */
+function trad(t) { return (typeof Traductions !== 'undefined' && Traductions.traduireTexte(String(t))) || t; }
 /* « Prévenez-moi » : e-mail unique au retour en stock du produit ou de la variante choisie. */
 document.addEventListener('submit', async e => {
   const f = e.target.closest('[data-alerte-stock]'); if (!f) return;
@@ -541,5 +543,5 @@ document.addEventListener('submit', async e => {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/produits/${encodeURIComponent(p.id)}/alerte`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: new FormData(f).get('email'), varianteId: v ? v.id : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr' }) });
     if (!rep.ok) throw new Error((await rep.json()).erreur);
     f.innerHTML = '<p class="encart" role="status">C’est noté : vous recevrez un e-mail dès le retour en stock.</p>';
-  } catch (err) { f.querySelector('button').disabled = false; alert(err.message || 'Envoi impossible. Réessayez dans un instant.'); }
+  } catch (err) { f.querySelector('button').disabled = false; alert(trad(err.message || 'Envoi impossible. Réessayez dans un instant.')); }
 });

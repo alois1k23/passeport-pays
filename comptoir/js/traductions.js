@@ -7,6 +7,7 @@
 const Traductions = (() => {
   const D = {
     de: {
+      'Certains articles ne sont plus disponibles : le panier contient le reste.': 'Einige Artikel sind nicht mehr verfügbar: Der Warenkorb enthält den Rest.', 'Remplacer le contenu de votre panier par les articles de cette commande ?': 'Den Inhalt Ihres Warenkorbs durch die Artikel dieser Bestellung ersetzen?', 'Cet article est disponible : vous pouvez le commander dès maintenant.': 'Dieser Artikel ist verfügbar: Sie können ihn jetzt bestellen.', 'Trop de demandes. Réessayez plus tard.': 'Zu viele Anfragen. Bitte versuchen Sie es später noch einmal.',
       'Boutique': 'Shop', 'À propos': 'Über uns', 'Contact': 'Kontakt', 'Panier': 'Warenkorb', 'Nos produits': 'Unsere Produkte', 'Tous nos produits': 'Alle Produkte',
       'Ajouter au panier': 'In den Warenkorb', 'Ajouter': 'Hinzufügen', 'Ajouter à ma commande': 'Zu meiner Bestellung hinzufügen', 'Appliquer': 'Anwenden', 'Changer': 'Ändern',
       'Refuser': 'Ablehnen', 'Accepter': 'Akzeptieren', 'Fermer': 'Schliessen', 'Votre panier est vide.': 'Ihr Warenkorb ist leer.', 'Continuer mes achats': 'Weiter einkaufen',
@@ -47,6 +48,7 @@ const Traductions = (() => {
       '@Navigation de la boutique': 'Shop-Navigation', '@Ouvrir le panier': 'Warenkorb öffnen', '@Retirer un': 'Menge verringern', '@Ajouter un': 'Menge erhöhen', '@Code promo': 'Rabattcode', '@Cookies': 'Cookies', '@Langue': 'Sprache'
     },
     it: {
+      'Certains articles ne sont plus disponibles : le panier contient le reste.': 'Alcuni articoli non sono più disponibili: il carrello contiene il resto.', 'Remplacer le contenu de votre panier par les articles de cette commande ?': 'Sostituire il contenuto del carrello con gli articoli di questo ordine?', 'Cet article est disponible : vous pouvez le commander dès maintenant.': 'Questo articolo è disponibile: puoi ordinarlo subito.', 'Trop de demandes. Réessayez plus tard.': 'Troppe richieste. Riprova più tardi.',
       'Boutique': 'Negozio', 'À propos': 'Chi siamo', 'Contact': 'Contatti', 'Panier': 'Carrello', 'Nos produits': 'I nostri prodotti', 'Tous nos produits': 'Tutti i prodotti',
       'Ajouter au panier': 'Aggiungi al carrello', 'Ajouter': 'Aggiungi', 'Ajouter à ma commande': 'Aggiungi al mio ordine', 'Appliquer': 'Applica', 'Changer': 'Modifica',
       'Refuser': 'Rifiuta', 'Accepter': 'Accetta', 'Fermer': 'Chiudi', 'Votre panier est vide.': 'Il carrello è vuoto.', 'Continuer mes achats': 'Continua gli acquisti',
@@ -87,6 +89,7 @@ const Traductions = (() => {
       '@Navigation de la boutique': 'Navigazione del negozio', '@Ouvrir le panier': 'Apri il carrello', '@Retirer un': 'Rimuovi uno', '@Ajouter un': 'Aggiungi uno', '@Code promo': 'Codice sconto', '@Cookies': 'Cookie', '@Langue': 'Lingua'
     },
     en: {
+      'Certains articles ne sont plus disponibles : le panier contient le reste.': 'Some items are no longer available: your cart contains the rest.', 'Remplacer le contenu de votre panier par les articles de cette commande ?': 'Replace the contents of your cart with the items from this order?', 'Cet article est disponible : vous pouvez le commander dès maintenant.': 'This item is available: you can order it right away.', 'Trop de demandes. Réessayez plus tard.': 'Too many requests. Please try again later.',
       'Boutique': 'Shop', 'À propos': 'About', 'Contact': 'Contact', 'Panier': 'Cart', 'Nos produits': 'Our products', 'Tous nos produits': 'All products',
       'Ajouter au panier': 'Add to cart', 'Ajouter': 'Add', 'Ajouter à ma commande': 'Add to my order', 'Appliquer': 'Apply', 'Changer': 'Change',
       'Refuser': 'Decline', 'Accepter': 'Accept', 'Fermer': 'Close', 'Votre panier est vide.': 'Your cart is empty.', 'Continuer mes achats': 'Continue shopping',
