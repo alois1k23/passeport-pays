@@ -398,7 +398,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const conf = JSON.parse(b.config), e = conf.entreprise || {};
       const tp = EmailsClients.textesPied(langue);   // pied dans la langue du client (e-mails traduits)
       const identite = [e.raison || conf.boutique.nom, e.adresse, e.email ? `${tp ? tp.contact : 'Contact'} : ${e.email}` : ''].filter(Boolean).join(' · ');
-      if (marketing) lien = `${urlPublique}/desinscription?j=${jetonDesinscription(boutiqueId, destinataire)}`;
+      if (marketing) lien = `${urlPublique}/desinscription?j=${jetonDesinscription(boutiqueId, destinataire)}${tp ? `&lang=${langue}` : ''}`;
       pied = `\n\n—\n${identite}${lien ? `\n${tp ? (motif === 'commande' ? tp.commande : tp.nouvelles)(conf.boutique.nom) : motif === 'commande' ? `Vous recevez cet e-mail à la suite de votre commande chez ${conf.boutique.nom}. Pour ne plus recevoir ce type de message` : `Vous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir`} : ${lien}` : ''}`;
     }
     db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
@@ -702,7 +702,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   };
   /* Rôles de l'équipe. « commandes » : préparer, expédier, transmettre, encaisser à la caisse (pas de remboursement,
      pas de réglages). « complet » : tout, sauf l'abonnement, l'équipe, les paiements, les intégrations et la remise à zéro. */
-  const PERMIS_COMMANDES = /^(GET \/api\/admin\/(etat|signature|flux|commandes\/[\w-]+\/facture-qr)|POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)|PATCH \/api\/admin\/commandes\/[\w-]+|POST \/api\/admin\/caisse)$/;
+  const PERMIS_COMMANDES = /^(GET \/api\/admin\/(etat|signature|flux|commandes\/[\w-]+\/(facture-qr|facture-electronique))|POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)|PATCH \/api\/admin\/commandes\/[\w-]+|POST \/api\/admin\/caisse)$/;
   const INTERDIT_COMPLET = /^(\w+ \/api\/admin\/(integrations|equipe|paiements|domaine|reinitialiser)(\/.*)?)$/;
   const exigerProprietaire = ctx => { exigerCompte(ctx); if (ctx.role !== 'proprietaire') throw erreur(403, 'Seul le propriétaire de la boutique gère l’abonnement et l’équipe.', 'role'); };
   const verifierRole = ctx => {
@@ -722,7 +722,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const route = `${ctx.req.method} ${new URL(ctx.req.url, 'http://x').pathname}`;
     // Les commandes déjà payées doivent pouvoir être expédiées, transmises ou remboursées : les clients ont payé.
     // Le marchand doit toujours pouvoir couper ses intégrations (clés, webhooks), même abonnement terminé.
-    const suiviCommande = /^POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)$/.test(route) || /^POST \/api\/admin\/integrations\/(cles\/[\w-]+\/revoquer|webhooks\/[\w-]+\/supprimer)$/.test(route);
+    // Factures (QR, électronique) : à conserver des années, donc toujours téléchargeables.
+    const suiviCommande = /^POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)$/.test(route) || /^GET \/api\/admin\/commandes\/[\w-]+\/(facture-qr|facture-electronique)$/.test(route) || /^POST \/api\/admin\/integrations\/(cles\/[\w-]+\/revoquer|webhooks\/[\w-]+\/supprimer)$/.test(route);
     if (['resilie', 'impaye'].includes(e.statut) && (LECTURE_SEULE.has(route) || suiviCommande)) { ctx.lectureSeule = true; return; }
     throw erreur(402, ['resilie', 'impaye'].includes(e.statut) ? 'Abonnement terminé : vos données restent consultables et exportables ; reprenez un abonnement pour modifier votre boutique.' : 'Choisissez une formule et réglez votre abonnement pour accéder à votre boutique.', 'abonnement_requis');
   };
@@ -1451,6 +1452,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       else if (paiement.nom === 'simulation') c.suivi = '99.00.' + Math.floor(100000 + Math.random() * 899999) + '.' + Math.floor(1e7 + Math.random() * 9e7);
     }
     if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
+    if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
     // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
     if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
     if (c.statut === 'attente' && (cible === 'payee' || cible === 'annulee')) {
@@ -2197,7 +2199,8 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     // Jeton propre à la confirmation : aléatoire, à usage unique, valable 7 jours, gardé en empreinte seulement.
     const jetonOptin = crypto.randomBytes(24).toString('base64url');
     db.prepare('DELETE FROM optins WHERE expire_le < ?').run(Date.now());
-    // Langue de la boutique au moment de l'inscription : la confirmation, la bienvenue et les nouvelles partent dans cette langue.
+    // Langue de la boutique au moment de l'inscription : la confirmation et la bienvenue partent dans cette langue ;
+    // elle est gardée avec l'abonné (table abonnes) pour de futurs envois de nouvelles.
     const langue = typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (lireConfig(b).boutique.langues || []).includes(ctx.corps.langue) ? ctx.corps.langue : null;
     db.prepare('INSERT INTO optins (jeton_hash, boutique_id, email, expire_le, langue) VALUES (?, ?, ?, ?, ?)').run(auth.sha256(jetonOptin), b.id, email.toLowerCase(), Date.now() + 7 * 86400000, langue);
     const nom = lireConfig(b).boutique.nom, lien = `${urlPublique}/reinscription?j=${jetonOptin}`;
@@ -2594,7 +2597,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   });
 
   /* ---------- Désinscription des e-mails commerciaux (lien personnel signé, confirmation par un clic) ---------- */
-  const pageSimple = (titre, texte, formulaire = '') => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escHtml(titre)}</title>
+  const pageSimple = (titre, texte, formulaire = '', langue = 'fr') => `<!doctype html><html lang="${EmailsClients.LANGUES.includes(langue) ? langue : 'fr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escHtml(titre)}</title>
 <style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}</style></head><body><main><h1>${escHtml(titre)}</h1><p>${escHtml(texte)}</p>${formulaire}</main></body></html>`;
   /* Pages légales de la plateforme elle-même (l'exploitant les complète avec EXPLOITANT_* dans l'environnement). */
   const exploitant = () => ({
@@ -2635,27 +2638,28 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     ['Simulations', 'Les chiffres de démonstration, de tendance et de prévision sont des estimations et ne constituent pas une promesse de résultat.']
   ]) }));
   r.get('/desinscription', ctx => {
+    const langue = EmailsClients.langueDe({ langue: ctx.query.get('lang') }) || 'fr', t = EmailsClients.pages(langue);
     const d = lireJetonDesinscription(ctx.query.get('j'));
-    if (!d) return { html: pageSimple('Lien invalide', 'Ce lien de désinscription est incomplet ou a été modifié.') };
+    if (!d) return { html: pageSimple(t.invalide[0], t.invalide[1], '', langue) };
     const b = db.prepare('SELECT config FROM boutiques WHERE id = ?').get(d.boutiqueId);
-    const nom = b ? JSON.parse(b.config).boutique.nom : 'cette boutique';
-    if (estDesinscrit(d.boutiqueId, d.email)) return { html: pageSimple('Vous êtes déjà désinscrit', `${d.email} ne reçoit plus les nouvelles et offres de ${nom}.`) };
-    return { html: pageSimple(`Ne plus recevoir les e-mails de ${nom}`, `Confirmez pour ${d.email}. Vous recevrez toujours les e-mails liés à vos commandes (confirmation, expédition).`, `<form method="post" action="/desinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Me désinscrire</button></form>`) };
+    const nom = b ? JSON.parse(b.config).boutique.nom : '';
+    if (estDesinscrit(d.boutiqueId, d.email)) return { html: pageSimple(t.dejaDesinscrit[0], t.dejaDesinscrit[1](d.email, nom), '', langue) };
+    return { html: pageSimple(t.desinscrire[0](nom), t.desinscrire[1](d.email), `<form method="post" action="/desinscription?j=${encodeURIComponent(ctx.query.get('j'))}${langue !== 'fr' ? `&amp;lang=${langue}` : ''}"><button>${t.desinscrire[2]}</button></form>`, langue) };
   });
   db.exec('CREATE TABLE IF NOT EXISTS optins (jeton_hash TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, email TEXT NOT NULL, expire_le INTEGER NOT NULL, utilise INTEGER NOT NULL DEFAULT 0)');
   for (const sql of ['ALTER TABLE optins ADD COLUMN langue TEXT', 'ALTER TABLE abonnes ADD COLUMN langue TEXT']) { try { db.exec(sql); } catch { /* déjà là */ } }   // langue des e-mails commerciaux
   const lireOptin = j => { const o = db.prepare('SELECT * FROM optins WHERE jeton_hash = ? AND expire_le > ?').get(auth.sha256(String(j || '')), Date.now()); return o ? { boutiqueId: o.boutique_id, email: o.email, utilise: !!o.utilise, langue: o.langue || null } : null; };
   r.get('/reinscription', ctx => {
     const d = lireOptin(ctx.query.get('j'));
-    if (!d) return { html: pageSimple('Lien invalide', 'Ce lien est incomplet ou a été modifié.') };
+    if (!d) { const t = EmailsClients.pages(ctx.query.get('lang')); return { html: pageSimple(t.invalide[0], t.invalide[1], '', EmailsClients.langueDe({ langue: ctx.query.get('lang') }) || 'fr') }; }
     const t = EmailsClients.pageOptin(d.langue) || ['Recevoir les nouvelles de la boutique', e => `Confirmez l’inscription de ${e}.`, 'Confirmer mon inscription'];
-    return { html: pageSimple(t[0], t[1](d.email), `<form method="post" action="/reinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>${t[2]}</button></form>`) };
+    return { html: pageSimple(t[0], t[1](d.email), `<form method="post" action="/reinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>${t[2]}</button></form>`, d.langue || 'fr') };
   });
   r.post('/reinscription', ctx => {
     const d = lireOptin(ctx.query.get('j'));
     if (!d) throw erreur(400, 'Lien invalide ou expiré.', 'invalide');
     // Usage unique : un second clic confirme sans rien refaire (le marchand ne peut pas réinscrire quelqu'un avec un vieux lien).
-    if (d.utilise) return { html: pageSimple('Déjà confirmé', `${d.email} est déjà inscrit.`) };
+    if (d.utilise) { const t = EmailsClients.pages(d.langue); return { html: pageSimple(t.dejaConfirme[0], t.dejaConfirme[1](d.email), '', d.langue || 'fr') }; }
     db.prepare('UPDATE optins SET utilise = 1 WHERE jeton_hash = ?').run(auth.sha256(String(ctx.query.get('j') || '')));
     db.prepare('DELETE FROM desinscriptions WHERE boutique_id = ? AND email = ?').run(d.boutiqueId, d.email);
     const nouveau = db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le, langue) VALUES (?, ?, ?, ?)').run(d.boutiqueId, d.email, Date.now(), d.langue).changes > 0;
@@ -2663,14 +2667,15 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     // Inscription confirmée : l'e-mail de bienvenue (et son code) part maintenant, une seule fois par adresse.
     if (nouveau && bq) relances.emailBienvenue({ db, boutique: bq, config: configVente(bq), email: d.email, urlPublique, urlBoutique: urlBoutique(bq), envoyerEmail, langue: d.langue });
     const t = EmailsClients.pageOptin(d.langue);
-    return { html: t ? pageSimple(t[3], t[4](d.email)) : pageSimple('C’est fait', `${d.email} recevra désormais les nouvelles de cette boutique. Vous pourrez vous désinscrire à tout moment depuis chaque e-mail.`) };
+    return { html: t ? pageSimple(t[3], t[4](d.email), '', d.langue) : pageSimple('C’est fait', `${d.email} recevra désormais les nouvelles de cette boutique. Vous pourrez vous désinscrire à tout moment depuis chaque e-mail.`) };
   });
   r.post('/desinscription', ctx => {
     const d = lireJetonDesinscription(ctx.query.get('j'));
     if (!d) throw erreur(400, 'Lien de désinscription invalide.', 'invalide');
     db.prepare('INSERT OR IGNORE INTO desinscriptions (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(d.boutiqueId, d.email, Date.now());
     db.prepare('DELETE FROM abonnes WHERE boutique_id = ? AND email = ?').run(d.boutiqueId, d.email);
-    return { html: pageSimple('C’est fait', `${d.email} ne recevra plus d’e-mails commerciaux de cette boutique.`) };
+    const langue = EmailsClients.langueDe({ langue: ctx.query.get('lang') }) || 'fr', t = EmailsClients.pages(langue);
+    return { html: pageSimple(t.desinscrit[0], t.desinscrit[1](d.email), '', langue) };
   });
 
   /* ---------- Abonnement Comptoir ---------- */

@@ -44,9 +44,43 @@ test('route : contrôle des mentions, XML téléchargeable, avoir', async () => 
     assert.match(xml, /<ram:ID>urn:cen\.eu:en16931:2017<\/ram:ID>/); assert.match(xml, /<ram:TypeCode>380<\/ram:TypeCode>/);
     assert.match(xml, /<ram:BasisAmount>100\.00<\/ram:BasisAmount><ram:CategoryCode>S<\/ram:CategoryCode><ram:RateApplicablePercent>20<\/ram:RateApplicablePercent>/);
     assert.match(xml, /<ram:GrandTotalAmount>120\.00<\/ram:GrandTotalAmount><ram:TotalPrepaidAmount>120\.00<\/ram:TotalPrepaidAmount><ram:DuePayableAmount>0\.00/);
-    assert.match(xml, /schemeID="0002">12345678901234/); assert.match(xml, /schemeID="VA">FR12345678901/);
+    assert.match(xml, /schemeID="0002">123456789</, 'SIREN (9 chiffres) pour le schéma 0002'); assert.match(xml, /schemeID="VA">FR12345678901/);
     assert.equal((await c('GET', `/api/admin/commandes/${vente.id}/facture-electronique?avoir=1`)).status, 404, 'pas d’avoir');
     // Sans session : refusé.
     assert.equal((await fetch(`${base}/api/admin/commandes/${vente.id}/facture-electronique`)).status, 401);
   } finally { s.close(); }
+});
+
+test('cas relevés en relecture : annulée non payée, arrondi espèces, Suisse non assujettie, caractères interdits', () => {
+  const ligne = { nom: 'Vase', prix: 50, qte: 1, tauxTva: 0.081 };
+  const ch = { boutique: { pays: 'ch', nom: 'L' }, entreprise: { raison: 'L Sàrl', adresse: 'Rue 1, 1003 Lausanne', tvaIntra: 'CHE-123.456.789 TVA', siret: 'CHE-123.456.789', iban: 'CH44 3199 9123 0008 8901 2' } };
+  // Facture QR jamais payée puis annulée : rien de réglé.
+  const annulee = { numero: 1, facture: 'FA-1', date: 0, statut: 'annulee', moyen: 'facture', lignes: [ligne], total: 50, client: { nom: 'A' }, avoir: { numero: 'AV-1', date: 0 } };
+  let xml = F.produire(annulee, ch, { devise: 'CHF' });
+  assert.doesNotMatch(xml, /TotalPrepaidAmount/); assert.match(xml, /<ram:DuePayableAmount>50\.00/); assert.deepEqual(F.verifier(xml), []);
+  xml = F.produire(annulee, ch, { avoir: true, devise: 'CHF' });
+  assert.match(xml, /<ram:TypeCode>381<\/ram:TypeCode>/); assert.match(xml, /commande annulée/); assert.doesNotMatch(xml, /TotalPrepaidAmount/); assert.deepEqual(F.verifier(xml), []);
+  // Payée à la main puis annulée : payée.
+  assert.match(F.produire({ ...annulee, payeManuelLe: 1 }, ch, { devise: 'CHF' }), /<ram:TotalPrepaidAmount>50\.00/);
+  assert.match(xml = F.produire({ ...annulee, statut: 'remboursee' }, ch, { devise: 'CHF' }), /<ram:TotalPrepaidAmount>50\.00/);
+  assert.match(xml, /schemeID="0183">CHE123456789</, 'IDE suisse');
+  // Espèces : 10.02 arrondis à 10.00 (BT-114).
+  const especes = { numero: 2, facture: 'FA-2', date: 0, statut: 'retiree', lignes: [{ nom: 'Miel', prix: 10.02, qte: 1, tauxTva: 0.026 }], total: 10.02, encaisse: 10, arrondi: -0.02, client: { nom: 'Client en boutique' } };
+  xml = F.produire(especes, ch, { devise: 'CHF' });
+  assert.match(xml, /<ram:RoundingAmount>-0\.02<\/ram:RoundingAmount><ram:GrandTotalAmount>10\.02<\/ram:GrandTotalAmount><ram:TotalPrepaidAmount>10\.00<\/ram:TotalPrepaidAmount><ram:DuePayableAmount>0\.00/);
+  assert.deepEqual(F.verifier(xml), []);
+  // Suisse non assujettie : catégorie O, sans taux ni numéro de TVA.
+  const nonAssujettie = { boutique: { pays: 'ch', nom: 'P' }, entreprise: { raison: 'P', adresse: 'Rue 2, 1700 Fribourg', regime: 'ch-non', tvaIntra: 'CHE-111.222.333 TVA' } };
+  xml = F.produire({ ...especes, lignes: [{ nom: 'Miel', prix: 10.02, qte: 1, tauxTva: 0 }] }, nonAssujettie, { devise: 'CHF' });
+  assert.match(xml, /<ram:CategoryCode>O<\/ram:CategoryCode><\/ram:ApplicableTradeTax>/); assert.doesNotMatch(xml, /schemeID="VA"/); assert.match(xml, /art\. 10 LTVA/);
+  assert.deepEqual(F.verifier(xml), []);
+  // Caractères interdits en XML retirés ; client retrait sans adresse : ville seule à sa place.
+  xml = F.produire({ ...especes, client: { nom: 'Zo\uFFFEé\uD800', ville: 'Bern' } }, ch, { devise: 'CHF' });
+  assert.match(xml, /<ram:Name>Zoé<\/ram:Name>/); assert.match(xml, /<ram:PostalTradeAddress><ram:CityName>Bern<\/ram:CityName><ram:CountryID>CH/);
+  assert.deepEqual(F.verifier(xml), []);
+  // Sans article : refusé avant production. Ancienne commande sans taux figé : taux actuel de la boutique.
+  assert.ok(F.manques({ ...especes, lignes: [] }, ch).includes('au moins un article'));
+  assert.match(F.produire({ ...especes, lignes: [{ nom: 'Miel', prix: 10.02, qte: 1 }] }, { ...ch, entreprise: { ...ch.entreprise, regime: 'ch-assujetti' } }, { devise: 'CHF' }), /<ram:CategoryCode>S<\/ram:CategoryCode><ram:RateApplicablePercent>8\.1</);
+  assert.deepEqual(F.identifiantLegal('123 456 789 00012', 'FR'), { id: '123456789', schema: '0002' });
+  assert.deepEqual(F.identifiantLegal('BE 0123.456.789', 'BE'), { id: '0123456789', schema: '0208' });
 });

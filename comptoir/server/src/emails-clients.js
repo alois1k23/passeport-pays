@@ -55,7 +55,7 @@ const T = {
     piedContact: 'Contact', piedCommande: s => `You are receiving this email following your order at ${s}. To stop receiving this kind of message`, piedNouvelles: s => `You are receiving this email because you signed up for news from ${s}. To unsubscribe`,
     legal: 'Legal information (in French, the prevailing version):', dateLocale: 'en-GB' }
 };
-const langueDe = c => (c && T[c.langue]) ? c.langue : null;
+const langueDe = c => (c && typeof c.langue === 'string' && Object.hasOwn(T, c.langue)) ? c.langue : null;
 
 function recapitulatif(t, c, { formatMontant, nomLivraison }) {
   return [
@@ -83,11 +83,27 @@ function relance(c, o) { const t = T[langueDe(c)]; return { sujet: t.relance(o.n
 function avis(c, o) { const t = T[langueDe(c)]; return { sujet: t.avis(o.nomBoutique), corps: `${t.bonjour(c.client.nom)},\n\n${t.avisCorps(c.lignes.map(l => l.nom).join(', '), o.lien)}\n\n${t.merciFin},\n${t.equipe(o.nomBoutique)}` }; }
 // Lien vers la boutique dans la langue de la commande (la page s'ouvre dans la même langue que l'e-mail).
 /* E-mails commerciaux : la langue vient de l'inscription (newsletter) ou de la dernière commande. */
-const lng = l => T[l] ? l : null;
+const lng = l => typeof l === 'string' && Object.hasOwn(T, l) ? l : null;
 function optin(langue, o) { const t = T[lng(langue)]; return t && { sujet: t.optin(o.nomBoutique), corps: `${t.salut},\n\n${t.optinCorps(o.nomBoutique, o.lien)}\n\n${o.nomBoutique}` }; }
 function bienvenue(langue, o) { const t = T[lng(langue)]; return t && { sujet: t.bienvenue(o.nomBoutique), corps: `${t.salut},\n\n${t.bienvenueCorps(o.remise, o.code)}\n\n${o.lien}\n\n${t.equipe(o.nomBoutique)}` }; }
 function reconquete(c, o) { const t = T[langueDe(c)]; return t && { sujet: t.reconquete(String(c.client.nom || '').split(' ')[0]), corps: `${t.bonjour(c.client.nom)},\n\n${t.reconqueteCorps(o.nomBoutique, o.remise, o.code)}\n\n${o.lien}\n\n${t.equipe(o.nomBoutique)}\n\n${t.consenti}` }; }
-const pageOptin = langue => T[lng(langue)] ? T[langue].pageOptin : null;
+const pageOptin = langue => lng(langue) ? T[langue].pageOptin : null;
+/* Pages publiques d'inscription et de désinscription (titre, texte, bouton) dans la langue du client. */
+const PAGES = {
+  fr: { invalide: ['Lien invalide', 'Ce lien est incomplet ou a été modifié.'], dejaConfirme: ['Déjà confirmé', e => `${e} est déjà inscrit.`],
+    desinscrire: [n => `Ne plus recevoir les e-mails de ${n}`, e => `Confirmez pour ${e}. Vous recevrez toujours les e-mails liés à vos commandes (confirmation, expédition).`, 'Me désinscrire'],
+    dejaDesinscrit: ['Vous êtes déjà désinscrit', (e, n) => `${e} ne reçoit plus les nouvelles et offres de ${n}.`], desinscrit: ['C’est fait', e => `${e} ne recevra plus d’e-mails commerciaux de cette boutique.`] },
+  de: { invalide: ['Ungültiger Link', 'Dieser Link ist unvollständig oder wurde verändert.'], dejaConfirme: ['Bereits bestätigt', e => `${e} ist bereits angemeldet.`],
+    desinscrire: [n => `Keine E-Mails mehr von ${n}`, e => `Bitte bestätigen Sie für ${e}. E-Mails zu Ihren Bestellungen (Bestätigung, Versand) erhalten Sie weiterhin.`, 'Abmelden'],
+    dejaDesinscrit: ['Sie sind bereits abgemeldet', (e, n) => `${e} erhält keine Neuigkeiten und Angebote von ${n} mehr.`], desinscrit: ['Erledigt', e => `${e} erhält keine Werbe-E-Mails dieser Boutique mehr.`] },
+  it: { invalide: ['Link non valido', 'Questo link è incompleto o è stato modificato.'], dejaConfirme: ['Già confermato', e => `${e} è già iscritto.`],
+    desinscrire: [n => `Non ricevere più e-mail da ${n}`, e => `Conferma per ${e}. Continuerai a ricevere le e-mail relative ai tuoi ordini (conferma, spedizione).`, 'Annulla l’iscrizione'],
+    dejaDesinscrit: ['Iscrizione già annullata', (e, n) => `${e} non riceve più le novità e le offerte di ${n}.`], desinscrit: ['Fatto', e => `${e} non riceverà più e-mail commerciali da questo negozio.`] },
+  en: { invalide: ['Invalid link', 'This link is incomplete or has been altered.'], dejaConfirme: ['Already confirmed', e => `${e} is already signed up.`],
+    desinscrire: [n => `Stop emails from ${n}`, e => `Please confirm for ${e}. You will still receive emails about your orders (confirmation, shipping).`, 'Unsubscribe'],
+    dejaDesinscrit: ['You are already unsubscribed', (e, n) => `${e} no longer receives news and offers from ${n}.`], desinscrit: ['Done', e => `${e} will no longer receive marketing emails from this shop.`] }
+};
+const pages = langue => PAGES[lng(langue) || 'fr'];
 const avecLangue = (url, c) => langueDe(c) ? `${url}${url.includes('?') ? '&' : '?'}lang=${c.langue}` : url;
-const textesPied = langue => T[langue] ? { contact: T[langue].piedContact, commande: T[langue].piedCommande, nouvelles: T[langue].piedNouvelles } : null;
-module.exports = { pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };
+const textesPied = langue => lng(langue) ? { contact: T[langue].piedContact, commande: T[langue].piedCommande, nouvelles: T[langue].piedNouvelles } : null;
+module.exports = { pages, pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };

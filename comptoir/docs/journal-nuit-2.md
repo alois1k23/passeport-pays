@@ -571,10 +571,24 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
 - CSP complétée : `worker-src 'self'`, `manifest-src 'self'`, et `upgrade-insecure-requests` en production (HTTPS).
 - 105 tests, bout en bout 51 sur 51.
 
-## Cycle 41 (03 h 15) : variantes pour les produits en dropshipping
+## Cycle 41 (03 h 05) : variantes pour les produits en dropshipping
 
 - Un produit du fournisseur peut maintenant avoir des tailles et des couleurs, comme un produit en stock. Pas de stock propre (c'est celui du fournisseur), mais une **référence fournisseur par variante** et un prix différent si besoin.
 - La variante choisie (identifiant, valeurs et référence) est transmise au fournisseur avec la commande. Le protocole fournisseur est documenté dans `fournisseurs.js`.
 - L'API expose les variantes d'un produit du fournisseur sans stock (`null`), avec leur référence.
 - Éditeur : colonne « Réf. fournisseur » à la place du stock, champs resserrés pour que le tableau tienne dans la fiche (vérifié dans un vrai navigateur).
 - Test ajouté : commande d'une variante, refus sans variante, transmission avec la référence au fournisseur de démonstration. 106 tests sur 106.
+
+## Cycle 42 (03 h 10) : corrections de la revue n° 8 (facture électronique, e-mails traduits)
+
+Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 300 fichiers validés par le schéma XSD ; 12 constats, tous traités.
+
+- **Paiement réel** : une facture QR annulée sans avoir été payée n'est plus exportée comme payée (elle l'aurait été dans la comptabilité). Un paiement reçu à la main est daté (`payeManuelLe`). L'avoir d'une facture jamais payée solde la facture ouverte au lieu d'annoncer un remboursement.
+- **Identifiant légal** : SIREN (9 chiffres) avec le schéma 0002 en France, et non le SIRET entier. Numéro d'entreprise belge (0208) et IDE suisse (0183) reconnus. Espaces retirés.
+- **Espèces en francs** : l'arrondi à 5 centimes figure dans le fichier (`RoundingAmount`), et le montant réglé est celui encaissé.
+- **Suisse non assujettie** : catégorie « O » (hors champ de la TVA), sans taux ni numéro de TVA, comme le veut la norme.
+- **Accès** : le rôle « Commandes » et un abonnement terminé peuvent télécharger les factures électroniques (à conserver des années).
+- **Robustesse** : caractères interdits en XML retirés (U+FFFE, demi-paires) ; adresse de l'acheteur reprise champ par champ ; anciennes commandes sans taux figé au taux actuel de la boutique, comme la facture imprimée ; commande sans article refusée.
+- **Contrôle** : le vérificateur lit désormais le fichier bloc par bloc (catégories S, E, O ; BR-CO-14 et 16 avec l'arrondi ; motif d'exonération obligatoire).
+- **E-mails traduits** : les pages de confirmation, de lien invalide et de désinscription s'affichent dans la langue du client (le lien du pied d'e-mail la transmet), avec la bonne langue déclarée dans la page. Recherche de langue protégée (`Object.hasOwn`).
+- Nouveaux cas validés par le schéma XSD officiel (espèces arrondies, hors champ, facture annulée, avoir non payé). 107 tests sur 107 ; fuzz de la relecture (30 000 commandes) sans écart ; bout en bout 51 sur 51.

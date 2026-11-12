@@ -33,6 +33,12 @@ test('newsletter et reconquête dans la langue du client', async () => {
     assert.match(bienvenue.corps, /lang=de/);
     assert.match(bienvenue.corps, /Zum Abbestellen/, 'pied de désinscription traduit');
     assert.equal(db.prepare("SELECT langue FROM abonnes WHERE email = 'hans@exemple.ch'").get().langue, 'de');
+    // Désinscription depuis le pied de l'e-mail : page en allemand.
+    const desinscrire = /\/desinscription\?j=[\w.-]+&lang=de/.exec(bienvenue.corps)[0];
+    const pageD = await (await fetch(base + desinscrire)).text();
+    assert.match(pageD, /<html lang="de">/); assert.match(pageD, /<button>Abmelden<\/button>/); assert.match(pageD, /&amp;lang=de/);
+    assert.match(await (await fetch(base + desinscrire, { method: 'POST' })).text(), /erhält keine Werbe-E-Mails/);
+    assert.match(await (await fetch(base + '/desinscription?j=faux&lang=constructor')).text(), /<html lang="fr">[\s\S]*Lien invalide/, 'langue inconnue : français');
 
     // Reconquête : client germanophone ayant accepté les nouvelles, sans commande depuis 90 jours.
     const pub = (await c('GET', `/api/public/${slug}`)).j;
