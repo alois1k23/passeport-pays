@@ -530,3 +530,21 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - L'inscription aux nouvelles retient la langue de la boutique au moment du clic (si la boutique la propose). L'e-mail de confirmation, la page de confirmation, puis l'e-mail de bienvenue et son code partent dans cette langue (allemand, italien, anglais). Le pied de désinscription suit.
 - La relance « Ça fait longtemps » (reconquête) part dans la langue de la dernière commande du client.
 - Test ajouté (`emails-marketing-langue.test.js`) : 101 tests sur 101.
+
+## Cycle 38 (02 h 50) : corrections de la revue n° 7 (alertes de stock, caisse hors ligne, photos)
+
+Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
+
+- **Alertes « Prévenez-moi »** :
+  - le traitement ne lisait que les 2000 premières demandes : une boutique avec beaucoup de demandes en attente bloquait celles de toutes les autres. Il passe désormais boutique par boutique et article par article, et ne lit que les demandes d'un article revenu en stock (test avec 2500 demandes en attente) ;
+  - un article disponible est refusé (le formulaire ne peut plus servir à envoyer des e-mails à n'importe qui), avec des limites par adresse et par réseau dans chaque boutique ;
+  - boutique pleine (5000 demandes) : message honnête au lieu d'un faux « c'est noté » ;
+  - variante supprimée : la demande est effacée sans e-mail. Boutique fermée : rien n'est envoyé.
+- **Caisse hors ligne** :
+  - si l'appareil n'a plus de place, la vente n'est plus perdue en silence : message « notez-la à la main » avec le détail, et le ticket reste affiché (vérifié dans un vrai navigateur, stockage rempli) ;
+  - un compte connecté ne garde plus de copie de ses données dans le navigateur (données des clients et photos) : plus de place pour la file, et moins de données personnelles sur l'appareil ;
+  - la vente est datée et facturée au moment de l'encaissement, pas de l'envoi. Un écart entre le montant affiché à la caisse et les prix actuels est noté « à vérifier » ;
+  - session expirée, abonnement ou limite de requêtes : la vente attend et repart, sans être affichée comme refusée. Une vente retirée pendant un envoi n'est plus envoyée. Délai porté à 30 jours.
+- **Photos** : si la qualité ne suffit pas, les dimensions sont réduites jusqu'à passer sous la limite. Fond blanc pour les PNG transparents.
+- « Mes commandes » : une adresse sans commande ne consomme plus les demandes du vrai client. « Commander à nouveau » demande avant de remplacer un panier non vide.
+- 103 tests sur 103, bout en bout 51 sur 51.

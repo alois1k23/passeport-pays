@@ -426,7 +426,12 @@ function installerModeConnecte() {
           // Pas de réseau (marché, sous-sol) ou serveur indisponible : la vente est gardée sur l'appareil et envoyée plus tard.
           // La clé du ticket empêche tout doublon quand elle repart.
           if (err.statut && err.statut < 500) throw err;
-          CaisseHorsLigne.ajouter({ ...ticket, resume: ui.caisse.map(l => `${l.qte} × ${l.nom}`).join(', '), total: ui.caisse.reduce((a, l) => a + l.prix * l.qte, 0), le: Date.now() });
+          const resume = ui.caisse.map(l => `${l.qte} × ${l.nom}`).join(', '), totalHL = Math.round(ui.caisse.reduce((a, l) => a + l.prix * l.qte, 0) * 100) / 100;
+          if (!CaisseHorsLigne.ajouter({ ...ticket, resume, total: totalHL, le: Date.now() })) {
+            // Rien n'a pu être gardé : le ticket reste affiché, le marchand le note à la main.
+            alert(`Pas de connexion, et cet appareil n’a plus de place pour garder la vente.\n\nNotez-la à la main : ${resume} (${euros(totalHL)}, ${new Date().toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}).\nLe ticket reste affiché.`);
+            return;
+          }
           ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null;
           toast('Pas de connexion : la vente est gardée sur cet appareil et sera envoyée dès le retour du réseau.'); rendre(); return;
         }
@@ -578,7 +583,8 @@ addEventListener('beforeunload', e => { if (SERVEUR.connecte && (ENREGISTREMENT.
 const CaisseHorsLigne = (() => {
   const cle = () => `comptoir-caisse-attente-${SERVEUR.slug || ''}`;
   const lire = () => { try { return JSON.parse(localStorage.getItem(cle()) || '[]'); } catch { return []; } };
-  const ecrire = l => { try { localStorage.setItem(cle(), JSON.stringify(l)); } catch { /* stockage plein : rare */ } };
+  // Renvoie false si l'écriture n'a pas tenu (stockage plein ou bloqué) : la vente n'est alors PAS gardée.
+  const ecrire = l => { try { localStorage.setItem(cle(), JSON.stringify(l)); return localStorage.getItem(cle()) === JSON.stringify(l); } catch { return false; } };
   let envoi = false;
   async function envoyer() {
     if (envoi || !SERVEUR.connecte || !navigator.onLine) return;
@@ -586,12 +592,14 @@ const CaisseHorsLigne = (() => {
     envoi = true; let reussies = 0;
     try {
       for (const t of attente) {
+        if (!lire().some(x => x.cle === t.cle)) continue;   // retirée par le marchand pendant l'envoi
         try {
-          await api('POST', '/api/admin/caisse', { lignes: t.lignes, moyen: t.moyen, cle: t.cle, horsLigneLe: t.le });
+          await api('POST', '/api/admin/caisse', { lignes: t.lignes, moyen: t.moyen, cle: t.cle, horsLigneLe: t.le, totalAttendu: t.total });
           ecrire(lire().filter(x => x.cle !== t.cle)); reussies++;
         } catch (err) {
-          if (!err.statut || err.statut >= 500) break;   // toujours pas de réseau : on réessaiera
-          ecrire(lire().map(x => x.cle === t.cle ? { ...x, erreur: err.message } : x));   // refus (stock…) : gardée et signalée, jamais perdue
+          // Pas de réseau, session expirée, abonnement, limite de requêtes : passager, on réessaiera sans rien signaler comme refusé.
+          if (!err.statut || err.statut >= 500 || [401, 402, 403, 408, 429].includes(err.statut)) break;
+          ecrire(lire().map(x => x.cle === t.cle ? { ...x, erreur: err.message } : x));   // vrai refus (données invalides) : gardée et signalée, jamais perdue
         }
       }
     } finally { envoi = false; }
@@ -600,7 +608,7 @@ const CaisseHorsLigne = (() => {
   addEventListener('online', () => envoyer());
   setInterval(envoyer, 30000);
   setTimeout(envoyer, 3000);
-  return { ajouter: t => { ecrire([...lire(), t]); }, lire, envoyer, retirer: c => ecrire(lire().filter(x => x.cle !== c)) };
+  return { ajouter: t => ecrire([...lire(), t]), lire, envoyer, retirer: c => ecrire(lire().filter(x => x.cle !== c)) };
 })();
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action="caisse-attente-envoyer"], [data-action="caisse-attente-retirer"]'); if (!el) return;

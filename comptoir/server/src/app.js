@@ -1479,7 +1479,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   function encaisserCaisse(ctx) {
     const produits = listerProduits(ctx.boutique.id);
     // Vente faite hors ligne (déjà encaissée) : jamais refusée pour le stock ; une rupture est signalée dans l'historique.
-    const horsLigne = Number(ctx.corps.horsLigneLe) > Date.now() - 7 * 86400000 && Number(ctx.corps.horsLigneLe) <= Date.now() + 60000 ? Number(ctx.corps.horsLigneLe) : null;
+    const horsLigne = Number(ctx.corps.horsLigneLe) > Date.now() - 30 * 86400000 && Number(ctx.corps.horsLigneLe) <= Date.now() + 60000 ? Number(ctx.corps.horsLigneLe) : null;
     const lignes = prix.construireLignes(produits, ctx.corps.lignes, { qteMax: 999, verifierStock: !horsLigne });   // vente en magasin : quantités de marché ou de gros
     if (lignes.some(l => l.type === 'drop')) throw erreur(400, 'La caisse n’accepte que les produits en stock.', 'caisse_drop');
     const total = prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
@@ -1487,7 +1487,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(ctx.boutique.id).compteur_commande;
       const id = auth.nouvelId('c_');
-      const now = Date.now();
+      const now = horsLigne || Date.now();   // vente hors ligne : datée (et facturée) au moment où elle a été encaissée
       const config = lireConfig(ctx.boutique);
       const donnees = { client: { nom: 'Client en boutique', email: '', ville: '' }, lignes, sousTotal: total, port: 0, total, tauxTva: prix.tauxTva(config), livraison: 'retrait', canal: 'magasin', moyen: ['especes', 'twint', 'carte'].includes(ctx.corps.moyen) ? ctx.corps.moyen : 'carte', suivi: '', note: '', facture: prochaineFacture(ctx.boutique.id, now), dateFacture: now, historique: [{ date: now, texte: `Vente encaissée en boutique (${moyen})` }] };
       prix.figerTaux(donnees, config);
@@ -1498,7 +1498,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (horsLigne) {
         const manque = lignes.filter(l => typeof l.retireStock === 'number' && l.retireStock < l.qte);
         const c2 = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id));
-        historique(c2, `Vente encaissée hors ligne à ${new Date(horsLigne).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}, envoyée au retour du réseau${manque.length ? ` ; stock insuffisant pour ${manque.map(l => l.nom).join(', ')} (à vérifier)` : ''}`);
+        // Prix changés entre la vente et l'envoi : le montant encaissé est signalé, à vérifier.
+        const attendu = Number(ctx.corps.totalAttendu), ecart = Number.isFinite(attendu) && Math.abs(attendu - total) >= 0.01;
+        historique(c2, `Vente encaissée hors ligne le ${new Date(horsLigne).toLocaleString('fr-CH', { timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}, envoyée au retour du réseau${manque.length ? ` ; stock insuffisant pour ${manque.map(l => l.nom).join(', ')} (à vérifier)` : ''}${ecart ? ` ; montant affiché à la caisse ${formatMontant(attendu, config)}, prix actuels ${formatMontant(total, config)} (à vérifier)` : ''}`);
         c2.lignes = lignes; enregistrerCommande(c2);
       }
       integ.emettre(ctx.boutique.id, 'commande.retiree', commandeApi({ id, numero, date: now, statut: 'retiree', ...donnees, canal: donnees.canal || 'caisse' }, config.boutique.devise || 'CHF'));
@@ -2099,9 +2101,10 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     auth.limiter('mes-commandes:' + ctx.ip, 10 * facteurLimites, 3600000, 'Trop de demandes. Réessayez plus tard.');
     const b = boutiqueParSlug(ctx.params.slug);
     const email = valider.email(ctx.corps.email).toLowerCase();
-    try { auth.limiter(`mes-commandes-adresse:${b.id}|${email}`, 3, 86400000, ''); } catch { return { ok: true }; }
     const rows = db.prepare("SELECT id, numero, date, statut, donnees FROM commandes WHERE boutique_id = ? AND date > ? AND statut NOT IN ('attente', 'annulee') AND lower(json_extract(donnees, '$.client.email')) = ? ORDER BY date DESC LIMIT 20").all(b.id, Date.now() - 365 * 86400000, email);
     if (!rows.length) return { ok: true };
+    // Compté seulement quand un e-mail part : des demandes pour une adresse sans commande n'épuisent pas celles du vrai client.
+    try { auth.limiter(`mes-commandes-adresse:${b.id}|${email}`, 3, 86400000, ''); } catch { return { ok: true }; }
     const config = lireConfig(b), libelles = { payee: 'payée', preparation: 'en préparation', fournisseur: 'en préparation', expediee: 'expédiée', livree: 'livrée', prete: 'prête à retirer', retiree: 'retirée', remboursee: 'remboursée' };
     envoyerEmail(b.id, email, `Vos commandes chez ${config.boutique.nom}`, `Bonjour,\n\nVoici vos commandes chez ${config.boutique.nom} :\n\n${rows.map(r2 => `- n° ${r2.numero} du ${new Date(r2.date).toLocaleDateString('fr-CH')} (${libelles[r2.statut] || r2.statut}) : ${lienCommande(b, r2.id)}`).join('\n')}\n\nVous n'avez rien demandé ? Ignorez cet e-mail.\n\n${config.boutique.nom}`);
     return { ok: true };
@@ -2116,8 +2119,15 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const p = listerProduits(b.id).find(x => x.id === ctx.params.id && vendable(x) && x.type !== 'drop');
     if (!p) throw erreur(404, 'Produit introuvable.', 'introuvable');
     const vid = Array.isArray(p.variantes) && p.variantes.length ? String(ctx.corps.varianteId || '') : '';
-    if (vid && !p.variantes.some(v => v.id === vid)) throw erreur(400, 'Variante inconnue.', 'variante');
-    if (db.prepare('SELECT COUNT(*) n FROM alertes_stock WHERE boutique_id = ?').get(b.id).n >= 5000) return { ok: true };
+    const v = vid ? p.variantes.find(x => x.id === vid) : null;
+    if (vid && !v) throw erreur(400, 'Variante inconnue.', 'variante');
+    if (!vid && Array.isArray(p.variantes) && p.variantes.length) throw erreur(400, 'Choisissez une variante.', 'variante_requise');
+    // Article disponible : rien à attendre (sinon le formulaire servirait à envoyer un e-mail à n'importe quelle adresse).
+    if ((v ? v.stock : p.stock) > 0) throw erreur(409, 'Cet article est disponible : vous pouvez le commander dès maintenant.', 'disponible');
+    // Limites par boutique : par réseau et par adresse (une adresse ne peut pas être inscrite sans fin par un tiers).
+    auth.limiter(`alerte-stock-boutique:${b.id}|${ctx.ip}`, 10 * facteurLimites, 86400000, 'Trop de demandes. Réessayez plus tard.');
+    try { auth.limiter(`alerte-stock-adresse:${b.id}|${email}`, 5, 86400000, ''); } catch { return { ok: true }; }
+    if (db.prepare('SELECT COUNT(*) n FROM alertes_stock WHERE boutique_id = ?').get(b.id).n >= 5000) throw erreur(503, 'Les demandes sont momentanément complètes pour cette boutique. Réessayez plus tard.', 'complet');
     const langue = ['de', 'it', 'en'].includes(ctx.corps.langue) ? ctx.corps.langue : null;
     db.prepare('INSERT OR IGNORE INTO alertes_stock (boutique_id, produit_id, variante_id, email, langue, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(b.id, p.id, vid, email, langue, Date.now());
     return { ok: true };
@@ -2130,20 +2140,25 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   };
   function alertesRetourStock(maintenant = Date.now()) {
     db.prepare('DELETE FROM alertes_stock WHERE cree_le < ?').run(maintenant - 90 * 86400000);
-    const parBoutique = new Map();
-    for (const a of db.prepare('SELECT * FROM alertes_stock LIMIT 2000').all()) { if (!parBoutique.has(a.boutique_id)) parBoutique.set(a.boutique_id, []); parBoutique.get(a.boutique_id).push(a); }
-    for (const [bid, alertes] of parBoutique) {
+    // Boutique par boutique, produit par produit : seules les demandes d'un article revenu en stock sont lues.
+    // (Une boutique pleine de demandes en attente ne retarde plus celles des autres.)
+    for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT boutique_id FROM alertes_stock').all()) {
       const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid); if (!b) continue;
+      if (!abo.etat(b.marchand_id).actif) continue;   // boutique fermée : le lien mènerait à une page introuvable
       const prods = listerProduits(bid), config = lireConfig(b);
-      for (const a of alertes) {
-        const p = prods.find(x => x.id === a.produit_id);
+      for (const g of db.prepare('SELECT produit_id, variante_id FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id').all(bid)) {
+        const p = prods.find(x => x.id === g.produit_id);
         if (!p || !vendable(p)) continue;
-        const v = a.variante_id && Array.isArray(p.variantes) ? p.variantes.find(x => x.id === a.variante_id) : null;
+        const v = g.variante_id ? (Array.isArray(p.variantes) ? p.variantes.find(x => x.id === g.variante_id) : null) : null;
+        // Variante supprimée : la demande n'a plus d'objet, effacée sans e-mail.
+        if (g.variante_id && !v) { db.prepare('DELETE FROM alertes_stock WHERE boutique_id = ? AND produit_id = ? AND variante_id = ?').run(bid, g.produit_id, g.variante_id); continue; }
         if ((v ? v.stock : p.stock) <= 0) continue;
         const nom = v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom;
-        const [sujet, corps] = (TEXTE_RETOUR[a.langue] || TEXTE_RETOUR.fr)(nom, config.boutique.nom, EmailsClients.avecLangue(`${urlBoutique(b)}${urlBoutique(b).endsWith('/') ? '' : '/'}p/${encodeURIComponent(p.id)}`, { langue: a.langue }));
-        envoyerEmail(b.id, a.email, sujet, corps, { langue: a.langue });
-        db.prepare('DELETE FROM alertes_stock WHERE boutique_id = ? AND produit_id = ? AND variante_id = ? AND email = ?').run(bid, a.produit_id, a.variante_id, a.email);
+        for (const a of db.prepare('SELECT * FROM alertes_stock WHERE boutique_id = ? AND produit_id = ? AND variante_id = ?').all(bid, g.produit_id, g.variante_id)) {
+          const [sujet, corps] = (TEXTE_RETOUR[a.langue] || TEXTE_RETOUR.fr)(nom, config.boutique.nom, EmailsClients.avecLangue(`${urlBoutique(b)}${urlBoutique(b).endsWith('/') ? '' : '/'}p/${encodeURIComponent(p.id)}`, { langue: a.langue }));
+          envoyerEmail(b.id, a.email, sujet, corps, { langue: a.langue });
+          db.prepare('DELETE FROM alertes_stock WHERE boutique_id = ? AND produit_id = ? AND variante_id = ? AND email = ?').run(bid, a.produit_id, a.variante_id, a.email);
+        }
       }
     }
   }

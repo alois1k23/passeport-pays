@@ -375,13 +375,21 @@ function reduireImage(fichier, taille = 1000) {
       const img = new Image();
       img.onerror = ko;
       img.onload = () => {
-        const r = Math.min(1, taille / Math.max(img.width, img.height));
-        const cv = document.createElement('canvas');
-        cv.width = Math.round(img.width * r); cv.height = Math.round(img.height * r);
-        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        const webp = cv.toDataURL('image/webp', 0.82).startsWith('data:image/webp');
-        let q = 0.82, url = cv.toDataURL(webp ? 'image/webp' : 'image/jpeg', q);
-        while (url.length > 370000 && q > 0.45) { q -= 0.08; url = cv.toDataURL(webp ? 'image/webp' : 'image/jpeg', q); }
+        // Fond blanc : un PNG transparent ne devient pas noir en JPEG (navigateurs sans WebP).
+        const dessiner = cote => { const r = Math.min(1, cote / Math.max(img.width, img.height)); const cv = document.createElement('canvas');
+          cv.width = Math.max(1, Math.round(img.width * r)); cv.height = Math.max(1, Math.round(img.height * r));
+          const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height); return cv; };
+        // Détection WebP sur un canevas de 1 px (pas d'encodage complet pour rien sur Safari).
+        const t = document.createElement('canvas'); t.width = t.height = 1;
+        const type = t.toDataURL('image/webp').startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg';
+        // Qualité baissée, puis dimensions réduites, jusqu'à passer sous la limite du serveur (400 000 caractères).
+        let cote = taille, url = '';
+        for (let essai = 0; essai < 6; essai++, cote = Math.round(cote * 0.8)) {
+          const cv = dessiner(cote); let q = 0.82;
+          url = cv.toDataURL(type, q);
+          while (url.length > 370000 && q > 0.45) { q -= 0.08; url = cv.toDataURL(type, q); }
+          if (url.length <= 370000) break;
+        }
         ok(url);
       };
       img.src = lecteur.result;

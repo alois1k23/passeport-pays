@@ -33,6 +33,9 @@ function charger() {
   return boutiqueDemoLausanne();
 }
 function sauver() {
+  // Compte connecté : les données vivent sur le serveur. Aucune copie locale (données des clients, photos) :
+  // le navigateur garde sa place pour la file de la caisse hors ligne.
+  if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte) { try { localStorage.removeItem(CLE); } catch { /* ignoré */ } return; }
   try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch (e) { /* ignoré */ }
 }
 

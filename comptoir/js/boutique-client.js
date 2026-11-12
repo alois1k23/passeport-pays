@@ -319,6 +319,7 @@ document.addEventListener('click', e => {
     // Même panier qu'une commande passée : seuls les articles encore en vente, au prix d'aujourd'hui, dans la limite du stock.
     let lignes = []; try { lignes = JSON.parse(el.dataset.lignes); } catch { /* ignoré */ }
     let absents = 0;
+    if (vue.panier.length && !confirm('Remplacer le contenu de votre panier par les articles de cette commande ?')) return;
     vue.panier = [];
     for (const [pid, vid, qte] of lignes) {
       const p = donnees.produits.find(x => x.id === pid), v = p && vid && aVariantes(p) ? p.variantes.find(x => x.id === vid) : null;
