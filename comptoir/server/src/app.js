@@ -2159,9 +2159,13 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     // Jeton propre à la confirmation : aléatoire, à usage unique, valable 7 jours, gardé en empreinte seulement.
     const jetonOptin = crypto.randomBytes(24).toString('base64url');
     db.prepare('DELETE FROM optins WHERE expire_le < ?').run(Date.now());
-    db.prepare('INSERT INTO optins (jeton_hash, boutique_id, email, expire_le) VALUES (?, ?, ?, ?)').run(auth.sha256(jetonOptin), b.id, email.toLowerCase(), Date.now() + 7 * 86400000);
+    // Langue de la boutique au moment de l'inscription : la confirmation, la bienvenue et les nouvelles partent dans cette langue.
+    const langue = typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (lireConfig(b).boutique.langues || []).includes(ctx.corps.langue) ? ctx.corps.langue : null;
+    db.prepare('INSERT INTO optins (jeton_hash, boutique_id, email, expire_le, langue) VALUES (?, ?, ?, ?, ?)').run(auth.sha256(jetonOptin), b.id, email.toLowerCase(), Date.now() + 7 * 86400000, langue);
     const nom = lireConfig(b).boutique.nom, lien = `${urlPublique}/reinscription?j=${jetonOptin}`;
-    envoyerEmail(b.id, email, `Confirmez votre inscription chez ${nom}`, `Bonjour,\n\nVous (ou quelqu'un d'autre) avez demandé à recevoir les nouvelles et offres de ${nom}. Pour confirmer, cliquez ici :\n${lien}\n\nSi ce n'est pas vous, ignorez cet e-mail : vous ne recevrez rien d'autre.\n\n${nom}`);
+    const traduit = EmailsClients.optin(langue, { nomBoutique: nom, lien });
+    if (traduit) envoyerEmail(b.id, email, traduit.sujet, traduit.corps, { langue });
+    else envoyerEmail(b.id, email, `Confirmez votre inscription chez ${nom}`, `Bonjour,\n\nVous (ou quelqu'un d'autre) avez demandé à recevoir les nouvelles et offres de ${nom}. Pour confirmer, cliquez ici :\n${lien}\n\nSi ce n'est pas vous, ignorez cet e-mail : vous ne recevrez rien d'autre.\n\n${nom}`);
     return { ok: true, confirmation: true };
   });
   r.post('/api/public/:slug/commandes/:id/reprendre', async ctx => {
@@ -2601,11 +2605,13 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     return { html: pageSimple(`Ne plus recevoir les e-mails de ${nom}`, `Confirmez pour ${d.email}. Vous recevrez toujours les e-mails liés à vos commandes (confirmation, expédition).`, `<form method="post" action="/desinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Me désinscrire</button></form>`) };
   });
   db.exec('CREATE TABLE IF NOT EXISTS optins (jeton_hash TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, email TEXT NOT NULL, expire_le INTEGER NOT NULL, utilise INTEGER NOT NULL DEFAULT 0)');
-  const lireOptin = j => { const o = db.prepare('SELECT * FROM optins WHERE jeton_hash = ? AND expire_le > ?').get(auth.sha256(String(j || '')), Date.now()); return o ? { boutiqueId: o.boutique_id, email: o.email, utilise: !!o.utilise } : null; };
+  for (const sql of ['ALTER TABLE optins ADD COLUMN langue TEXT', 'ALTER TABLE abonnes ADD COLUMN langue TEXT']) { try { db.exec(sql); } catch { /* déjà là */ } }   // langue des e-mails commerciaux
+  const lireOptin = j => { const o = db.prepare('SELECT * FROM optins WHERE jeton_hash = ? AND expire_le > ?').get(auth.sha256(String(j || '')), Date.now()); return o ? { boutiqueId: o.boutique_id, email: o.email, utilise: !!o.utilise, langue: o.langue || null } : null; };
   r.get('/reinscription', ctx => {
     const d = lireOptin(ctx.query.get('j'));
     if (!d) return { html: pageSimple('Lien invalide', 'Ce lien est incomplet ou a été modifié.') };
-    return { html: pageSimple('Recevoir les nouvelles de la boutique', `Confirmez l’inscription de ${d.email}.`, `<form method="post" action="/reinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>Confirmer mon inscription</button></form>`) };
+    const t = EmailsClients.pageOptin(d.langue) || ['Recevoir les nouvelles de la boutique', e => `Confirmez l’inscription de ${e}.`, 'Confirmer mon inscription'];
+    return { html: pageSimple(t[0], t[1](d.email), `<form method="post" action="/reinscription?j=${encodeURIComponent(ctx.query.get('j'))}"><button>${t[2]}</button></form>`) };
   });
   r.post('/reinscription', ctx => {
     const d = lireOptin(ctx.query.get('j'));
@@ -2614,11 +2620,12 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (d.utilise) return { html: pageSimple('Déjà confirmé', `${d.email} est déjà inscrit.`) };
     db.prepare('UPDATE optins SET utilise = 1 WHERE jeton_hash = ?').run(auth.sha256(String(ctx.query.get('j') || '')));
     db.prepare('DELETE FROM desinscriptions WHERE boutique_id = ? AND email = ?').run(d.boutiqueId, d.email);
-    const nouveau = db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le) VALUES (?, ?, ?)').run(d.boutiqueId, d.email, Date.now()).changes > 0;
+    const nouveau = db.prepare('INSERT OR IGNORE INTO abonnes (boutique_id, email, cree_le, langue) VALUES (?, ?, ?, ?)').run(d.boutiqueId, d.email, Date.now(), d.langue).changes > 0;
     const bq = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(d.boutiqueId);
     // Inscription confirmée : l'e-mail de bienvenue (et son code) part maintenant, une seule fois par adresse.
-    if (nouveau && bq) relances.emailBienvenue({ db, boutique: bq, config: configVente(bq), email: d.email, urlPublique, urlBoutique: urlBoutique(bq), envoyerEmail });
-    return { html: pageSimple('C’est fait', `${d.email} recevra désormais les nouvelles de cette boutique. Vous pourrez vous désinscrire à tout moment depuis chaque e-mail.`) };
+    if (nouveau && bq) relances.emailBienvenue({ db, boutique: bq, config: configVente(bq), email: d.email, urlPublique, urlBoutique: urlBoutique(bq), envoyerEmail, langue: d.langue });
+    const t = EmailsClients.pageOptin(d.langue);
+    return { html: t ? pageSimple(t[3], t[4](d.email)) : pageSimple('C’est fait', `${d.email} recevra désormais les nouvelles de cette boutique. Vous pourrez vous désinscrire à tout moment depuis chaque e-mail.`) };
   });
   r.post('/desinscription', ctx => {
     const d = lireJetonDesinscription(ctx.query.get('j'));

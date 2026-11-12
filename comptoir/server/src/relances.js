@@ -103,7 +103,9 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       if (maintenant - c.date < a.reconquete.jours * JOUR) continue;
       if (!c.client.consentement) continue; // e-mail marketing : uniquement avec accord explicite
       if (!reserver(db, boutique.id, `reconquete:${email}:${c.id}`, maintenant)) continue;
-      envoyerEmail(boutique.id, email, `Ça fait longtemps, ${c.client.nom.split(' ')[0]}`,
+      const traduit = EmailsClients.reconquete(c, { nomBoutique: nom, remise: a.reconquete.remise, code: a.reconquete.code, lien: EmailsClients.avecLangue(base, c) });
+      if (traduit) envoyerEmail(boutique.id, email, traduit.sujet, traduit.corps, { marketing: true, langue: c.langue });
+      else envoyerEmail(boutique.id, email, `Ça fait longtemps, ${c.client.nom.split(' ')[0]}`,
         `Bonjour ${c.client.nom},\n\nDe nouveaux produits sont arrivés chez ${nom} depuis votre dernière commande.${a.reconquete.remise && a.reconquete.code ? ` Pour votre retour : -${a.reconquete.remise} % avec le code ${a.reconquete.code}.` : ''}\n\n${base}\n\nL’équipe ${nom}\n\nVous recevez cet e-mail car vous avez accepté nos nouvelles.`, { marketing: true });
       n++;
     }
@@ -111,10 +113,12 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
   return n;
 }
 
-function emailBienvenue({ db, boutique, config, email, urlPublique, urlBoutique, envoyerEmail }) {
+function emailBienvenue({ db, boutique, config, email, urlPublique, urlBoutique, envoyerEmail, langue = null }) {
   const base = urlBoutique || urlPublique;
   const a = nettoyer(config.automatisations);
   if (!a.bienvenue.actif || !reserver(db, boutique.id, `bienvenue:${email}`, Date.now())) return false;
+  const traduit = EmailsClients.bienvenue(langue, { nomBoutique: config.boutique.nom, remise: a.bienvenue.remise, code: a.bienvenue.code, lien: EmailsClients.avecLangue(base, { langue }) });
+  if (traduit) { envoyerEmail(boutique.id, email, traduit.sujet, traduit.corps, { marketing: true, langue }); return true; }
   envoyerEmail(boutique.id, email, `Bienvenue chez ${config.boutique.nom}`,
     `Bonjour,\n\nMerci de votre inscription.${a.bienvenue.remise && a.bienvenue.code ? ` Voici -${a.bienvenue.remise} % sur votre première commande avec le code ${a.bienvenue.code}.` : ''}\n\n${base}\n\nL’équipe ${config.boutique.nom}`, { marketing: true });
   return true;

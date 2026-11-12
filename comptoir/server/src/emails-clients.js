@@ -3,7 +3,12 @@
    les informations légales (droit de rétractation) restent en français, annoncées dans la langue du client. */
 'use strict';
 const T = {
-  de: { bonjour: n => `Guten Tag ${n}`, merci: s => `Vielen Dank für Ihre Bestellung bei ${s}.`, sujetConfirmation: n => `Bestellung Nr. ${n} bestätigt`,
+  de: {
+    pageOptin: ['Neuigkeiten der Boutique erhalten', e => `Bestätigen Sie die Anmeldung von ${e}.`, 'Anmeldung bestätigen', 'Erledigt', e => `${e} erhält ab jetzt die Neuigkeiten dieser Boutique. Sie können sich jederzeit über jede E-Mail abmelden.`],
+    optin: s => `Bestätigen Sie Ihre Anmeldung bei ${s}`, optinCorps: (s, lien) => `Sie (oder jemand anderes) haben Neuigkeiten und Angebote von ${s} angefordert. Zur Bestätigung klicken Sie hier:\n${lien}\n\nWaren Sie das nicht? Dann ignorieren Sie diese E-Mail: Sie erhalten nichts weiter.`,
+    bienvenue: s => `Willkommen bei ${s}`, bienvenueCorps: (r, c) => `Vielen Dank für Ihre Anmeldung.${r && c ? ` Hier sind -${r} % auf Ihre erste Bestellung mit dem Code ${c}.` : ''}`,
+    reconquete: p => `Lange nicht gesehen, ${p}`, reconqueteCorps: (s, r, c) => `Seit Ihrer letzten Bestellung sind bei ${s} neue Produkte eingetroffen.${r && c ? ` Für Ihre Rückkehr: -${r} % mit dem Code ${c}.` : ''}`, consenti: 'Sie erhalten diese E-Mail, weil Sie unseren Neuigkeiten zugestimmt haben.',
+    salut: 'Guten Tag', bonjour: n => `Guten Tag ${n}`, merci: s => `Vielen Dank für Ihre Bestellung bei ${s}.`, sujetConfirmation: n => `Bestellung Nr. ${n} bestätigt`,
     retrait: 'Wir melden uns, sobald Ihre Bestellung zur Abholung bereit ist.', expedition: 'Wir melden uns beim Versand, mit der Sendungsnummer.', suivre: 'Bestellung verfolgen',
     question: e => `Eine Frage? Antworten Sie einfach auf diese E-Mail${e ? ` oder schreiben Sie an ${e}` : ''}.`, sujetExpedition: n => `Ihre Bestellung Nr. ${n} ist unterwegs`,
     colisParti: t => `Ihr Paket wurde${t ? ` mit ${t}` : ''} versandt.`, numeroSuivi: 'Sendungsnummer', suivreColis: 'Paket verfolgen', votreCommande: 'Ihre Bestellung', aBientot: 'Vielen Dank und bis bald',
@@ -15,7 +20,12 @@ const T = {
     avis: s => `Ihre Meinung zu Ihrer Bestellung bei ${s}`, avisCorps: (p, lien) => `Sie haben ${p} erhalten. Wie gefällt es Ihnen? Ihre Bewertung hilft anderen bei der Wahl und uns beim Besserwerden. Sie dauert 30 Sekunden:\n${lien}`, merciFin: 'Vielen Dank',
     piedContact: 'Kontakt', piedCommande: s => `Sie erhalten diese E-Mail aufgrund Ihrer Bestellung bei ${s}. Um solche Nachrichten nicht mehr zu erhalten`, piedNouvelles: s => `Sie erhalten diese E-Mail, weil Sie Neuigkeiten von ${s} abonniert haben. Zum Abbestellen`,
     legal: 'Rechtliche Hinweise (auf Französisch, massgebende Fassung):', dateLocale: 'de-CH' },
-  it: { bonjour: n => `Buongiorno ${n}`, merci: s => `Grazie per il tuo ordine presso ${s}.`, sujetConfirmation: n => `Ordine n. ${n} confermato`,
+  it: {
+    pageOptin: ['Ricevere le novità del negozio', e => `Conferma l’iscrizione di ${e}.`, 'Conferma l’iscrizione', 'Fatto', e => `${e} riceverà d’ora in poi le novità di questo negozio. Puoi annullare l’iscrizione in qualsiasi momento da ogni e-mail.`],
+    optin: s => `Conferma la tua iscrizione presso ${s}`, optinCorps: (s, lien) => `Tu (o qualcun altro) hai chiesto di ricevere le novità e le offerte di ${s}. Per confermare, clicca qui:\n${lien}\n\nNon sei stato tu? Ignora questa e-mail: non riceverai nient’altro.`,
+    bienvenue: s => `Benvenuto da ${s}`, bienvenueCorps: (r, c) => `Grazie per la tua iscrizione.${r && c ? ` Ecco -${r} % sul tuo primo ordine con il codice ${c}.` : ''}`,
+    reconquete: p => `È passato un po’ di tempo, ${p}`, reconqueteCorps: (s, r, c) => `Dal tuo ultimo ordine sono arrivati nuovi prodotti da ${s}.${r && c ? ` Per il tuo ritorno: -${r} % con il codice ${c}.` : ''}`, consenti: 'Ricevi questa e-mail perché hai accettato le nostre novità.',
+    salut: 'Buongiorno', bonjour: n => `Buongiorno ${n}`, merci: s => `Grazie per il tuo ordine presso ${s}.`, sujetConfirmation: n => `Ordine n. ${n} confermato`,
     retrait: 'Ti scriviamo appena l’ordine è pronto per il ritiro.', expedition: 'Ti scriviamo alla spedizione, con il numero di tracciamento.', suivre: 'Segui il tuo ordine',
     question: e => `Una domanda? Rispondi a questa e-mail${e ? ` o scrivi a ${e}` : ''}.`, sujetExpedition: n => `Il tuo ordine n. ${n} è in viaggio`,
     colisParti: t => `Il tuo pacco è partito${t ? ` con ${t}` : ''}.`, numeroSuivi: 'Numero di tracciamento', suivreColis: 'Segui il pacco', votreCommande: 'Il tuo ordine', aBientot: 'Grazie e a presto',
@@ -27,7 +37,12 @@ const T = {
     avis: s => `La tua opinione sul tuo ordine presso ${s}`, avisCorps: (p, lien) => `Hai ricevuto ${p}. Cosa ne pensi? La tua recensione aiuta altri clienti a scegliere, e noi a migliorare. Bastano 30 secondi:\n${lien}`, merciFin: 'Grazie',
     piedContact: 'Contatto', piedCommande: s => `Ricevi questa e-mail in seguito al tuo ordine presso ${s}. Per non ricevere più questo tipo di messaggi`, piedNouvelles: s => `Ricevi questa e-mail perché hai accettato le novità di ${s}. Per non riceverle più`,
     legal: 'Informazioni legali (in francese, versione che fa fede):', dateLocale: 'it-CH' },
-  en: { bonjour: n => `Hello ${n}`, merci: s => `Thank you for your order at ${s}.`, sujetConfirmation: n => `Order no. ${n} confirmed`,
+  en: {
+    pageOptin: ['Get news from the shop', e => `Confirm the sign-up of ${e}.`, 'Confirm sign-up', 'Done', e => `${e} will now receive news from this shop. You can unsubscribe at any time from any email.`],
+    optin: s => `Confirm your sign-up at ${s}`, optinCorps: (s, lien) => `You (or someone else) asked to receive news and offers from ${s}. To confirm, click here:\n${lien}\n\nNot you? Just ignore this email: you will not receive anything else.`,
+    bienvenue: s => `Welcome to ${s}`, bienvenueCorps: (r, c) => `Thank you for signing up.${r && c ? ` Here is ${r}% off your first order with the code ${c}.` : ''}`,
+    reconquete: p => `It has been a while, ${p}`, reconqueteCorps: (s, r, c) => `New products have arrived at ${s} since your last order.${r && c ? ` To welcome you back: ${r}% off with the code ${c}.` : ''}`, consenti: 'You are receiving this email because you agreed to receive our news.',
+    salut: 'Hello', bonjour: n => `Hello ${n}`, merci: s => `Thank you for your order at ${s}.`, sujetConfirmation: n => `Order no. ${n} confirmed`,
     retrait: 'We will email you as soon as your order is ready for pickup.', expedition: 'We will email you when it ships, with the tracking number.', suivre: 'Track your order',
     question: e => `A question? Just reply to this email${e ? ` or write to ${e}` : ''}.`, sujetExpedition: n => `Your order no. ${n} is on its way`,
     colisParti: t => `Your parcel has shipped${t ? ` with ${t}` : ''}.`, numeroSuivi: 'Tracking number', suivreColis: 'Track the parcel', votreCommande: 'Your order', aBientot: 'Thank you and see you soon',
@@ -67,6 +82,12 @@ function partiel(c, o) { const t = T[langueDe(c)]; return { sujet: t.partiel(c.n
 function relance(c, o) { const t = T[langueDe(c)]; return { sujet: t.relance(o.nomBoutique, o.i), corps: `${t.bonjour(c.client.nom)},\n\n${t.relanceCorps(c.numero, o.formatMontant(c.total), o.lien)}${o.remise ? t.relanceCode(o.remise, o.code) : ''}\n\n${t.equipe(o.nomBoutique)}` }; }
 function avis(c, o) { const t = T[langueDe(c)]; return { sujet: t.avis(o.nomBoutique), corps: `${t.bonjour(c.client.nom)},\n\n${t.avisCorps(c.lignes.map(l => l.nom).join(', '), o.lien)}\n\n${t.merciFin},\n${t.equipe(o.nomBoutique)}` }; }
 // Lien vers la boutique dans la langue de la commande (la page s'ouvre dans la même langue que l'e-mail).
+/* E-mails commerciaux : la langue vient de l'inscription (newsletter) ou de la dernière commande. */
+const lng = l => T[l] ? l : null;
+function optin(langue, o) { const t = T[lng(langue)]; return t && { sujet: t.optin(o.nomBoutique), corps: `${t.salut},\n\n${t.optinCorps(o.nomBoutique, o.lien)}\n\n${o.nomBoutique}` }; }
+function bienvenue(langue, o) { const t = T[lng(langue)]; return t && { sujet: t.bienvenue(o.nomBoutique), corps: `${t.salut},\n\n${t.bienvenueCorps(o.remise, o.code)}\n\n${o.lien}\n\n${t.equipe(o.nomBoutique)}` }; }
+function reconquete(c, o) { const t = T[langueDe(c)]; return t && { sujet: t.reconquete(String(c.client.nom || '').split(' ')[0]), corps: `${t.bonjour(c.client.nom)},\n\n${t.reconqueteCorps(o.nomBoutique, o.remise, o.code)}\n\n${o.lien}\n\n${t.equipe(o.nomBoutique)}\n\n${t.consenti}` }; }
+const pageOptin = langue => T[lng(langue)] ? T[langue].pageOptin : null;
 const avecLangue = (url, c) => langueDe(c) ? `${url}${url.includes('?') ? '&' : '?'}lang=${c.langue}` : url;
 const textesPied = langue => T[langue] ? { contact: T[langue].piedContact, commande: T[langue].piedCommande, nouvelles: T[langue].piedNouvelles } : null;
-module.exports = { textesPied, langueDe, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };
+module.exports = { pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };

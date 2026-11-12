@@ -397,7 +397,7 @@ function adresseVendeur() { const a = String((donnees.entreprise || {}).adresse 
 async function inscrireNewsletter(form) {
   const email = form.querySelector('input[type=email]').value;
   try {
-    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/newsletter`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/newsletter`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr' }) });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur);
     // Double confirmation : l'inscription n'est faite qu'au clic dans l'e-mail reçu.

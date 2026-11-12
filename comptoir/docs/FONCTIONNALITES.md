@@ -10,7 +10,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 
 - Boutique prête en une soirée : modèles, sections, éditeur visuel, domaine personnalisé vérifié (DNS et TXT).
 - **Variantes** : tailles et couleurs (2 options), avec stock et prix par variante.
-- **Boutique en quatre langues** : français, allemand, italien et anglais. Les e-mails de commande partent dans la langue du client, et chaque version est référencée (`hreflang`).
+- **Boutique en quatre langues** : français, allemand, italien et anglais. Les e-mails de commande, d'inscription, de bienvenue et de relance partent dans la langue du client, et chaque version est référencée (`hreflang`).
 - **Recherche instantanée** : sans accents, et tolérante aux fautes de frappe.
 - **Lien de panier** : un panier prêt à envoyer par WhatsApp, e-mail ou QR code.
 
@@ -85,5 +85,5 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **QR-facture** : à vérifier avec une vraie application bancaire avant d'ouvrir. Le QR code n'a pas été relu par un lecteur indépendant pendant les tests.
 - **Notifications push** : à vérifier sur un vrai téléphone. Sur iPhone, Comptoir doit d'abord être ajouté à l'écran d'accueil.
 - **Variantes** : pas encore pour les produits en dropshipping.
-- **Traductions** : les e-mails marketing (relance « vous nous manquez », newsletters) et la page sans JavaScript restent en français.
+- **Traductions** : les noms et descriptions des produits restent ceux saisis par le marchand. La page sans JavaScript reste en français.
 - **Publication sur les réseaux sociaux** : préparée par Comptoir, mais publiée par copier-coller, en attendant les connexions officielles des réseaux.
