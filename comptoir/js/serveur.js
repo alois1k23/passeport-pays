@@ -235,8 +235,10 @@ function installerConnexion() {
         etatForm.envoi = false; etatForm.info = 'Si un compte existe pour cette adresse, un lien valable 1 heure vient de partir. Pensez à vérifier les indésirables.'; rendre();
         return;
       } else if (etatForm.onglet === 'reinit') {
-        await api('POST', '/api/auth/reinitialiser', { jeton: jetonReinit, motDePasse: d.motDePasse });
+        const r = await api('POST', '/api/auth/reinitialiser', { jeton: jetonReinit, motDePasse: d.motDePasse });
         history.replaceState(null, '', location.pathname);
+        // Compte qui exigeait une clé d'accès : aucune session ouverte par le lien, il faut se reconnecter avec le nouveau mot de passe.
+        if (r && r.reconnexion) { etatForm.onglet = 'connexion'; etatForm.envoi = false; etatForm.erreur = 'Mot de passe changé, clés d’accès supprimées : connectez-vous avec votre nouveau mot de passe.'; rendre(); return; }
       } else if (etatForm.onglet === '2fa') {
         await api('POST', '/api/auth/connexion/2fa', { defi: etatForm.defi, code: d.code });
       } else if (etatForm.onglet === 'connexion') {

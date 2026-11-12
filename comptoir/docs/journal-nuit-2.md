@@ -698,3 +698,15 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 
 - Nouvel événement de webhook `journal.cloture` : à chaque clôture journalière, l'empreinte, le nombre de pièces, le total du jour et le grand total partent vers les outils du marchand qui l'ont demandé (comptabilité, archivage, Zapier). Le journal est ainsi ancré hors de Comptoir **chaque jour**, et non plus seulement chaque lundi par e-mail. Cela réduit la limite connue (fin de journal coupée par quelqu'un qui contrôle la base et la clé).
 - Documenté dans `docs/API.md`, proposé dans Paramètres, Intégrations. Test ajouté : vente, clôture du lendemain, webhook en file avec la même empreinte que le journal. 116 tests sur 116.
+
+## Cycle 55 (04 h 05) : corrections de la revue n° 12 (« Exiger la clé d'accès »)
+
+Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous corrigés.
+
+- **Sessions déjà ouvertes** : activer l'option ferme les sessions ouvertes par mot de passe sur les autres appareils. Un tiers déjà connecté restait connecté. L'e-mail de confirmation dit combien d'appareils ont été déconnectés.
+- **Désactivation détournée** : supprimer la dernière clé désactivait l'option en silence, avec le seul mot de passe. C'est maintenant refusé tant que l'option est active. Supprimer une clé demande le code de double authentification (si elle est active) et prévient par e-mail.
+- **Étape du code** : un défi de double authentification obtenu juste avant l'activation n'ouvre plus de session.
+- **Réinitialisation par e-mail** : quand le compte exigeait sa clé, le lien n'ouvre plus de session directement (il faut se reconnecter), et chaque réinitialisation est annoncée par e-mail (clés supprimées, mot de passe réactivé).
+- **Course** : l'option est relue après le calcul du mot de passe.
+- **Inondation** : 10 essais par quart d'heure au plus avec le bon mot de passe, et une seule ligne au journal du compte par heure.
+- Tests ajoutés pour chacun de ces cas : 116 tests sur 116, bout en bout 51 sur 51.

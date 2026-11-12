@@ -794,13 +794,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const ok = await auth.essayerMotDePasse(enCours, max, String(ctx.corps.motDePasse || ''), m && m.mot_de_passe);
     // Mot de passe changé ou réinitialisé pendant le calcul : l'ancien ne doit pas ouvrir de session.
     const actuel = m && db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(m.id);
+    const actuelCle = m && db.prepare('SELECT cle_seule FROM marchands WHERE id = ?').get(m.id);   // relu après le calcul (option activée entre-temps)
     if (!ok || !actuel || actuel.mot_de_passe !== m.mot_de_passe) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
+    m.cle_seule = actuelCle ? actuelCle.cle_seule : m.cle_seule;
     auth.oublierEchecs([`compte-ip:${e}|${reseau}`, `compte-ip-cours:${e}|${reseau}`]);
     if (m.cle_seule) {
       // Bon mot de passe, mais ce compte exige sa clé d'accès : refusé, et le marchand est prévenu (une fois par heure au plus) :
       // son mot de passe est peut-être connu d'un tiers.
-      noterActivite(m.id, 'mdp-refuse-cle-seule', null, ctx);
-      try { auth.limiter('alerte-cle-seule:' + m.id, 1, 3600000, ''); envoyerEmail(null, m.email, 'Connexion par mot de passe refusée sur votre compte Comptoir', `Bonjour,\n\nQuelqu’un vient d’essayer de se connecter à votre compte avec votre mot de passe (réseau ${reseau}). La connexion a été refusée : votre compte n’accepte que votre clé d’accès.\n\nSi ce n’était pas vous, votre mot de passe est connu d’un tiers : changez-le.\n\nL’équipe Comptoir`); } catch { /* déjà prévenu cette heure */ }
+      auth.limiter('cle-seule-essais:' + m.id, 10, 15 * 60000, 'Trop d’essais : réessayez plus tard.');   // pas d'inondation du journal
+      try { auth.limiter('alerte-cle-seule:' + m.id, 1, 3600000, ''); noterActivite(m.id, 'mdp-refuse-cle-seule', null, ctx); envoyerEmail(null, m.email, 'Connexion par mot de passe refusée sur votre compte Comptoir', `Bonjour,\n\nQuelqu’un vient d’essayer de se connecter à votre compte avec votre mot de passe (réseau ${reseau}). La connexion a été refusée : votre compte n’accepte que votre clé d’accès.\n\nSi ce n’était pas vous, votre mot de passe est connu d’un tiers : changez-le.\n\nL’équipe Comptoir`); } catch { /* déjà prévenu cette heure */ }
       throw erreur(403, 'Ce compte se connecte uniquement avec sa clé d’accès : utilisez « Se connecter avec une clé d’accès ».', 'cle_requise');
     }
     const df = deuxFacteursDe(m.id);
@@ -823,6 +825,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     auth.noterEchec([...parReseau, ...global]);   // compté avant la vérification (essais parallèles)
     if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { noterActivite(mid, 'echec-2fa', null, ctx); if (auth.compteEchecs && auth.compteEchecs(parReseau[0]) >= 3) alerterEchecs2fa(m); throw erreur(401, 'Code incorrect.', 'code_2fa'); }
     auth.oublierEchecs(parReseau);
+    if (cleSeule(m.id)) throw erreur(403, 'Ce compte se connecte uniquement avec sa clé d’accès : utilisez « Se connecter avec une clé d’accès ».', 'cle_requise');   // option activée après l'envoi du mot de passe
     ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
     return { ok: true };
   });
@@ -846,6 +849,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const hashMdp = await auth.hacherMotDePasse(mdp);   // avant la lecture du lien : rien ne s'intercale entre sa vérification et son usage
     const ligne = db.prepare('SELECT * FROM reinitialisations WHERE jeton_hash = ?').get(auth.sha256(String(ctx.corps.jeton || '')));
     if (!ligne || ligne.expire_le < Date.now()) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau.', 'lien_expire');
+    const avant = db.prepare('SELECT email, cle_seule, (SELECT COUNT(*) FROM cles_acces WHERE marchand_id = marchands.id) cles FROM marchands WHERE id = ?').get(ligne.marchand_id);
     transaction(db, () => {
       db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, ligne.marchand_id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
@@ -854,10 +858,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM cles_acces WHERE marchand_id = ?').run(ligne.marchand_id);
       db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ?').run(ligne.marchand_id);   // récupération : clés supprimées, mot de passe de nouveau accepté
     });
-    // Connexion directe après la réinitialisation, sauf double authentification : un accès à la boîte e-mail ne suffit pas.
-    { const mr = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(ligne.marchand_id); const df = deuxFacteursDe(mr.id); if (!(df && df.actif)) ouvrirSession(ctx, mr); }
+    // Connexion directe après la réinitialisation, sauf double authentification ou compte qui exigeait sa clé d'accès :
+    // dans ces cas, un accès à la boîte e-mail ne suffit pas à ouvrir une session (il faut se reconnecter).
+    { const mr = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(ligne.marchand_id); const df = deuxFacteursDe(mr.id); if (!(df && df.actif) && !(avant && avant.cle_seule)) ouvrirSession(ctx, mr); }
     noterActivite(ligne.marchand_id, 'mot-de-passe', 'réinitialisé par lien e-mail', ctx);
-    return { ok: true };
+    if (avant) envoyerEmail(null, avant.email, 'Mot de passe réinitialisé sur votre compte Comptoir', `Bonjour,\n\nLe mot de passe de votre compte vient d’être réinitialisé par le lien envoyé à cette adresse${avant.cles ? ` ; vos ${avant.cles} clé${avant.cles > 1 ? 's' : ''} d’accès ${avant.cles > 1 ? 'ont été supprimées' : 'a été supprimée'}${avant.cle_seule ? ' et la connexion par mot de passe est de nouveau possible' : ''}` : ''}.\n\nCe n’est pas vous ? Quelqu’un a accès à votre boîte e-mail : sécurisez-la, puis réinitialisez à nouveau votre mot de passe et écrivez-nous.\n\nL’équipe Comptoir`);
+    return { ok: true, reconnexion: !!(avant && avant.cle_seule) };
   });
 
   /* Domaine personnalisé : actif quand le DNS pointe vers Comptoir (enregistrement CNAME ou même adresse IP). */
@@ -1225,9 +1231,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const actif = !!ctx.corps.actif;
     if (actif && !clesAccesDe(m.id).length) throw erreur(409, 'Ajoutez d’abord une clé d’accès (de préférence deux, sur deux appareils).', 'sans_cle');
     db.prepare('UPDATE marchands SET cle_seule = ? WHERE id = ?').run(actif ? 1 : 0, m.id);
+    // Activation : les sessions ouvertes par mot de passe sur d'autres appareils sont fermées (un tiers déjà connecté ne reste pas).
+    const fermees = actif ? db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ? AND cle_acces IS NULL').run(m.id, auth.sha256(String(ctx.cookies[auth.COOKIE] || ''))).changes : 0;
     noterActivite(m.id, actif ? 'cle-seule-activee' : 'cle-seule-desactivee', null, ctx);
     envoyerEmail(null, m.email, actif ? 'Votre compte Comptoir n’accepte plus que la clé d’accès' : 'Connexion par mot de passe réactivée sur votre compte Comptoir',
-      actif ? 'Bonjour,\n\nVotre compte n’accepte plus la connexion par mot de passe : seule une clé d’accès ouvre une session. Si vous perdez toutes vos clés, utilisez « Mot de passe oublié » : le lien reçu par e-mail rétablit l’accès.\n\nCe n’est pas vous ? Changez votre mot de passe et écrivez-nous.\n\nL’équipe Comptoir'
+      actif ? `Bonjour,\n\nVotre compte n’accepte plus la connexion par mot de passe : seule une clé d’accès ouvre une session.${fermees ? ` ${fermees} autre${fermees > 1 ? 's' : ''} appareil${fermees > 1 ? 's' : ''} connecté${fermees > 1 ? 's' : ''} par mot de passe ${fermees > 1 ? 'ont été déconnectés' : 'a été déconnecté'}.` : ''} Si vous perdez toutes vos clés, utilisez « Mot de passe oublié » : le lien reçu par e-mail rétablit l’accès.\n\nCe n’est pas vous ? Changez votre mot de passe et écrivez-nous.\n\nL’équipe Comptoir`
         : 'Bonjour,\n\nLa connexion par mot de passe a été réactivée sur votre compte.\n\nCe n’est pas vous ? Changez votre mot de passe tout de suite et écrivez-nous.\n\nL’équipe Comptoir');
     return { cleSeule: actif };
   });
@@ -1262,14 +1270,19 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/compte/cles-acces/:id/supprimer', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    // Mêmes exigences que pour désactiver « Exiger la clé d'accès » : code de double authentification, et pas la dernière clé tant que l'option est active.
+    const df = deuxFacteursDe(m.id);
+    if (df && df.actif) {
+      auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
+      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa');
+    }
+    if (cleSeule(m.id) && clesAccesDe(m.id).length <= 1) throw erreur(409, 'C’est votre dernière clé d’accès et votre compte l’exige : réactivez d’abord la connexion par mot de passe.', 'derniere_cle');
     const c = db.prepare('DELETE FROM cles_acces WHERE id = ? AND marchand_id = ? RETURNING nom').get(String(ctx.params.id), m.id);
     if (!c) throw erreur(404, 'Clé d’accès inconnue.', 'introuvable');
     db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND cle_acces = ?').run(m.id, String(ctx.params.id));   // appareils connectés avec cette clé
     noterActivite(m.id, 'cle-acces-supprimee', c.nom, ctx);
-    // Plus aucune clé : la connexion par mot de passe redevient possible (sinon le compte serait inaccessible).
-    const plusDeCle = !clesAccesDe(m.id).length && cleSeule(m.id);
-    if (plusDeCle) { db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ?').run(m.id); noterActivite(m.id, 'cle-seule-desactivee', 'dernière clé supprimée', ctx); }
-    return { ok: true, cleSeuleDesactivee: plusDeCle };
+    envoyerEmail(null, m.email, 'Clé d’accès supprimée de votre compte Comptoir', `Bonjour,\n\nLa clé d’accès « ${c.nom} » vient d’être supprimée de votre compte.\n\nCe n’est pas vous ? Changez votre mot de passe tout de suite et écrivez-nous.\n\nL’équipe Comptoir`);
+    return { ok: true };
   });
   // Connexion : sans e-mail (clé « découvrable ») ; le navigateur propose les clés enregistrées pour Comptoir.
   r.post('/api/auth/cle-acces/options', ctx => {
