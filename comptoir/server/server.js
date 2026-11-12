@@ -96,13 +96,22 @@ const serveurHttp = http.createServer(gerer);
    les compteurs anti-abus sont écrits, la base est fermée proprement. */
 let arretEnCours = false;
 function arreter(signal) {
-  if (arretEnCours) return; arretEnCours = true;
-  console.log(`${signal} reçu : arrêt propre.`);
-  const fin = () => { try { require('./src/auth').ecrireLimites(); } catch { /* ignoré */ } try { db.close(); } catch { /* déjà fermée */ } process.exit(0); };
-  serveurHttp.close(fin);
+  const fin = () => { try { require('./src/auth').ecrireLimites(true); } catch { /* ignoré */ } try { db.close(); } catch { /* déjà fermée */ } process.exit(0); };
+  if (arretEnCours) { console.log(`${signal} : arrêt immédiat.`); fin(); return; }   // second signal : on n'attend plus
+  arretEnCours = true;
+  console.log(`${signal} reçu : arrêt propre (requêtes en cours terminées, 10 s au plus).`);
+  serveurHttp.close();                       // plus de nouvelles connexions
+  gerer.fermerFlux();                        // flux en direct fermés tout de suite
   if (serveurHttp.closeIdleConnections) serveurHttp.closeIdleConnections();
-  setTimeout(() => { if (serveurHttp.closeAllConnections) serveurHttp.closeAllConnections(); }, 2000).unref();   // flux en direct encore ouverts
-  setTimeout(fin, 10000).unref();   // requêtes trop longues (flux en direct) : on n'attend pas plus de 10 s
+  const debut = Date.now();
+  const attendre = setInterval(() => {
+    if (serveurHttp.closeIdleConnections) serveurHttp.closeIdleConnections();
+    if (gerer.enCours <= 0 || Date.now() - debut > 10000) {
+      clearInterval(attendre);
+      if (serveurHttp.closeAllConnections) serveurHttp.closeAllConnections();
+      fin();
+    }
+  }, 50);
 }
 process.on('SIGTERM', () => arreter('SIGTERM'));
 process.on('SIGINT', () => arreter('SIGINT'));

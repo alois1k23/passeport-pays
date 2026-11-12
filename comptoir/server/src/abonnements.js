@@ -240,15 +240,17 @@ function creerGestion({ db, env, urlPublique, fetchImpl = fetch }) {
   return { verifierRetour, arreterDefinitivement, FORMULES, formulesPour, etat, commencer, confirmerSimulation, parRefSimulation, changer, resilier, reprendre, evenementStripe, obligatoire, prestataire: stripe ? 'stripe' : 'simulation' };
 }
 
+/* Feuille de la page de paiement simulé : constante, autorisée par son empreinte dans la politique de sécurité. */
+const STYLE_PAGE_ABONNEMENT = `body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}
+*{box-sizing:border-box}.c{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}
+h1{font-size:1.2rem;margin:0}.m{font-size:2rem;font-weight:700}.s{color:#5E6573;font-size:.85rem}
+button{font:inherit;padding:12px;border-radius:9px;border:1px solid #2F55D4;background:#2F55D4;color:#fff;font-weight:600;cursor:pointer;width:100%}
+button.f{background:#fff;color:#151821;border-color:#D0D4DC}.n{background:#FFF7E6;border:1px solid #F3D9A4;border-radius:9px;padding:10px 12px;font-size:.85rem}`;
 function pageAbonnementSimule(a, marchandEmail) {
   const f = FORMULES[a.formule];
   const montant = a.devise === 'CHF' ? `CHF ${f.prix}.–` : `${f.prix} €`;
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Paiement de l’abonnement</title>
-<style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}
-*{box-sizing:border-box}.c{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}
-h1{font-size:1.2rem;margin:0}.m{font-size:2rem;font-weight:700}.s{color:#5E6573;font-size:.85rem}
-button{font:inherit;padding:12px;border-radius:9px;border:1px solid #2F55D4;background:#2F55D4;color:#fff;font-weight:600;cursor:pointer;width:100%}
-button.f{background:#fff;color:#151821;border-color:#D0D4DC}.n{background:#FFF7E6;border:1px solid #F3D9A4;border-radius:9px;padding:10px 12px;font-size:.85rem}</style></head>
+<style>${STYLE_PAGE_ABONNEMENT}</style></head>
 <body><main class="c"><h1>Comptoir ${f.nom}</h1><div class="m">${montant}<span class="s"> / mois</span></div>
 <p class="s">Abonnement mensuel pour ${marchandEmail.replace(/[<>&"]/g, '')}. Résiliable à tout moment depuis Paramètres, sans frais.</p>
 <p class="n">Mode test : aucun montant n’est débité. En production, le paiement passe par Stripe (carte).</p>
@@ -256,4 +258,4 @@ button.f{background:#fff;color:#151821;border-color:#D0D4DC}.n{background:#FFF7E
 <form method="post" action="/abonnement-simule/${a.session_ref}/annuler"><button class="f">Annuler</button></form></main></body></html>`;
 }
 
-module.exports = { creerGestion, pageAbonnementSimule, FORMULES };
+module.exports = { STYLE_PAGE_ABONNEMENT, creerGestion, pageAbonnementSimule, FORMULES };

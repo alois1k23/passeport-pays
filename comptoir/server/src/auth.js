@@ -68,14 +68,21 @@ function supprimerSession(db, cookies) {
    un redémarrage du serveur (même provoqué) ne remet pas les compteurs à zéro.
    Les clés (qui contiennent des adresses IP ou des e-mails) ne sont jamais écrites en clair : seulement leur empreinte. */
 const QUART = 15 * 60 * 1000;
-const empreinteCle = cle => crypto.createHash('sha256').update('limite|' + cle).digest('hex').slice(0, 32);
+// Empreinte HMAC avec une clé du serveur (dérivée de SECRET_CHIFFREMENT) : une copie de la base ne permet pas de retrouver
+// les adresses IP par force brute. Avant l'appel de persisterLimites, clé aléatoire propre au processus.
+let cleEmpreinte = crypto.randomBytes(32), cleFixee = false;
+const empreinteCle = cle => crypto.createHmac('sha256', cleEmpreinte).update('limite|' + cle).digest('hex').slice(0, 32);
 const modifies = new Set();   // « type|empreinte » à recopier en base
 let basePersistance = null, minuteur = null;
 function marquer(type, k) { if (basePersistance) modifies.add(`${type}|${k}`); }
-function persisterLimites(db) {
-  db.exec('CREATE TABLE IF NOT EXISTS limites (type TEXT NOT NULL, cle TEXT NOT NULL, n INTEGER NOT NULL, depuis INTEGER NOT NULL, fenetre INTEGER NOT NULL, PRIMARY KEY (type, cle))');
+function persisterLimites(db, cle) {
+  // Clé fixée une seule fois par processus (les compteurs en mémoire en dépendent).
+  if (!cleFixee && cle) { cleEmpreinte = crypto.createHmac('sha256', cle).update('comptoir:limites').digest(); cleFixee = true; essais.clear(); echecs.clear(); compteurs.clear(); }
+  db.exec(`CREATE TABLE IF NOT EXISTS limites (type TEXT NOT NULL, cle TEXT NOT NULL, n INTEGER NOT NULL, depuis INTEGER NOT NULL, fenetre INTEGER NOT NULL, expire INTEGER, PRIMARY KEY (type, cle));`);
+  try { db.exec('ALTER TABLE limites ADD COLUMN expire INTEGER'); } catch { /* déjà là */ }
+  db.exec('CREATE INDEX IF NOT EXISTS limites_expire ON limites (expire)');
   const maintenant = Date.now();
-  db.prepare('DELETE FROM limites WHERE depuis + fenetre < ?').run(maintenant);
+  db.prepare('DELETE FROM limites WHERE expire IS NULL OR expire < ?').run(maintenant);
   for (const r of db.prepare('SELECT * FROM limites').all()) {
     const carte = r.type === 'essais' ? essais : r.type === 'echecs' ? echecs : compteurs;
     const e = carte.get(r.cle);
@@ -84,20 +91,28 @@ function persisterLimites(db) {
   basePersistance = db;
   if (!minuteur) { minuteur = setInterval(() => ecrireLimites(), 2000); minuteur.unref(); }
 }
-function ecrireLimites() {
+let derniereExpiration = 0, erreurSignalee = false;
+function ecrireLimites(tout = false) {
   const db = basePersistance; if (!db || !modifies.size) return;
-  const lot = [...modifies]; modifies.clear();
+  // Par lots de 2000 (le serveur reste disponible) ; tout d'un coup à l'arrêt.
+  const lot = [...modifies].slice(0, tout ? Infinity : 2000);
+  for (const t of lot) modifies.delete(t);
   try {
     db.exec('BEGIN');
-    const ecr = db.prepare('INSERT OR REPLACE INTO limites (type, cle, n, depuis, fenetre) VALUES (?, ?, ?, ?, ?)'), eff = db.prepare('DELETE FROM limites WHERE type = ? AND cle = ?');
+    const ecr = db.prepare('INSERT OR REPLACE INTO limites (type, cle, n, depuis, fenetre, expire) VALUES (?, ?, ?, ?, ?, ?)'), eff = db.prepare('DELETE FROM limites WHERE type = ? AND cle = ?');
     for (const t of lot) {
       const i = t.indexOf('|'), type = t.slice(0, i), k = t.slice(i + 1);
       const e = (type === 'essais' ? essais : type === 'echecs' ? echecs : compteurs).get(k);
-      if (e) ecr.run(type, k, e.n, e.depuis, e.fenetre || QUART); else eff.run(type, k);
+      if (e) ecr.run(type, k, e.n, e.depuis, e.fenetre || QUART, e.depuis + (e.fenetre || QUART)); else eff.run(type, k);
     }
-    db.prepare('DELETE FROM limites WHERE depuis + fenetre < ?').run(Date.now());
+    if (Date.now() - derniereExpiration > 60000) { db.prepare('DELETE FROM limites WHERE expire < ?').run(Date.now()); derniereExpiration = Date.now(); }   // une fois par minute (colonne indexée)
     db.exec('COMMIT');
-  } catch { try { db.exec('ROLLBACK'); } catch { /* base fermée */ } }
+    erreurSignalee = false;
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* base fermée */ }
+    for (const t of lot) modifies.add(t);   // réessayé au prochain passage, rien n'est perdu
+    if (!erreurSignalee) { erreurSignalee = true; console.error('[limites] écriture impossible, nouvel essai dans 2 s :', e.message); }
+  }
 }
 
 /* Limite les essais de connexion : 10 par adresse IP et par quart d'heure. */

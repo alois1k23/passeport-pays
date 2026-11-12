@@ -303,7 +303,7 @@ function vueTableau() {
       <span class="eyebrow">Copilote · prochain temps fort</span>
       <h2>${esc(prochain.nom)}, ${prochain.date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}</h2>
       <p>${dansJours(prochain.date)}. ${!fonctionIncluse('copilote') ? 'Avec la formule Croissance, le copilote prépare la campagne (offre, code, bannière, publications).' : etat.campagnes[prochain.cle] ? 'Votre campagne est programmée.' : `Campagne prête${campProchain.caPrevu === null ? ' (prévision de ventes dès vos premières commandes)' : ` : ${euros(campProchain.caPrevu)} de ventes prévues`}${campProchain.ruptures.length ? `, ${campProchain.ruptures.length} produit${campProchain.ruptures.length > 1 ? 's' : ''} à réassortir` : ''}.`}</p>
-      <div class="jauge"><div style="width:${Math.min(100, indice / 1.8)}%"></div></div>
+      <div class="jauge"><div data-largeur="${Math.min(100, indice / 1.8)}"></div></div>
       <p class="sous">Demande « ${esc(secteur.nom)} » : indice ${indice} (100 = mois moyen)</p>
       <div class="rangee">${fonctionIncluse('copilote') ? `<a class="btn" href="#copilote">${etat.campagnes[prochain.cle] ? 'Voir la campagne' : 'Relire et valider'}</a>` : '<a class="btn" href="#offre">Voir les formules</a>'}<a class="btn fantome" href="#domaines">Domaine de campagne</a></div>
     </section>
@@ -769,8 +769,8 @@ function vueEditeur() {
   } else if (ui.ongletEditeur === 'style') {
     const t = b.theme;
     panneau = `<div class="themes">${Object.entries(THEMES).map(([id, th]) => `
-        <button class="theme-choix ${t.id === id ? 'actif' : ''}" data-action="theme" data-id="${id}" style="background:${th.bg};color:${th.text};border-radius:${Math.min(th.radius, 12)}px">
-          <span style="font-family:${th.font}">${th.nom}</span><i style="background:${th.primary}"></i></button>`).join('')}</div>
+        <button class="theme-choix ${t.id === id ? 'actif' : ''}" data-action="theme" data-id="${id}" data-vars="--ap-bg:${esc(th.bg)};--ap-text:${esc(th.text)};--ap-r:${Math.min(Number(th.radius) || 0, 12)}px;--ap-font:${esc(th.font)};--ap-primary:${esc(th.primary)}">
+          <span class="ap-titre">${th.nom}</span><i class="ap-pastille"></i></button>`).join('')}</div>
       <div class="deux">
         <label class="champ"><span>Couleur principale</span><input id="st-primary" type="color" value="${t.primary}" data-theme="primary"></label>
         <label class="champ"><span>Fond</span><input id="st-bg" type="color" value="${t.bg}" data-theme="bg"></label>
@@ -843,13 +843,13 @@ function vueDomaines() {
     <tr class="${r.disponible ? '' : 'indispo'}">
       <td><div class="mono dom">${esc(r.domaine)}</div><div class="sous">${esc(r.raisons.slice(0, 2).join(' · '))}</div></td>
       <td><span class="tag">${esc(r.genre)}</span></td>
-      <td><div class="score"><div class="score-barre"><i style="width:${r.score}%"></i></div><b>${r.score}</b></div></td>
+      <td><div class="score"><div class="score-barre"><i data-largeur="${r.score}"></i></div><b>${r.score}</b></div></td>
       <td>${connecteAuServeur() ? `<span class="pill muted" data-dispo="${esc(r.domaine)}">À vérifier</span> <button class="btn petit fantome" data-srv="dispo" data-d="${esc(r.domaine)}">Vérifier</button>` : r.disponible ? '<span class="pill good">Disponible</span>' : r.prime ? '<span class="pill warn">Premium</span>' : '<span class="pill muted">Déjà pris</span>'}</td>
       <td class="num">${connecteAuServeur() ? `≈ ${euros(EXTENSIONS[r.ext] ? EXTENSIONS[r.ext].prix : r.prix)}<div class="sous">1re année, puis ≈ ${euros(EXTENSIONS[r.ext] ? EXTENSIONS[r.ext].renouv : r.renouv)}/an (indicatif)</div>` : r.disponible || r.prime ? euros(r.prix) + '<div class="sous">puis ' + euros(r.renouv) + '/an</div>' : '—'}</td>
       <td>${r.disponible || connecteAuServeur() ? `<button class="btn petit fantome" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">${b.domaine && b.domaine.domaine === r.domaine ? 'Choisi' : 'Choisir'}</button>` : ''}</td>
     </tr>`;
   const reco = (r, titre, texte) => r ? `<div class="reco"><span class="eyebrow">${titre}</span><div class="mono dom grand">${esc(r.domaine)}</div>
-      <div class="detail-score">${Object.entries({ Demande: r.detail.demande, Saison: r.detail.saison, Brièveté: r.detail.court, Mémorisation: r.detail.memo, Extension: r.detail.extension }).map(([k, v]) => `<div><span>${k}</span><div class="score-barre"><i style="width:${v}%"></i></div><b>${v}</b></div>`).join('')}</div>
+      <div class="detail-score">${Object.entries({ Demande: r.detail.demande, Saison: r.detail.saison, Brièveté: r.detail.court, Mémorisation: r.detail.memo, Extension: r.detail.extension }).map(([k, v]) => `<div><span>${k}</span><div class="score-barre"><i data-largeur="${v}"></i></div><b>${v}</b></div>`).join('')}</div>
       <p class="sous">${texte}</p>
       <button class="btn" data-action="choisir-domaine" data-domaine="${esc(r.domaine)}" data-prix="${r.prix}" data-genre="${esc(r.genre)}">${connecteAuServeur() ? 'Choisir ce nom' : `Réserver pour ${euros(r.prix)}`}</button></div>` : '';
   return `
@@ -868,7 +868,7 @@ function vueDomaines() {
     </section>
     <section class="carte">
       <div class="carte-tete"><h2>Ce que vos clients achètent</h2><span class="sous">Part du CA, 90 jours</span></div>
-      ${res.signal.length ? `<ul class="parts">${res.signal.map(s => `<li><span>${esc(s.cat)}</span><div class="score-barre"><i style="width:${Math.round(s.part * 100)}%"></i></div><b>${Math.round(s.part * 100)} %</b></li>`).join('')}</ul>
+      ${res.signal.length ? `<ul class="parts">${res.signal.map(s => `<li><span>${esc(s.cat)}</span><div class="score-barre"><i data-largeur="${Math.round(s.part * 100)}"></i></div><b>${Math.round(s.part * 100)} %</b></li>`).join('')}</ul>
       <p class="sous">Les mots-clés liés à vos meilleures catégories reçoivent un bonus : ${res.topKws.map(k => `« ${esc(k.kw)} »`).join(', ')}.</p>`
       : '<p class="sous">Pas encore de ventes : les suggestions s’appuient sur la demande du marché. Le signal clients apparaîtra avec vos premières commandes.</p>'}
     </section>
@@ -914,14 +914,14 @@ function vueBoutique() {
   ${etat.cookies ? '' : `<div class="cookies" role="region" aria-label="Cookies"><p>${esc(etat.boutique.nom)} utilise des cookies de mesure d’audience pour améliorer le site. Vous pouvez les accepter ou les refuser.</p><div class="rangee"><button class="btn petit fantome" data-action="cookies" data-choix="refus">Refuser</button><button class="btn petit fantome" data-action="cookies" data-choix="accord">Accepter</button></div></div>`}
   <div class="tiroir ${ui.panierOuvert ? 'ouvert' : ''}" aria-hidden="${!ui.panierOuvert}">
     <div class="tiroir-fond" data-action="fermer-panier" aria-hidden="true"></div>
-    <aside class="tiroir-corps" style="${varsTheme(etat.boutique.theme)}">
+    <aside class="tiroir-corps" data-vars="${varsTheme(etat.boutique.theme)}">
       <div class="carte-tete"><h2>Panier</h2><button class="icone" data-action="fermer-panier">Fermer</button></div>
       ${ui.confirmation ? `<div class="confirm"><h3>Merci pour votre commande</h3><p>Commande <b class="mono">#${ui.confirmation}</b> confirmée.</p><a class="sf-btn" href="#commandes" data-action="voir-commande" data-num="${ui.confirmation}">Voir la commande dans l’admin</a></div>` :
       ui.panier.length ? `
         <ul class="lignes-panier">${ui.panier.map(l => `<li><span>${esc(l.nom)}</span>
           <div class="qte"><button data-action="qte" data-id="${l.produitId}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-action="qte" data-id="${l.produitId}" data-d="1" aria-label="Ajouter un">+</button></div>
           <span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
-        ${etat.offres.barrePort && ui.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuilPort() ? 'Livraison offerte' : `Plus que <b>${euros(seuilPort() - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuilPort() * 100)}%"></i></span></div>` : ''}
+        ${etat.offres.barrePort && ui.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuilPort() ? 'Livraison offerte' : `Plus que <b>${euros(seuilPort() - total)}</b> pour la livraison offerte`}</p><span><i data-largeur="${Math.min(100, total / seuilPort() * 100)}"></i></span></div>` : ''}
         ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
         ${(() => { const r = ui.panier.length ? Remises.regleApplicable(etatVente(), ui.panier, 'panier') : null; const p = r && etat.produits.find(x => x.id === r.alors); return p ? `<label class="offre-panier">${visuelProduit(p)}<span><input type="checkbox" data-offre-demo="${esc(r.id)}" data-id="${esc(p.id)}"> <strong>Ajouter ${esc(p.nom)}</strong><br><s>${euros(p.prix)}</s> <b>${euros(p.prix * (1 - r.remise / 100))}</b> · −${r.remise} % seulement avec cette commande</span></label>` : ''; })()}
         <form class="code-promo" data-form="code-demo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(ui.codePromo || '')}"><button class="sf-btn sf-btn-ligne">Appliquer</button></form>
@@ -977,8 +977,8 @@ function vueAssistant() {
       <label class="case"><input id="as-ex" type="checkbox" data-assistant="exemples" ${a.exemples ? 'checked' : ''}> ${a.modele === 'stock' ? 'Ajouter 6 produits d’exemple à modifier ensuite' : 'Importer les meilleurs produits du catalogue fournisseurs pour cette niche'}</label>`;
   } else if (a.etape === 2) {
     corps = `<div class="themes grands">${Object.entries(THEMES).map(([id, th]) => `
-      <button class="theme-choix ${a.theme === id ? 'actif' : ''}" data-action="as-theme" data-id="${id}" style="background:${th.bg};color:${th.text};border-radius:${Math.min(th.radius, 14)}px">
-        <span style="font-family:${th.font};font-size:1.4rem">${esc(a.nom || 'Ma boutique')}</span><small style="font-family:${th.body};color:${th.muted}">Thème ${th.nom}</small><i style="background:${th.primary}"></i></button>`).join('')}</div>`;
+      <button class="theme-choix ${a.theme === id ? 'actif' : ''}" data-action="as-theme" data-id="${id}" data-vars="--ap-bg:${esc(th.bg)};--ap-text:${esc(th.text)};--ap-r:${Math.min(Number(th.radius) || 0, 14)}px;--ap-font:${esc(th.font)};--ap-body:${esc(th.body)};--ap-muted:${esc(th.muted)};--ap-primary:${esc(th.primary)}">
+        <span class="ap-titre ap-grand">${esc(a.nom || 'Ma boutique')}</span><small class="ap-sous">Thème ${th.nom}</small><i class="ap-pastille"></i></button>`).join('')}</div>`;
   } else {
     const res = suggererDomaines({ marque: a.nom || 'ma boutique', secteurId: a.secteur, pays: a.pays, mois: new Date().getMonth() });
     const top = res.resultats.filter(r => r.disponible && r.genre !== 'campagne').slice(0, 4);

@@ -31,7 +31,7 @@ async function initServeur() {
     catch (err) {
       // Application installée ouverte hors connexion : on le dit, au lieu d'afficher la démo ou l'inscription.
       if (location.pathname.startsWith('/app') && !navigator.onLine) {
-        document.body.innerHTML = '<main style="font:16px/1.5 system-ui;max-width:520px;margin:15vh auto;padding:0 20px;color:#111"><h1 style="font-size:1.4rem">Pas de connexion</h1><p>Comptoir a besoin d’Internet pour afficher vos commandes et vos produits. La page se recharge dès que la connexion revient.</p></main>';
+        document.body.innerHTML = '<main class="page-erreur"><h1>Pas de connexion</h1><p>Comptoir a besoin d’Internet pour afficher vos commandes et vos produits. La page se recharge dès que la connexion revient.</p></main>';
         addEventListener('online', () => location.reload());
         await new Promise(() => {});   // rien d'autre ne démarre
       }

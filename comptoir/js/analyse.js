@@ -168,7 +168,7 @@ function ongletProduits(t, tp, d0, f0, d1, f1) {
       <tbody>${lignes.map(l => `<tr data-action="editer-produit" data-id="${l.p.id}" tabindex="0">
         <td><div class="produit-cel">${visuelProduit(l.p)}<div><div>${esc(l.p.nom)}</div><div class="sous">${l.p.type === 'drop' ? 'Dropshipping · ' + (ENTREPOTS[l.p.entrepot] || { nom: '' }).nom : 'Mon stock'}</div></div></div></td>
         <td class="num">${l.u}</td><td class="num">${euros(l.ca)}</td>
-        <td><span class="part"><i style="width:${l.ca / total * 100}%"></i></span><span class="sous mono"> ${fmtPct(l.ca / total)}</span></td>
+        <td><span class="part"><i data-largeur="${l.ca / total * 100}"></i></span><span class="sous mono"> ${fmtPct(l.ca / total)}</span></td>
         <td class="num">${l.prec ? `<span class="evol ${l.ca >= l.prec ? 'up' : 'down'}">${l.ca >= l.prec ? '▲' : '▼'} ${fmtPct(Math.abs(l.ca / l.prec - 1))}</span>` : '<span class="sous">—</span>'}</td>
         <td class="num ${l.marge < 0 ? 'neg' : ''}">${euros(l.marge)}<div class="sous">${euros(l.margeU)} / unité</div></td>
         <td>${sparkline(l.tendance)}</td></tr>`).join('')}</tbody></table></div>
@@ -293,7 +293,7 @@ function ongletRentabilite(t, tp, d0, f0, d1, f1) {
       <div class="table-wrap"><table class="table pl"><tbody>${lignesPL.filter(([, v], i) => i === 0 || i === lignesPL.length - 1 || Math.abs(v) >= 0.01).map(([n, v], i, arr) => `<tr class="${i === 0 || i === arr.length - 1 ? 'total' : ''}"><td>${n}</td><td class="num ${v < 0 ? '' : ''}">${euros(v)}</td><td class="num sous">${ca ? fmtPct(v / ca) : '—'}</td></tr>`).join('')}</tbody></table></div></section>
     <section class="carte"><div class="carte-tete"><h2>Marge brute par produit</h2><span class="sous">sur la période</span></div>
       ${barresH(parProduit, { format: fmtArgent })}
-      ${estSuisse() ? `<h3>Seuil d’assujettissement à la TVA</h3><div class="jauge"><div style="width:${Math.min(100, ca12 / 1000)}%"></div></div><p class="sous">${euros(ca12)} sur 12 mois, soit ${fmtPct(ca12 / 100000)} de CHF 100 000. Comptoir vous prévient à 80 %.</p>` : ''}</section>
+      ${estSuisse() ? `<h3>Seuil d’assujettissement à la TVA</h3><div class="jauge"><div data-largeur="${Math.min(100, ca12 / 1000)}"></div></div><p class="sous">${euros(ca12)} sur 12 mois, soit ${fmtPct(ca12 / 100000)} de CHF 100 000. Comptoir vous prévient à 80 %.</p>` : ''}</section>
   </div>`;
 }
 

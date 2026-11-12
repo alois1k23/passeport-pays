@@ -1421,3 +1421,12 @@ details.en-ligne form { margin-top: 6px; }
   .variantes-edit .table input[data-var-stock], .variantes-edit .table input[data-var-prix] { width: 62px; }
   .variantes-edit .table th, .variantes-edit .table td { padding-left: 4px; padding-right: 4px; }
 }
+/* Aperçus de thème : couleurs passées par propriétés personnalisées (aucun style en ligne, politique de sécurité stricte) */
+.theme-choix[data-vars] { background: var(--ap-bg); color: var(--ap-text); border-radius: var(--ap-r); }
+.theme-choix .ap-titre { font-family: var(--ap-font); }
+.theme-choix .ap-grand { font-size: 1.4rem; }
+.theme-choix .ap-sous { font-family: var(--ap-body); color: var(--ap-muted); }
+.theme-choix .ap-pastille { background: var(--ap-primary); }
+/* Pages et tableaux autrefois stylés en ligne */
+.page-erreur { font: 16px/1.5 system-ui; max-width: 520px; margin: 15vh auto; padding: 0 20px; color: #111; }
+.page-erreur h1 { font-size: 1.4rem; }

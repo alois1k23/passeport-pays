@@ -58,7 +58,7 @@ function blocLancement() {
   return `<section class="carte lancement">
     <div class="carte-tete"><div><h2>Plan de lancement</h2><span class="sous">${faites} étape${faites > 1 ? 's' : ''} sur ${toutes.length} · synthèse de conseils publics de créateurs et d’études · <button class="lien-bouton" data-action="sources">Sources</button></span></div>
       <button class="btn fantome petit" data-action="lancement-ouvrir">${ui.lancementOuvert ? 'Réduire' : 'Voir tout le plan'}</button></div>
-    <div class="piste-lancement"><i style="width:${faites / toutes.length * 100}%"></i></div>
+    <div class="piste-lancement"><i data-largeur="${faites / toutes.length * 100}"></i></div>
     ${ui.lancementOuvert ? `<div class="phases">${phases.map(ph => `<div class="phase"><h3>${ph.phase}</h3><ul>${ph.etapes.map(ligneEtape).join('')}</ul></div>`).join('')}</div>`
       : `<ul class="prochaines">${prochaines.map(ligneEtape).join('')}</ul>`}
   </section>`;

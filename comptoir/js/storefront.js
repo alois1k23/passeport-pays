@@ -23,7 +23,7 @@ function visuelProduit(p, grand = false) {
   if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${/^data:image\/(jpeg|png|webp);base64,/.test(p.image) || /^\/api\/public\/[\w-]+\/image\/[\w-]+$/.test(p.image) ? esc(p.image) : ''}" loading="lazy" alt="${esc(p.nom)}"></div>`;
   const h = p.teinte ?? 30;
   // Sans photo : fond uni teinté et pictogramme de la catégorie (plus sobre que des initiales).
-  return `<div class="sf-visuel sans-photo${grand ? ' grand' : ''}" style="--teinte:${Number(h) || 0}" role="img" aria-label="${esc(p.nom)}">${pictoProduit(p)}</div>`;
+  return `<div class="sf-visuel sans-photo${grand ? ' grand' : ''}" data-vars="--teinte:${Number(h) || 0}" role="img" aria-label="${esc(p.nom)}">${pictoProduit(p)}</div>`;
 }
 
 const PICTOS_PRODUIT = [
@@ -275,11 +275,11 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
       const html = renduSection(s, etat, mode);
       return mode !== 'edition' ? html : `<div class="sf-bloc${selection === s.id ? ' choisi' : ''}" data-section="${s.id}" tabindex="0"><span class="sf-etiquette">${esc(TYPES_SECTIONS[s.type].nom)}</span>${html}</div>`;
     }).join('');
-    return `<div class="sf" style="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}${ficheHtml}</div>`;
+    return `<div class="sf" data-vars="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}${ficheHtml}</div>`;
   }
   // Sans section d'en-tête (qui porte le titre principal), le nom de la boutique sert de titre principal, pour les lecteurs d'écran et les moteurs de recherche.
   const titrePrincipal = listeSections.some(x => x.type === 'hero') ? '' : `<h1 class="sf-masque" data-sans-traduction>${esc(b.nom)}</h1>`;
-  return `<div class="sf" style="${varsTheme(b.theme)}">${entete}${titrePrincipal}${sections}${ficheHtml}</div>`;
+  return `<div class="sf" data-vars="${varsTheme(b.theme)}">${entete}${titrePrincipal}${sections}${ficheHtml}</div>`;
 }
 
 /* Navigation de la boutique : défile jusqu’à la collection, au texte de présentation ou au pied de page. */

@@ -148,7 +148,7 @@ function vueTests() {
             ${jaugeSimple(a.cvr, null, 'Conversion des clics')}
           </div>`}
           <p class="sous">${esc(a.raison)}${a.conseil ? ` <b>${esc(a.conseil)}</b>` : ''}</p>
-          ${a.apprentissage && !org ? `<div class="apprentissage"><span class="sous">Phase d’apprentissage : ${a.ventes7} / ${a.apprentissage} ventes sur 7 jours${a.enApprentissage ? ' · évitez de modifier le test' : ' · terminée'}</span><span class="piste-app"><i style="width:${Math.min(100, a.ventes7 / a.apprentissage * 100)}%"></i></span></div>` : ''}
+          ${a.apprentissage && !org ? `<div class="apprentissage"><span class="sous">Phase d’apprentissage : ${a.ventes7} / ${a.apprentissage} ventes sur 7 jours${a.enApprentissage ? ' · évitez de modifier le test' : ' · terminée'}</span><span class="piste-app"><i data-largeur="${Math.min(100, a.ventes7 / a.apprentissage * 100)}"></i></span></div>` : ''}
           <form class="saisie-test" id="saisie-${t.id}" data-form="resultat-test" data-id="${t.id}"><span class="saisie-titre">Résultats du jour ${a.jours + 1}</span>
             ${org ? '' : `<label class="champ"><span>Dépense (${devise()})</span><input name="depense" type="number" min="0" step="0.01" required></label>`}
             <label class="champ"><span>${org ? 'Vues' : 'Impressions'}</span><input name="impressions" type="number" min="0" required></label>

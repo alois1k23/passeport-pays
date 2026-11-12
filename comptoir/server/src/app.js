@@ -42,7 +42,23 @@ const IMAGE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = console }) {
   const r = creerRouteur();
   const securise = urlPublique.startsWith('https://');
-  auth.persisterLimites(db);   // compteurs anti-abus rechargés : un redémarrage ne les remet pas à zéro
+  /* Feuilles de style des pages produites par le serveur : constantes, autorisées une à une par leur empreinte dans la
+     politique de sécurité (aucun style en ligne accepté sinon). */
+  const empreintesStyles = new Set();
+  const feuille = css => { empreintesStyles.add(`'sha256-${crypto.createHash('sha256').update(css).digest('base64')}'`); return `<style>${css}</style>`; };
+  feuille(require('./abonnements').STYLE_PAGE_ABONNEMENT);
+  // Pages statiques (accueil, boutique) : leur bloc <style> est autorisé par son empreinte, lue au démarrage.
+  for (const f of ['accueil.html', 'boutique.html', 'index.html']) {
+    try { for (const m of fs.readFileSync(path.join(RACINE_FRONT, f), 'utf8').matchAll(/<style>([\s\S]*?)<\/style>/g)) feuille(m[1]); } catch { /* fichier absent */ }
+  }   // page de paiement simulé de l'abonnement
+  const FEUILLE_1 = feuille(`body{margin:0;background:#eee;font:10pt/1.45 Helvetica,Arial,sans-serif;color:#111}.page{background:#fff;width:210mm;min-height:297mm;margin:12px auto;box-sizing:border-box;position:relative;padding:18mm 18mm 112mm}
+h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;margin:6mm 0}td,th{padding:2mm 1mm;border-bottom:1px solid #ddd;text-align:left}.n{text-align:right;white-space:nowrap}.tot td{font-weight:700;border:0}
+.haut{display:flex;justify-content:space-between;gap:10mm}.bas{position:absolute;left:0;bottom:0}.imp{position:fixed;top:8px;right:12px;margin:0;background:#fff;padding:6px 10px;border-radius:6px;font-size:9pt}
+@media print{body{background:#fff}.page{margin:0;box-shadow:none}.imp{display:none}@page{size:A4;margin:0}}${QrFacture.CSS}`);
+  const FEUILLE_2 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}*{box-sizing:border-box}body{font:16px/1.5 system-ui,sans-serif;background:#F3F4F7;color:#151821;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:12px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}h1{font-size:1.3rem;margin:0}.total{font-size:1.8rem;font-weight:700}button{font:inherit;font-weight:600;padding:12px;border-radius:8px;border:1px solid #151821;width:100%;cursor:pointer}.payer{background:#151821;color:#fff}.annuler{background:#fff}.note{color:#5B6372;font-size:.85rem}`);
+  const FEUILLE_3 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}`);
+  const FEUILLE_4 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#F4F5F7;color:#151821;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:24px;max-width:720px;margin:24px auto}h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 4px}a{color:#1D5C70}.alerte{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px}`);
+   // compteurs anti-abus rechargés : un redémarrage ne les remet pas à zéro
   const paiement = choisirPrestataire(env, urlPublique, fetchImpl);
   const simulationAutorisee = paiement.nom === 'simulation' && env.NODE_ENV !== 'production';
   // Le fournisseur de démonstration n'expédie rien : ses produits ne se vendent jamais contre de l'argent réel
@@ -306,6 +322,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'chiffrement'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('chiffrement', ?)").run(crypto.randomBytes(32).toString('hex'));
   // Clé de chiffrement des secrets (TOTP) : SECRET_CHIFFREMENT (64 caractères hexadécimaux) si l'exploitant la garde hors de la base.
   const cleChiffrement = Buffer.from(/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? env.SECRET_CHIFFREMENT : db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
+  auth.persisterLimites(db, cleChiffrement);   // compteurs anti-abus rechargés (empreintes HMAC) : un redémarrage ne les remet pas à zéro
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
     CREATE INDEX IF NOT EXISTS journal_compte_marchand ON journal_compte(marchand_id, date);`);
@@ -1188,7 +1205,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
             ['En marche depuis', `${Math.round((maintenant - demarreLe) / 3600000)} h · Node ${process.version}`]
     ];
     noterActivite(m.id, 'console-operateur', null, ctx);
-    return { html: pageSimple('Console de l’exploitant', 'Chiffres agrégés de la plateforme, sans donnée de client final.', `<table style="border-collapse:collapse;width:100%;margin-top:12px">${lignes.map(([k, v]) => `<tr><td style="padding:8px;border-bottom:1px solid #ddd;color:#555">${escHtml(k)}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:right"><b>${escHtml(String(v))}</b></td></tr>`).join('')}</table>`) };
+    return { html: pageSimple('Console de l’exploitant', 'Chiffres agrégés de la plateforme, sans donnée de client final.', `<table class="tab-console">${lignes.map(([k, v]) => `<tr><td>${escHtml(k)}</td><td class="d"><b>${escHtml(String(v))}</b></td></tr>`).join('')}</table>`) };
   });
 
   /* ---------- Rapports de violation de la politique de sécurité (CSP) ----------
@@ -2020,10 +2037,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const e = config.entreprise || {}, d = donneesQr(b, c, config);
     const lignes = c.lignes.map(l => `<tr><td>${escHtml(l.nom)}</td><td class="n">${l.qte}</td><td class="n">${formatMontant(l.prix, config)}</td><td class="n">${formatMontant(l.prix * l.qte, config)}</td></tr>`).join('');
     return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Facture ${escHtml(c.facture || '')} · ${escHtml(config.boutique.nom)}</title>
-<style>body{margin:0;background:#eee;font:10pt/1.45 Helvetica,Arial,sans-serif;color:#111}.page{background:#fff;width:210mm;min-height:297mm;margin:12px auto;box-sizing:border-box;position:relative;padding:18mm 18mm 112mm}
-h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;margin:6mm 0}td,th{padding:2mm 1mm;border-bottom:1px solid #ddd;text-align:left}.n{text-align:right;white-space:nowrap}.tot td{font-weight:700;border:0}
-.haut{display:flex;justify-content:space-between;gap:10mm}.bas{position:absolute;left:0;bottom:0}.imp{position:fixed;top:8px;right:12px;margin:0;background:#fff;padding:6px 10px;border-radius:6px;font-size:9pt}
-@media print{body{background:#fff}.page{margin:0;box-shadow:none}.imp{display:none}@page{size:A4;margin:0}}${QrFacture.CSS}</style></head><body>
+${FEUILLE_1}</head><body>
 <p class="imp">Imprimer ou enregistrer en PDF : Ctrl + P (⌘ + P sur Mac)</p>
 <div class="page"><div class="haut"><div><b>${escHtml(e.raison || config.boutique.nom)}</b><br>${escHtml(e.adresse || '')}${e.email ? `<br>${escHtml(e.email)}` : ''}${e.siret ? `<br>IDE ${escHtml(e.siret)}` : ''}${e.tvaIntra ? `<br>TVA ${escHtml(e.tvaIntra)}` : ''}</div>
 <div>${escHtml(c.client.nom)}<br>${escHtml(c.client.adresse || '')}<br>${escHtml(`${c.client.npa || ''} ${c.client.ville || ''}`)}</div></div>
@@ -2790,7 +2804,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
 
   /* ---------- Paiement simulé (page de test, désactivée en production) ---------- */
   const pageSimulation = (p, c, config) => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Paiement (simulation)</title>
-    <style>*{box-sizing:border-box}body{font:16px/1.5 system-ui,sans-serif;background:#F3F4F7;color:#151821;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:12px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}h1{font-size:1.3rem;margin:0}.total{font-size:1.8rem;font-weight:700}button{font:inherit;font-weight:600;padding:12px;border-radius:8px;border:1px solid #151821;width:100%;cursor:pointer}.payer{background:#151821;color:#fff}.annuler{background:#fff}.note{color:#5B6372;font-size:.85rem}</style></head>
+    ${FEUILLE_2}</head>
     <body><main><p class="note">Page de paiement de test. Aucun argent n’est débité. Avec une clé Stripe, cette étape devient le vrai paiement TWINT ou carte.</p>
     <h1>${escHtml(config.boutique.nom)} · commande n° ${c.numero}</h1><div class="total">${formatMontant(p.montant_centimes / 100, config)}</div>
     <form method="post" action="/paiement-simule/${p.id}/confirmer"><button class="payer">Payer avec TWINT (simulation)</button></form>
@@ -2927,7 +2941,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
 
   /* ---------- Désinscription des e-mails commerciaux (lien personnel signé, confirmation par un clic) ---------- */
   const pageSimple = (titre, texte, formulaire = '', langue = 'fr') => `<!doctype html><html lang="${EmailsClients.LANGUES.includes(langue) ? langue : 'fr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escHtml(titre)}</title>
-<style>body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}</style></head><body><main><h1>${escHtml(titre)}</h1><p>${escHtml(texte)}</p>${formulaire}</main></body></html>`;
+${FEUILLE_3}</head><body><main><h1>${escHtml(titre)}</h1><p>${escHtml(texte)}</p>${formulaire}</main></body></html>`;
   /* Pages légales de la plateforme elle-même (l'exploitant les complète avec EXPLOITANT_* dans l'environnement). */
   const exploitant = () => ({
     nom: env.EXPLOITANT_NOM || '', adresse: env.EXPLOITANT_ADRESSE || '', email: env.EXPLOITANT_EMAIL || '', ide: env.EXPLOITANT_IDE || '', hebergeur: env.HEBERGEUR || ''
@@ -2935,7 +2949,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   const pageLegale = (titre, blocs) => {
     const x = exploitant(), manque = !x.nom || !x.adresse || !x.email;
     return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escHtml(titre)} · Comptoir</title>
-<style>body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#F4F5F7;color:#151821;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:24px;max-width:720px;margin:24px auto}h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 4px}a{color:#1D5C70}.alerte{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px}</style></head>
+${FEUILLE_4}</head>
 <body><main><p><a href="/">← Comptoir</a></p><h1>${escHtml(titre)}</h1>${manque ? '<p class="alerte">Identité de l’exploitant à compléter avant l’ouverture au public (variables EXPLOITANT_NOM, EXPLOITANT_ADRESSE, EXPLOITANT_EMAIL).</p>' : ''}${blocs.map(([t, h]) => `<h2>${escHtml(t)}</h2><p>${h}</p>`).join('')}
 <p><a href="/mentions-legales">Impressum</a> · <a href="/confidentialite">Protection des données</a> · <a href="/conditions">Conditions d’utilisation</a></p></main></body></html>`;
   };
@@ -3097,9 +3111,11 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   /* ---------- Gestionnaire HTTP ---------- */
   async function gerer(req, res) {
     let entetesRequete = {};
+    gerer.enCours++; res.on('close', () => { gerer.enCours--; });   // requêtes en cours (arrêt propre : on attend qu'elles finissent)
     // En-têtes de sécurité sur toutes les réponses : aucun script étranger (tout est servi par Comptoir),
     // pas d'affichage dans un cadre d'un autre site (clickjacking), pas de devinette du type de fichier.
-    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'; worker-src 'self'; manifest-src 'self'${securise ? '; upgrade-insecure-requests' : ''}; report-uri /csp-rapport`);   // les navigateurs signalent ce qu'ils ont bloqué (tentative d'injection, extension) ; report-to non utilisé : avec lui, Chromium n'envoie plus rien par report-uri
+    // Styles : fichiers du site et feuilles connues (empreintes) seulement ; aucun style en ligne (attribut ou bloc injecté).
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' ${[...empreintesStyles].join(' ')}; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'; worker-src 'self'; manifest-src 'self'${securise ? '; upgrade-insecure-requests' : ''}; report-uri /csp-rapport`);   // les navigateurs signalent ce qu'ils ont bloqué (tentative d'injection, extension) ; report-to non utilisé : avec lui, Chromium n'envoie plus rien par report-uri
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');   // une page ouverte depuis un autre site ne garde pas la main sur la nôtre
     res.setHeader('X-Frame-Options', 'DENY');
@@ -3175,6 +3191,9 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       envoyerJson(res, e.statut, { erreur: e.message, code: e.code }, sc ? { 'Set-Cookie': sc } : {});
     }
   }
+  gerer.enCours = 0;
+  // Arrêt propre : les flux en direct (connexions sans fin) sont fermés ; le navigateur se reconnectera au nouveau serveur.
+  gerer.fermerFlux = () => { for (const a of flux) { try { a.res.end(); } catch { /* déjà fermé */ } } flux.clear(); };
   gerer.publierEcheances = publierEcheances;
   gerer.automatisationsEcheances = automatisationsEcheances;
   gerer.rafraichirTendances = () => collecte.rafraichir();

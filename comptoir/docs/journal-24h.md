@@ -30,9 +30,25 @@ La feuille de route peut évoluer selon les constats des relectures.
 
 ## Cycles
 
-### Cycle 1 (22 h 45) : compteurs anti-abus persistants, arrêt propre du serveur
+### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
 
 - Les compteurs anti-abus restaient en mémoire seulement : essais de connexion, échecs de mot de passe, limites des formulaires publics. Un redémarrage du serveur, même provoqué par un attaquant, les remettait à zéro. Ils sont désormais recopiés en base toutes les 2 secondes et à l'arrêt, puis rechargés au démarrage.
 - Les clés contiennent des adresses IP ou des e-mails : seule leur empreinte (SHA-256) est écrite, jamais la valeur en clair. Les compteurs expirés sont purgés.
 - **Arrêt propre** (SIGTERM, SIGINT) : plus de nouvelles requêtes, celles en cours se terminent, les flux en direct sont fermés après 2 secondes, les compteurs sont écrits et la base est fermée proprement. Avant, le serveur n'avait aucun arrêt propre.
 - Test en conditions réelles (`limites-persistantes.test.js`) : 10 mauvais mots de passe, blocage, arrêt par SIGTERM, redémarrage, toujours bloqué. Aucune adresse ni e-mail en clair dans la table. 120 tests sur 120, bout en bout 51 sur 51.
+
+### Cycle 2 (23 h 15) : corrections de la relecture du cycle 1
+
+- **Arrêt vraiment propre** : l'arrêt coupait toutes les connexions au bout de 2 secondes, y compris une requête encore en cours vers Stripe ou un fournisseur (l'effet externe avait lieu, mais l'enregistrement en base était perdu). Désormais, le serveur compte les requêtes en cours et attend qu'elles finissent (10 secondes au plus). Les flux en direct sont fermés tout de suite, et le navigateur se reconnecte seul. Un second signal force l'arrêt immédiat.
+- **Empreintes non réversibles** : avec un SHA-256 simple, on retrouvait une adresse IP par force brute en quelques secondes. Les empreintes utilisent maintenant un HMAC avec une clé dérivée de `SECRET_CHIFFREMENT`, absente de la base et des sauvegardes.
+- **Écriture en échec** : le lot est remis en attente et réessayé au passage suivant (rien n'est perdu), avec un message dans les journaux du serveur.
+- **Performance** : écriture par lots de 2000, expiration sur une colonne indexée une fois par minute (au lieu d'un parcours complet de la table toutes les 2 secondes).
+- **Test plus solide** : port libre choisi par le système, serveur toujours arrêté même en cas d'échec, et nouveau cas d'arrêt rapide malgré un flux en direct ouvert.
+
+### Cycle 3 (23 h 15) : politique de sécurité sans styles en ligne
+
+- La politique de sécurité (CSP) acceptait les styles en ligne (`'unsafe-inline'`). Une injection de HTML, même sans script, pouvait donc restyler une page : faux bouton, texte masqué, superposition. Les styles en ligne sont désormais refusés partout.
+- Les 33 attributs `style` de l'interface sont remplacés par des attributs typés (`data-largeur`, `data-hauteur`, `data-largeur-px`, `data-vars`), appliqués par un petit module (`js/styles-surs.js`). Ce module n'accepte que des nombres bornés, ou des propriétés personnalisées (`--nom`) aux valeurs vérifiées (couleur, nombre, police) : même injecté, un de ces attributs ne permet pas de CSS libre ni d'adresse externe.
+- Les feuilles de style des pages produites par le serveur (factures, pages simples, paiement de test) et des pages statiques (accueil, boutique) sont autorisées une à une par leur empreinte SHA-256.
+- Vérifié dans un vrai navigateur : accueil, 13 écrans de l'espace marchand, boutique, pages légales et de désinscription. **Aucune violation**, aucune erreur ; barres, thème de la boutique et aperçus de thème s'affichent comme avant.
+- 120 tests sur 120, bout en bout 51 sur 51.

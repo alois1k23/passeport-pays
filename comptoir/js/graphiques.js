@@ -69,7 +69,7 @@ function barresH(items, { format = compact, max = null, classe = 's1' } = {}) {
   if (!items.length) return '<p class="sous">Pas encore de données sur la période.</p>';
   const m = max ?? Math.max(...items.map(i => Math.abs(i.v)), 1);
   return `<ul class="barres-h">${items.map(i => `<li data-tip="${esc(`${i.nom} : ${format(i.v)}${i.detail ? ' · ' + i.detail : ''}`)}">
-    <span class="bh-nom" title="${esc(i.nom)}">${esc(i.nom)}</span><span class="bh-piste"><i class="${i.v < 0 ? 'negatif' : classe}" style="width:${Math.max(1.5, Math.abs(i.v) / m * 100)}%"></i></span><span class="bh-val">${esc(format(i.v))}</span></li>`).join('')}</ul>`;
+    <span class="bh-nom" title="${esc(i.nom)}">${esc(i.nom)}</span><span class="bh-piste"><i class="${i.v < 0 ? 'negatif' : classe}" data-largeur="${Math.max(1.5, Math.abs(i.v) / m * 100)}"></i></span><span class="bh-val">${esc(format(i.v))}</span></li>`).join('')}</ul>`;
 }
 
 /* Entonnoir de conversion. etapes : [{ nom, v, estime? }] */
@@ -79,7 +79,7 @@ function entonnoir(etapes) {
     const conv = i ? (etapes[i - 1].v ? e.v / etapes[i - 1].v : 0) : null;
     return `<li data-tip="${esc(`${e.nom} : ${Math.round(e.v).toLocaleString('fr-FR')}${conv !== null ? ` (${fmtPct(conv)} de l’étape précédente)` : ''}`)}">
       <span class="en-nom">${esc(e.nom)}${e.estime ? ' <small>estimé</small>' : ''}</span>
-      <span class="en-piste"><i style="width:${Math.max(1, e.v / max * 100)}%"></i></span>
+      <span class="en-piste"><i data-largeur="${Math.max(1, e.v / max * 100)}"></i></span>
       <span class="en-val">${Math.round(e.v).toLocaleString('fr-FR')}</span>
       <span class="en-conv">${conv === null ? '' : fmtPct(conv)}</span></li>`;
   }).join('')}</ol>`;

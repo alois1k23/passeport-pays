@@ -121,6 +121,7 @@
     .hero { padding-block: 56px 28px; }
   }
   @media (max-width: 480px) { .nav .actions .btn { padding: 8px 12px; font-size: .85rem; } }   /* « Se connecter » reste visible sur téléphone */
+.sans-marge{margin:0}.boutons-ligne{display:flex;gap:10px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -181,7 +182,7 @@
 
 <section class="bloc bande clair" id="marge">
   <div class="interieur exemple">
-    <div class="titre-bloc" style="margin:0"><span class="sur">Marge réelle</span><h2>Un produit à 39 francs ne rapporte pas 26 francs.</h2><p>Coût fournisseur, port, TVA d’importation, dédouanement, frais TWINT ou carte, publicité : Comptoir les retire avant que vous vendiez, et vous dit à partir de quel coût publicitaire vous perdez de l’argent.</p></div>
+    <div class="titre-bloc sans-marge"><span class="sur">Marge réelle</span><h2>Un produit à 39 francs ne rapporte pas 26 francs.</h2><p>Coût fournisseur, port, TVA d’importation, dédouanement, frais TWINT ou carte, publicité : Comptoir les retire avant que vous vendiez, et vous dit à partir de quel coût publicitaire vous perdez de l’argent.</p></div>
     <div class="marge" aria-label="Exemple de calcul de marge">
       <div><span>Prix de vente</span><span>CHF 39.00</span></div>
       <div class="moins"><span>Fournisseur + port (entrepôt UE)</span><span>− 18.80</span></div>
@@ -245,7 +246,7 @@
   <div class="interieur">
     <h2>Votre boutique, en ligne ce soir.</h2>
     <p>Créez votre compte, choisissez votre niche, et voyez votre marge réelle avant votre première vente.</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="/app">Créer ma boutique</a><a class="btn second" href="/demo">Voir la démo</a></div>
+    <div class="boutons-ligne"><a class="btn" href="/app">Créer ma boutique</a><a class="btn second" href="/demo">Voir la démo</a></div>
   </div>
 </section>
 

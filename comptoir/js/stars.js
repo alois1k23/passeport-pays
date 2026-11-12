@@ -45,7 +45,7 @@ function vueStars() {
   if (f.tri === 'marge') liste = liste.slice().sort((a, b2) => potentielProduit(b2.p).marge.taux - potentielProduit(a.p).marge.taux);
   const top = liste.slice(0, 3), reste = liste.slice(3, 60);
   const fleche = t => t === 'hausse' ? '<span class="st-fl up" title="Demande en hausse">▲</span>' : t === 'baisse' ? '<span class="st-fl down" title="Demande en baisse">▼</span>' : '<span class="st-fl" title="Demande stable">●</span>';
-  const courbeMini = x => { const max = Math.max(...x.courbe); return `<span class="st-courbe" aria-label="Saisonnalité sur 12 mois">${x.courbe.map((v, i) => `<i class="${i === mois ? 'cur' : ''}" style="height:${Math.max(8, v / max * 100)}%" title="${Tendances.MOIS[i]} : ${v}"></i>`).join('')}</span>`; };
+  const courbeMini = x => { const max = Math.max(...x.courbe); return `<span class="st-courbe" aria-label="Saisonnalité sur 12 mois">${x.courbe.map((v, i) => `<i class="${i === mois ? 'cur' : ''}" data-hauteur="${Math.max(8, v / max * 100)}" title="${Tendances.MOIS[i]} : ${v}"></i>`).join('')}</span>`; };
   const bouton = x => importes.has(x.p.id) ? '<span class="pc-importe">✓ Dans votre boutique</span>' : `<button class="btn petit" data-action="importer-produit" data-id="${x.p.id}">Importer</button>`;
   const sources = [['ventes', 'Ventes sur Comptoir'], ['trends', 'Recherches Google'], ['fichier', 'Fichier importé']];
   const niches = Object.keys(SECTEURS).filter(k => CATALOGUE.some(p => p.niche === k));

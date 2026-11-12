@@ -337,7 +337,7 @@ function rendreModal() {
       <div class="et-tete"><strong>${esc(l.transporteur)}</strong><span>${esc(l.court)}</span></div>
       <div><span class="sous">Expéditeur</span><div>${esc(etat.entreprise.raison)}</div><div>${esc(etat.entreprise.adresse)}</div></div>
       <div class="et-dest"><span class="sous">Destinataire</span><div><strong>${esc(c.client.nom)}</strong></div>${c.client.adresse ? `<div>${esc(c.client.adresse)}</div>` : ''}<div>${esc([c.client.npa, c.client.ville].filter(Boolean).join(' '))}</div></div>
-      <div class="code-barre" aria-hidden="true">${Array.from(c.suivi || 'X').map((ch, i) => `<i style="width:${1 + (ch.charCodeAt(0) + i) % 4}px"></i>`).join('')}</div>
+      <div class="code-barre" aria-hidden="true">${Array.from(c.suivi || 'X').map((ch, i) => `<i data-largeur-px="${1 + (ch.charCodeAt(0) + i) % 4}"></i>`).join('')}</div>
       <div class="mono et-suivi">${esc(c.suivi)}</div>
     </article><p class="sous">Étiquette générée via l’API ${esc(l.transporteur)} (simulée). Poids estimé : ${(c.lignes.reduce((a, x) => a + x.qte, 0) * 0.45).toFixed(1).replace('.', ',')} kg.</p>`;
   } else if (m.type === 'html') {
