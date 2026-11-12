@@ -127,7 +127,7 @@ Une relecture indépendante a vérifié la structure du PDF octet par octet, le 
 - Vérifié dans un vrai navigateur : rédaction, envoi, page publique, acceptation, paiement, suivi dans la liste. Aucune erreur.
 - 4 nouveaux tests (calcul, parcours complet, double acceptation simultanée, refus, expiration, modification après envoi, annulation, droits) : 134 tests sur 134.
 
-### Cycle 9 (00 h 20) : corrections de la relecture des cartes cadeaux
+### Cycle 9 (23 h 55) : corrections de la relecture des cartes cadeaux
 
 Relecture indépendante des cartes cadeaux : scénarios rejoués sur une copie du code, argent suivi au centime. Points corrigés :
 - **Grave, factures PDF** : depuis l'ajout de la mention « carte cadeau », une facture déjà payée (et chaque avoir) affichait « Montant à payer » avec l'IBAN. Le client risquait de payer deux fois. Corrigé, avec un test qui vérifie qu'une facture payée ne demande jamais de paiement.
