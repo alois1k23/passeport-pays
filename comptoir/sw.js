@@ -2,7 +2,7 @@
    Réseau d'abord : on sert toujours la dernière version en ligne ; la copie locale ne sert que hors connexion
    (l'application s'ouvre et affiche un message clair au lieu d'une page d'erreur du navigateur).
    Les appels à l'API ne sont jamais mis en cache : aucune donnée de la boutique ne reste dans le cache. */
-const CACHE = 'comptoir-coquille-v1';
+const CACHE = 'comptoir-coquille-v2';
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(['/app', '/css/app.css', '/img/icone-192.png'])).then(() => self.skipWaiting()));
 });
@@ -21,8 +21,14 @@ self.addEventListener('fetch', e => {
     '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hors connexion</title><body style="font:16px system-ui;padding:40px;color:#111"><h1>Pas de connexion</h1><p>Comptoir a besoin d’Internet pour afficher vos commandes. Réessayez dès que la connexion revient.</p>',
     { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
 });
-// Notification cliquée : on ouvre (ou ramène) l'espace marchand sur les commandes.
+// Notification push du serveur (nouvelle commande), même quand Comptoir est fermé.
+self.addEventListener('push', e => {
+  let m = {}; try { m = e.data ? e.data.json() : {}; } catch { m = { texte: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(m.titre || 'Comptoir', { body: m.texte || 'Nouvelle activité sur votre boutique.', icon: '/img/icone-192.png', badge: '/img/icone-192.png', tag: m.tag || 'comptoir', data: { url: m.url || '/app#commandes' } }));
+});
+// Notification cliquée : on ouvre (ou ramène) l'espace marchand à la bonne page.
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  e.waitUntil(self.clients.matchAll({ type: 'window' }).then(l => { const c = l.find(x => new URL(x.url).pathname.startsWith('/app')); return c ? c.focus() : self.clients.openWindow('/app#commandes'); }));
+  const cible = (e.notification.data && e.notification.data.url) || '/app#commandes';
+  e.waitUntil(self.clients.matchAll({ type: 'window' }).then(l => { const c = l.find(x => new URL(x.url).pathname.startsWith('/app')); if (c) { c.navigate && c.navigate(cible).catch(() => {}); return c.focus(); } return self.clients.openWindow(cible); }));
 });

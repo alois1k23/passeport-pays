@@ -12,6 +12,7 @@ const MotDePasse = require('./motdepasse');
 const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const EmailsClients = require('./emails-clients');
+const WebPush = require('./webpush');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
 const totp = require('./totp');
@@ -575,6 +576,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const vendus = {}; for (const l of res.c.lignes) if (l.type !== 'drop') vendus[l.produitId] = (vendus[l.produitId] || 0) + l.qte;
       const epuises = res.c.alerteStock ? [] : listerProduits(res.boutique.id).filter(p => vendus[p.id] && p.type !== 'drop' && p.stock <= 0 && p.stock + vendus[p.id] > 0);   // en rupture, l'e-mail de commande le dit déjà
       if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
+      notifierPush(res.boutique.marchand_id, { titre: `${res.c.parent ? 'Complément' : 'Nouvelle commande'} n° ${res.c.numero}`, texte: `${formatMontant(res.c.total, config)}${res.c.client && res.c.client.ville ? ` · ${res.c.client.ville}` : ''}${res.c.risque && res.c.risque.niveau === 'eleve' ? ' · risque de fraude élevé, à vérifier' : ''}`, url: '/app#commandes' }).catch(() => {});
       if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
         `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
     }
@@ -905,6 +907,34 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     noterActivite(ctx.marchand.id, 'session-revoquee', null, ctx);
     return { ok: true };
   });
+  /* ---------- Notifications push (Web Push) : une alerte sur le téléphone ou l'ordinateur du marchand à chaque
+     commande payée, même application fermée. Le message est chiffré pour l'appareil (le service push ne le lit pas). ---------- */
+  db.exec('CREATE TABLE IF NOT EXISTS abonnements_push (endpoint TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, appareil TEXT, cree_le INTEGER NOT NULL)');
+  if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'vapid'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('vapid', ?)").run(JSON.stringify(WebPush.genererClesVapid()));
+  const vapid = { ...JSON.parse(db.prepare("SELECT valeur FROM cles WHERE nom = 'vapid'").get().valeur), sujet: env.EXPLOITANT_EMAIL ? `mailto:${env.EXPLOITANT_EMAIL}` : urlPublique };
+  async function notifierPush(marchandId, message) {
+    for (const a of db.prepare('SELECT * FROM abonnements_push WHERE marchand_id = ?').all(marchandId)) {
+      try {
+        const code = await WebPush.envoyer(a, message, vapid, { fetchImpl });
+        if (code === 404 || code === 410 || code === 400) db.prepare('DELETE FROM abonnements_push WHERE endpoint = ?').run(a.endpoint);   // appareil désabonné
+      } catch (e) { journal.error('[push]', e.message); }
+    }
+  }
+  r.get('/api/admin/push', exigerCompte, ctx => ({ cle: vapid.publique, appareils: db.prepare('SELECT appareil, cree_le FROM abonnements_push WHERE marchand_id = ?').all(ctx.marchand.id) }));
+  r.post('/api/admin/push/abonner', exigerCompte, ctx => {
+    const a = ctx.corps.abonnement || {}, k = a.keys || {};
+    if (!WebPush.endpointValide(a.endpoint) || !/^[\w-]{80,100}$/.test(String(k.p256dh || '')) || !/^[\w-]{16,32}$/.test(String(k.auth || ''))) throw erreur(400, 'Abonnement aux notifications invalide.', 'push_invalide');
+    if (db.prepare('SELECT COUNT(*) n FROM abonnements_push WHERE marchand_id = ?').get(ctx.marchand.id).n >= 10) db.prepare('DELETE FROM abonnements_push WHERE endpoint = (SELECT endpoint FROM abonnements_push WHERE marchand_id = ? ORDER BY cree_le LIMIT 1)').run(ctx.marchand.id);
+    db.prepare('INSERT OR REPLACE INTO abonnements_push (endpoint, marchand_id, p256dh, auth, appareil, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(a.endpoint, ctx.marchand.id, k.p256dh, k.auth, decrireAppareil(ctx.req.headers['user-agent']), Date.now());
+    return { ok: true };
+  });
+  r.post('/api/admin/push/desabonner', exigerCompte, ctx => { db.prepare('DELETE FROM abonnements_push WHERE endpoint = ? AND marchand_id = ?').run(String(ctx.corps.endpoint || ''), ctx.marchand.id); return { ok: true }; });
+  r.post('/api/admin/push/tester', exigerCompte, async ctx => {
+    auth.limiter('push-test:' + ctx.marchand.id, 5, 60000, 'Trop d’essais : réessayez dans une minute.');
+    await notifierPush(ctx.marchand.id, { titre: 'Comptoir', texte: 'Les notifications fonctionnent sur cet appareil.', url: '/app#tableau' });
+    return { ok: true };
+  });
+
   /* ---------- Clés d'accès (passkeys) : connexion sans mot de passe, par le visage, l'empreinte ou le code de l'appareil ---------- */
   db.exec(`CREATE TABLE IF NOT EXISTS cles_acces (id TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, nom TEXT NOT NULL, cle TEXT NOT NULL, compteur INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL, utilisee_le INTEGER);
     CREATE INDEX IF NOT EXISTS cles_acces_marchand ON cles_acces(marchand_id);

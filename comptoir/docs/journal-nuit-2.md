@@ -300,3 +300,17 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **E-mails** : ceux de retrait prêt, d'expédition partielle, de relance de paiement et de demande d'avis partent aussi dans la langue de la commande. Les liens qu'ils contiennent (suivi, reprise, avis) ouvrent la boutique dans cette même langue (`&lang=de`).
 - **Restent en français** : les messages d'erreur renvoyés par le serveur au moment de commander, et l'e-mail « vous nous manquez » (il n'est pas lié à une commande).
 - Vérifié dans un vrai navigateur. Tests : 91 sur 91.
+
+## Cycle 18 (01 h 35) : notifications push, même Comptoir fermé
+
+- **Web Push** (`server/src/webpush.js`, sans dépendance) : le marchand reçoit une notification sur son téléphone ou son ordinateur à chaque commande payée, même quand Comptoir est fermé. Exemple : « Nouvelle commande n° 1042 · CHF 89.90 · Lausanne », avec la mention « risque de fraude élevé » s'il y a lieu.
+- **Chiffrement de bout en bout** (RFC 8291 : ECDH P-256, HKDF, AES-128-GCM) : le service push (Google, Mozilla, Apple, Microsoft) ne lit pas le message. Le chiffrement reproduit **à l'octet près le vecteur de test officiel de la RFC 8291**.
+- **Identification du serveur** : VAPID (RFC 8292), jeton ES256. Ses clés sont créées une fois et gardées dans la base.
+- **Sécurité** :
+  - seuls les services push connus sont contactés (pas d'adresse interne) ;
+  - un abonnement expiré (404/410) est supprimé ;
+  - 10 appareils au plus par compte ;
+  - le bouton de test est limité.
+- **Interface** : Paramètres > E-mails > « Notifications sur cet appareil ». Boutons : activer, « recevoir même Comptoir fermé », envoyer un test, arrêter sur cet appareil. Le service worker affiche la notification, et un clic ouvre les commandes.
+- Tests : vecteur RFC, abonnement refusé vers un service inconnu, commande payée → message chiffré envoyé, signature VAPID vérifiée, message déchiffré comme par le téléphone. 93 tests sur 93.
+- **Limite honnête** : l'envoi vers un vrai service push (Google ou Apple) n'a pas pu être essayé ici, faute d'accès réseau à ces services. À vérifier avec un vrai téléphone après la mise en ligne. Sur iPhone, Comptoir doit d'abord être ajouté à l'écran d'accueil.

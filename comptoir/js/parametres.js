@@ -62,9 +62,11 @@ function vueParametres() {
   } else if (s === 'emails') {
     const service = enLigne() ? SERVEUR.emails : null;
     const notif = typeof Notification === 'undefined' ? 'indisponible' : Notification.permission;
+    if (enLigne()) etatPush();
     const carteNotif = enLigne() ? `<section class="carte"><div class="carte-tete"><h2>Notifications sur cet appareil</h2>${statut(notif === 'granted', notif === 'granted' ? 'Activées' : notif === 'denied' ? 'Bloquées' : 'Inactives', 'Navigateur')}</div>
       <p class="sous">Une notification à chaque commande payée, même quand Comptoir est en arrière-plan. ${notif === 'denied' ? 'Vous les avez bloquées : autorisez-les dans les réglages du site de votre navigateur.' : notif === 'indisponible' ? 'Ce navigateur ne les propose pas. Sur iPhone : ajoutez d’abord Comptoir à l’écran d’accueil (Partager > Sur l’écran d’accueil).' : 'Installez aussi Comptoir comme une application (menu du navigateur > Installer) pour l’ouvrir en un geste.'}</p>
-      ${notif === 'default' ? '<div class="rangee"><button class="btn" data-action="notif-activer">Activer les notifications</button></div>' : ''}</section>` : '';
+      ${notif === 'default' || (notif === 'granted' && 'PushManager' in window && !PUSH.abonne) ? `<div class="rangee"><button class="btn" data-action="notif-activer">${notif === 'granted' ? 'Recevoir les notifications même Comptoir fermé' : 'Activer les notifications'}</button></div>` : ''}
+      ${PUSH.abonne ? '<p class="sous">✓ Cet appareil reçoit une notification à chaque commande, même Comptoir fermé (chiffrée de bout en bout).</p><div class="rangee"><button class="btn petit fantome" data-action="push-tester">Envoyer une notification de test</button><button class="btn petit fantome" data-action="push-arreter">Arrêter sur cet appareil</button></div>' : ''}</section>` : '';
     const rapport = !(etat.reglages && etat.reglages.rapportHebdo === false);
     const carteRapport = `<section class="carte"><div class="carte-tete"><h2>Rapport du lundi</h2>${statut(rapport, 'Actif', 'Inactif')}</div>
       <p class="sous">Chaque lundi matin, un e-mail résume votre semaine : chiffre d’affaires comparé à la semaine d’avant, meilleurs produits, commandes à expédier, factures QR échues, commandes à risque et ruptures de stock prévues.</p>
@@ -348,9 +350,37 @@ document.addEventListener('change', async e => {
   } catch (err) { toast(err.message || 'Relevé illisible.'); }
 });
 
-/* Notifications du navigateur : demandées seulement sur un geste du marchand (bouton). */
+/* Notifications : autorisation demandée seulement sur un geste du marchand, puis abonnement push (Web Push, VAPID)
+   pour être prévenu même Comptoir fermé. */
+const PUSH = { abonne: false, verifie: false };
+async function etatPush() {
+  if (PUSH.verifie || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  PUSH.verifie = true;
+  try { const reg = await navigator.serviceWorker.getRegistration('/app'); PUSH.abonne = !!(reg && await reg.pushManager.getSubscription()); if (PUSH.abonne) rendre(); } catch { /* ignoré */ }
+}
+async function abonnerPush() {
+  const reg = await navigator.serviceWorker.getRegistration('/app') || await navigator.serviceWorker.register('/sw.js', { scope: '/app' });
+  await navigator.serviceWorker.ready;
+  const { cle } = await api('GET', '/api/admin/push');
+  const brut = atob(cle.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - cle.length % 4) % 4));
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(brut, c => c.charCodeAt(0)) });
+  await api('POST', '/api/admin/push/abonner', { abonnement: sub.toJSON() });
+  PUSH.abonne = true;
+}
 document.addEventListener('click', async e => {
-  if (!e.target.closest('[data-action="notif-activer"]')) return;
-  try { const r = await Notification.requestPermission(); toast(r === 'granted' ? 'Notifications activées sur cet appareil.' : 'Notifications non autorisées.'); } catch { toast('Notifications indisponibles.'); }
+  const el = e.target.closest('[data-action="notif-activer"], [data-action="push-tester"], [data-action="push-arreter"]'); if (!el) return;
+  try {
+    if (el.dataset.action === 'notif-activer') {
+      const r = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+      if (r !== 'granted') toast('Notifications non autorisées.');
+      else if ('PushManager' in window && typeof enLigne === 'function' && enLigne()) { await abonnerPush(); toast('Notifications activées : vous serez prévenu même Comptoir fermé.'); }
+      else toast('Notifications activées sur cet appareil.');
+    } else if (el.dataset.action === 'push-tester') { await api('POST', '/api/admin/push/tester'); toast('Notification envoyée : elle arrive dans quelques secondes.'); }
+    else {
+      const reg = await navigator.serviceWorker.getRegistration('/app'); const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) { await api('POST', '/api/admin/push/desabonner', { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+      PUSH.abonne = false; toast('Notifications arrêtées sur cet appareil.');
+    }
+  } catch (err) { toast(err.message || 'Notifications indisponibles sur cet appareil.'); }
   rendre();
 });
