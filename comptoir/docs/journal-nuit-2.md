@@ -365,3 +365,13 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - La politique de sécurité du contenu (CSP) se resserre : `style-src` et `font-src` n'autorisent plus que Comptoir.
 - Vérifié dans un vrai navigateur, sur l'accueil, l'espace marchand et une boutique : polices chargées, aucune requête externe, aucun refus CSP.
 - À la republication de l'artifact, il faut inclure `css/polices.css` et le dossier `fonts/`.
+
+## Cycle 23 (01 h 50) : décompte de TVA
+
+- Nouvel onglet **Analyse > TVA**, pour une période au choix : trimestre, semestre (décompte suisse) ou année.
+  - Ventes ventilées par taux (normal, réduit, sans TVA) : chiffre d'affaires TTC, base hors taxe et TVA due.
+  - Ventes à la date de facture, et avoirs (remboursements, annulations) déduits à leur date.
+  - Export du détail en CSV pour la fiduciaire.
+- **Entreprise non assujettie** : l'onglet le dit (rien à déclarer). En Suisse, il suit le **seuil d'assujettissement** de CHF 100'000 par an (LTVA art. 10) et alerte à partir de CHF 80'000.
+- **Honnêteté** : présenté comme une aide au remplissage, à faire vérifier par la fiduciaire. La TVA payée sur les achats (impôt préalable) n'est pas incluse.
+- Simulation complète (100 marchands, 60 jours) avec la réservation de stock : 0 anomalie, 68'245 requêtes, médiane 1 ms, 95 % sous 6 ms.

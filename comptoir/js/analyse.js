@@ -4,7 +4,7 @@
    elles sont estimées et signalées comme telles. */
 
 const PERIODES = [[7, '7 jours'], [30, '30 jours'], [90, '90 jours'], [365, '12 mois']];
-const ONGLETS_ANALYSE = [['ventes', 'Ventes'], ['produits', 'Produits'], ['clients', 'Clients'], ['marketing', 'Marketing'], ['rentabilite', 'Rentabilité']];
+const ONGLETS_ANALYSE = [['ventes', 'Ventes'], ['produits', 'Produits'], ['clients', 'Clients'], ['marketing', 'Marketing'], ['rentabilite', 'Rentabilité'], ['tva', 'TVA']];
 const JOURS_SEMAINE = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const TAUX_CONVERSION_ESTIME = 0.018;
 
@@ -96,7 +96,7 @@ function vueAnalyse() {
   // Pas de comparaison si la boutique n’existait pas encore au début de la période précédente.
   const premiere = Math.min(...etat.commandes.map(c => c.date), Date.now());
   comparaisonPossible = premiere <= d1 + 7 * JOUR;
-  const contenu = { ventes: ongletVentes, produits: ongletProduits, clients: ongletClients, marketing: ongletMarketing, rentabilite: ongletRentabilite }[a.onglet](t, tp, d0, f0, d1, f1);
+  const contenu = { ventes: ongletVentes, produits: ongletProduits, clients: ongletClients, marketing: ongletMarketing, rentabilite: ongletRentabilite, tva: ongletTva }[a.onglet](t, tp, d0, f0, d1, f1);
   return `
   <div class="tete"><div><h1>Analyse</h1><p class="sous">${new Date(d0).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })} – ${new Date(f0 - 1).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}, comparé à la période précédente de même durée.</p></div>
     <div class="rangee">
@@ -346,4 +346,62 @@ document.addEventListener('click', e => {
   else if (el.dataset.action === 'onglet-analyse') { a.onglet = el.dataset.v; rendre(); }
   else if (el.dataset.action === 'export-csv') exporterCsv();
 });
-document.addEventListener('change', e => { if (e.target.dataset.analyse === 'canal') { etatAnalyse().canal = e.target.value; rendre(); } });
+document.addEventListener('change', e => { if (e.target.dataset.analyse === 'canal') { etatAnalyse().canal = e.target.value; rendre(); } else if (e.target.dataset.analyse === 'periodeTva') { etatAnalyse().periodeTva = e.target.value; rendre(); } });
+
+/* ---------- Décompte de TVA : aide au remplissage (trimestre, semestre ou année) ----------
+   Ventes à la date de facture, avoirs (remboursements, annulations) à leur date, ventilés par taux figé à la vente.
+   Ce n'est pas une déclaration officielle : à vérifier par la fiduciaire avant envoi. */
+function periodesTva() {
+  const out = [], d = new Date();
+  for (let i = 0; i < 6; i++) { const q = Math.floor(d.getMonth() / 3) - i, an = d.getFullYear() + Math.floor(q / 4), t = ((q % 4) + 4) % 4; out.push({ id: `T${t + 1}-${an}`, nom: `${t + 1}${t ? 'e' : 'er'} trimestre ${an}`, debut: new Date(an, t * 3, 1).getTime(), fin: new Date(an, t * 3 + 3, 1).getTime() }); }
+  for (let i = 0; i < 3; i++) { const s = Math.floor(d.getMonth() / 6) - i, an = d.getFullYear() + Math.floor(s / 2), h = ((s % 2) + 2) % 2; out.push({ id: `S${h + 1}-${an}`, nom: `${h + 1}${h ? 'e' : 'er'} semestre ${an}`, debut: new Date(an, h * 6, 1).getTime(), fin: new Date(an, h * 6 + 6, 1).getTime() }); }
+  for (let i = 0; i < 2; i++) { const an = d.getFullYear() - i; out.push({ id: `A-${an}`, nom: `Année ${an}`, debut: new Date(an, 0, 1).getTime(), fin: new Date(an + 1, 0, 1).getTime() }); }
+  return out;
+}
+function decompteTva(debut, fin) {
+  const lignes = [], parTaux = {};
+  const ajouter = (doc, numero, date, c, signe) => {
+    for (const x of tva(c).parTaux) {
+      const k = String(x.taux); parTaux[k] = parTaux[k] || { taux: x.taux, ttc: 0, ht: 0, tva: 0 };
+      parTaux[k].ttc += signe * x.ttc; parTaux[k].ht += signe * x.ht; parTaux[k].tva += signe * x.tva;
+      lignes.push({ doc, numero, date, commande: c.numero, taux: x.taux, ttc: signe * x.ttc, ht: signe * x.ht, tva: signe * x.tva });
+    }
+  };
+  for (const c of etat.commandes) {
+    const dateFacture = c.dateFacture || (c.facture ? c.date : null);
+    if (c.facture && dateFacture >= debut && dateFacture < fin) ajouter('Facture', c.facture, dateFacture, c, 1);
+    if (c.avoir && c.avoir.date >= debut && c.avoir.date < fin) ajouter('Avoir', c.avoir.numero, c.avoir.date, c, -1);
+  }
+  const r2 = n => Math.round(n * 100) / 100;
+  const taux = Object.values(parTaux).map(x => ({ taux: x.taux, ttc: r2(x.ttc), ht: r2(x.ht), tva: r2(x.tva) })).sort((a, b) => b.taux - a.taux);
+  return { lignes: lignes.sort((a, b) => a.date - b.date), taux, total: { ttc: r2(taux.reduce((a, x) => a + x.ttc, 0)), ht: r2(taux.reduce((a, x) => a + x.ht, 0)), tva: r2(taux.reduce((a, x) => a + x.tva, 0)) } };
+}
+function ongletTva() {
+  const a = etatAnalyse(), periodes = periodesTva();
+  const p = periodes.find(x => x.id === a.periodeTva) || periodes[0];
+  const d = decompteTva(p.debut, p.fin);
+  const ch = typeof estSuisse === 'function' && estSuisse();
+  const assujetti = d.taux.some(x => x.taux > 0) || (etat.entreprise && /assujetti|normal/.test(etat.entreprise.regime || '') && etat.entreprise.regime !== 'ch-non');
+  // Suisse : assujettissement obligatoire dès CHF 100 000 de chiffre d'affaires annuel (art. 10 LTVA)
+  const an = new Date().getFullYear(), annee = decompteTva(new Date(an, 0, 1).getTime(), new Date(an + 1, 0, 1).getTime());
+  const seuil = ch && !assujetti ? `<div class="encart ${annee.total.ttc >= 80000 ? 'alerte-encart' : ''}"><b>Seuil d’assujettissement</b> : CHF 100’000 de chiffre d’affaires par an. Cette année : <b>${euros(annee.total.ttc)}</b> (${Math.round(annee.total.ttc / 1000)} % du seuil).${annee.total.ttc >= 80000 ? ' Vous approchez du seuil : parlez-en à votre fiduciaire.' : ''}</div>` : '';
+  return `<section class="carte"><div class="carte-tete"><h2>Décompte de TVA</h2><div class="rangee"><select data-analyse="periodeTva" aria-label="Période du décompte">${periodes.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${x.nom}</option>`).join('')}</select><button class="btn fantome petit" data-action="export-tva">Exporter le détail (CSV)</button></div></div>
+    ${assujetti ? '' : `<p class="encart">Votre entreprise n’est pas assujettie à la TVA (régime choisi dans Conformité) : rien à déclarer. Le tableau montre vos ventes facturées pour information.</p>`}${seuil}
+    <div class="table-wrap"><table class="table"><thead><tr><th>Taux</th><th class="num">Ventes TTC</th><th class="num">Base HT</th><th class="num">TVA</th></tr></thead><tbody>
+      ${d.taux.map(x => `<tr><td>${x.taux ? pctTva(x.taux) : 'Sans TVA'}</td><td class="num">${euros(x.ttc)}</td><td class="num">${euros(x.ht)}</td><td class="num">${euros(x.tva)}</td></tr>`).join('') || '<tr><td colspan="4" class="sous">Aucune facture ni avoir sur cette période.</td></tr>'}
+      ${d.taux.length ? `<tr class="total"><td><b>Total</b></td><td class="num"><b>${euros(d.total.ttc)}</b></td><td class="num"><b>${euros(d.total.ht)}</b></td><td class="num"><b>${euros(d.total.tva)}</b></td></tr>` : ''}
+    </tbody></table></div>
+    <p class="sous">${d.lignes.filter(x => x.doc === 'Facture').length} ligne(s) de facture et ${d.lignes.filter(x => x.doc === 'Avoir').length} d’avoir, à la date du document. Les avoirs (remboursements, annulations) sont déduits. Frais de port et remises sont répartis au prorata des articles. ${ch && assujetti ? 'Méthode effective (taux réels). ' : ''}Aide au remplissage, à faire vérifier par votre fiduciaire : la TVA payée sur vos achats (impôt préalable) n’est pas incluse.</p></section>`;
+}
+function exporterTva() {
+  const a = etatAnalyse(), p = periodesTva().find(x => x.id === a.periodeTva) || periodesTva()[0];
+  const d = decompteTva(p.debut, p.fin), f = n => n.toFixed(2);
+  const csv = '﻿' + ['document', 'numero', 'date', 'commande', 'taux', 'ttc', 'ht', 'tva'].join(';') + '\n' + d.lignes.map(x => [x.doc, csvTexte(x.numero), csvTexte(csvDate(x.date)), x.commande, (x.taux * 100).toFixed(1), f(x.ttc), f(x.ht), f(x.tva)].join(';')).join('\n');
+  try {
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const lien = Object.assign(document.createElement('a'), { href: url, download: `comptoir-tva-${p.id}.csv` });
+    document.body.appendChild(lien); lien.click(); lien.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(`Détail de la TVA exporté (${d.lignes.length} lignes).`);
+  } catch { toast('Export impossible dans cet aperçu.'); }
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-action="export-tva"]')) exporterTva(); });
