@@ -620,13 +620,14 @@ document.addEventListener('click', async e => {
   rendre();
 });
 
-/* Facture électronique (XML EN 16931) : téléchargée seulement si le serveur l'a produite ; sinon, ce qui manque est affiché. */
+/* Facture électronique (XML EN 16931, ou PDF Factur-X qui le contient) : téléchargée seulement si le serveur l'a produite ;
+   sinon, ce qui manque est affiché. */
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action="facture-xml"]'); if (!el) return;
   try {
-    const r = await fetch(`/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/facture-electronique${el.dataset.avoir ? '?avoir=1' : ''}`, { credentials: 'same-origin' });
+    const r = await fetch(`/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/${el.dataset.format === 'pdf' ? 'facture-pdf' : 'facture-electronique'}${el.dataset.avoir ? '?avoir=1' : ''}`, { credentials: 'same-origin' });
     if (!r.ok) { let m = 'Téléchargement impossible.'; try { m = (await r.json()).erreur || m; } catch { /* ignoré */ } toast(m); return; }
-    const nom = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'facture.xml';
+    const nom = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || (el.dataset.format === 'pdf' ? 'facture.pdf' : 'facture.xml');
     const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
     a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch { toast('Pas de connexion : réessayez dans un instant.'); }

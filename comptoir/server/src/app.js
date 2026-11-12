@@ -13,6 +13,7 @@ const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const EmailsClients = require('./emails-clients');
 const FactureElectronique = require('./facture-electronique');
+const FacturxPdf = require('./facturx-pdf');
 const JournalInalterable = require('./journal-inalterable');
 const WebPush = require('./webpush');
 const { AsyncLocalStorage } = require('node:async_hooks');
@@ -729,7 +730,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   };
   /* Rôles de l'équipe. « commandes » : préparer, expédier, transmettre, encaisser à la caisse (pas de remboursement,
      pas de réglages). « complet » : tout, sauf l'abonnement, l'équipe, les paiements, les intégrations et la remise à zéro. */
-  const PERMIS_COMMANDES = /^(GET \/api\/admin\/(etat|signature|flux|commandes\/[\w-]+\/(facture-qr|facture-electronique))|POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)|PATCH \/api\/admin\/commandes\/[\w-]+|POST \/api\/admin\/caisse)$/;
+  const PERMIS_COMMANDES = /^(GET \/api\/admin\/(etat|signature|flux|commandes\/[\w-]+\/(facture-qr|facture-electronique|facture-pdf))|POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)|PATCH \/api\/admin\/commandes\/[\w-]+|POST \/api\/admin\/caisse)$/;
   const INTERDIT_COMPLET = /^(\w+ \/api\/admin\/(integrations|equipe|paiements|domaine|reinitialiser)(\/.*)?)$/;
   const exigerProprietaire = ctx => { exigerCompte(ctx); if (ctx.role !== 'proprietaire') throw erreur(403, 'Seul le propriétaire de la boutique gère l’abonnement et l’équipe.', 'role'); };
   const verifierRole = ctx => {
@@ -750,7 +751,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Les commandes déjà payées doivent pouvoir être expédiées, transmises ou remboursées : les clients ont payé.
     // Le marchand doit toujours pouvoir couper ses intégrations (clés, webhooks), même abonnement terminé.
     // Factures (QR, électronique) : à conserver des années, donc toujours téléchargeables.
-    const suiviCommande = /^POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)$/.test(route) || /^GET \/api\/admin\/commandes\/[\w-]+\/(facture-qr|facture-electronique)$/.test(route) || /^POST \/api\/admin\/integrations\/(cles\/[\w-]+\/revoquer|webhooks\/[\w-]+\/supprimer)$/.test(route);
+    const suiviCommande = /^POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)$/.test(route) || /^GET \/api\/admin\/commandes\/[\w-]+\/(facture-qr|facture-electronique|facture-pdf)$/.test(route) || /^POST \/api\/admin\/integrations\/(cles\/[\w-]+\/revoquer|webhooks\/[\w-]+\/supprimer)$/.test(route);
     if (['resilie', 'impaye'].includes(e.statut) && (LECTURE_SEULE.has(route) || suiviCommande)) { ctx.lectureSeule = true; return; }
     throw erreur(402, ['resilie', 'impaye'].includes(e.statut) ? 'Abonnement terminé : vos données restent consultables et exportables ; reprenez un abonnement pour modifier votre boutique.' : 'Choisissez une formule et réglez votre abonnement pour accéder à votre boutique.', 'abonnement_requis');
   };
@@ -2087,20 +2088,32 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     ctx.entetes['Content-Disposition'] = `attachment; filename="journal-inalterable-${ctx.boutique.slug}.csv"`;
     return { binaire: Buffer.from(JV().exporterCsv(ctx.boutique.id), 'utf8'), type: 'text/csv; charset=utf-8' };
   });
-  /* Facture électronique (XML CII, norme EN 16931, format de Factur-X) : pour le logiciel comptable ou une plateforme agréée. */
-  r.get('/api/admin/commandes/:id/facture-electronique', exigerMarchand, ctx => {
+  /* Facture électronique (XML CII, norme EN 16931, format de Factur-X) : pour le logiciel comptable ou une plateforme agréée.
+     Même contrôle pour le XML seul et pour le PDF Factur-X qui le contient : rien n'est produit s'il manque une mention
+     ou si les montants du XML sont incohérents. */
+  const factureStructuree = ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id), config = lireConfig(ctx.boutique);
     const avoir = ctx.query.get('avoir') === '1';
     if (avoir && !c.avoir) throw erreur(404, 'Cette commande n’a pas d’avoir.', 'introuvable');
     const manque = FactureElectronique.manques(c, config);
     if (manque.length) throw erreur(409, `Facture électronique impossible : il manque : ${manque.join(', ')}. À compléter dans Paramètres, Conformité.`, 'incomplet');
-    const xml = FactureElectronique.produire(c, config, { avoir, devise: config.boutique.devise || 'EUR' });
+    const devise = config.boutique.devise || 'EUR';
+    const xml = FactureElectronique.produire(c, config, { avoir, devise });
     const incoherences = FactureElectronique.verifier(xml);
     if (incoherences.length) { journal.error('[facture-electronique]', c.id, incoherences.join(', ')); throw erreur(500, 'Facture électronique incohérente : elle n’a pas été produite. Signalez-le au support.', 'incoherent'); }
-    const nom = String(avoir ? c.avoir.numero : c.facture).replace(/[^\w.-]/g, '_');
     ctx.entetes['Cache-Control'] = 'private, no-store';
+    return { c, config, avoir, devise, xml, nom: String(avoir ? c.avoir.numero : c.facture).replace(/[^\w.-]/g, '_') };
+  };
+  r.get('/api/admin/commandes/:id/facture-electronique', exigerMarchand, ctx => {
+    const { xml, nom } = factureStructuree(ctx);
     ctx.entetes['Content-Disposition'] = `attachment; filename="${nom}.xml"`;
     return { binaire: Buffer.from(xml, 'utf8'), type: 'application/xml; charset=utf-8' };
+  });
+  /* Factur-X : la facture en PDF/A-3, lisible par une personne, avec le XML EN 16931 joint (factur-x.xml). */
+  r.get('/api/admin/commandes/:id/facture-pdf', exigerMarchand, ctx => {
+    const { c, config, avoir, devise, xml, nom } = factureStructuree(ctx);
+    ctx.entetes['Content-Disposition'] = `attachment; filename="${nom}.pdf"`;
+    return { binaire: FacturxPdf.produire(c, config, { avoir, devise, xml }), type: 'application/pdf' };
   });
   r.get('/api/admin/commandes/:id/facture-qr', exigerMarchand, ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
