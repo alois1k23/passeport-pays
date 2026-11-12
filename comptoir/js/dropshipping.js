@@ -287,6 +287,14 @@ function boutiqueDemoLausanne() {
     }
   }
   commandes.sort((a, b) => a.date - b.date).forEach((c, i) => { c.numero = 1001 + i; c.id = 'c' + c.numero; });
+  // Démonstration du score de risque : une commande récente suspecte, transmission au fournisseur retenue.
+  const suspecte = [...commandes].reverse().find(c => ['payee', 'fournisseur', 'preparation'].includes(c.statut) && c.canal === 'web');
+  if (suspecte) {
+    suspecte.statut = 'payee'; suspecte.refFournisseur = ''; suspecte.historique = suspecte.historique.filter(h => !/fournisseur/i.test(h.texte));
+    suspecte.client = { ...suspecte.client, email: 'kz93x0457@yopmail.com' };
+    suspecte.risque = { score: 60, niveau: 'eleve', raisons: ['Adresse e-mail jetable (yopmail.com)', '3 autres clients depuis le même réseau en une heure'], le: suspecte.date };
+    suspecte.historique = [...suspecte.historique, { date: suspecte.date + 1000, texte: 'Risque élevé (60/100) : adresse e-mail jetable ; 3 autres clients depuis le même réseau en une heure' }, { date: suspecte.date + 2000, texte: 'Transmission automatique au fournisseur retenue : risque de fraude élevé. Vérifiez puis transmettez à la main.' }];
+  }
   return completerEtat({
     version: 2,
     boutique: {
