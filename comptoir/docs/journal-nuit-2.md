@@ -603,7 +603,7 @@ Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 30
 - Ce sont les conditions d'inaltérabilité, de sécurisation, de conservation et d'archivage demandées en France aux logiciels de caisse (art. 286 du CGI). **Ce n'est pas une certification** (NF 525 ou attestation de l'éditeur) : c'est écrit tel quel dans l'application.
 - Vérifié : test avec trois falsifications détectées (montant modifié en base, entrée réécrite, entrée supprimée), clôture et grand total exacts ; carte et export dans un vrai navigateur. 108 tests sur 108. La simulation de 60 jours vérifie désormais le journal des 100 marchands.
 
-## Cycle 44 (03 h 30) : simulation et démo
+## Cycle 44 (03 h 20) : simulation et démo
 
 - Simulation de 60 jours (100 marchands, 8 502 commandes) avec le contrôle du journal inaltérable chez chaque marchand : **0 anomalie**, aucun sceau cassé par une opération normale (remboursements, effacements de clients, comptes supprimés, relances), aucune erreur serveur, temps de réponse p95 de 7 ms.
 - Démo (artefact) republiée, version 20.
