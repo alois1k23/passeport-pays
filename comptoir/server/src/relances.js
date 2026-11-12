@@ -3,6 +3,7 @@
 // Chaque envoi est enregistré une seule fois (table envois_auto) : relancer le
 // planificateur ne renvoie jamais deux fois le même e-mail.
 'use strict';
+const EmailsClients = require('./emails-clients');
 
 const DEFAUT = {
   bienvenue: { actif: true, remise: 10, code: 'BIENVENUE10' },
@@ -59,10 +60,11 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       a.paiement.etapes.forEach((e, i) => {
         if (i !== due) return;
         if ((c.relances || 0) > i || !reserver(db, boutique.id, `paiement:${c.id}:${i}`, maintenant)) return;
-        const lien = `${base}?reprendre=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`;
+        const lien = EmailsClients.avecLangue(`${base}?reprendre=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`, c);
         const derniere = i === a.paiement.etapes.length - 1;
         const offre = derniere && a.paiement.remise && a.paiement.code ? `\n\nPour vous aider à vous décider : -${a.paiement.remise} % avec le code ${a.paiement.code}.` : '';
-        envoyerEmail(boutique.id, c.client.email, i === 0 ? `Votre commande chez ${nom} vous attend` : `Votre panier chez ${nom} vous attend toujours`,
+        if (EmailsClients.langueDe(c)) { const m = EmailsClients.relance(c, { nomBoutique: nom, i, lien, formatMontant: x => formatMontant(x, config), remise: derniere && a.paiement.remise && a.paiement.code ? a.paiement.remise : 0, code: a.paiement.code }); envoyerEmail(boutique.id, c.client.email, m.sujet, m.corps, { marketing: true, motif: 'commande' }); }
+        else envoyerEmail(boutique.id, c.client.email, i === 0 ? `Votre commande chez ${nom} vous attend` : `Votre panier chez ${nom} vous attend toujours`,
           `Bonjour ${c.client.nom},\n\nVotre commande n° ${c.numero} (${formatMontant(c.total, config)}) n’a pas été finalisée. Un souci au moment de payer ? Vous pouvez la reprendre ici :\n${lien}${offre}\n\nL’équipe ${nom}`, { marketing: true, motif: 'commande' });   // relance commerciale : lien de désinscription, désinscrits respectés
         c.relances = i + 1;
         c.historique.push({ date: maintenant, texte: `Relance de paiement n° ${i + 1} envoyée par e-mail` });
@@ -80,7 +82,9 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       const depuis = livre ? livre.date : c.date;
       if (maintenant - depuis < a.avis.jours * JOUR || maintenant - depuis > 60 * JOUR) continue;
       if (!reserver(db, boutique.id, `avis:${c.id}`, maintenant)) continue;
-      envoyerEmail(boutique.id, c.client.email, `Votre avis sur votre commande ${nom}`,
+      const lienAvis = EmailsClients.avecLangue(`${base}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`, c);
+      if (EmailsClients.langueDe(c)) { const m = EmailsClients.avis(c, { nomBoutique: nom, lien: lienAvis }); envoyerEmail(boutique.id, c.client.email, m.sujet, m.corps, { marketing: true, motif: 'commande' }); }
+      else envoyerEmail(boutique.id, c.client.email, `Votre avis sur votre commande ${nom}`,
         `Bonjour ${c.client.nom},\n\nVous avez reçu ${c.lignes.map(l => l.nom).join(', ')}. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir, et nous à nous améliorer. Il prend 30 secondes :\n${base}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}\n\nMerci,\nL’équipe ${nom}`, { marketing: true, motif: 'commande' });
       c.avisDemande = maintenant;
       enregistrerCommande(c);

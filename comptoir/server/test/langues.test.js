@@ -18,7 +18,7 @@ test('e-mails du client dans la langue de sa commande', async () => {
     const commander = async (langue, email) => { const x = await fetch(`${base}/api/public/${ins.j.slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', langue, client: { nom: 'Hans Muster', email, adresse: 'Bahnhofstrasse 1', npa: '8001', ville: 'Zürich' } }) }).then(r => r.json()); await fetch(x.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' }); return x; };
     const de = await commander('de', 'hans@exemple.ch');
     const m = db.prepare("SELECT sujet, corps FROM emails WHERE destinataire = 'hans@exemple.ch'").get();
-    assert.equal(m.sujet, `Bestellung Nr. ${de.numero} bestätigt`); assert.match(m.corps, /Guten Tag Hans Muster/); assert.match(m.corps, /Bezahlter Betrag/);
+    assert.equal(m.sujet, `Bestellung Nr. ${de.numero} bestätigt`); assert.match(m.corps, /Guten Tag Hans Muster/); assert.match(m.corps, /Bezahlter Betrag/); assert.match(m.corps, /\?commande=.*&lang=de/, 'lien de suivi dans la même langue');
     await commander('it', 'ugo@exemple.ch');   // italien non proposé par cette boutique
     assert.match(db.prepare("SELECT sujet FROM emails WHERE destinataire = 'ugo@exemple.ch'").get().sujet, /confirmée/);
     // Expédition en allemand

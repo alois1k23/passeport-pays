@@ -277,7 +277,7 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - La recherche est traduite (allemand, italien, anglais), et le message « Aucun produit ne correspond à … » l'est aussi.
 - Vérifié dans un vrai navigateur avec 10 produits.
 
-## Cycle 17 (01 h 45) : corrections de la troisième revue (score de risque, prévision, traductions)
+## Cycle 17 (01 h 20) : corrections de la troisième revue (score de risque, prévision, traductions)
 
 Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Score de risque** :
@@ -297,5 +297,6 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - Un produit nommé « Panier » ne bloque plus la traduction du panier, et le texte n'est plus déformé par `$&`.
   - Nouveaux textes traduits : étapes du suivi de commande, « Merci Anna ! », notes en étoiles, « Épuisé », newsletter, « Tout (6) », « Voir tous les produits (12) », retrait au point de collecte.
   - Formulations corrigées. En allemand : « Oft zusammen gekauft », « Menge erhöhen », « Transportunternehmen ». En italien : « Contatti », « Spesso acquistati insieme », « marzo » en toutes lettres. En anglais : « Estimated delivery », « away from free shipping ».
-- **Restent en français** (à faire) : e-mails de retrait prêt, d'expédition partielle, de demande d'avis et de relance de panier, ainsi que les messages d'erreur du serveur au moment de commander.
+- **E-mails** : ceux de retrait prêt, d'expédition partielle, de relance de paiement et de demande d'avis partent aussi dans la langue de la commande. Les liens qu'ils contiennent (suivi, reprise, avis) ouvrent la boutique dans cette même langue (`&lang=de`).
+- **Restent en français** : les messages d'erreur renvoyés par le serveur au moment de commander, et l'e-mail « vous nous manquez » (il n'est pas lié à une commande).
 - Vérifié dans un vrai navigateur. Tests : 91 sur 91.
