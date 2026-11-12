@@ -67,7 +67,7 @@ En Suisse, le paiement sur facture est très répandu. Comptoir le propose maint
 - **Tests :** `qrfacture.test.js` couvre la norme, la commande, la facture protégée par jeton, et le relevé camt.054 (paiement reconnu, inconnu, débit ignoré, import en double). Le parcours a aussi été joué dans un vrai navigateur. 76 tests.
 - **Limite honnête :** je n'ai pas pu faire lire le QR code par une application bancaire ni par un lecteur indépendant (l'outil de décodage téléchargé a été refusé, car c'est du code externe). À faire avec une vraie application bancaire avant d'ouvrir.
 
-## Cycle 3 (00 h 00) : corrections de la revue QR-facture
+### Cycle 3 (00 h 00) : corrections de la revue QR-facture
 
 La revue indépendante a relevé 10 points. Tous sont corrigés :
 - Import du relevé bancaire réécrit : lecture linéaire du fichier (un fichier piégé ne bloque plus le serveur), préfixes d'espace de noms acceptés, camt.053 aussi.
@@ -81,7 +81,7 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - Mise en page plus fidèle à la norme : tailles de police, mention « À détacher », cadre « Payable par » quand l'adresse manque.
 - Limite : le QR code n'a pas été relu par un lecteur indépendant. Le décodeur externe a été refusé par la politique de sécurité de la session. À tester avec une application bancaire avant la mise en production.
 
-## Cycle 4 (00 h 10) : écran Intégrations, documentation de l'API
+### Cycle 4 (00 h 10) : écran Intégrations, documentation de l'API
 
 - Nouvel écran **Paramètres > Intégrations**, pour la formule Croissance :
   - créer une clé d'API avec ses permissions (clé affichée une seule fois, bouton Copier) et la révoquer ;
@@ -92,7 +92,7 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - Honnêteté : le badge « Le plus choisi » devient « Conseillé pour démarrer ». Il n'y a encore aucun client, donc l'affirmation était fausse.
 - Le message après l'import d'un relevé bancaire signale les doublons à rembourser, les trop-perçus et les versements dans une autre devise.
 
-## Cycle 5 (00 h 15) : politique de mot de passe
+### Cycle 5 (00 h 15) : politique de mot de passe
 
 - Les mots de passe trop courants sont refusés, à l'inscription, à la réinitialisation et au changement de mot de passe. Sont concernés :
   - les mots de passe des listes de fuites publiques, avec leurs variantes (« Lausanne2024 », « azerty123! ») ;
@@ -103,7 +103,7 @@ La revue indépendante a relevé 10 points. Tous sont corrigés :
 - En-tête `Cross-Origin-Opener-Policy: same-origin` ajouté.
 - Tests : 80 sur 80.
 
-## Cycle 6 (00 h 20) : corrections de la revue API et webhooks
+### Cycle 6 (00 h 20) : corrections de la revue API et webhooks
 
 La revue indépendante a relevé 11 points. Tous sont corrigés :
 1. **File des webhooks partagée** (critique) : 30 envois en attente vers un webhook en pause bloquaient tous les webhooks de toutes les boutiques. Désormais :
@@ -132,7 +132,7 @@ La revue indépendante a relevé 11 points. Tous sont corrigés :
 
 Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, formes IPv6). Écran Intégrations ajusté : état « ne répond plus depuis… », réactivation avec le nombre d'événements en attente, intégrations inactives encore supprimables.
 
-## Cycle 7 (00 h 25) : tableau de bord en direct
+### Cycle 7 (00 h 25) : tableau de bord en direct
 
 - Flux en direct (Server-Sent Events, `/api/admin/flux`). Le serveur compare l'état de chaque boutique suivie toutes les 2 secondes et prévient l'onglet dès qu'une commande arrive ou change.
 - Avant, l'onglet interrogeait le serveur toutes les 15 secondes. Cette interrogation reste en secours si un proxy coupe le flux.
@@ -147,7 +147,7 @@ Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, 
   - 8 onglets en direct au plus par compte.
 - Vérifié dans un vrai navigateur : une commande payée sur la boutique s'affiche chez le marchand en 1,5 seconde. Test automatique ajouté : 84 tests sur 84.
 
-## Cycle 8 (00 h 35) : application installable, notifications, performance
+### Cycle 8 (00 h 35) : application installable, notifications, performance
 
 - **Application installable (PWA)** :
   - manifeste, icônes (dont une icône « masquable » pour Android), raccourcis Commandes et Produits ;
@@ -159,7 +159,7 @@ Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, 
   - compression Brotli, sinon gzip, faite une seule fois et gardée en mémoire. Avant, gzip était recalculé à chaque requête.
 - Vérifié dans un vrai navigateur : service worker actif, manifeste lu, application ouverte hors connexion, 304 sur un fichier inchangé, Brotli servi.
 
-## Cycle 9 (00 h 35) : clés d'accès (passkeys)
+### Cycle 9 (00 h 35) : clés d'accès (passkeys)
 
 - Connexion **sans mot de passe** avec une clé d'accès : visage, empreinte ou code de l'appareil (Face ID, Touch ID, Windows Hello, Android). La norme est W3C WebAuthn, implémentée sans dépendance dans `server/src/webauthn.js` :
   - lecture CBOR bornée ;
@@ -174,7 +174,7 @@ Tests : 83 sur 83, dont 4 nouveaux (isolation de la file, pause, DNS rebinding, 
   - dans un vrai Chromium, avec l'authentificateur virtuel du navigateur : clé créée depuis Paramètres, puis connexion sans mot de passe réussie.
 - Tests : 86 sur 86.
 
-## Cycle 10 (00 h 40) : corrections de la seconde revue (relevé bancaire, direct, PWA)
+### Cycle 10 (00 h 40) : corrections de la seconde revue (relevé bancaire, direct, PWA)
 
 Une revue indépendante des cycles 3 à 8 a relevé 15 points. Tous sont corrigés :
 - **Relevé bancaire** :
@@ -196,7 +196,7 @@ Une revue indépendante des cycles 3 à 8 a relevé 15 points. Tous sont corrig�
 - **Réinitialisation du mot de passe** : la même politique qu'ailleurs s'applique, y compris le refus d'un mot de passe qui reprend l'e-mail.
 - Tests : 86 sur 86. Le test du relevé couvre maintenant tous les cas de la revue.
 
-## Cycle 11 (00 h 45) : score de risque des commandes (anti-fraude)
+### Cycle 11 (00 h 45) : score de risque des commandes (anti-fraude)
 
 - Chaque commande en ligne reçoit un score de risque de 0 à 100 (`server/src/risque.js`). Les règles sont explicables : chaque point vient avec sa raison, en clair. Signaux pris en compte :
   - adresse e-mail jetable ou générée ;
@@ -215,7 +215,7 @@ Une revue indépendante des cycles 3 à 8 a relevé 15 points. Tous sont corrig�
 - Tests : règles, et parcours complet (commande suspecte payée, transmission retenue, marchand prévenu). 88 tests sur 88.
 - Simulation de 30 marchands sur 20 jours : 0 anomalie, aucune fausse alerte bloquante. Une simulation complète est en cours. Le simulateur gardait les connexions inactives trop peu longtemps lors de ses longues vérifications : corrigé.
 
-## Cycle 12 (01 h 00) : audit de sécurité (clés d'accès et surface publique), prévision de rupture
+### Cycle 12 (01 h 00) : audit de sécurité (clés d'accès et surface publique), prévision de rupture
 
 Un audit indépendant a examiné les clés d'accès et toutes les routes publiques. Ses 7 points sont corrigés :
 1. **Grave : mode de livraison pris dans le prototype.** Une commande envoyée avec `livraison: "toString"` passait le contrôle, et son montant devenait vide. Sur facture QR, un virement de CHF 0.01 suffisait alors à la marquer payée. Corrections :
@@ -238,7 +238,7 @@ Le reste a été vérifié et jugé solide : WebAuthn conforme, signatures Strip
 
 Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anomalie. Tests : 88 sur 88.
 
-## Cycle 13 (01 h 05) : boutique en allemand, italien et anglais
+### Cycle 13 (01 h 05) : boutique en allemand, italien et anglais
 
 - Constat honnête : le marchand pouvait cocher « Deutsch », « Italiano » et « English » dans l'éditeur, mais la boutique les ignorait. C'est corrigé.
 - `js/traductions.js` traduit l'interface de la boutique : en-tête, boutons, panier, barre de livraison offerte, offres, modes de livraison et dates (« Lieferung zwischen Mo. 16. Nov. und Di. 17. Nov. »), formulaire de commande, paiement, facture QR, suivi de commande, avis, newsletter, bandeau cookies et messages d'erreur.
@@ -251,7 +251,7 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - **E-mails aux clients** : la commande garde la langue dans laquelle elle a été passée. Les e-mails de confirmation, d'expédition (avec le lien de suivi) et de facture QR partent dans cette langue (`server/src/emails-clients.js`). Le droit de rétractation (France, Belgique) reste en français, annoncé dans la langue du client. Une langue que la boutique ne propose pas retombe sur le français. Testé.
 - **Limites** : la page sans JavaScript, les relances et les e-mails marketing restent en français.
 
-## Cycle 14 (01 h 10) : rapport du lundi
+### Cycle 14 (01 h 10) : rapport du lundi
 
 - Chaque lundi dès 7 h, heure de la boutique, le marchand reçoit un e-mail qui résume sa semaine :
   - chiffre d'affaires, comparé à la semaine d'avant ;
@@ -262,7 +262,7 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - Un seul envoi par semaine (table `rapports_hebdo`). Le rapport se désactive dans Paramètres > E-mails (« Rapport du lundi »).
 - Test : 3 commandes la semaine passée, rapport envoyé une seule fois avec les bons chiffres, sans « undefined » ni « NaN ». 90 tests sur 90.
 
-## Cycle 15 (01 h 15) : sauvegardes chiffrées, vérification d'accessibilité
+### Cycle 15 (01 h 15) : sauvegardes chiffrées, vérification d'accessibilité
 
 - **Sauvegardes chiffrées** (`server/src/sauvegarde.js`) : avec `SAUVEGARDE_CLE`, chaque copie quotidienne est chiffrée en flux (AES-256-GCM), puis la version en clair est effacée. Une copie envoyée hors du serveur est illisible sans la clé ; une copie modifiée ou abîmée est refusée.
 - Restauration : `node server/server.js --restaurer fichier.db.enc nouvelle.db`. Elle n'écrase jamais un fichier existant et ne laisse rien derrière elle en cas d'échec.
@@ -270,14 +270,14 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - La vérification de mise en ligne signale l'absence de `SAUVEGARDE_CLE`, et le guide l'explique.
 - **Accessibilité** : vérification automatique sur 6 écrans de l'espace marchand, la boutique et le panier (images sans texte, boutons ou liens sans nom, champs sans étiquette, identifiants en double, langue de la page) : aucun problème trouvé.
 
-## Cycle 16 (01 h 25) : recherche instantanée dans la boutique
+### Cycle 16 (01 h 20) : recherche instantanée dans la boutique
 
 - Dès 8 produits, la vitrine propose un champ « Rechercher un produit ». Les résultats s'affichent pendant la frappe, avec le nombre trouvé, et le champ garde le curseur.
 - La recherche ignore les accents et les majuscules : « gres » trouve « Vase en grès ». Elle tolère une faute de frappe dans les mots de 4 lettres ou plus. Elle porte sur le nom, la catégorie et la description.
 - La recherche est traduite (allemand, italien, anglais), et le message « Aucun produit ne correspond à … » l'est aussi.
 - Vérifié dans un vrai navigateur avec 10 produits.
 
-## Cycle 17 (01 h 20) : corrections de la troisième revue (score de risque, prévision, traductions)
+### Cycle 17 (01 h 20) : corrections de la troisième revue (score de risque, prévision, traductions)
 
 Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Score de risque** :
@@ -301,7 +301,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Restent en français** : les messages d'erreur renvoyés par le serveur au moment de commander, et l'e-mail « vous nous manquez » (il n'est pas lié à une commande).
 - Vérifié dans un vrai navigateur. Tests : 91 sur 91.
 
-## Cycle 18 (01 h 25) : notifications push, même Comptoir fermé
+### Cycle 18 (01 h 25) : notifications push, même Comptoir fermé
 
 - **Web Push** (`server/src/webpush.js`, sans dépendance) : le marchand reçoit une notification sur son téléphone ou son ordinateur à chaque commande payée, même quand Comptoir est fermé. Exemple : « Nouvelle commande n° 1042 · CHF 89.90 · Lausanne », avec la mention « risque de fraude élevé » s'il y a lieu.
 - **Chiffrement de bout en bout** (RFC 8291 : ECDH P-256, HKDF, AES-128-GCM) : le service push (Google, Mozilla, Apple, Microsoft) ne lit pas le message. Le chiffrement reproduit **à l'octet près le vecteur de test officiel de la RFC 8291**.
@@ -315,7 +315,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Tests : vecteur RFC, abonnement refusé vers un service inconnu, commande payée → message chiffré envoyé, signature VAPID vérifiée, message déchiffré comme par le téléphone. 93 tests sur 93.
 - **Limite honnête** : l'envoi vers un vrai service push (Google ou Apple) n'a pas pu être essayé ici, faute d'accès réseau à ces services. À vérifier avec un vrai téléphone après la mise en ligne. Sur iPhone, Comptoir doit d'abord être ajouté à l'écran d'accueil.
 
-## Cycle 19 (01 h 30) : lien de panier (vente par WhatsApp, Instagram, SMS)
+### Cycle 19 (01 h 30) : lien de panier (vente par WhatsApp, Instagram, SMS)
 
 - Nouveau bouton « Lien de panier » dans Produits. Le marchand choisit les produits, les quantités et éventuellement un code promo. Il obtient un lien à copier, à envoyer par WhatsApp ou par e-mail, ou à montrer en QR code (au marché, en vitrine).
 - Le client arrive sur la boutique avec ce panier prêt, le code appliqué et le tiroir ouvert, puis paie comme d'habitude. L'adresse est nettoyée après lecture.
@@ -323,7 +323,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Vérifié dans un vrai navigateur : lien créé dans l'espace marchand, ouvert par un client. Le panier est correct, et la lampe est limitée aux 2 en stock.
 - Essai de bout en bout « comme en production » relancé après tous les changements de la nuit : 51 contrôles sur 51.
 
-## Cycle 20 (01 h 35) : page d'accueil, section « Technologie et sécurité »
+### Cycle 20 (01 h 35) : page d'accueil, section « Technologie et sécurité »
 
 - Nouvelle section sur la page d'accueil (lien « Sécurité » dans le menu). Six cartes, chacune décrivant uniquement ce qui a été construit et testé cette nuit :
   - connexion sans mot de passe et double authentification ;
@@ -335,7 +335,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Formulations vérifiées pour ne rien promettre de plus. Seuls les e-mails de commande sont traduits, pas les newsletters. Les sauvegardes chiffrées supposent que `SAUVEGARDE_CLE` soit réglée à la mise en ligne.
 - Mise en page vérifiée sur ordinateur et sur téléphone, sans débordement.
 
-## Cycle 21 (01 h 40) : réservation de stock, corrections de la quatrième revue
+### Cycle 21 (01 h 40) : réservation de stock, corrections de la quatrième revue
 
 - **Réservation de stock** : une commande en attente de paiement garde ses articles pendant 30 minutes, ou jusqu'à l'échéance pour une facture QR. Plusieurs clients ne peuvent plus payer le même dernier exemplaire. Un client qui réessaie son propre paiement n'est pas bloqué par son essai précédent. Testé (second client refusé, puis accepté une fois la réservation échue).
 - **Sauvegardes**, fiabilisées (revue : une copie en clair pouvait rester sur le disque après un échec, et un disque plein pouvait laisser des sauvegardes vides prendre la place des bonnes) :
@@ -358,7 +358,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **E-mails traduits** : le pied de page (contact, désinscription) est aussi dans la langue du client.
 - Tests : 94 sur 94. Recherche revérifiée dans un vrai navigateur.
 
-## Cycle 22 (01 h 40) : plus aucune requête vers Google (polices hébergées)
+### Cycle 22 (01 h 40) : plus aucune requête vers Google (polices hébergées)
 
 - Toutes les pages chargeaient les polices depuis Google Fonts : l'adresse IP de chaque visiteur, y compris les clients des boutiques, partait chez Google. Un tribunal allemand (LG München, janvier 2022) a jugé cette pratique contraire au RGPD.
 - Les 22 fichiers de police (woff2, sous-ensembles latin et latin étendu, environ 600 Ko, licence SIL Open Font License) sont maintenant servis par Comptoir (`fonts/`, `css/polices.css`), avec ETag et cache du service worker.
@@ -366,7 +366,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Vérifié dans un vrai navigateur, sur l'accueil, l'espace marchand et une boutique : polices chargées, aucune requête externe, aucun refus CSP.
 - À la republication de l'artifact, il faut inclure `css/polices.css` et le dossier `fonts/`.
 
-## Cycle 23 (01 h 45) : décompte de TVA
+### Cycle 23 (01 h 45) : décompte de TVA
 
 - Nouvel onglet **Analyse > TVA**, pour une période au choix : trimestre, semestre (décompte suisse) ou année.
   - Ventes ventilées par taux (normal, réduit, sans TVA) : chiffre d'affaires TTC, base hors taxe et TVA due.
@@ -376,13 +376,13 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Honnêteté** : présenté comme une aide au remplissage, à faire vérifier par la fiduciaire. La TVA payée sur les achats (impôt préalable) n'est pas incluse.
 - Simulation complète (100 marchands, 60 jours) avec la réservation de stock : 0 anomalie, 68'245 requêtes, médiane 1 ms, 95 % sous 6 ms.
 
-## Cycle 24 (01 h 50) : référencement des boutiques multilingues
+### Cycle 24 (01 h 50) : référencement des boutiques multilingues
 
 - Une boutique proposée en plusieurs langues annonce chaque version aux moteurs de recherche : balises `hreflang` (fr, de, it, en, plus `x-default`).
 - Chaque version (`?lang=de`) est sa propre page canonique, comme le demande Google pour que `hreflang` soit pris en compte.
 - Vérifié : la page de la boutique contient les bonnes balises. Tests : 94 sur 94.
 
-## Cycle 25 (01 h 55) : équipe (comptes collaborateurs)
+### Cycle 25 (01 h 55) : équipe (comptes collaborateurs)
 
 - Le propriétaire invite jusqu'à 5 collaborateurs par e-mail (Paramètres > Équipe), avec l'un de deux rôles :
   - **Commandes** : voir et préparer les commandes, les expédier, les transmettre au fournisseur, encaisser à la caisse. Ni remboursement, ni annulation, ni modification de la boutique. Son menu ne montre que Vue d'ensemble, Commandes, Clients, Magasin et Paramètres (E-mails, Sécurité).
@@ -399,7 +399,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - La suppression du compte du propriétaire supprime aussi les comptes de son équipe. L'effacement des inscriptions jamais payées épargne les membres d'équipe.
 - Testé : parcours complet automatique (invitation, acceptation, permissions des deux rôles, traçabilité, retrait, suppression), puis dans un vrai navigateur (invitation envoyée, écran d'acceptation, menu réduit du rôle « Commandes »). 95 tests sur 95.
 
-## Cycle 26 (02 h 00) : demandes de retour
+### Cycle 26 (02 h 00) : demandes de retour
 
 - Sur la page de suivi de sa commande, le client peut **demander un retour** : articles et quantités, motif facultatif. C'est possible pendant le délai légal (14 jours en France et en Belgique, droit de rétractation) ou, en Suisse, pendant le délai de retour choisi par le marchand (aucun par défaut, le droit suisse n'imposant pas de rétractation). Le délai court depuis la livraison ou le retrait.
 - Le client reçoit par e-mail l'adresse de retour. Le marchand est prévenu par e-mail et par notification. La commande porte la mention « Retour » dans la liste, et un encadré détaille les articles, le montant au prix réellement payé et le motif. Le remboursement clôt le retour.
@@ -410,7 +410,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - mauvais jeton refusé, deuxième demande refusée.
 - 96 tests sur 96.
 
-## Cycle 27 (02 h 00) : démo mise à jour, rappel de sécurité
+### Cycle 27 (02 h 00) : démo mise à jour, rappel de sécurité
 
 - Démo en ligne (artifact) republiée, version 19 : tous les ajouts de la nuit visibles sans serveur. On y trouve notamment :
   - une commande suspecte de démonstration, avec son score de risque et la transmission retenue ;
@@ -419,7 +419,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Le tableau de bord rappelle de protéger le compte (clé d'accès ou double authentification) tant qu'aucune des deux n'est active. Le rappel disparaît dès l'activation.
 - Essai de bout en bout 51 sur 51, et simulation complète 0 anomalie, après l'ajout de l'équipe.
 
-## Cycle 28 (02 h 05) : console de l'exploitant, corrections de l'audit de l'équipe
+### Cycle 28 (02 h 05) : console de l'exploitant, corrections de l'audit de l'équipe
 
 - **Console de l'exploitant** (`/operateur`), pour la personne qui gère la plateforme :
   - comptes marchands, membres d'équipe, inscriptions de la semaine ;
@@ -441,7 +441,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   8. L'attribut `lang` de la page suit la langue demandée.
 - Tests de non-régression ajoutés (IBAN inchangé, import bancaire refusé, « payée » refusé, pas d'IBAN pour le rôle « Commandes »). 97 tests sur 97.
 
-## Cycle 29 (02 h 20) : variantes de produits (tailles, couleurs)
+### Cycle 29 (02 h 20) : variantes de produits (tailles, couleurs)
 
 - Un produit en stock peut avoir **jusqu'à 2 options**, par exemple Taille × Couleur : 20 valeurs par option et 60 combinaisons au plus. Chaque combinaison a **son stock** et, si besoin, **son prix**. Le stock du produit est la somme des variantes.
 - **Éditeur de produit** : bloc « Variantes » avec les options, les valeurs séparées par des virgules, et un tableau des combinaisons (stock, prix). La saisie en cours est gardée d'un affichage à l'autre, et le curseur suit la tabulation.
@@ -459,7 +459,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Limites** : pas de variantes pour les produits en dropshipping (codes fournisseur par variante à prévoir). Les offres en un clic et le lien de panier ne proposent pas les produits à variantes, le client les choisit sur la fiche.
 - Testé : test serveur (variante obligatoire, inconnue, sans stock, prix, stock retiré puis rendu), puis parcours complet dans un vrai navigateur (éditeur, boutique, panier, paiement) et caisse de la démo. 98 tests sur 98.
 
-## Cycle 30 (02 h 25) : bon de réassort, variantes dans l'API
+### Cycle 30 (02 h 25) : bon de réassort, variantes dans l'API
 
 - **Bon de réassort** (Produits > « Réassort ») :
   - pour les produits en stock, et par variante, Comptoir conseille la quantité à recommander pour tenir 30 jours, au rythme des 28 derniers jours (même calcul que la prévision de rupture) ;
@@ -475,13 +475,13 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Référencement** : un produit à variantes annonce sa fourchette de prix (`AggregateOffer`).
 - **Fiche des fonctionnalités** : `docs/FONCTIONNALITES.md`, limites connues comprises.
 
-## Cycle 31 (02 h 30) : « Mes commandes »
+### Cycle 31 (02 h 30) : « Mes commandes »
 
 - Nouveau lien « Mes commandes » au pied de chaque boutique. Le client saisit son e-mail et reçoit les liens de suivi de ses commandes des 12 derniers mois.
 - Pas de compte à créer. La réponse est identique que l'adresse soit connue ou non, donc personne ne peut savoir qui est client. Les liens ne partent qu'à l'adresse elle-même. Limite de 3 demandes par jour et par adresse, et de 10 par heure et par réseau.
 - Traduit (allemand, italien, anglais). Testé. 99 tests sur 99.
 
-## Cycle 32 (02 h 30) : corrections de la revue des variantes, des retours et de la console
+### Cycle 32 (02 h 30) : corrections de la revue des variantes, des retours et de la console
 
 - **Complément après achat** : il ne propose plus un produit à variantes. Avant, il l'ajoutait sans taille, au prix de base, et faussait le stock.
 - **Demande de retour** : les lignes sont repérées par leur position. Deux tailles du même produit ne se confondent plus (avant, retourner un S retournait aussi le L).
@@ -500,19 +500,19 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - le volume vendu est donné par devise, hors remboursements.
 - Tests ajoutés (stock préservé à la modification, stock saisi pris en compte, preuve d'adresse). 99 tests sur 99. Parcours des variantes revérifié dans un vrai navigateur.
 
-## Cycle 33 (02 h 35) : photos plus nettes et plus légères
+### Cycle 33 (02 h 35) : photos plus nettes et plus légères
 
 - Les photos produits étaient réduites à 480 pixels (640 dans la fiche) : floues sur la page produit d'un téléphone récent. Elles passent à 1000 pixels.
 - Format WebP quand le navigateur sait l'encoder (environ 30 % plus léger que le JPEG à qualité égale), sinon JPEG. La qualité baisse par paliers pour rester sous la limite de 300 Ko.
 - Vérifié : une photo très chargée de 3000 × 2000 pixels donne un WebP de 1000 × 667 pixels et 145 Ko. Le type est conservé quand l'image est servie.
 
-## Cycle 34 (02 h 35) : « Prévenez-moi » au retour en stock
+### Cycle 34 (02 h 35) : « Prévenez-moi » au retour en stock
 
 - Sur un produit épuisé, ou une variante épuisée, la fiche propose de laisser son e-mail. Au retour en stock (vente, caisse, saisie, API), le client reçoit **un seul e-mail** avec le lien du produit, dans sa langue. Son adresse est ensuite effacée ; sans retour en stock, elle l'est après 90 jours. Effacer un client (RGPD) supprime aussi ses demandes.
 - Le marchand voit « N en attente » dans la liste des produits. Le bon de réassort compte ces clients dans les quantités conseillées.
 - Testé : deux demandes, dont une en allemand. Rien n'est envoyé tant que le stock est vide ; au retour, un e-mail chacun dans sa langue, adresses effacées, aucun second envoi. 100 tests sur 100.
 
-## Cycle 35 (02 h 40) : caisse hors ligne
+### Cycle 35 (02 h 40) : caisse hors ligne
 
 - Au marché ou en sous-sol, la connexion tombe souvent. Une vente à la caisse sans réseau (ou serveur indisponible) n'échoue plus : elle est gardée sur l'appareil, avec sa clé unique, puis envoyée automatiquement au retour du réseau (événement `online`, puis toutes les 30 secondes). Le bouton « Envoyer maintenant » force l'envoi.
 - La clé du ticket empêche tout doublon. Une vente faite hors ligne n'est jamais refusée pour le stock, puisque l'argent est déjà encaissé : une éventuelle rupture est signalée dans l'historique (« Vente encaissée hors ligne à 14 h 32 … stock insuffisant pour … »). Une vente refusée pour une autre raison reste dans la file, signalée, et ne se perd jamais en silence.
@@ -520,18 +520,18 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Vérifié dans un vrai navigateur : réseau coupé, vente gardée ; réseau rétabli, vente envoyée une seule fois, stock à jour, historique complet.
 - **Limite** : la caisse doit avoir été ouverte avec du réseau. Ouverte hors connexion, l'application affiche « Pas de connexion ».
 
-## Cycle 36 (02 h 45) : « Commander à nouveau »
+### Cycle 36 (02 h 40) : « Commander à nouveau »
 
 - Sur la page de suivi d'une commande expédiée, livrée ou retirée, le bouton « Commander à nouveau » remplit le panier avec les mêmes articles, variantes comprises. Il reprend le prix d'aujourd'hui, dans la limite du stock. Les articles qui ne sont plus disponibles sont signalés. Bouton traduit.
 - Vérifié dans un vrai navigateur : 2 thés et un pull taille M retrouvés dans le panier.
 
-## Cycle 37 (02 h 40) : e-mails commerciaux traduits
+### Cycle 37 (02 h 40) : e-mails commerciaux traduits
 
 - L'inscription aux nouvelles retient la langue de la boutique au moment du clic (si la boutique la propose). L'e-mail de confirmation, la page de confirmation, puis l'e-mail de bienvenue et son code partent dans cette langue (allemand, italien, anglais). Le pied de désinscription suit.
 - La relance « Ça fait longtemps » (reconquête) part dans la langue de la dernière commande du client.
 - Test ajouté (`emails-marketing-langue.test.js`) : 101 tests sur 101.
 
-## Cycle 38 (02 h 50) : corrections de la revue n° 7 (alertes de stock, caisse hors ligne, photos)
+### Cycle 38 (02 h 50) : corrections de la revue n° 7 (alertes de stock, caisse hors ligne, photos)
 
 Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
 
@@ -549,7 +549,7 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
 - « Mes commandes » : une adresse sans commande ne consomme plus les demandes du vrai client. « Commander à nouveau » demande avant de remplacer un panier non vide.
 - 103 tests sur 103, bout en bout 51 sur 51.
 
-## Cycle 39 (02 h 55) : facture électronique EN 16931 (XML de Factur-X)
+### Cycle 39 (02 h 55) : facture électronique EN 16931 (XML de Factur-X)
 
 - Chaque facture et chaque avoir se téléchargent au format XML CII de la norme européenne EN 16931, celui de Factur-X (France) et de ZUGFeRD : bouton « XML EN 16931 » dans la fiche commande. Utile pour le logiciel comptable, et pour la réforme française de la facture électronique (réception obligatoire pour toutes les entreprises depuis septembre 2026).
 - Les montants reprennent exactement la facture imprimée : lignes HT au taux figé à la vente, port et remises répartis par taux, base et TVA par taux identiques, total TTC égal au montant encaissé. Franchise de TVA (France, Belgique, Suisse) avec la mention d'exonération.
@@ -563,7 +563,7 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
   - le PDF/A-3 avec le XML intégré (Factur-X complet) n'est pas encore produit ;
   - Comptoir ne transmet rien à une plateforme agréée (PA).
 
-## Cycle 40 (03 h 00) : en-têtes de sécurité renforcés
+### Cycle 40 (03 h 00) : en-têtes de sécurité renforcés
 
 - `Cross-Origin-Resource-Policy: same-origin` : les photos et les données de Comptoir ne peuvent pas être intégrées dans la page d'un autre site.
 - `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies: none`.
@@ -571,7 +571,7 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
 - CSP complétée : `worker-src 'self'`, `manifest-src 'self'`, et `upgrade-insecure-requests` en production (HTTPS).
 - 105 tests, bout en bout 51 sur 51.
 
-## Cycle 41 (03 h 05) : variantes pour les produits en dropshipping
+### Cycle 41 (03 h 05) : variantes pour les produits en dropshipping
 
 - Un produit du fournisseur peut maintenant avoir des tailles et des couleurs, comme un produit en stock. Pas de stock propre (c'est celui du fournisseur), mais une **référence fournisseur par variante** et un prix différent si besoin.
 - La variante choisie (identifiant, valeurs et référence) est transmise au fournisseur avec la commande. Le protocole fournisseur est documenté dans `fournisseurs.js`.
@@ -579,7 +579,7 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
 - Éditeur : colonne « Réf. fournisseur » à la place du stock, champs resserrés pour que le tableau tienne dans la fiche (vérifié dans un vrai navigateur).
 - Test ajouté : commande d'une variante, refus sans variante, transmission avec la référence au fournisseur de démonstration. 106 tests sur 106.
 
-## Cycle 42 (03 h 10) : corrections de la revue n° 8 (facture électronique, e-mails traduits)
+### Cycle 42 (03 h 10) : corrections de la revue n° 8 (facture électronique, e-mails traduits)
 
 Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 300 fichiers validés par le schéma XSD ; 12 constats, tous traités.
 
@@ -593,7 +593,7 @@ Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 30
 - **E-mails traduits** : les pages de confirmation, de lien invalide et de désinscription s'affichent dans la langue du client (le lien du pied d'e-mail la transmet), avec la bonne langue déclarée dans la page. Recherche de langue protégée (`Object.hasOwn`).
 - Nouveaux cas validés par le schéma XSD officiel (espèces arrondies, hors champ, facture annulée, avoir non payé). 107 tests sur 107 ; fuzz de la relecture (30 000 commandes) sans écart ; bout en bout 51 sur 51.
 
-## Cycle 43 (03 h 15) : journal inaltérable des ventes
+### Cycle 43 (03 h 15) : journal inaltérable des ventes
 
 - Chaque facture, ticket de caisse et avoir est **scellé dès son émission** dans une chaîne d'empreintes SHA-256 propre à la boutique : numéro, date, montant, articles, port et remise. Modifier une pièce, réécrire ou supprimer une entrée du journal se voit à la vérification.
 - **Clôture de chaque jour d'activité** : nombre de pièces, total du jour, **grand total perpétuel**. L'empreinte de la dernière clôture part dans le rapport du lundi : une copie hors du serveur, qui empêche de recalculer toute la chaîne en silence.
@@ -603,22 +603,22 @@ Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 30
 - Ce sont les conditions d'inaltérabilité, de sécurisation, de conservation et d'archivage demandées en France aux logiciels de caisse (art. 286 du CGI). **Ce n'est pas une certification** (NF 525 ou attestation de l'éditeur) : c'est écrit tel quel dans l'application.
 - Vérifié : test avec trois falsifications détectées (montant modifié en base, entrée réécrite, entrée supprimée), clôture et grand total exacts ; carte et export dans un vrai navigateur. 108 tests sur 108. La simulation de 60 jours vérifie désormais le journal des 100 marchands.
 
-## Cycle 44 (03 h 20) : simulation et démo
+### Cycle 44 (03 h 20) : simulation et démo
 
 - Simulation de 60 jours (100 marchands, 8 502 commandes) avec le contrôle du journal inaltérable chez chaque marchand : **0 anomalie**, aucun sceau cassé par une opération normale (remboursements, effacements de clients, comptes supprimés, relances), aucune erreur serveur, temps de réponse p95 de 7 ms.
 - Démo (artefact) republiée, version 20.
 
-## Cycle 45 (03 h 20) : « Mes commandes » traduit
+### Cycle 45 (03 h 20) : « Mes commandes » traduit
 
 - L'e-mail « Mes commandes » (liens de suivi envoyés à l'adresse du client) part dans la langue de sa commande la plus récente, statuts et dates compris. Test ajouté, 108 tests sur 108.
 
-## Cycle 46 (03 h 20) : cookie de session « __Host- »
+### Cycle 46 (03 h 20) : cookie de session « __Host- »
 
 - En production (HTTPS), le cookie de session s'appelle `__Host-comptoir_session` : le navigateur exige alors `Secure`, `Path=/` et l'absence de domaine. Ni un sous-domaine ni une page en HTTP ne peuvent poser ou remplacer la session d'un marchand (fixation de session). Un cookie de session sans préfixe est ignoré.
 - Effet à la mise en ligne : les sessions ouvertes avant ce changement devront se reconnecter une fois.
 - Test ajouté (`cookie-host.test.js`) : 109 tests sur 109.
 
-## Cycle 47 (03 h 30) : corrections de la revue n° 9 (journal inaltérable, variantes du fournisseur)
+### Cycle 47 (03 h 30) : corrections de la revue n° 9 (journal inaltérable, variantes du fournisseur)
 
 Relecture indépendante des cycles 41 et 43 : 11 constats, dont 4 graves sur le journal. Tous traités.
 
@@ -637,7 +637,7 @@ Relecture indépendante des cycles 41 et 43 : 11 constats, dont 4 graves sur le 
 - **Formulation** : « aide à la traçabilité, non certifiée » ; plus de mention de l'attestation de l'éditeur (supprimée par la loi de finances 2025) ; l'empreinte du lundi est mentionnée « si le rapport est activé ». Boutiques supprimées : journal gardé pour l'archivage, plus clôturé.
 - 111 tests sur 111, bout en bout 51 sur 51.
 
-## Cycle 48 (03 h 35) : bilan de sécurité du compte
+### Cycle 48 (03 h 35) : bilan de sécurité du compte
 
 - En tête de Paramètres, Sécurité : un bilan qui dit ce qui protège le compte et ce qui reste à faire, du plus important au conseil :
   - connexion protégée au-delà du mot de passe (clé d'accès ou double authentification) ;
@@ -648,7 +648,7 @@ Relecture indépendante des cycles 41 et 43 : 11 constats, dont 4 graves sur le 
 - Pour le propriétaire, en plus : membres de l'équipe sans connexion protégée, clés d'API dormantes depuis 90 jours, webhooks en panne, journal des ventes intact. Chaque point à corriger mène à la bonne section.
 - Test ajouté (`bilan-securite.test.js`) ; vérifié dans un vrai navigateur, au bureau et sur mobile en mode sombre. 112 tests sur 112.
 
-## Cycle 49 (03 h 45) : corrections de la revue n° 10 (seconde relecture du journal)
+### Cycle 49 (03 h 45) : corrections de la revue n° 10 (seconde relecture du journal)
 
 Seconde relecture du journal réécrit : clôtures transactionnelles, vérification par lots pendant de nouvelles ventes et cas de minuit confirmés. Dix nouveaux constats, tous traités :
 
@@ -663,7 +663,7 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - Limite connue, écrite telle quelle : sans empreinte envoyée hors du serveur, une personne qui contrôle à la fois la base et la clé peut encore couper la fin du journal ; les empreintes du lundi servent à cela.
 - 114 tests sur 114, bout en bout 51 sur 51.
 
-## Cycle 50 (03 h 50) : contrôle d'accessibilité
+### Cycle 50 (03 h 50) : contrôle d'accessibilité
 
 - Contrôle automatique maison, sans code externe, sur l'accueil, sept écrans de l'espace marchand et la boutique : boutons et liens sans nom, champs sans étiquette, images sans texte alternatif, sauts de titres, langue de la page, titre principal unique.
 - Espace marchand et accueil : aucun défaut.
@@ -671,11 +671,11 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - Contraste des textes (seuil WCAG AA : 4,5:1, 3:1 pour les grands textes), mesuré dans un vrai navigateur : espace marchand en mode clair et sombre (5 écrans), boutique avec chacun des 5 thèmes (Brume, Nocturne, Craie, Léman, Argile). **Aucun texte sous le seuil.** Le contrôle a été validé sur une page témoin, où il détecte bien les textes illisibles.
 - Clavier : focus visible vérifié sur 40 éléments du tableau de bord et 25 de la boutique. Les liens de la liste « À faire » n'avaient aucun contour de focus (`outline: 0`) : corrigé. La fiche produit (fenêtre de dialogue) prend le focus à l'ouverture et se ferme avec Échap.
 
-## Cycle 51 (03 h 50) : simulation après les revues 9 et 10
+### Cycle 51 (03 h 50) : simulation après les revues 9 et 10
 
 - Simulation de 60 jours (100 marchands, 8 502 commandes) avec, à la fin, la **vérification complète du journal** de chaque marchand (chaîne signée, numéros continus, pièces conformes, clôtures, grand total) : **0 anomalie**, aucune erreur serveur, p95 de 7 ms. Les vérifications nocturnes ont aussi tourné pendant toute la simulation sans alerte.
 
-## Cycle 52 (03 h 55) : corrections de la revue n° 11 (bilan de sécurité, cookie, route de statut) et console de l'exploitant
+### Cycle 52 (03 h 55) : corrections de la revue n° 11 (bilan de sécurité, cookie, route de statut) et console de l'exploitant
 
 - **Clé d'accès et mot de passe** : une clé d'accès n'empêche pas de se connecter avec le mot de passe seul. Le bilan, l'incitation du tableau de bord et le contrôle de l'équipe ne comptaient donc pas juste. Désormais, seule la double authentification compte comme protection du mot de passe, et la clé d'accès reste un conseil à part.
 - **Conseils actionnables** : chaque point du bilan mène à sa carte (« Y aller »). La carte « Mot de passe et appareils » est passée dans Sécurité : les membres de l'équipe, qui n'avaient aucun écran pour changer leur mot de passe, y ont maintenant accès. Le bilan est recalculé en revenant sur la page.
@@ -685,7 +685,7 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - **Console de l'exploitant** : état des journaux des ventes (intacts, avec anomalie), alerte si la clé de signature a changé ou si elle est gardée dans la base.
 - 114 tests sur 114, bout en bout 51 sur 51.
 
-## Cycle 53 (04 h 00) : « Exiger la clé d'accès »
+### Cycle 53 (04 h 00) : « Exiger la clé d'accès »
 
 - Un marchand qui a au moins une clé d'accès peut **refuser la connexion par mot de passe** : seule la clé ouvre son compte. C'est la meilleure protection contre l'hameçonnage, car un mot de passe volé ne suffit plus.
 - Si quelqu'un se présente avec le bon mot de passe, la connexion est refusée et le marchand reçoit un e-mail (une fois par heure au plus) : son mot de passe est connu d'un tiers.
@@ -694,12 +694,12 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - Le bilan de sécurité et l'incitation du tableau de bord comptent cette option comme une protection complète.
 - Test ajouté (`cle-seule.test.js`) : activation refusée sans clé ou avec un mauvais mot de passe ; bon mot de passe refusé ; une seule alerte ; aucune session ouverte ; récupération par e-mail. Vérifié dans un vrai navigateur. 115 tests sur 115.
 
-## Cycle 54 (04 h 10) : empreinte quotidienne vers les outils du marchand
+### Cycle 54 (04 h 05) : empreinte quotidienne vers les outils du marchand
 
 - Nouvel événement de webhook `journal.cloture` : à chaque clôture journalière, l'empreinte, le nombre de pièces, le total du jour et le grand total partent vers les outils du marchand qui l'ont demandé (comptabilité, archivage, Zapier). Le journal est ainsi ancré hors de Comptoir **chaque jour**, et non plus seulement chaque lundi par e-mail. Cela réduit la limite connue (fin de journal coupée par quelqu'un qui contrôle la base et la clé).
 - Documenté dans `docs/API.md`, proposé dans Paramètres, Intégrations. Test ajouté : vente, clôture du lendemain, webhook en file avec la même empreinte que le journal. 116 tests sur 116.
 
-## Cycle 55 (04 h 05) : corrections de la revue n° 12 (« Exiger la clé d'accès »)
+### Cycle 55 (04 h 05) : corrections de la revue n° 12 (« Exiger la clé d'accès »)
 
 Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous corrigés.
 
@@ -711,7 +711,7 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - **Inondation** : 10 essais par quart d'heure au plus avec le bon mot de passe, et une seule ligne au journal du compte par heure.
 - Tests ajoutés pour chacun de ces cas : 116 tests sur 116, bout en bout 51 sur 51.
 
-## Cycle 56 (04 h 10) : signalement des violations de sécurité (CSP)
+### Cycle 56 (04 h 10) : signalement des violations de sécurité (CSP)
 
 - La politique de sécurité demande désormais aux navigateurs de signaler ce qu'ils bloquent (`report-uri /csp-rapport`) : un script injecté, un traceur ajouté par une extension. Un pic de rapports révèle une tentative d'injection.
 - **Aucune donnée personnelle gardée** : la page sans sa requête ni son ancre (pas d'e-mail ni de jeton d'une adresse), l'origine seule de ce qui a été bloqué, la règle. 30 jours, 5000 rapports au plus, 30 par réseau toutes les 10 minutes.
@@ -719,7 +719,7 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - Vérifié dans un vrai navigateur : un script et une image externes injectés sont signalés, sans le `?x=secret` de l'adresse. Constat en passant : avec `report-to` en plus, Chromium n'envoie plus rien par `report-uri` (vérifié sur un serveur témoin). Seul `report-uri`, reconnu par Chrome, Firefox et Safari, est donc utilisé.
 - Test ajouté (`csp-rapports.test.js`) : 117 tests sur 117, bout en bout 51 sur 51.
 
-## Cycle 57 (04 h 15) : écritures de ventes pour le comptable (FEC)
+### Cycle 57 (04 h 15) : écritures de ventes pour le comptable (FEC)
 
 - Onglet TVA de l'analyse : bouton « Écritures (FEC) » pour une boutique française, « Écritures comptables » ailleurs. Il exporte une écriture équilibrée par facture et par avoir : client au débit ; ventes hors taxe et TVA collectée par taux au crédit ; l'inverse pour un avoir. Les montants sont exactement ceux des factures et du décompte de TVA.
 - France : format du fichier des écritures comptables (18 colonnes, tabulation, montants à virgule, dates AAAAMMJJ, nom `SIRENFECAAAAMMJJ.txt`). Belgique et Suisse : CSV avec les comptes usuels du pays (PCMN, plan comptable PME).
@@ -727,12 +727,12 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - Vérifié dans un vrai navigateur : vente à deux taux (20 % et 5,5 %), vente remboursée (facture et avoir), 18 colonnes, chaque écriture équilibrée.
 - Limites, écrites telles quelles : journal des ventes seulement, sans les encaissements (banque) ; comptes usuels à adapter par le comptable si son plan diffère ; pas encore passé par l'outil de contrôle officiel de la DGFiP (Test Compta Demat).
 
-## Cycle 58 (04 h 20) : fenêtres de la boutique traduites, performance mesurée
+### Cycle 58 (04 h 20) : fenêtres de la boutique traduites, performance mesurée
 
 - Les messages en fenêtre du navigateur (confirmation « Commander à nouveau », articles indisponibles, erreurs d'envoi de « Prévenez-moi » et de la newsletter) restaient en français dans une boutique traduite : ils passent désormais par le dictionnaire de la boutique (allemand, italien, anglais). Vérifié dans un vrai navigateur.
 - Performance de la boutique mesurée : 0,8 s de chargement complet en 4G lente avec un processeur ralenti 4 fois, 9 à 11 requêtes, fichiers compressés (Brotli). Rien à corriger.
 
-## Cycle 59 (04 h 20) : corrections des revues n° 13 (signalement CSP, empreinte quotidienne) et n° 14 (journal des ventes)
+### Cycle 59 (04 h 20) : corrections des revues n° 13 (signalement CSP, empreinte quotidienne) et n° 14 (journal des ventes)
 
 **Signalement CSP** (adresse ouverte, sans compte) :
 - Une origine géante (190 Ko) était gardée telle quelle : un seul réseau remplissait 57 Mo en 10 minutes, recopiés dans chaque sauvegarde. Désormais, le corps est limité à 16 Ko, l'origine à 100 caractères, et il y a un budget global de 2000 rapports par heure en plus de la limite par réseau.
@@ -754,7 +754,7 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - Reste à confirmer : l'encodage admis par l'administration (UTF-8 limité aux caractères latins, ou ISO 8859-15).
 - 117 tests sur 117, bout en bout 51 sur 51.
 
-## Cycle 60 (04 h 30) : export complet des données (portabilité)
+### Cycle 60 (04 h 30) : export complet des données (portabilité)
 
 - Paramètres, Zone sensible : « Exporter toutes vos données ». Un fichier JSON lisible par n'importe quel outil contient la configuration, les produits avec leurs photos, les commandes et factures, les clients, les avis, les abonnés, les désinscriptions, les demandes « Prévenez-moi » et le journal des ventes. Les données appartiennent au marchand, qui peut partir avec.
 - Réservé au propriétaire, avec mot de passe redemandé (et code de double authentification si elle est active) ; 5 exports par heure au plus ; e-mail de confirmation au propriétaire. Aucun secret ne sort : ni mot de passe, ni session, ni clé d'API, ni secret de webhook, ni jeton de suivi des clients. Disponible même avec un abonnement terminé.
