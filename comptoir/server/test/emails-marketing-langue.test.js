@@ -52,5 +52,9 @@ test('newsletter et reconquête dans la langue du client', async () => {
     assert.ok(rq, 'reconquête en allemand');
     assert.equal(rq.sujet, 'Lange nicht gesehen, Ursula');
     assert.match(rq.corps, /-15 % mit dem Code RETOUR15/);
+    // « Mes commandes » : dans la langue de la dernière commande.
+    assert.equal((await publier(`/api/public/${slug}/mes-commandes`, { email: 'ursula@exemple.ch' })).status, 200);
+    const mc = db.prepare("SELECT sujet, corps FROM emails WHERE destinataire = 'ursula@exemple.ch' AND sujet LIKE 'Ihre Bestellungen%'").get();
+    assert.ok(mc, 'liste des commandes en allemand'); assert.match(mc.corps, /Nr\. \d+ vom .* \(geliefert\): http/);
   } finally { s.close(); }
 });

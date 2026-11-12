@@ -4,6 +4,7 @@
 'use strict';
 const T = {
   de: {
+    mesCommandes: s => `Ihre Bestellungen bei ${s}`, mesCommandesCorps: (s, l) => `Hier sind Ihre Bestellungen bei ${s}:\n\n${l}\n\nHaben Sie nichts angefordert? Dann ignorieren Sie diese E-Mail.`, statuts: { payee: 'bezahlt', preparation: 'in Vorbereitung', fournisseur: 'in Vorbereitung', expediee: 'versandt', livree: 'geliefert', prete: 'abholbereit', retiree: 'abgeholt', remboursee: 'erstattet' }, numero: 'Nr.', du: 'vom',
     pageOptin: ['Neuigkeiten der Boutique erhalten', e => `Bestätigen Sie die Anmeldung von ${e}.`, 'Anmeldung bestätigen', 'Erledigt', e => `${e} erhält ab jetzt die Neuigkeiten dieser Boutique. Sie können sich jederzeit über jede E-Mail abmelden.`],
     optin: s => `Bestätigen Sie Ihre Anmeldung bei ${s}`, optinCorps: (s, lien) => `Sie (oder jemand anderes) haben Neuigkeiten und Angebote von ${s} angefordert. Zur Bestätigung klicken Sie hier:\n${lien}\n\nWaren Sie das nicht? Dann ignorieren Sie diese E-Mail: Sie erhalten nichts weiter.`,
     bienvenue: s => `Willkommen bei ${s}`, bienvenueCorps: (r, c) => `Vielen Dank für Ihre Anmeldung.${r && c ? ` Hier sind -${r} % auf Ihre erste Bestellung mit dem Code ${c}.` : ''}`,
@@ -21,6 +22,7 @@ const T = {
     piedContact: 'Kontakt', piedCommande: s => `Sie erhalten diese E-Mail aufgrund Ihrer Bestellung bei ${s}. Um solche Nachrichten nicht mehr zu erhalten`, piedNouvelles: s => `Sie erhalten diese E-Mail, weil Sie Neuigkeiten von ${s} abonniert haben. Zum Abbestellen`,
     legal: 'Rechtliche Hinweise (auf Französisch, massgebende Fassung):', dateLocale: 'de-CH' },
   it: {
+    mesCommandes: s => `I tuoi ordini presso ${s}`, mesCommandesCorps: (s, l) => `Ecco i tuoi ordini presso ${s}:\n\n${l}\n\nNon hai chiesto nulla? Ignora questa e-mail.`, statuts: { payee: 'pagato', preparation: 'in preparazione', fournisseur: 'in preparazione', expediee: 'spedito', livree: 'consegnato', prete: 'pronto per il ritiro', retiree: 'ritirato', remboursee: 'rimborsato' }, numero: 'n.', du: 'del',
     pageOptin: ['Ricevere le novità del negozio', e => `Conferma l’iscrizione di ${e}.`, 'Conferma l’iscrizione', 'Fatto', e => `${e} riceverà d’ora in poi le novità di questo negozio. Puoi annullare l’iscrizione in qualsiasi momento da ogni e-mail.`],
     optin: s => `Conferma la tua iscrizione presso ${s}`, optinCorps: (s, lien) => `Tu (o qualcun altro) hai chiesto di ricevere le novità e le offerte di ${s}. Per confermare, clicca qui:\n${lien}\n\nNon sei stato tu? Ignora questa e-mail: non riceverai nient’altro.`,
     bienvenue: s => `Benvenuto da ${s}`, bienvenueCorps: (r, c) => `Grazie per la tua iscrizione.${r && c ? ` Ecco -${r} % sul tuo primo ordine con il codice ${c}.` : ''}`,
@@ -38,6 +40,7 @@ const T = {
     piedContact: 'Contatto', piedCommande: s => `Ricevi questa e-mail in seguito al tuo ordine presso ${s}. Per non ricevere più questo tipo di messaggi`, piedNouvelles: s => `Ricevi questa e-mail perché hai accettato le novità di ${s}. Per non riceverle più`,
     legal: 'Informazioni legali (in francese, versione che fa fede):', dateLocale: 'it-CH' },
   en: {
+    mesCommandes: s => `Your orders at ${s}`, mesCommandesCorps: (s, l) => `Here are your orders at ${s}:\n\n${l}\n\nDidn’t ask for this? Just ignore this email.`, statuts: { payee: 'paid', preparation: 'being prepared', fournisseur: 'being prepared', expediee: 'shipped', livree: 'delivered', prete: 'ready for pickup', retiree: 'picked up', remboursee: 'refunded' }, numero: 'no.', du: 'of',
     pageOptin: ['Get news from the shop', e => `Confirm the sign-up of ${e}.`, 'Confirm sign-up', 'Done', e => `${e} will now receive news from this shop. You can unsubscribe at any time from any email.`],
     optin: s => `Confirm your sign-up at ${s}`, optinCorps: (s, lien) => `You (or someone else) asked to receive news and offers from ${s}. To confirm, click here:\n${lien}\n\nNot you? Just ignore this email: you will not receive anything else.`,
     bienvenue: s => `Welcome to ${s}`, bienvenueCorps: (r, c) => `Thank you for signing up.${r && c ? ` Here is ${r}% off your first order with the code ${c}.` : ''}`,
@@ -104,6 +107,12 @@ const PAGES = {
     dejaDesinscrit: ['You are already unsubscribed', (e, n) => `${e} no longer receives news and offers from ${n}.`], desinscrit: ['Done', e => `${e} will no longer receive marketing emails from this shop.`] }
 };
 const pages = langue => PAGES[lng(langue) || 'fr'];
+/* Liste des commandes d'une adresse (« Mes commandes ») ; commandes : [{ numero, date, statut, lien }]. */
+function mesCommandes(langue, o) {
+  const l = lng(langue), t = l && T[l]; if (!t) return null;
+  const lignes = o.commandes.map(c => `- ${t.numero} ${c.numero} ${t.du} ${new Date(c.date).toLocaleDateString(t.dateLocale)} (${t.statuts[c.statut] || c.statut}): ${c.lien}`).join('\n');
+  return { sujet: t.mesCommandes(o.nomBoutique), corps: `${t.salut},\n\n${t.mesCommandesCorps(o.nomBoutique, lignes)}\n\n${o.nomBoutique}` };
+}
 const avecLangue = (url, c) => langueDe(c) ? `${url}${url.includes('?') ? '&' : '?'}lang=${c.langue}` : url;
 const textesPied = langue => lng(langue) ? { contact: T[langue].piedContact, commande: T[langue].piedCommande, nouvelles: T[langue].piedNouvelles } : null;
-module.exports = { pages, pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };
+module.exports = { mesCommandes, pages, pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };

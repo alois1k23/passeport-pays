@@ -2151,6 +2151,10 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     // Compté seulement quand un e-mail part : des demandes pour une adresse sans commande n'épuisent pas celles du vrai client.
     try { auth.limiter(`mes-commandes-adresse:${b.id}|${email}`, 3, 86400000, ''); } catch { return { ok: true }; }
     const config = lireConfig(b), libelles = { payee: 'payée', preparation: 'en préparation', fournisseur: 'en préparation', expediee: 'expédiée', livree: 'livrée', prete: 'prête à retirer', retiree: 'retirée', remboursee: 'remboursée' };
+    // Langue de la commande la plus récente : la liste part dans la langue où le client a commandé.
+    const langue = (() => { try { return JSON.parse(rows[0].donnees).langue || null; } catch { return null; } })();
+    const traduit = EmailsClients.mesCommandes(langue, { nomBoutique: config.boutique.nom, commandes: rows.map(r2 => ({ numero: r2.numero, date: r2.date, statut: r2.statut, lien: lienCommande(b, r2.id) })) });
+    if (traduit) { envoyerEmail(b.id, email, traduit.sujet, traduit.corps, { langue }); return { ok: true }; }
     envoyerEmail(b.id, email, `Vos commandes chez ${config.boutique.nom}`, `Bonjour,\n\nVoici vos commandes chez ${config.boutique.nom} :\n\n${rows.map(r2 => `- n° ${r2.numero} du ${new Date(r2.date).toLocaleDateString('fr-CH')} (${libelles[r2.statut] || r2.statut}) : ${lienCommande(b, r2.id)}`).join('\n')}\n\nVous n'avez rien demandé ? Ignorez cet e-mail.\n\n${config.boutique.nom}`);
     return { ok: true };
   });

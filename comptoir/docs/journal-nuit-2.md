@@ -607,3 +607,7 @@ Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 30
 
 - Simulation de 60 jours (100 marchands, 8 502 commandes) avec le contrôle du journal inaltérable chez chaque marchand : **0 anomalie**, aucun sceau cassé par une opération normale (remboursements, effacements de clients, comptes supprimés, relances), aucune erreur serveur, temps de réponse p95 de 7 ms.
 - Démo (artefact) republiée, version 20.
+
+## Cycle 45 (03 h 25) : « Mes commandes » traduit
+
+- L'e-mail « Mes commandes » (liens de suivi envoyés à l'adresse du client) part dans la langue de sa commande la plus récente, statuts et dates compris. Test ajouté, 108 tests sur 108.
