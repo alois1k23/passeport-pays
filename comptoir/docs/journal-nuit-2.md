@@ -786,3 +786,13 @@ Notés, sans changement cette nuit :
 - Une vente de caisse hors ligne peut être datée jusqu'à 30 jours en arrière ; le sceau garde l'heure réelle d'enregistrement.
 
 118 tests sur 118, bout en bout 51 sur 51.
+
+### Cycle 63 (04 h 55) : corrections de la revue n° 16 (récupération différée)
+
+Relecture de la récupération différée, sous l'angle de l'attaquant qui contrôle la boîte e-mail :
+- **Faille fermée** : une récupération en attente s'appliquait quand même si le propriétaire avait changé son mot de passe ou désactivé l'option entre-temps (précisément ce que l'e-mail lui conseillait de faire). La demande tombe désormais dès que le propriétaire agit : connexion avec sa clé, mot de passe changé, option ou double authentification modifiée. À l'échéance, elle n'est appliquée que si rien n'a changé depuis.
+- **Double authentification active** : la boîte e-mail seule ne supprime plus les clés tout de suite. Le même délai de 72 heures s'applique.
+- **Visibilité** : l'alerte apparaît dans la liste « À faire » du tableau de bord, pas seulement dans Sécurité. Une connexion avec sa clé annule la demande automatiquement.
+- **Aucun indice pour l'attaquant** : plus d'e-mail ni de limite propre quand le bon mot de passe est essayé depuis un appareil inconnu (la réponse est celle d'un mauvais mot de passe). La tentative est notée au journal du compte et comptée dans le bilan de sécurité. Le message d'erreur rappelle à tous de se connecter avec sa clé d'accès si le compte en utilise une.
+- Une nouvelle demande ne repousse plus l'échéance ; les textes d'aide et les e-mails mentionnent le délai.
+- Tests ajoutés : annulation par changement de mot de passe, non-application si la situation a changé. 118 tests sur 118, bout en bout 51 sur 51.

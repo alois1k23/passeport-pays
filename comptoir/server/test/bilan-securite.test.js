@@ -27,7 +27,7 @@ test('bilan de sécurité', async () => {
     db.prepare('INSERT INTO sessions (jeton_hash, marchand_id, expire_le, cree_le, vu_le) VALUES (?, ?, ?, ?, ?)').run('x'.repeat(64), mid, Date.now() + 86400000, Date.now() - 60 * 86400000, Date.now() - 45 * 86400000);
     db.prepare("INSERT INTO cles_api (id, boutique_id, nom, prefixe, empreinte, portees, cree_le, utilisee_le, revoquee) VALUES ('k', ?, 'Compta', 'ct_', 'e', '[]', ?, NULL, 0)").run(bid, Date.now() - 120 * 86400000);
     b = (await c('GET', '/api/admin/compte/securite')).j.bilan;
-    assert.match(titre(b, 'Aucune tentative suspecte').detail, /2 codes .* faux cette semaine/);
+    assert.match(titre(b, 'Aucune tentative suspecte').detail, /2 tentatives avec votre bon mot de passe cette semaine/);
     assert.match(titre(b, 'Appareils inactifs déconnectés').detail, /1 appareil sans activité depuis plus de 30 jours/);
     assert.match(titre(b, 'Clés d’API utilisées').detail, /Compta/);
     assert.equal(titre(b, 'Clés d’API utilisées').cible, 'integrations');

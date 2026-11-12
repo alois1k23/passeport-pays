@@ -43,7 +43,8 @@ test('exiger la clé d’accès', async () => {
     assert.equal(r.s, 403); assert.equal(r.j.code, 'cle_requise');
     cookie = appareil;
     assert.equal((await c('POST', '/api/auth/connexion', { email: 'cs@exemple.ch', motDePasse: mdp })).s, 403);
-    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet = 'Connexion par mot de passe refusée sur votre compte Comptoir'").get().n, 1);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet = 'Connexion par mot de passe refusée sur votre compte Comptoir'").get().n, 0, 'aucun e-mail : rien ne confirme le bon mot de passe à qui lit la boîte');
+    assert.ok(db.prepare("SELECT 1 FROM journal_compte WHERE type = 'mdp-refuse-cle-seule'").get(), 'noté au journal du compte');
     assert.equal((await c('POST', '/api/auth/connexion', { email: 'cs@exemple.ch', motDePasse: 'faux mot de passe' })).s, 401, 'mauvais mot de passe : erreur habituelle');
     for (let i = 0; i < 9; i++) await c('POST', '/api/auth/connexion', { email: 'cs@exemple.ch', motDePasse: mdp });
     assert.equal((await c('POST', '/api/auth/connexion', { email: 'cs@exemple.ch', motDePasse: mdp })).s, 429, 'essais limités');
@@ -70,6 +71,18 @@ test('exiger la clé d’accès', async () => {
     assert.deepEqual((await c('POST', '/api/admin/compte/recuperation/annuler', {})).j, { annulee: true });
     gerer.automatisationsEcheances(Date.now() + 73 * 3600000);
     assert.equal(db.prepare('SELECT cle_seule FROM marchands WHERE id = ?').get(mid).cle_seule, 1, 'annulée : rien n’a changé');
+    // Le propriétaire change son mot de passe pendant le délai : la demande tombe.
+    await reinit();
+    cookie = `comptoir_session=${jetonSession}`;
+    assert.equal((await c('POST', '/api/admin/compte/mot-de-passe', { actuel: mdp, nouveau: 'mot de passe du propriétaire' })).s, 200);
+    assert.ok(!db.prepare('SELECT 1 FROM recuperations_differees').get(), 'annulée par le changement de mot de passe');
+    // Mot de passe changé autrement (hors route) : à l'échéance, rien n'est appliqué.
+    await reinit();
+    const hashActuel = db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(mid).mot_de_passe;
+    db.prepare("UPDATE marchands SET mot_de_passe = 'autre' WHERE id = ?").run(mid);
+    gerer.automatisationsEcheances(Date.now() + 73 * 3600000);
+    assert.equal(db.prepare('SELECT cle_seule FROM marchands WHERE id = ?').get(mid).cle_seule, 1, 'situation changée : non appliquée');
+    db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashActuel, mid);
     // Nouvelle demande, non annulée : appliquée au bout de 72 heures.
     r2 = await reinit(); assert.ok(r2.j.differe);
     gerer.automatisationsEcheances(Date.now() + 73 * 3600000);
