@@ -315,7 +315,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Tests : vecteur RFC, abonnement refusé vers un service inconnu, commande payée → message chiffré envoyé, signature VAPID vérifiée, message déchiffré comme par le téléphone. 93 tests sur 93.
 - **Limite honnête** : l'envoi vers un vrai service push (Google ou Apple) n'a pas pu être essayé ici, faute d'accès réseau à ces services. À vérifier avec un vrai téléphone après la mise en ligne. Sur iPhone, Comptoir doit d'abord être ajouté à l'écran d'accueil.
 
-## Cycle 19 (01 h 35) : lien de panier (vente par WhatsApp, Instagram, SMS)
+## Cycle 19 (01 h 30) : lien de panier (vente par WhatsApp, Instagram, SMS)
 
 - Nouveau bouton « Lien de panier » dans Produits. Le marchand choisit les produits, les quantités et éventuellement un code promo. Il obtient un lien à copier, à envoyer par WhatsApp ou par e-mail, ou à montrer en QR code (au marché, en vitrine).
 - Le client arrive sur la boutique avec ce panier prêt, le code appliqué et le tiroir ouvert, puis paie comme d'habitude. L'adresse est nettoyée après lecture.
