@@ -382,7 +382,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Chaque version (`?lang=de`) est sa propre page canonique, comme le demande Google pour que `hreflang` soit pris en compte.
 - Vérifié : la page de la boutique contient les bonnes balises. Tests : 94 sur 94.
 
-## Cycle 25 (02 h 20) : équipe (comptes collaborateurs)
+## Cycle 25 (01 h 55) : équipe (comptes collaborateurs)
 
 - Le propriétaire invite jusqu'à 5 collaborateurs par e-mail (Paramètres > Équipe), avec l'un de deux rôles :
   - **Commandes** : voir et préparer les commandes, les expédier, les transmettre au fournisseur, encaisser à la caisse. Ni remboursement, ni annulation, ni modification de la boutique. Son menu ne montre que Vue d'ensemble, Commandes, Clients, Magasin et Paramètres (E-mails, Sécurité).
