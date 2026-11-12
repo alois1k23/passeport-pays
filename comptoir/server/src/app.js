@@ -251,6 +251,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const d = JSON.parse(p.donnees);
       // Variante : son stock bouge, et le stock du produit reste la somme des variantes.
       const v = l.varianteId && Array.isArray(d.variantes) ? d.variantes.find(x => x.id === l.varianteId) : null;
+      if (l.varianteId && Array.isArray(d.variantes) && !v) { if (sens < 0) l.retireStock = 0; continue; }   // variante supprimée depuis : rien à rendre ni à retirer, la somme reste juste
       if (v) {
         if (sens < 0) { const retire = Math.min(l.qte, Math.max(0, v.stock || 0)); l.retireStock = retire; v.stock = (v.stock || 0) - retire; }
         else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; v.stock = (v.stock || 0) + remis; l.retireStock = 0; }
@@ -477,14 +478,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Variantes (produits en stock) : 2 options au plus (ex. Taille × Couleur), 20 valeurs chacune, 60 combinaisons.
     // L'identifiant d'une variante est sa combinaison (« M/Bleu ») ; le stock du produit est la somme des variantes.
     if (type === 'stock' && Array.isArray(p.options) && p.options.length) {
-      const options = p.options.slice(0, 2).map(o => ({ nom: String(o && o.nom || '').trim().slice(0, 30), valeurs: [...new Set((Array.isArray(o && o.valeurs) ? o.valeurs : []).map(v => String(v).replace(/[\/|]/g, '-').trim().slice(0, 30)).filter(Boolean))].slice(0, 20) })).filter(o => o.nom && o.valeurs.length);
+      const options = p.options.slice(0, 2).map(o => ({ nom: String(o && o.nom || '').trim().slice(0, 30), valeurs: [...new Set((Array.isArray(o && o.valeurs) ? o.valeurs : []).map(v => String(v).replace(/[\/|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 30)).filter(Boolean))].slice(0, 20) })).filter(o => o.nom && o.valeurs.length);
       if (options.length) {
         const combis = options.reduce((acc, o) => acc.flatMap(a => o.valeurs.map(v => [...a, v])), [[]]);
         if (combis.length > 60) throw erreur(400, '60 variantes au plus par produit.', 'trop_de_variantes');
         const avant = Array.isArray(p.variantes) ? p.variantes : [];
         propre.options = options;
         propre.variantes = combis.map(valeurs => {
-          const id = valeurs.join('/'), v = avant.find(x => x && x.id === id) || {};
+          const id = valeurs.join('/'), memePosition = avant.length === combis.length ? avant[combis.indexOf(valeurs)] : null;
+          const v = avant.find(x => x && x.id === id) || (memePosition && !combis.some(c2 => c2.join('/') === memePosition.id) ? memePosition : null) || {};   // valeur renommée : stock gardé
           const prixV = v.prix !== undefined && v.prix !== null && v.prix !== '' ? prix.arrondi(valider.nombre(v.prix, 'Le prix de la variante', { min: 0, max: 100000 })) : null;
           return { id, valeurs, stock: valider.entier(v.stock ?? 0, 'Le stock de la variante', { min: 0, max: 1e6 }), ...(prixV !== null ? { prix: prixV } : {}) };
         });
@@ -595,7 +597,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     historique(c, texte);
     // Stock : la vente est faite (le client a payé), mais une rupture est signalée au lieu d'être cachée.
     const prods = listerProduits(row.boutique_id);
-    const manques = c.lignes.filter(l => l.type !== 'drop').map(l => ({ l, p: prods.find(x => x.id === l.produitId) })).filter(x => x.p && x.p.type !== 'drop' && x.p.stock < c.lignes.filter(y => y.produitId === x.l.produitId).reduce((a, y) => a + y.qte, 0));
+    const manques = c.lignes.filter(l => l.type !== 'drop').map(l => ({ l, p: prods.find(x => x.id === l.produitId) })).filter(x => {
+      if (!x.p || x.p.type === 'drop') return false;
+      const v = x.l.varianteId && Array.isArray(x.p.variantes) ? x.p.variantes.find(y => y.id === x.l.varianteId) : null;   // variante : son propre stock
+      return v ? v.stock < c.lignes.filter(y => y.produitId === x.l.produitId && y.varianteId === x.l.varianteId).reduce((a, y) => a + y.qte, 0)
+        : x.p.stock < c.lignes.filter(y => y.produitId === x.l.produitId).reduce((a, y) => a + y.qte, 0);
+    });
     if (manques.length) { c.alerteStock = true; historique(c, `Rupture de stock au paiement : ${[...new Set(manques.map(x => x.p.nom))].join(', ')}. Réapprovisionnez ou remboursez.`); }
     ajusterStock(row.boutique_id, c.lignes, -1);
     enregistrerCommande(c);
@@ -1040,14 +1047,26 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.get('/operateur', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     const df = m && deuxFacteursDe(m.id);
-    const fort = m && ((df && df.actif) || db.prepare('SELECT 1 FROM cles_acces WHERE marchand_id = ?').get(m.id));
+    // Double authentification exigée (une clé d'accès seule laisserait la connexion par mot de passe sans second facteur)
+    const fort = m && df && df.actif;
     if (!m || !operateurs.includes(String(m.email).toLowerCase())) throw erreur(404, 'Page introuvable.', 'introuvable');   // n'existe pas pour les autres
-    if (!fort) return { html: pageSimple('Console de l’exploitant', 'Activez d’abord la double authentification ou une clé d’accès sur ce compte (Paramètres > Sécurité) : la console donne une vue sur toute la plateforme.') };
+    if (!fort) return { html: pageSimple('Console de l’exploitant', 'Activez d’abord la double authentification (application de codes) sur ce compte, dans Paramètres > Sécurité : la console donne une vue sur toute la plateforme.') };
+    // Preuve que l'adresse appartient bien à l'exploitant (l'inscription ne vérifie pas l'e-mail) : lien unique reçu par e-mail.
+    const signature = crypto.createHmac('sha256', cleDesinscription).update(`operateur|${m.id}|${String(m.email).toLowerCase()}`).digest('base64url');
+    const cleVerif = `operateur:${m.id}`;
+    if (!db.prepare('SELECT 1 FROM cles WHERE nom = ? AND valeur = ?').get(cleVerif, String(m.email).toLowerCase())) {
+      if (ctx.query.get('verifier') && auth.egal(String(ctx.query.get('verifier')), signature)) db.prepare('INSERT OR REPLACE INTO cles (nom, valeur) VALUES (?, ?)').run(cleVerif, String(m.email).toLowerCase());
+      else {
+        try { auth.limiter('operateur-lien:' + m.id, 1, 3600000, ''); envoyerEmail(null, m.email, 'Console Comptoir : confirmez votre adresse', `Bonjour,\n\nPour ouvrir la console de l'exploitant, confirmez que cette adresse est bien la vôtre (connecté sur le même navigateur) :\n${urlPublique}/operateur?verifier=${signature}\n\nVous n'avez rien demandé ? Changez le mot de passe de ce compte.\n\nComptoir`); } catch { /* lien déjà envoyé il y a moins d'une heure */ }
+        return { html: pageSimple('Console de l’exploitant', 'Un lien de confirmation vient d’être envoyé à l’adresse de ce compte. Ouvrez-le dans ce navigateur pour accéder à la console.') };
+      }
+    }
     const n = (sql, ...a) => db.prepare(sql).get(...a).n;
     const j = 86400000, maintenant = Date.now();
     const abos = db.prepare("SELECT formule, devise, COUNT(*) n FROM abonnements WHERE statut = 'actif' GROUP BY formule, devise").all();
     const mrr = {}; for (const a of abos) mrr[a.devise] = (mrr[a.devise] || 0) + a.n * ((Formules.FORMULES[a.formule] || {}).prix || 0);
-    const ventes = d => db.prepare("SELECT COUNT(*) n, COALESCE(SUM(json_extract(donnees, '$.total')), 0) t FROM commandes WHERE date > ? AND statut NOT IN ('attente', 'annulee')").get(maintenant - d * j);
+    const ventes = d => db.prepare("SELECT COUNT(*) n, COALESCE(SUM(json_extract(donnees, '$.total')), 0) t FROM commandes WHERE date > ? AND statut NOT IN ('attente', 'annulee', 'remboursee')").get(maintenant - d * j);
+    const volumeParDevise = db.prepare("SELECT COALESCE(json_extract(b.config, '$.boutique.devise'), 'EUR') AS devise, SUM(json_extract(c.donnees, '$.total')) AS t FROM commandes c JOIN boutiques b ON b.id = c.boutique_id WHERE c.date > ? AND c.statut NOT IN ('attente', 'annulee', 'remboursee') GROUP BY devise").all(maintenant - 30 * j);
     const v1 = ventes(1), v7 = ventes(7), v30 = ventes(30);
     let sauvegarde = 'aucune';
     try {
@@ -1063,7 +1082,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       ['Revenu mensuel récurrent', Object.entries(mrr).map(([dv, x]) => `${dv} ${x.toLocaleString('fr-CH')}`).join(' · ') || '0'],
       ['Abonnements impayés', n("SELECT COUNT(*) n FROM abonnements WHERE statut = 'impaye'")],
       ['Commandes 24 h / 7 j / 30 j', `${v1.n} / ${v7.n} / ${v30.n}`],
-      ['Volume vendu par les boutiques (30 j)', Math.round(v30.t).toLocaleString('fr-CH')],
+      ['Volume vendu par les boutiques (30 j, hors remboursements)', volumeParDevise.map(x => `${x.devise} ${Math.round(x.t).toLocaleString('fr-CH')}`).join(' · ') || '0'],
       ['E-mails en file / abandonnés', `${n('SELECT COUNT(*) n FROM emails WHERE envoye = 0 AND tentatives < 12')} / ${n('SELECT COUNT(*) n FROM emails WHERE envoye = 0 AND tentatives >= 12')}`],
       ['Webhooks en attente / en pause', `${n("SELECT COUNT(*) n FROM webhook_envois WHERE statut = 'attente'")} / ${n('SELECT COUNT(*) n FROM webhooks WHERE actif = 0')}`],
       ['Appareils avec notifications', n('SELECT COUNT(*) n FROM abonnements_push')],
@@ -1347,7 +1366,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!ancien) throw erreur(404, 'Produit introuvable.', 'produit_introuvable');
     const avant = JSON.parse(ancien.donnees);
     // Les données fournisseur ne se modifient pas depuis l'interface.
-    const fusion = { ...ctx.corps.produit, type: avant.type, source: avant.source, fournisseur: avant.fournisseur, entrepot: avant.entrepot, delai: avant.delai, portF: avant.portF, codeFournisseur: avant.codeFournisseur };
+    const recu = ctx.corps.produit || {};
+    // Stock : seul un stock saisi dans la fiche remplace celui en base (sinon les ventes faites pendant l'édition seraient effacées).
+    if (!recu.stockSaisi) recu.stock = avant.stock;
+    if (Array.isArray(recu.variantes) && Array.isArray(avant.variantes)) recu.variantes = recu.variantes.map(v => v && v.stockSaisi ? v : { ...v, stock: (avant.variantes.find(x => x.id === (v && v.id)) || v || {}).stock });
+    const fusion = { ...recu, type: avant.type, source: avant.source, fournisseur: avant.fournisseur, entrepot: avant.entrepot, delai: avant.delai, portF: avant.portF, codeFournisseur: avant.codeFournisseur };
     // Photo inchangée (renvoyée telle quelle par le navigateur) : celle enregistrée reste.
     if (avant.image === IMG && fusion.image === imageDe(ctx.params.id)) fusion.image = IMG;
     db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id);
@@ -1999,7 +2022,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const config = configVente(b);
     const r = Remises.regleApplicable(config, c.lignes, 'apres');
     if (!r) return null;
-    const p = listerProduits(b.id).find(x => x.id === r.alors && vendable(x) && (x.type === 'drop' || x.stock > 0));
+    const p = listerProduits(b.id).find(x => x.id === r.alors && vendable(x) && !(Array.isArray(x.variantes) && x.variantes.length) && (x.type === 'drop' || x.stock > 0));   // un produit à variantes se choisit sur sa fiche
     return p ? { regle: r.id, produitId: p.id, nom: p.nom, prix: p.prix, prixOffre: prix.arrondi(p.prix * (1 - r.remise / 100)), remise: r.remise, teinte: p.teinte, image: p.image === IMG ? `/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : p.image || null } : null;
   }
   const verifierJeton = (row, jeton) => row && auth.egal(jeton || '', row.jeton_client);
@@ -2224,7 +2247,8 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (c.retour) throw erreur(409, 'Un retour est déjà demandé pour cette commande.', 'retour_existant');
     if (delaiRetour(b, c) <= Date.now()) throw erreur(409, 'Le délai de retour de cette commande est dépassé.', 'retour_hors_delai');
     const voulus = Array.isArray(ctx.corps.lignes) ? ctx.corps.lignes : [];
-    const lignes = c.lignes.map(l => { const v = voulus.find(x => x && x.produitId === l.produitId); const q = v ? Math.max(0, Math.min(l.qte, parseInt(v.qte, 10) || 0)) : 0; return q ? { produitId: l.produitId, nom: l.nom, qte: q, prix: l.prix } : null; }).filter(Boolean);
+    // Chaque ligne repérée par sa position (deux tailles du même produit sont deux lignes distinctes)
+    const lignes = c.lignes.map((l, i) => { const v = voulus.find(x => x && Number(x.ligne) === i); const q = v ? Math.max(0, Math.min(l.qte, parseInt(v.qte, 10) || 0)) : 0; return q ? { produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: q, prix: l.prix } : null; }).filter(Boolean);
     if (!lignes.length) throw erreur(400, 'Choisissez au moins un article à retourner.', 'retour_vide');
     const motif = String(ctx.corps.motif || '').trim().slice(0, 500);
     c.retour = { date: Date.now(), lignes, motif, statut: 'demande', montant: prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0)) };

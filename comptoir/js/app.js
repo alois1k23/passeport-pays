@@ -1332,12 +1332,14 @@ document.addEventListener('change', e => {
   ui.variantesOuvert = true;
   ui.brouillonOptions = { id: p.id, o: [0, 1].map(i => ({ nom: document.querySelector(`[data-opt-nom="${i}"]`)?.value || '', valeurs: document.querySelector(`[data-opt-valeurs="${i}"]`)?.value || '' })) };
 
-  const options = [0, 1].map(i => ({ nom: (document.querySelector(`[data-opt-nom="${i}"]`)?.value || '').trim().slice(0, 30), valeurs: [...new Set((document.querySelector(`[data-opt-valeurs="${i}"]`)?.value || '').split(',').map(v => v.replace(/[\/|]/g, '-').trim()).filter(Boolean))].slice(0, 20) })).filter(o => o.nom && o.valeurs.length);
+  const options = [0, 1].map(i => ({ nom: (document.querySelector(`[data-opt-nom="${i}"]`)?.value || '').trim().slice(0, 30), valeurs: [...new Set((document.querySelector(`[data-opt-valeurs="${i}"]`)?.value || '').split(',').map(v => v.replace(/[\/|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 30)).filter(Boolean))].slice(0, 20) })).filter(o => o.nom && o.valeurs.length);
   const combis = combinaisons(options);
   if (combis.length > 60) { toast('60 variantes au plus par produit.'); return; }
   const avant = p.variantes || [];
   p.options = options;
-  p.variantes = combis.map(valeurs => { const id = valeurs.join('/'), v = avant.find(x => x.id === id); return { id, valeurs, stock: v ? v.stock : 0, ...(v && v.prix !== undefined && v.prix !== null && v.prix !== '' ? { prix: v.prix } : {}) }; });
+  // Valeur renommée (même nombre de combinaisons) : stock et prix repris à la même position
+  const ids = combis.map(c => c.join('/'));
+  p.variantes = combis.map((valeurs, i) => { const id = valeurs.join('/'); const v = avant.find(x => x.id === id) || (avant.length === combis.length && avant[i] && !ids.includes(avant[i].id) ? { ...avant[i], stockSaisi: true } : null); return { id, valeurs, stock: v ? v.stock : 0, ...(v && v.stockSaisi ? { stockSaisi: true } : {}), ...(v && v.prix !== undefined && v.prix !== null && v.prix !== '' ? { prix: v.prix } : {}) }; });
   if (!p.variantes.length) { delete p.options; delete p.variantes; }
   else p.stock = p.variantes.reduce((a, v) => a + (Number(v.stock) || 0), 0);
   // Ce qui est déjà saisi dans la fiche (nom, prix…) est gardé avant le nouvel affichage
@@ -1353,8 +1355,11 @@ document.addEventListener('change', e => {
 document.addEventListener('input', e => {
   const s = e.target.closest('[data-var-stock]'), pr = e.target.closest('[data-var-prix]'); if ((!s && !pr) || !ui.produitEdite) return;
   const p = ui.produitEdite, v = (p.variantes || []).find(x => x.id === (s ? s.dataset.varStock : pr.dataset.varPrix)); if (!v) return;
-  if (s) v.stock = Math.max(0, parseInt(s.value, 10) || 0);
+  if (s) { v.stock = Math.max(0, parseInt(s.value, 10) || 0); v.stockSaisi = true; }   // saisi par le marchand : remplace le stock en base
   else if (pr.value === '') delete v.prix; else v.prix = Math.max(0, Number(pr.value) || 0);
   p.stock = p.variantes.reduce((a, x) => a + (Number(x.stock) || 0), 0);
   const total = document.getElementById('pf-stock'); if (total) total.value = p.stock;
 });
+
+// Stock saisi à la main dans la fiche : seul ce cas remplace le stock en base (les ventes faites pendant l'édition restent comptées).
+document.addEventListener('input', e => { if (e.target.id === 'pf-stock' && ui.produitEdite && !e.target.readOnly) ui.produitEdite.stockSaisi = true; });

@@ -24,7 +24,7 @@ test('demande de retour de bout en bout', async () => {
     const fr = await boutique('fr@exemple.fr', 'fr', {});
     const suivi = await fetch(`${base}/api/public/${fr.slug}/commandes/${fr.cmd.commandeId}?jeton=${fr.cmd.jeton}`).then(r => r.json());
     assert.equal(suivi.retourPossible, true, 'France : rétractation 14 jours');
-    const demande = { jeton: fr.cmd.jeton, lignes: [{ produitId: fr.pub.produits[0].id, qte: 1 }], motif: 'Trop petit' };
+    const demande = { jeton: fr.cmd.jeton, lignes: [{ ligne: JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(fr.cmd.commandeId).donnees).lignes.findIndex(l => l.produitId === fr.pub.produits[0].id), qte: 1 }], motif: 'Trop petit' };
     assert.equal((await fetch(`${base}/api/public/${fr.slug}/commandes/${fr.cmd.commandeId}/retour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...demande, jeton: 'faux' }) })).status, 404);
     assert.equal((await fetch(`${base}/api/public/${fr.slug}/commandes/${fr.cmd.commandeId}/retour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(demande) })).status, 201);
     assert.equal((await fetch(`${base}/api/public/${fr.slug}/commandes/${fr.cmd.commandeId}/retour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(demande) })).status, 409, 'une seule demande');
@@ -41,7 +41,7 @@ test('demande de retour de bout en bout', async () => {
     const ch = await boutique('ch@exemple.ch', 'ch', {});
     const s2 = await fetch(`${base}/api/public/${ch.slug}/commandes/${ch.cmd.commandeId}?jeton=${ch.cmd.jeton}`).then(r => r.json());
     assert.equal(s2.retourPossible, false, 'Suisse : pas de droit de rétractation général');
-    assert.equal((await fetch(`${base}/api/public/${ch.slug}/commandes/${ch.cmd.commandeId}/retour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton: ch.cmd.jeton, lignes: [{ produitId: ch.pub.produits[0].id, qte: 1 }] }) })).status, 409);
+    assert.equal((await fetch(`${base}/api/public/${ch.slug}/commandes/${ch.cmd.commandeId}/retour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton: ch.cmd.jeton, lignes: [{ ligne: 0, qte: 1 }] }) })).status, 409);
   } finally { s.close(); }
 });
 

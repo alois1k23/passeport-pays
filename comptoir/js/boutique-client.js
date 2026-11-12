@@ -169,7 +169,7 @@ function rendreBrut() {
         ${vue.message ? vue.message : vue.panier.length ? `
           <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span data-sans-traduction>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
             <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span data-sans-traduction>${esc(l.nom)}</span>
-            <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId); return pr && l.qte >= (pr.type === 'drop' ? 20 : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
+            <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId), vr = pr && l.varianteId && aVariantes(pr) ? pr.variantes.find(x => x.id === l.varianteId) : null; return pr && l.qte >= (pr.type === 'drop' ? 20 : vr ? vr.stock : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
             <span class="num">${euros(l.prixInitial * l.qte)}</span></li>`).join('')}</ul>
           ${donnees.offres.barrePort && seuil > 0 && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuil * 100)}%"></i></span></div>` : ''}
           ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
@@ -269,7 +269,7 @@ async function suivreCommande(id, jeton, annule) {
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
         ${c.retour ? `<p class="encart">Retour demandé le ${new Date(c.retour.date).toLocaleDateString('fr-CH')}${c.retour.statut === 'rembourse' ? ' : remboursé.' : ' : renvoyez les articles à l’adresse reçue par e-mail.'}</p>` : c.retourPossible ? `<details class="retour-client"><summary>Demander un retour</summary><form data-retour="${esc(id)}" data-jeton="${esc(jeton)}">
-          ${c.lignes.map(l => `<label class="champ"><span data-sans-traduction>${esc(l.nom)}</span><select name="q-${esc(l.produitId)}" aria-label="Quantité à retourner : ${esc(l.nom)}">${Array.from({ length: l.qte + 1 }, (_, n) => `<option value="${n}">${n}</option>`).join('')}</select></label>`).join('')}
+          ${c.lignes.map((l, i) => `<label class="champ"><span data-sans-traduction>${esc(l.nom)}</span><select name="q-${i}" aria-label="Quantité à retourner : ${esc(l.nom)}">${Array.from({ length: l.qte + 1 }, (_, n) => `<option value="${n}">${n}</option>`).join('')}</select></label>`).join('')}
           <label class="champ"><span>Motif (facultatif)</span><textarea name="motif" maxlength="500" rows="2"></textarea></label>
           <button class="sf-btn">Envoyer la demande de retour</button></form></details>` : ''}
         <button class="sf-btn plein" data-c="fermer">Continuer mes achats</button></div>
@@ -485,7 +485,7 @@ document.addEventListener('compositionend', e => { const champ = e.target.closes
 document.addEventListener('submit', async e => {
   const f = e.target.closest('[data-retour]'); if (!f) return;
   e.preventDefault();
-  const d = new FormData(f), lignes = [...d].filter(([k]) => k.startsWith('q-')).map(([k, v]) => ({ produitId: k.slice(2), qte: Number(v) })).filter(x => x.qte > 0);
+  const d = new FormData(f), lignes = [...d].filter(([k]) => k.startsWith('q-')).map(([k, v]) => ({ ligne: Number(k.slice(2)), qte: Number(v) })).filter(x => x.qte > 0);
   const bouton = f.querySelector('button'); bouton.disabled = true;
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(f.dataset.retour)}/retour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton: f.dataset.jeton, lignes, motif: d.get('motif') }) });

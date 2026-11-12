@@ -480,3 +480,22 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Nouveau lien « Mes commandes » au pied de chaque boutique. Le client saisit son e-mail et reçoit les liens de suivi de ses commandes des 12 derniers mois.
 - Pas de compte à créer. La réponse est identique que l'adresse soit connue ou non, donc personne ne peut savoir qui est client. Les liens ne partent qu'à l'adresse elle-même. Limite de 3 demandes par jour et par adresse, et de 10 par heure et par réseau.
 - Traduit (allemand, italien, anglais). Testé. 99 tests sur 99.
+
+## Cycle 32 (02 h 45) : corrections de la revue des variantes, des retours et de la console
+
+- **Complément après achat** : il ne propose plus un produit à variantes. Avant, il l'ajoutait sans taille, au prix de base, et faussait le stock.
+- **Demande de retour** : les lignes sont repérées par leur position. Deux tailles du même produit ne se confondent plus (avant, retourner un S retournait aussi le L).
+- **Rupture au paiement** : la vérification se fait par variante. Le dernier M vendu deux fois est signalé.
+- **Variante supprimée** : un remboursement ultérieur ne fausse plus le stock total. Une valeur renommée (« Noir » devient « Noir mat ») garde son stock.
+- **Modification d'une fiche** : le stock enregistré entre-temps (ventes faites pendant l'édition) n'est plus écrasé. Seul un stock saisi à la main remplace celui en base. Cela concerne aussi les produits sans variantes.
+- **Éditeur** : valeurs coupées à 30 caractères et espaces normalisés, comme sur le serveur. Avant, le stock d'une valeur trop longue tombait à zéro.
+- **Boutique** :
+  - les listes de choix portent une valeur exacte (une valeur avec double espace s'achète) ;
+  - pas de prix barré quand les variantes ont leur propre prix ;
+  - les cartes affichent « dès CHF … » ;
+  - le bouton « + » du panier tient compte du stock de la variante.
+- **Console de l'exploitant** :
+  - double authentification (application de codes) exigée ;
+  - l'adresse doit être prouvée par un lien unique reçu par e-mail : quelqu'un qui aurait inscrit l'adresse de l'exploitant avant lui n'obtient rien ;
+  - le volume vendu est donné par devise, hors remboursements.
+- Tests ajoutés (stock préservé à la modification, stock saisi pris en compte, preuve d'adresse). 99 tests sur 99. Parcours des variantes revérifié dans un vrai navigateur.

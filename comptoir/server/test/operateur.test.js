@@ -24,6 +24,10 @@ test('santé et console de l’exploitant', async () => {
     assert.match((await op('GET', '/operateur')).t, /Activez d’abord la double authentification/);
     const prep = (await op('POST', '/api/admin/compte/2fa/preparer')).j;
     assert.equal((await op('POST', '/api/admin/compte/2fa/activer', { motDePasse: 'un mot de passe solide', code: totp.code(prep.secret, totp.pasActuel()) })).s, 200);
+    assert.match((await op('GET', '/operateur')).t, /lien de confirmation/, 'adresse à prouver');
+    const lien = /\/operateur\?verifier=[\w-]+/.exec(db.prepare("SELECT corps FROM emails WHERE destinataire = 'chef@comptoir.example' AND sujet LIKE 'Console%'").get().corps)[0];
+    assert.match((await op('GET', '/operateur?verifier=faux')).t, /lien de confirmation/, 'faux lien refusé');
+    await op('GET', lien);
     const page = await op('GET', '/operateur');
     assert.equal(page.s, 200); assert.match(page.t, /Comptes marchands/); assert.match(page.t, /Revenu mensuel récurrent/);
     assert.doesNotMatch(page.t, /marchand@exemple\.ch/, 'aucune adresse affichée');

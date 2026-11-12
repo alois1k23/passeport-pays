@@ -30,6 +30,16 @@ test('variantes de bout en bout', async () => {
     assert.equal(apres.variantes.find(v => v.id === 'M/Noir-Mat').stock, 0); assert.equal(apres.stock, 1, 'stock du produit recalculé');
     const ligne = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(cmd.j.commandeId).donnees).lignes[0];
     assert.equal(ligne.nom, 'T-shirt (M / Noir-Mat)'); assert.equal(ligne.varianteId, 'M/Noir-Mat'); assert.equal(ligne.prixInitial ?? ligne.prix, ligne.prixInitial ? 35 : ligne.prix, 'prix de la variante'); assert.ok([35, 33.25].includes(ligne.prix), 'prix de la variante (remise de volume éventuelle) : ' + ligne.prix);
+    // Fiche modifiée pendant une vente : le stock en base n'est pas écrasé, sauf saisie explicite
+    const prodAvant = JSON.parse(db.prepare('SELECT donnees FROM produits').get().donnees);
+    const pourPut = { ...prodAvant, nom: 'T-shirt bio', variantes: prodAvant.variantes.map(v => ({ ...v, stock: 9 })) };
+    assert.equal((await c('PUT', `/api/admin/produits/${p.id}`, { produit: pourPut })).s, 200);
+    let apresPut = JSON.parse(db.prepare('SELECT donnees FROM produits').get().donnees);
+    assert.equal(apresPut.nom, 'T-shirt bio'); assert.equal(apresPut.variantes.find(v => v.id === 'M/Noir-Mat').stock, 0, 'vente préservée');
+    pourPut.variantes = prodAvant.variantes.map(v => v.id === 'S/Blanc' ? { ...v, stock: 4, stockSaisi: true } : v);
+    await c('PUT', `/api/admin/produits/${p.id}`, { produit: pourPut });
+    apresPut = JSON.parse(db.prepare('SELECT donnees FROM produits').get().donnees);
+    assert.equal(apresPut.variantes.find(v => v.id === 'S/Blanc').stock, 4, 'stock saisi pris en compte'); assert.equal(apresPut.stock, 4);
     // API v1 : variantes exposées ; stock d'une variante mis à jour, stock global refusé
     assert.equal((await c('POST', '/api/abonnement/commencer', { formule: 'croissance' })).s < 500, true);
     const cle = (await c('POST', '/api/admin/integrations/cles', { nom: 'Entrepôt', portees: ['produits:lecture', 'produits:ecriture'] })).j.cle;
@@ -38,10 +48,10 @@ test('variantes de bout en bout', async () => {
     assert.equal(lp.j.donnees[0].variantes.length, 4);
     assert.equal((await api('PATCH', `/api/v1/produits/${p.id}`, { stock: 9 })).s, 400, 'stock global refusé sur un produit à variantes');
     const maj = await api('PATCH', `/api/v1/produits/${p.id}`, { variantes: [{ id: 'S/Noir-Mat', stock: 5 }] });
-    assert.equal(maj.s, 200, JSON.stringify(maj.j)); assert.equal(maj.j.variantes.find(v => v.id === 'S/Noir-Mat').stock, 5); assert.equal(maj.j.stock, 6, 'somme recalculée');
+    assert.equal(maj.s, 200, JSON.stringify(maj.j)); assert.equal(maj.j.variantes.find(v => v.id === 'S/Noir-Mat').stock, 5); assert.equal(maj.j.stock, 9, 'somme recalculée');
     // Remboursement : la variante retrouve son stock
     assert.equal((await c('POST', `/api/admin/commandes/${cmd.j.commandeId}/statut`, { statut: 'remboursee' })).s, 200);
     assert.equal(JSON.parse(db.prepare('SELECT donnees FROM produits').get().donnees).variantes.find(v => v.id === 'M/Noir-Mat').stock, 2);
-    assert.equal(JSON.parse(db.prepare('SELECT donnees FROM produits').get().donnees).stock, 8);
+    assert.equal(JSON.parse(db.prepare('SELECT donnees FROM produits').get().donnees).stock, 11);
   } finally { s.close(); }
 });
