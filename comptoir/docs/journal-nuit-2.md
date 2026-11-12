@@ -238,7 +238,7 @@ Le reste a été vérifié et jugé solide : WebAuthn conforme, signatures Strip
 
 Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anomalie. Tests : 88 sur 88.
 
-## Cycle 13 (01 h 20) : boutique en allemand, italien et anglais
+## Cycle 13 (01 h 05) : boutique en allemand, italien et anglais
 
 - Constat honnête : le marchand pouvait cocher « Deutsch », « Italiano » et « English » dans l'éditeur, mais la boutique les ignorait. C'est corrigé.
 - `js/traductions.js` traduit l'interface de la boutique : en-tête, boutons, panier, barre de livraison offerte, offres, modes de livraison et dates (« Lieferung zwischen Mo. 16. Nov. und Di. 17. Nov. »), formulaire de commande, paiement, facture QR, suivi de commande, avis, newsletter, bandeau cookies et messages d'erreur.
@@ -248,4 +248,5 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - **Principe** : correspondance exacte, puis modèles pour les phrases avec montants et dates. Un texte inconnu reste en français : rien n'est inventé.
 - L'éditeur explique précisément ce qui est traduit et ce qui ne l'est pas.
 - Vérifié dans un vrai navigateur, en allemand (navigateur `de-CH`) puis en italien (sélecteur) : panier et commande entièrement traduits. Restent en français les noms de transporteurs « La Poste », ce qui est voulu.
-- **Limites, à faire plus tard** : les e-mails envoyés aux clients et la page sans JavaScript restent en français.
+- **E-mails aux clients** : la commande garde la langue dans laquelle elle a été passée. Les e-mails de confirmation, d'expédition (avec le lien de suivi) et de facture QR partent dans cette langue (`server/src/emails-clients.js`). Le droit de rétractation (France, Belgique) reste en français, annoncé dans la langue du client. Une langue que la boutique ne propose pas retombe sur le français. Testé.
+- **Limites** : la page sans JavaScript, les relances et les e-mails marketing restent en français.

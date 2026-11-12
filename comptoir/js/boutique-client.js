@@ -204,7 +204,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');

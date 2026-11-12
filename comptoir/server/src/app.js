@@ -11,6 +11,7 @@ const tendances = require('./tendances');
 const MotDePasse = require('./motdepasse');
 const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
+const EmailsClients = require('./emails-clients');
 const { creerRouteur, lireCorps, lireCookies, envoyerJson, envoyerHtml, servirStatique, erreur, ErreurHttp, valider } = require('./http');
 const auth = require('./auth');
 const totp = require('./totp');
@@ -354,8 +355,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (/bpost/i.test(transporteur || '')) return `https://track.bpost.cloud/btr/web/#/search?itemCode=${n}&lang=fr`;
     return null;
   };
+  const optionsEmail = (b, c, config) => ({ nomBoutique: config.boutique.nom, formatMontant: m => formatMontant(m, config), nomLivraison: (prix.modesLivraison(config)[c.livraison] || { nom: c.livraison }).nom, lienCommande: lienCommande(b, c.id), contact: config.entreprise && config.entreprise.email });
   const emailExpedition = (b, c, config) => {
     const lien = lienTransporteur(c.transporteur || (prix.modesLivraison(config)[c.livraison] || {}).transporteur, c.suivi, config.boutique.pays);
+    if (EmailsClients.langueDe(c)) { const m = EmailsClients.expedition(c, { ...optionsEmail(b, c, config), lienSuivi: lien }); return envoyerEmail(b.id, c.client.email, m.sujet, m.corps); }
     envoyerEmail(b.id, c.client.email, `Votre commande n° ${c.numero} est en route`,
       `Bonjour ${c.client.nom},\n\nVotre colis est parti${c.transporteur ? ` avec ${c.transporteur}` : ''}.${c.suivi ? `\nNuméro de suivi : ${c.suivi}` : ''}${c.suivi && lien ? `\nSuivre le colis : ${lien}` : ''}\n\nVotre commande : ${lienCommande(b, c.id)}\n\nMerci et à bientôt,\n${config.boutique.nom}`);
   };
@@ -558,7 +561,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Après un paiement (en ligne ou relevé bancaire) : e-mails au client et au marchand, transmission au fournisseur. */
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
-    envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
+    if (EmailsClients.langueDe(res.c)) { const m = EmailsClients.confirmation(res.c, { ...optionsEmail(res.boutique, res.c, config), legal: infoRetractation(res.boutique, res.c, config) }); envoyerEmail(res.boutique.id, res.c.client.email, m.sujet, m.corps); }
+    else envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
       `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.${infoRetractation(res.boutique, res.c, config)}`);
     // Le marchand est prévenu de chaque commande payée (sans e-mail, une commande à expédier pourrait rester oubliée).
     {
@@ -1442,6 +1446,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const now = Date.now();
       const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes, sousTotal, remise, motifRemise: calcul.motif ? calcul.motif.libelle : null, port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${calcul.motif.libelle})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
+      // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
+      if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
       // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.
       try {
         const clientConnu = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee') AND lower(json_extract(donnees, '$.client.email')) = ? LIMIT 1").get(b.id, String(client.email || '').toLowerCase());
@@ -1464,7 +1470,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     });
     if (parFacture) {
       const factureUrl = `${urlPublique}/facture/${encodeURIComponent(b.slug)}/${commande.id}?jeton=${commande.jeton}`;
-      envoyerEmail(b.id, client.email, `Commande n° ${commande.numero} : votre facture QR`, `Bonjour ${client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(commande, config)}\n\nVotre facture QR (à payer avec l’application de votre banque, en scannant le QR code) :\n${factureUrl}\n\nMontant : ${formatMontant(total, config)} · à payer jusqu’au ${new Date(commande.echeance).toLocaleDateString('fr-CH')}.\nVotre commande est préparée dès réception du paiement.\n\n${config.boutique.nom}`);
+      if (EmailsClients.langueDe(commande)) { const m = EmailsClients.factureQr(commande, { ...optionsEmail(b, commande, config), factureUrl }); envoyerEmail(b.id, client.email, m.sujet, m.corps); }
+      else envoyerEmail(b.id, client.email, `Commande n° ${commande.numero} : votre facture QR`, `Bonjour ${client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(commande, config)}\n\nVotre facture QR (à payer avec l’application de votre banque, en scannant le QR code) :\n${factureUrl}\n\nMontant : ${formatMontant(total, config)} · à payer jusqu’au ${new Date(commande.echeance).toLocaleDateString('fr-CH')}.\nVotre commande est préparée dès réception du paiement.\n\n${config.boutique.nom}`);
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
       if (mch) envoyerEmail(null, mch.email, `Nouvelle commande n° ${commande.numero} sur facture QR : ${formatMontant(total, config)}`, `Bonjour,\n\nNouvelle commande sur ${config.boutique.nom}, payable sur facture QR (référence ${commande.referenceQr}). Elle passe en « payée » quand vous importez votre relevé bancaire (Paramètres > Paiements) ou que vous la marquez payée.\n\n${recapitulatif(commande, config)}\n\nComptoir`);
       return { statut: 201, corps: { commandeId: commande.id, numero: commande.numero, jeton: commande.jeton, total, factureUrl } };
