@@ -129,12 +129,7 @@ function vueParametres() {
     corps = vueIntegrations();
   } else if (s === 'sensible') {
     corps = enLigne()
-      ? `<section class="carte"><div class="carte-tete"><h2>Mot de passe et appareils</h2></div>
-        <form data-form="changer-mdp" class="grille-form"><label class="champ"><span>Mot de passe actuel</span><input type="password" name="actuel" required autocomplete="current-password"></label>
-          <label class="champ"><span>Nouveau mot de passe (10 caractères minimum)</span><input type="password" name="nouveau" required minlength="10" autocomplete="new-password"></label>
-          <div class="rangee"><button class="btn">Changer le mot de passe</button><span class="sous">Les autres appareils connectés sont déconnectés.</span></div></form>
-        <div class="rangee"><button class="btn fantome petit" data-action="deconnecter-autres">Déconnecter les autres appareils</button></div></section>
-      <section class="carte zone-sensible"><div class="carte-tete"><h2>Supprimer le compte</h2></div>
+      ? `<section class="carte zone-sensible"><div class="carte-tete"><h2>Supprimer le compte</h2></div>
         <p class="sous">Supprime définitivement la boutique, les produits, les commandes, les factures, les clients et les avis. Exportez vos données avant : vos factures doivent être conservées 10 ans.</p>
         <form data-form="supprimer-compte" class="rangee"><input type="password" name="motDePasse" placeholder="Votre mot de passe" required autocomplete="current-password" aria-label="Mot de passe"><button class="btn danger">Supprimer définitivement</button></form></section>`
       : `<section class="carte zone-sensible"><div class="carte-tete"><h2>Réinitialiser la démo</h2></div>
@@ -158,7 +153,8 @@ document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const a = el.dataset.action;
-  if (a === 'section-param') { ui.sectionParam = el.dataset.v; rendre(); }
+  if (a === 'section-param') { ui.sectionParam = el.dataset.v; if (el.dataset.v === 'securite' && typeof SECURITE !== 'undefined') SECURITE.donnees = null; rendre(); }   // bilan recalculé en revenant sur Sécurité
+  if (a === 'aller-carte') { const cible = document.getElementById(el.dataset.v); if (cible) { cible.scrollIntoView({ behavior: 'smooth', block: 'start' }); const champ = cible.querySelector('input, button, summary'); if (champ) champ.focus({ preventScroll: true }); } }
   else if (a === 'theme-choix') { try { localStorage.setItem('comptoir-theme', el.dataset.v); } catch { /* ignoré */ } appliquerTheme(); rendre(); }
   else if (a === 'export-complet') exporterTout();
   else if (a === 'activer-paiements') {
@@ -276,17 +272,17 @@ function vueSecurite() {
       <form data-form="2fa-activer" class="grille-form"><label class="champ"><span>Code à 6 chiffres</span><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
         <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>
         ${erreur}<div class="rangee"><button class="btn">Activer</button><button type="button" class="btn fantome" data-action="2fa-annuler">Annuler</button></div></form></section>`;
-  else if (d.deuxFacteurs) df = `<section class="carte"><div class="carte-tete"><h2>Double authentification</h2><span class="pill good">Active</span></div>
+  else if (d.deuxFacteurs) df = `<section class="carte" id="sec-2fa"><div class="carte-tete"><h2>Double authentification</h2><span class="pill good">Active</span></div>
       <p class="sous">Un code de votre application est demandé à chaque connexion. Codes de secours restants : <b>${d.codesSecoursRestants}</b>.</p>
       <details><summary>Obtenir de nouveaux codes de secours</summary><form data-form="2fa-codes" class="grille-form"><label class="champ"><span>Code de l’application ou code de secours</span><input name="code" autocomplete="one-time-code" maxlength="12" required></label>
         <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label><div class="rangee"><button class="btn fantome">Remplacer mes codes de secours</button></div></form></details>
       <details><summary>Désactiver</summary><form data-form="2fa-desactiver" class="grille-form"><label class="champ"><span>Code de l’application ou code de secours</span><input name="code" autocomplete="one-time-code" maxlength="12" required></label>
         <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>${erreur}<div class="rangee"><button class="btn fantome danger">Désactiver</button></div></form></details></section>`;
-  else df = `<section class="carte"><div class="carte-tete"><h2>Double authentification</h2><span class="pill warn">Inactive</span></div>
+  else df = `<section class="carte" id="sec-2fa"><div class="carte-tete"><h2>Double authentification</h2><span class="pill warn">Inactive</span></div>
       <p class="sous">Recommandée : même avec votre mot de passe, personne ne peut se connecter sans le code de votre téléphone. Compatible Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden, Proton Pass.</p>
       ${erreur}<div class="rangee"><button class="btn" data-action="2fa-preparer">Activer la double authentification</button></div></section>`;
   const cles = d.clesAcces || [];
-  const clesAcces = `<section class="carte"><div class="carte-tete"><h2>Clés d’accès</h2>${cles.length ? `<span class="pill good">${cles.length} enregistrée${cles.length > 1 ? 's' : ''}</span>` : '<span class="pill muted">Aucune</span>'}</div>
+  const clesAcces = `<section class="carte" id="sec-cles"><div class="carte-tete"><h2>Clés d’accès</h2>${cles.length ? `<span class="pill good">${cles.length} enregistrée${cles.length > 1 ? 's' : ''}</span>` : '<span class="pill muted">Aucune</span>'}</div>
     <p class="sous">Connectez-vous sans mot de passe, avec le visage, l’empreinte ou le code de votre téléphone ou ordinateur (Face ID, Touch ID, Windows Hello, Android). Une clé d’accès ne peut pas être volée par un faux site : elle ne fonctionne que sur Comptoir.</p>
     ${cles.length ? `<ul class="journal-compte">${cles.map(c => `<li><b>${esc(c.nom)}</b> <span class="sous">ajoutée le ${date(c.creeLe)} · dernière utilisation : ${c.utiliseeLe ? date(c.utiliseeLe) : 'jamais'}</span>
       <details class="en-ligne"><summary>Supprimer</summary><form data-form="cle-supprimer" data-id="${esc(c.id)}" class="rangee"><input type="password" name="motDePasse" required placeholder="Mot de passe" autocomplete="current-password"><button class="btn petit fantome danger">Supprimer</button></form></details></li>`).join('')}</ul>` : ''}
@@ -295,7 +291,7 @@ function vueSecurite() {
       <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>
       ${d.deuxFacteurs ? '<label class="champ"><span>Code de l’application ou code de secours</span><input name="code" required autocomplete="one-time-code" maxlength="12"></label>' : ''}
       <div class="rangee"><button class="btn">Créer la clé d’accès</button></div></form></details>` : '<p class="sous">Ce navigateur ne gère pas les clés d’accès.</p>'}</section>`;
-  const appareils = `<section class="carte"><div class="carte-tete"><h2>Appareils connectés</h2></div>
+  const appareils = `<section class="carte" id="sec-appareils"><div class="carte-tete"><h2>Appareils connectés</h2></div>
     <div class="table-wrap"><table class="table compacte"><thead><tr><th>Appareil</th><th>Dernière activité</th><th>Réseau</th><th></th></tr></thead><tbody>
     ${d.sessions.map(x => `<tr><td>${esc(x.appareil)}${x.actuelle ? ' <span class="pill info">Cet appareil</span>' : ''}</td><td>${date(x.vuLe || x.creeLe)}</td><td class="mono sous">${esc(x.reseau || '—')}</td><td class="num">${x.actuelle ? '' : `<button class="btn petit fantome" data-action="session-revoquer" data-id="${esc(x.id)}">Déconnecter</button>`}</td></tr>`).join('')}
     </tbody></table></div></section>`;
@@ -303,11 +299,17 @@ function vueSecurite() {
     ${d.journal.length ? `<ul class="journal-compte">${d.journal.map(x => `<li><span class="sous">${date(x.date)}</span> <b>${esc(LIBELLES_ACTIVITE[x.type] || x.type)}</b>${x.detail ? ` · ${esc(x.detail)}` : ''}${x.reseau ? ` <span class="mono sous">${esc(x.reseau)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="sous">Aucun événement pour l’instant.</p>'}</section>`;
   // Bilan : ce qui protège le compte, et ce qui reste à faire (liens vers la bonne section).
   const b = d.bilan || [];
-  const aller = c => c === 'equipe' || c === 'integrations' ? `<button class="lien bouton-lien" data-action="section-param" data-v="${c}">Ouvrir</button>` : c === 'conformite' ? '<a class="lien" href="#conformite">Ouvrir</a>' : '';
+  const ancres = { cles: 'sec-cles', '2fa': 'sec-2fa', appareils: 'sec-appareils', 'mot-de-passe': 'sec-mdp' };
+  const aller = c => c === 'equipe' || c === 'integrations' ? `<button class="lien bouton-lien" data-action="section-param" data-v="${c}">Ouvrir</button>` : c === 'conformite' ? '<a class="lien" href="#conformite">Ouvrir</a>' : ancres[c] ? `<button class="lien bouton-lien" data-action="aller-carte" data-v="${ancres[c]}">Y aller</button>` : '';
   const nbOk = b.filter(x => x.ok).length;
   const bilan = b.length ? `<section class="carte bilan-securite"><div class="carte-tete"><h2>Bilan de sécurité</h2><span class="pill ${b.some(x => !x.ok && x.niveau === 'important') ? 'warn' : nbOk === b.length ? 'good' : 'info'}">${nbOk} sur ${b.length}</span></div>
     <ul class="bilan-liste">${b.map(x => `<li class="${x.ok ? 'ok' : x.niveau}"><span class="bilan-icone" aria-hidden="true">${x.ok ? '✓' : '!'}</span><div><b>${esc(x.titre)}</b>${!x.ok && x.niveau === 'important' ? ' <span class="pill warn">Important</span>' : ''}<p class="sous">${esc(x.detail)} ${!x.ok ? aller(x.cible) : ''}</p></div></li>`).join('')}</ul></section>` : '';
-  return bilan + df + clesAcces + appareils + journal;
+  const motDePasse = `<section class="carte" id="sec-mdp"><div class="carte-tete"><h2>Mot de passe et appareils</h2></div>
+        <form data-form="changer-mdp" class="grille-form"><label class="champ"><span>Mot de passe actuel</span><input type="password" name="actuel" required autocomplete="current-password"></label>
+          <label class="champ"><span>Nouveau mot de passe (10 caractères minimum)</span><input type="password" name="nouveau" required minlength="10" autocomplete="new-password"></label>
+          <div class="rangee"><button class="btn">Changer le mot de passe</button><span class="sous">Les autres appareils connectés sont déconnectés.</span></div></form>
+        <div class="rangee"><button class="btn fantome petit" data-action="deconnecter-autres">Déconnecter les autres appareils</button></div></section>`;
+  return bilan + df + clesAcces + motDePasse + appareils + journal;
 }
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action]'); if (!el) return;
@@ -332,7 +334,7 @@ document.addEventListener('submit', async e => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f));
   try {
-    if (f.dataset.form === 'cle-ajouter') { const r = await ClesAcces.enregistrer(d.motDePasse, d.nom, d.code); SERVEUR.compteProtege = true; toast(`Clé d’accès « ${r.nom} » ajoutée.`); }
+    if (f.dataset.form === 'cle-ajouter') { const r = await ClesAcces.enregistrer(d.motDePasse, d.nom, d.code); toast(`Clé d’accès « ${r.nom} » ajoutée.`); }
     else { await api('POST', `/api/admin/compte/cles-acces/${encodeURIComponent(f.dataset.id)}/supprimer`, { motDePasse: d.motDePasse }); toast('Clé d’accès supprimée.'); }
     SECURITE.donnees = null;
   } catch (err) { toast(ClesAcces.messageErreur(err)); }

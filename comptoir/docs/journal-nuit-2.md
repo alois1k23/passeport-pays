@@ -671,6 +671,16 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - Contraste des textes (seuil WCAG AA : 4,5:1, 3:1 pour les grands textes), mesuré dans un vrai navigateur : espace marchand en mode clair et sombre (5 écrans), boutique avec chacun des 5 thèmes (Brume, Nocturne, Craie, Léman, Argile). **Aucun texte sous le seuil.** Le contrôle a été validé sur une page témoin, où il détecte bien les textes illisibles.
 - Clavier : focus visible vérifié sur 40 éléments du tableau de bord et 25 de la boutique. Les liens de la liste « À faire » n'avaient aucun contour de focus (`outline: 0`) : corrigé. La fiche produit (fenêtre de dialogue) prend le focus à l'ouverture et se ferme avec Échap.
 
-## Cycle 51 (03 h 55) : simulation après les revues 9 et 10
+## Cycle 51 (03 h 50) : simulation après les revues 9 et 10
 
 - Simulation de 60 jours (100 marchands, 8 502 commandes) avec, à la fin, la **vérification complète du journal** de chaque marchand (chaîne signée, numéros continus, pièces conformes, clôtures, grand total) : **0 anomalie**, aucune erreur serveur, p95 de 7 ms. Les vérifications nocturnes ont aussi tourné pendant toute la simulation sans alerte.
+
+## Cycle 52 (03 h 55) : corrections de la revue n° 11 (bilan de sécurité, cookie, route de statut) et console de l'exploitant
+
+- **Clé d'accès et mot de passe** : une clé d'accès n'empêche pas de se connecter avec le mot de passe seul. Le bilan, l'incitation du tableau de bord et le contrôle de l'équipe ne comptaient donc pas juste. Désormais, seule la double authentification compte comme protection du mot de passe, et la clé d'accès reste un conseil à part.
+- **Conseils actionnables** : chaque point du bilan mène à sa carte (« Y aller »). La carte « Mot de passe et appareils » est passée dans Sécurité : les membres de l'équipe, qui n'avaient aucun écran pour changer leur mot de passe, y ont maintenant accès. Le bilan est recalculé en revenant sur la page.
+- **Fausse alerte** : un seul code de double authentification mal tapé ne déclenche plus « tentative suspecte » (deux au moins en 7 jours).
+- **Route de statut** : après un remboursement, la transition est revérifiée sur la commande relue. Un lien de paiement créé pendant l'attente est fermé.
+- **Session** : le cookie de session renouvelé est aussi envoyé avec les pages HTML et les réponses d'erreur (déconnexions inattendues évitées).
+- **Console de l'exploitant** : état des journaux des ventes (intacts, avec anomalie), alerte si la clé de signature a changé ou si elle est gardée dans la base.
+- 114 tests sur 114, bout en bout 51 sur 51.

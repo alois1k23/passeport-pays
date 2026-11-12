@@ -80,8 +80,8 @@ function envoyerJson(res, statut, donnees, entetes = {}) {
   res.end(z.corps);
 }
 
-function envoyerHtml(res, statut, html) {
-  res.writeHead(statut, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+function envoyerHtml(res, statut, html, entetes = {}) {
+  res.writeHead(statut, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...entetes });
   res.end(html);
 }
 

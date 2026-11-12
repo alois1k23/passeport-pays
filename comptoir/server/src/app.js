@@ -750,7 +750,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     renouvelerCookie(ctx, m);
     const acces = m && accesDe(m.id), b = acces && acces.boutique;
     const df = m && deuxFacteursDe(m.id);
-    const protege = !!m && (!!(df && df.actif) || !!db.prepare('SELECT 1 FROM cles_acces WHERE marchand_id = ?').get(m.id));
+    const protege = !!m && !!(df && df.actif);   // une clé d'accès seule laisse la connexion par mot de passe ouverte
     return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, role: acces ? acces.role : null, compteProtege: protege, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
   });
   r.post('/api/auth/inscription', async ctx => {
@@ -989,19 +989,20 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const mid = ctx.marchand.id, maintenant = Date.now(), JOUR = 86400000, out = [];
     const ajouter = (ok, niveau, titre, detail, cible = null) => out.push({ ok, niveau, titre, detail, cible });
     const df = deuxFacteursDe(mid), cles = clesAccesDe(mid);
-    const fort = !!(df && df.actif) || cles.length > 0;
-    ajouter(fort, 'important', 'Connexion protégée au-delà du mot de passe', fort ? (cles.length ? 'Clé d’accès enregistrée.' : 'Double authentification active.') : 'Avec votre seul mot de passe, quiconque le connaît entre dans votre boutique. Ajoutez une clé d’accès ou la double authentification.', fort ? null : 'cles');
+    // Une clé d'accès n'empêche pas la connexion par mot de passe : seule la double authentification protège le mot de passe.
+    const fort = !!(df && df.actif);
+    ajouter(fort, 'important', 'Mot de passe complété par un second facteur', fort ? 'Double authentification active : votre mot de passe seul ne suffit pas pour entrer.' : cles.length ? 'Votre clé d’accès protège vos propres connexions, mais quelqu’un qui connaît votre mot de passe peut encore entrer : activez aussi la double authentification.' : 'Avec votre seul mot de passe, quiconque le connaît entre dans votre boutique. Activez la double authentification.', fort ? null : '2fa');
     ajouter(cles.length > 0, 'conseil', 'Clé d’accès (résiste à l’hameçonnage)', cles.length ? `${cles.length} clé${cles.length > 1 ? 's' : ''} enregistrée${cles.length > 1 ? 's' : ''}.` : 'Une clé d’accès ne fonctionne que sur le vrai site de Comptoir : un faux site ne peut pas la voler.', cles.length ? null : 'cles');
     if (df && df.actif) { const n = JSON.parse(df.secours).length; ajouter(n >= 3, 'conseil', 'Codes de secours', n >= 3 ? `${n} codes restants.` : `Plus que ${n} code${n > 1 ? 's' : ''} de secours : renouvelez-les pour ne pas rester bloqué si vous perdez votre téléphone.`, n >= 3 ? null : '2fa'); }
     const echecs = db.prepare("SELECT COUNT(*) n FROM journal_compte WHERE marchand_id = ? AND type = 'echec-2fa' AND date > ?").get(mid, maintenant - 7 * JOUR).n;
-    ajouter(!echecs, 'important', 'Aucune tentative suspecte', echecs ? `${echecs} code${echecs > 1 ? 's' : ''} de double authentification faux cette semaine, après un mot de passe correct : quelqu’un connaît peut-être votre mot de passe. Changez-le.` : 'Aucun code de double authentification faux ces 7 derniers jours.', echecs ? 'mot-de-passe' : null);
+    ajouter(echecs < 2, 'important', 'Aucune tentative suspecte', echecs >= 2 ? `${echecs} code${echecs > 1 ? 's' : ''} de double authentification faux cette semaine, après un mot de passe correct : quelqu’un connaît peut-être votre mot de passe. Changez-le.` : 'Aucun code de double authentification faux ces 7 derniers jours.', echecs ? 'mot-de-passe' : null);
     const inactives = db.prepare('SELECT COUNT(*) n FROM sessions WHERE marchand_id = ? AND expire_le > ? AND COALESCE(vu_le, cree_le, 0) < ?').get(mid, maintenant, maintenant - 30 * JOUR).n;
     ajouter(!inactives, 'conseil', 'Appareils inactifs déconnectés', inactives ? `${inactives} appareil${inactives > 1 ? 's' : ''} sans activité depuis plus de 30 jours ${inactives > 1 ? 'sont' : 'est'} encore connecté${inactives > 1 ? 's' : ''} : déconnectez ceux que vous n’utilisez plus.` : 'Aucun appareil connecté oublié.', inactives ? 'appareils' : null);
     if (ctx.role === 'proprietaire') {
       const b = ctx.boutique;
       const membres = db.prepare('SELECT m.id, m.email FROM equipe e JOIN marchands m ON m.id = e.marchand_id WHERE e.boutique_id = ?').all(b.id);
-      const faibles = membres.filter(x => { const d = deuxFacteursDe(x.id); return !(d && d.actif) && !clesAccesDe(x.id).length; });
-      if (membres.length) ajouter(!faibles.length, 'important', 'Équipe protégée', faibles.length ? `${faibles.map(x => x.email).join(', ')} se connecte${faibles.length > 1 ? 'nt' : ''} avec un simple mot de passe : demandez-leur d’ajouter une clé d’accès ou la double authentification.` : `Les ${membres.length} membre${membres.length > 1 ? 's' : ''} de l’équipe ont une connexion protégée.`, faibles.length ? 'equipe' : null);
+      const faibles = membres.filter(x => { const d = deuxFacteursDe(x.id); return !(d && d.actif); });
+      if (membres.length) ajouter(!faibles.length, 'important', 'Équipe protégée', faibles.length ? `${faibles.map(x => x.email).join(', ')} se connecte${faibles.length > 1 ? 'nt' : ''} avec un simple mot de passe : demandez-leur d’activer la double authentification.` : `Les ${membres.length} membre${membres.length > 1 ? 's' : ''} de l’équipe ont une connexion protégée.`, faibles.length ? 'equipe' : null);
       const dormantes = db.prepare('SELECT nom FROM cles_api WHERE boutique_id = ? AND revoquee = 0 AND COALESCE(utilisee_le, cree_le) < ?').all(b.id, maintenant - 90 * JOUR);
       const actives = db.prepare('SELECT COUNT(*) n FROM cles_api WHERE boutique_id = ? AND revoquee = 0').get(b.id).n;
       if (actives) ajouter(!dormantes.length, 'conseil', 'Clés d’API utilisées', dormantes.length ? `${dormantes.length} clé${dormantes.length > 1 ? 's' : ''} d’API inutilisée${dormantes.length > 1 ? 's' : ''} depuis 90 jours (${dormantes.map(x => x.nom).slice(0, 3).join(', ')}) : révoquez-les si elles ne servent plus.` : `${actives} clé${actives > 1 ? 's' : ''} d’API active${actives > 1 ? 's' : ''}, toutes utilisées récemment.`, dormantes.length ? 'integrations' : null);
@@ -1136,6 +1137,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       ['Webhooks en attente / en pause', `${n("SELECT COUNT(*) n FROM webhook_envois WHERE statut = 'attente'")} / ${n('SELECT COUNT(*) n FROM webhooks WHERE actif = 0')}`],
       ['Appareils avec notifications', n('SELECT COUNT(*) n FROM abonnements_push')],
       ['Dernière sauvegarde', sauvegarde],
+      ['Journaux des ventes', (() => {
+        const v = db.prepare('SELECT resultat FROM journal_verifications').all().map(x => JSON.parse(x.resultat));
+        const etatJ = JV().etat('');
+        return `${n("SELECT COUNT(DISTINCT boutique_id) n FROM journal_inalterable")} boutiques · ${v.filter(x => x.ok).length} intacts · ${v.filter(x => !x.ok).length} avec anomalie${etatJ.cleChangee ? ' · CLÉ DE SIGNATURE CHANGÉE : remettez l’ancienne SECRET_CHIFFREMENT' : ''}${/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? '' : ' · clé gardée dans la base (définissez SECRET_CHIFFREMENT)'}`;
+      })()],
       ['En marche depuis', `${Math.round((maintenant - demarreLe) / 3600000)} h · Node ${process.version}`]
     ];
     noterActivite(m.id, 'console-operateur', null, ctx);
@@ -1483,6 +1489,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (p) db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(p.id);
       // Pendant le remboursement, un webhook a pu modifier la commande (litige, préparation) : on repart de la version à jour.
       const frais = commandeDeBoutique(ctx.boutique.id, c.id);
+      if (frais.statut !== c.statut && !transitionsPossibles(frais).includes(cible)) throw erreur(409, `La commande est passée à « ${frais.statut} » entre-temps : remboursement effectué, statut à vérifier.`, 'statut_change');
       const retourDemande = c.retour && c.retour.statut === 'rembourse';
       Object.assign(c, frais);
       if (retourDemande && c.retour) c.retour.statut = 'rembourse';
@@ -1504,8 +1511,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       }
       // Pendant ces appels, le client a pu payer en ligne : on repart de la commande à jour (pas de seconde facture, pas de double vente).
       const frais = commandeDeBoutique(ctx.boutique.id, c.id);
-      if (frais.statut !== 'attente') throw erreur(409, 'Cette commande vient d’être payée en ligne : rien n’a été modifié.', 'deja_payee');
+      if (frais.statut !== 'attente') throw erreur(409, 'Cette commande vient d’être payée en ligne entre-temps : son statut n’a pas été changé.', 'deja_payee');
       Object.assign(c, frais);
+      // Un lien de paiement créé pendant l'attente (client qui reprend son paiement) est fermé lui aussi.
+      db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND statut = 'cree'").run(c.id);
     }
     // À partir d'ici, plus d'attente : numéros de pièces attribués et commande enregistrée d'un seul tenant (transaction :
     // une erreur ne consomme pas de numéro sans pièce).
@@ -2893,6 +2902,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
 
   /* ---------- Gestionnaire HTTP ---------- */
   async function gerer(req, res) {
+    let entetesRequete = {};
     // En-têtes de sécurité sur toutes les réponses : aucun script étranger (tout est servi par Comptoir),
     // pas d'affichage dans un cadre d'un autre site (clickjacking), pas de devinette du type de fichier.
     res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'; worker-src 'self'; manifest-src 'self'${securise ? '; upgrade-insecure-requests' : ''}`);
@@ -2941,6 +2951,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
         throw erreur(404, 'Page introuvable.', 'introuvable');
       }
       const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: reseauIp(ipClient(req)), corps: {}, corpsBrut: '' };
+      entetesRequete = ctx.entetes;   // cookie de session renouvelé : envoyé même avec une réponse d'erreur
       // HTTPS : seule la session « __Host- » compte ; un cookie de session sans préfixe (posé par un sous-domaine, en HTTP) est ignoré.
       if (securise) { const h = ctx.cookies[`__Host-${auth.COOKIE}`]; delete ctx.cookies[auth.COOKIE]; if (h) ctx.cookies[auth.COOKIE] = h; }
       if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
@@ -2958,14 +2969,16 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       if (resultat && resultat.diffusion) return;   // flux SSE : la réponse reste ouverte
       if (resultat && resultat.binaire) { res.writeHead(200, { 'Content-Type': resultat.type, 'Cache-Control': 'public, max-age=3600', ...ctx.entetes }); res.end(resultat.binaire); return; }
       if (resultat && resultat.redirection) { res.writeHead(303, { Location: resultat.redirection, ...ctx.entetes }); res.end(); return; }
-      if (resultat && resultat.html) return envoyerHtml(res, 200, resultat.html);
+      if (resultat && resultat.html) return envoyerHtml(res, 200, resultat.html, ctx.entetes);
       if (resultat && resultat.statut && 'corps' in resultat) return envoyerJson(res, resultat.statut, resultat.corps, ctx.entetes);
       envoyerJson(res, 200, resultat ?? { ok: true }, ctx.entetes);
     } catch (e) {
       if (e instanceof SyntaxError) e = erreur(400, 'JSON invalide.', 'json_invalide');
       if (!(e instanceof ErreurHttp)) { journal.error('[erreur]', e); e = erreur(500, 'Erreur interne. Réessayez dans un instant.', 'interne'); }
       if (res.headersSent) return res.end();
-      envoyerJson(res, e.statut, { erreur: e.message, code: e.code });
+      // Seul le renouvellement de la session est gardé sur une erreur (pas d'autre en-tête préparé par la route).
+      const sc = entetesRequete['Set-Cookie'];
+      envoyerJson(res, e.statut, { erreur: e.message, code: e.code }, sc ? { 'Set-Cookie': sc } : {});
     }
   }
   gerer.publierEcheances = publierEcheances;

@@ -324,7 +324,7 @@ function vueTableau() {
         const items = [
           ...etat.commandes.filter(c => c.litige && c.litige.statut !== 'won' && c.litige.statut !== 'lost').map(c => item('!', `Litige bancaire sur la commande n° ${c.numero} : répondez dans Stripe${c.litige.echeance ? ` avant le ${new Date(c.litige.echeance).toLocaleDateString('fr-FR')}` : ''}`, 'commandes', { alerte: true })),
           ...(pb && pb.mode === 'stripe' && !pb.pret ? [item(null, 'Activez vos paiements : sans cela, la boutique n’accepte aucune commande', 'parametres', { alerte: true, section: 'paiements' })] : []),
-          ...(typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.compteProtege === false ? [item('!', 'Protégez votre compte : activez une clé d’accès ou la double authentification (2 minutes)', 'parametres', { alerte: true, section: 'securite' })] : []),
+          ...(typeof SERVEUR !== 'undefined' && SERVEUR.connecte && SERVEUR.compteProtege === false ? [item('!', 'Protégez votre compte : activez la double authentification (2 minutes)', 'parametres', { alerte: true, section: 'securite' })] : []),
           item(aExpedier.length, `commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier`, 'commandes', { alerte: aExpedier.length > 0, filtre: 'payee' }),
           item(attente, `paiement${attente > 1 ? 's' : ''} en attente`, 'commandes', { alerte: attente > 0, filtre: 'attente' }),
           ...stockBas.map(p => item(p.stock, `Stock bas : ${esc(p.nom)}`, 'produits', { alerte: true })),
