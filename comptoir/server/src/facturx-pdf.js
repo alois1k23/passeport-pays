@@ -211,6 +211,7 @@ function composer(c, config, { avoir, devise }) {
   if (sansTva) mentions.push(`${franchise}.`);
   if (avoir) mentions.push(paye ? 'Montant remboursé.' : 'Cet avoir solde la facture, qui n’a pas été payée.');
   else if (paye) mentions.push(ch ? 'Paiement reçu. Merci pour votre achat.' : 'Paiement reçu.');
+  if (!avoir && c.carteCadeau && c.carteCadeau.montant > 0) mentions.push(`Dont ${brut(c.carteCadeau.montant)} réglés par carte cadeau ····${c.carteCadeau.fin}.`);
   else {
     mentions.push(`Montant à payer : ${argent(ttc)}${c.echeance ? `, au plus tard le ${dateFr(c.echeance)}` : ''}.`);
     if (e.iban) mentions.push(`IBAN : ${String(e.iban).replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim()}${c.referenceQr ? ` · Référence : ${c.referenceQr}` : ''}`);

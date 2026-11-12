@@ -1759,7 +1759,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         c2.lignes = lignes; enregistrerCommande(c2);
       }
       integ.emettre(ctx.boutique.id, 'commande.retiree', commandeApi({ id, numero, date: now, statut: 'retiree', ...donnees, canal: donnees.canal || 'caisse' }, config.boutique.devise || 'CHF'));
-      return { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config), ...(carte ? { carteCadeau: formatMontant(centimesCarte / 100, config), reste: formatMontant(reste, config), soldeCarte: formatMontant(Cartes.disponible(db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(carte.id)) / 100, config) } : {}) } };
+      return { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config), ...(carte ? { carteCadeau: formatMontant(centimesCarte / 100, config), ...(reste ? { reste: formatMontant(reste, config) } : {}), soldeCarte: formatMontant(Cartes.disponible(db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(carte.id)) / 100, config) } : {}) } };
     });
   }
   /* ---------- Réseaux sociaux ---------- */

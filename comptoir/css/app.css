@@ -1430,3 +1430,6 @@ details.en-ligne form { margin-top: 6px; }
 /* Pages et tableaux autrefois stylés en ligne */
 .page-erreur { font: 16px/1.5 system-ui; max-width: 520px; margin: 15vh auto; padding: 0 20px; color: #111; }
 .page-erreur h1 { font-size: 1.4rem; }
+
+/* Code d’une carte cadeau, montré une seule fois : lisible pour être recopié */
+.code-carte { display: block; margin: .4rem 0; font-size: 1.2rem; font-weight: 600; letter-spacing: .06em; user-select: all; }

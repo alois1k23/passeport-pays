@@ -91,3 +91,27 @@ Une relecture indépendante a vérifié la structure du PDF octet par octet, le 
   - la relation du fichier joint (« Data ») est l'une des valeurs que permet la spécification Factur-X ;
   - l'IBAN visible par le rôle « commandes » l'est déjà sur la facture QR.
 - Nouveau test de régression. 126 tests sur 126, bout en bout 51 sur 51.
+
+### Cycle 7 (23 h 45) : cartes cadeaux
+
+- Le marchand émet une carte depuis « Magasin et caisse » : montant, validité (sans limite, 1, 2 ou 3 ans) et destinataire. Il peut l'imprimer et la désactiver.
+- **Code secret** :
+  - 16 caractères (80 bits d'aléa), sans caractères ambigus, montrés une seule fois ;
+  - la base n'en garde qu'une empreinte HMAC et les 4 derniers caractères ;
+  - à la saisie, minuscules, tirets et O à la place de 0 sont acceptés ;
+  - les essais sont limités par adresse et par boutique.
+- **Utilisation** :
+  - en ligne, la carte paie tout ou partie de la commande, et le reste se paie par carte bancaire ou TWINT ;
+  - à la caisse, la carte passe en premier, le reste s'encaisse en espèces (arrondi à 5 centimes en Suisse), par carte ou par TWINT ;
+  - la carte est refusée pour une vente hors ligne (son solde doit être vérifié) et pour le paiement sur facture.
+- **Argent juste** :
+  - les montants sont gardés en centimes entiers ;
+  - le débit est une instruction conditionnelle unique, donc deux paiements simultanés ne dépensent jamais deux fois le même solde ;
+  - en cas de commande annulée ou remboursée, la part payée par la carte revient sur la carte (le reste est remboursé par le moyen d'origine) ;
+  - si le reste n'est pas payé après 2 heures, le lien de paiement est fermé et la carte recréditée ; si le client reprend son paiement, la carte est débitée à nouveau ;
+  - si un paiement arrive malgré tout alors que la carte a été vidée entre-temps, l'argent est marqué « à rendre » et la commande n'est jamais payée à moitié.
+- **Registre** : chaque mouvement est inscrit avec le solde qui en résulte. Un contrôle vérifie que le solde est égal à la somme des mouvements.
+- Fiscalité : une carte valable pour tout le catalogue est un bon à usages multiples. Elle est traitée comme un moyen de paiement : la TVA porte sur les articles achetés avec elle, pas sur la vente de la carte. Les factures (imprimée et Factur-X) mentionnent la part réglée par carte.
+- Vérifié dans un vrai navigateur : émission, code masqué après lecture, ticket de caisse entièrement payé par la carte, panier de la boutique avec carte et reste payé en ligne. Aucune erreur.
+- 4 nouveaux tests : 130 tests sur 130, bout en bout 51 sur 51. Une relecture indépendante est en cours.
+- Pas encore fait : la vente de cartes cadeaux en ligne par le client lui-même. Elle viendra dans un prochain cycle.

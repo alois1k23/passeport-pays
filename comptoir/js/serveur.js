@@ -422,10 +422,13 @@ function installerModeConnecte() {
         bloquer();
         // Clé unique du ticket : le serveur n'enregistre jamais deux fois la même vente.
         ui.cleTicket = ui.cleTicket || `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-        const ticket = { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}) })), moyen: el.dataset.moyen, cle: ui.cleTicket };
+        const carte = String(ui.carteCaisse || '').trim();
+        const ticket = { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}) })), moyen: el.dataset.moyen, cle: ui.cleTicket, ...(carte ? { carteCadeau: carte } : {}) };
         let r;
         try { r = await api('POST', '/api/admin/caisse', ticket); }
         catch (err) {
+          // Le solde d'une carte cadeau se vérifie en ligne : sans réseau, la vente n'est pas gardée (encaisser autrement).
+          if (carte && !(err.statut && err.statut < 500)) { toast('Pas de connexion : la carte cadeau ne peut pas être vérifiée. Retirez le code et encaissez autrement.'); return; }
           // Pas de réseau (marché, sous-sol) ou serveur indisponible : la vente est gardée sur l'appareil et envoyée plus tard.
           // La clé du ticket empêche tout doublon quand elle repart.
           if (err.statut && err.statut < 500) throw err;
@@ -438,7 +441,9 @@ function installerModeConnecte() {
           ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null;
           toast('Pas de connexion : la vente est gardée sur cet appareil et sera envoyée dès le retour du réseau.'); rendre(); return;
         }
-        ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; await rafraichir(`Vente de ${r.total} encaissée. Facture ${r.facture}.`);
+        ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; ui.carteCaisse = '';
+        if (r.carteCadeau) ui.cartesCadeaux = null;   // soldes à recharger
+        await rafraichir(r.carteCadeau ? `Vente de ${r.total} : ${r.carteCadeau} sur la carte cadeau (solde restant ${r.soldeCarte})${r.reste ? `, ${r.reste} à encaisser` : ', rien d’autre à encaisser'}. Facture ${r.facture}.` : `Vente de ${r.total} encaissée. Facture ${r.facture}.`);
       } else if (action === 'as-creer') {
         bloquer();
         await recreerBoutique();
@@ -666,4 +671,39 @@ document.addEventListener('click', async e => {
     const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
     a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch { toast('Pas de connexion : réessayez dans un instant.'); }
+});
+
+/* Cartes cadeaux : liste, émission (le code n'est gardé qu'en mémoire, le temps de le noter), désactivation. */
+async function chargerCartesCadeaux() {
+  ui.cartesEnCours = true;
+  try { ui.cartesCadeaux = await api('GET', '/api/admin/cartes-cadeaux'); } catch { ui.cartesCadeaux = { cartes: [], registreCoherent: true }; }
+  finally { ui.cartesEnCours = false; }
+  if (location.hash.startsWith('#magasin')) rendre();
+}
+document.addEventListener('submit', async e => {
+  if (e.target.dataset.form !== 'carte-cadeau') return;
+  e.preventDefault();
+  const d = new FormData(e.target), bouton = e.target.querySelector('button');
+  bouton.disabled = true;
+  try {
+    ui.carteEmise = await api('POST', '/api/admin/cartes-cadeaux', { montant: Number(d.get('montant')), expireMois: d.get('expireMois') ? Number(d.get('expireMois')) : null, destinataire: d.get('destinataire') || null });
+    ui.cartesCadeaux = null; rendre();
+  } catch (err) { toast(err.message); bouton.disabled = false; }
+});
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action^="carte-"]'); if (!el) return;
+  if (el.dataset.action === 'carte-masquer') { ui.carteEmise = null; rendre(); return; }
+  if (el.dataset.action === 'carte-imprimer' && ui.carteEmise) {
+    // Impression dans une fenêtre dédiée, sans script ni style en ligne (politique de sécurité).
+    const w = window.open('', '_blank', 'width=480,height=360'); if (!w) { toast('Autorisez les fenêtres pour imprimer.'); return; }
+    const doc = w.document, corps = doc.body, nom = (etat.boutique && etat.boutique.nom) || '';
+    doc.title = 'Carte cadeau';
+    for (const [balise, texte] of [['h1', `Carte cadeau ${nom}`], ['p', `Montant : ${euros(ui.carteEmise.carte.initial)}`], ['p', `Code : ${ui.carteEmise.code}`], ['p', ui.carteEmise.carte.expireLe ? `Valable jusqu’au ${new Date(ui.carteEmise.carte.expireLe).toLocaleDateString('fr-FR')}` : 'Sans date limite'], ['p', 'À utiliser en ligne ou en boutique.']]) { const n = doc.createElement(balise); n.textContent = texte; corps.appendChild(n); }
+    w.print(); return;
+  }
+  if (el.dataset.action === 'carte-desactiver') {
+    if (!confirm('Désactiver cette carte ? Son solde ne pourra plus être utilisé.')) return;
+    try { await api('POST', `/api/admin/cartes-cadeaux/${encodeURIComponent(el.dataset.id)}/desactiver`, {}); ui.cartesCadeaux = null; toast('Carte désactivée.'); rendre(); }
+    catch (err) { toast(err.message); }
+  }
 });

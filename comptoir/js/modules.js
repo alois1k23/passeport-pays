@@ -95,6 +95,7 @@ function vueMagasin() {
         <div class="ticket-total"><span>Total TTC</span><strong>${euros(totalCaisse)}</strong></div>
         ${estSuisse() && ui.caisse.length && Math.round(totalCaisse * 20) / 20 !== Math.round(totalCaisse * 100) / 100 ? `<p class="sous">En espèces : ${euros(Math.round(totalCaisse * 20) / 20)} (arrondi aux 5 centimes).</p>` : ''}
         ${ui.caisse.length ? (() => { const du = estSuisse() ? Math.round(totalCaisse * 20) / 20 : Math.round(totalCaisse * 100) / 100, recu = Number(ui.recuCaisse) || 0; return `<label class="champ rendu-monnaie"><span>Espèces reçues</span><input id="cs-recu" type="number" min="0" step="0.05" inputmode="decimal" value="${ui.recuCaisse || ''}" data-caisse="recu" data-du="${du}" placeholder="${du.toFixed(2)}"></label><p id="cs-rendu" aria-live="polite">${texteRendu(du, recu)}</p>`; })() : ''}
+        ${ui.caisse.length && connecteAuServeur() ? `<label class="champ"><span>Carte cadeau (facultatif)</span><input id="cs-carte" data-caisse="carte" value="${esc(ui.carteCaisse || '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="24"></label><p class="sous">Le solde de la carte est utilisé en premier ; le reste est encaissé avec le moyen choisi ci-dessous.</p>` : ''}
         <div class="rangee">${estSuisse() ? `<button class="btn" data-action="encaisser" data-moyen="twint" ${ui.caisse.length ? '' : 'disabled'}>TWINT</button>` : ''}<button class="btn${estSuisse() ? ' fantome' : ''}" data-action="encaisser" data-moyen="carte" ${ui.caisse.length ? '' : 'disabled'}>Carte</button><button class="btn fantome" data-action="encaisser" data-moyen="especes" ${ui.caisse.length ? '' : 'disabled'}>Espèces</button></div>
       </div>
     </section>
@@ -105,6 +106,7 @@ function vueMagasin() {
           <td class="num">${c.statut === 'prete' ? `<button class="btn petit" data-action="statut" data-id="${c.id}" data-statut="retiree">Remis au client</button>` : `<button class="btn petit fantome" data-action="statut" data-id="${c.id}" data-statut="prete">Prête</button>`}</td></tr>`).join('')}</tbody></table>`
           : '<p class="sous">Aucun retrait en attente.</p>'}
       </section>
+      ${vueCartesCadeaux()}
       <section class="carte">
         <div class="carte-tete"><h2>QR code de vitrine</h2></div>
         <div class="qr-ligne"><div id="qr" class="qr" data-url="${esc(url)}"></div>
@@ -190,6 +192,7 @@ function documentFacture(c, avoir = false) {
         : `${t.parTaux.map(x => `<div><span>Base HT ${pctTva(x.taux)}</span><span>${m(x.ht)}</span></div><div><span>TVA ${pctTva(x.taux)}</span><span>${m(x.tva)}</span></div>`).join('')}
            <div><span>Total HT</span><span>${m(t.ht)}</span></div><div><span>Total TVA</span><span>${m(t.tva)}</span></div><div class="total"><span>Total TTC</span><span>${m(t.ttc)}</span></div>`}
         ${!avoir && c.arrondi ? `<div><span>Arrondi espèces</span><span>${euros(c.arrondi)}</span></div><div><span>Encaissé</span><span>${euros(c.encaisse)}</span></div>` : ''}</div>
+      ${c.carteCadeau && !avoir ? `<p class="sous">Dont ${euros(c.carteCadeau.montant)} réglés par carte cadeau ····${esc(c.carteCadeau.fin)}.</p>` : ''}
       <footer>${ch ? (sansTva ? 'Entreprise non assujettie à la TVA. ' : '') + (avoir ? 'Montant remboursé.' : 'Paiement reçu. Merci pour votre achat.') : (sansTva ? droitPays().franchise + '. ' : '') + (avoir ? 'Montant remboursé.' : 'Paiement reçu.')}</footer>
     </article>`;
 }
@@ -556,6 +559,36 @@ function texteRendu(du, recu) {
   if (!recu) return '';
   return recu < du ? `<span class="alerte-texte">Il manque ${euros(du - recu)}.</span>` : `À rendre : <strong>${euros(recu - du)}</strong>`;
 }
+/* Cartes cadeaux (boutique en ligne seulement) : émission, solde, désactivation. Le code complet n'est montré qu'une fois. */
+function vueCartesCadeaux() {
+  if (!connecteAuServeur() || (typeof SERVEUR !== 'undefined' && SERVEUR.role === 'commandes')) return '';
+  if (!ui.cartesCadeaux && !ui.cartesEnCours && typeof chargerCartesCadeaux === 'function') setTimeout(chargerCartesCadeaux, 0);
+  const cartes = (ui.cartesCadeaux || {}).cartes || [];
+  const actives = cartes.filter(c => c.statut === 'active' && c.solde > 0 && !(c.expireLe && c.expireLe < Date.now()));
+  return `<section class="carte" aria-labelledby="cc-titre">
+    <div class="carte-tete"><h2 id="cc-titre">Cartes cadeaux</h2><span class="sous">${actives.length} en cours · ${euros(actives.reduce((a, c) => a + c.solde, 0))} à utiliser</span></div>
+    <p class="sous">Utilisables en ligne et à la caisse. Une carte est un moyen de paiement : la TVA s’applique aux articles achetés avec, pas à la vente de la carte.</p>
+    ${ui.carteEmise ? `<div class="encart" role="status"><b>Carte de ${euros(ui.carteEmise.carte.initial)} émise.</b> Code à remettre au client : <span class="mono code-carte">${esc(ui.carteEmise.code)}</span>
+      <p class="sous">Notez-le ou imprimez-le maintenant : pour votre sécurité, il ne sera plus jamais affiché.</p><button class="btn petit fantome" data-action="carte-imprimer">Imprimer la carte</button> <button class="btn petit fantome" data-action="carte-masquer">J’ai noté le code</button></div>` : ''}
+    <form data-form="carte-cadeau" class="rangee">
+      <label class="champ"><span>Montant</span><input name="montant" type="number" min="1" max="10000" step="0.01" inputmode="decimal" required></label>
+      <label class="champ"><span>Validité</span><select name="expireMois"><option value="">Sans limite</option><option value="12">1 an</option><option value="24" selected>2 ans</option><option value="36">3 ans</option></select></label>
+      <label class="champ"><span>Pour (facultatif)</span><input name="destinataire" maxlength="100" autocomplete="off"></label>
+      <button class="btn">Émettre la carte</button>
+    </form>
+    ${ui.cartesCadeaux && !ui.cartesCadeaux.registreCoherent ? '<p class="alerte-texte" role="alert">Registre des cartes incohérent : contactez le support.</p>' : ''}
+    ${cartes.length ? `<table class="table compacte"><thead><tr><th>Carte</th><th class="num">Solde</th><th>État</th><th></th></tr></thead><tbody>${cartes.slice(0, 50).map(c => {
+      const expiree = c.expireLe && c.expireLe < Date.now();
+      return `<tr><td><span class="mono">····${esc(c.fin)}</span>${c.destinataire ? `<div class="sous">${esc(c.destinataire)}</div>` : ''}<div class="sous">${dateCourte(c.creeLe)}${c.expireLe ? ` · valable jusqu’au ${new Date(c.expireLe).toLocaleDateString('fr-FR')}` : ''}</div></td>
+        <td class="num">${euros(c.solde)}<div class="sous">sur ${euros(c.initial)}</div></td>
+        <td>${c.statut === 'desactivee' ? '<span class="pill">Désactivée</span>' : expiree ? '<span class="pill">Expirée</span>' : c.solde > 0 ? '<span class="pill good">Active</span>' : '<span class="pill">Utilisée</span>'}</td>
+        <td class="num">${c.statut === 'active' && c.solde > 0 ? `<button class="btn petit fantome" data-action="carte-desactiver" data-id="${esc(c.id)}" aria-label="Désactiver la carte se terminant par ${esc(c.fin)}">Désactiver</button>` : ''}</td></tr>`;
+    }).join('')}</tbody></table>` : `<p class="sous">${ui.cartesEnCours ? 'Chargement…' : 'Aucune carte émise pour l’instant.'}</p>`}
+  </section>`;
+}
+document.addEventListener('input', e => {
+  if (e.target.dataset && e.target.dataset.caisse === 'carte') ui.carteCaisse = e.target.value;
+});
 document.addEventListener('input', e => {
   if (!e.target.dataset || e.target.dataset.caisse !== 'recu') return;
   ui.recuCaisse = e.target.value;

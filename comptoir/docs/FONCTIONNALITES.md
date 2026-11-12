@@ -74,6 +74,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Journal inaltérable des ventes** : factures, tickets et avoirs scellés dans une chaîne signée par le serveur, clôture journalière avec grand total perpétuel, vérification chaque nuit (alerte par e-mail), empreintes envoyées au marchand, export. Aide à la traçabilité, non certifiée NF 525.
 - **Facture électronique** : chaque facture et chaque avoir au format XML de la norme européenne EN 16931 (celui de Factur-X), valide selon le schéma officiel.
 - **Factur-X** : chaque facture et chaque avoir en PDF/A-3. Votre client lit le PDF, et son logiciel comptable lit le XML EN 16931 joint (`factur-x.xml`). Les polices sont intégrées, le texte est copiable et cherchable, et les montants sont identiques à ceux du XML et de la facture imprimée. Le format suit la spécification PDF/A-3 ; il n'a pas encore été contrôlé par un validateur PDF/A (veraPDF).
+- **Cartes cadeaux** : émises depuis « Magasin et caisse », utilisables en ligne et à la caisse, seules ou avec un autre moyen de paiement. Le code n'est affiché qu'une fois et la base n'en garde qu'une empreinte. Le solde ne peut pas être dépensé deux fois. Si la commande est annulée, remboursée ou si son paiement n'aboutit pas, le montant revient sur la carte. Un registre des mouvements par carte permet de vérifier chaque solde.
 - Droit de rétractation (France, Belgique), effacement des données d'un client sur demande.
 
 ## Exploiter la plateforme

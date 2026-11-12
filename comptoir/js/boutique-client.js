@@ -24,7 +24,7 @@ function mesurer(type, extra = {}) {
 const CLE_PANIER = `comptoir-panier-${slug}`;
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
-const vue = { saisie: {}, fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '' };
+const vue = { saisie: {}, fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '', carte: null, carteMessage: '' };
 
 function lirePanier() { try { return JSON.parse(localStorage.getItem(CLE_PANIER)) || []; } catch { return []; } }
 function garderPanier() { try { localStorage.setItem(CLE_PANIER, JSON.stringify(vue.panier)); } catch { /* ignoré */ } }
@@ -146,6 +146,8 @@ function rendreBrut() {
   const calc = calculPanier();
   const total = calc.apresRemise;
   const port = total ? fraisPortClient(vue.livraison, total) : 0;
+  // Carte cadeau : déduite du total (au plus son solde) ; le serveur refait le calcul et débite la carte.
+  const partCarte = vue.carte ? Math.min(vue.carte.solde, Math.round((total + port) * 100) / 100) : 0, aPayer = Math.round((total + port - partCarte) * 100) / 100;
   const seuil = donnees.seuilPortOffert;
   const regle = vue.panier.length ? Remises.regleApplicable({ offres: donnees.offres }, vue.panier, 'panier') : null;
   const produitOffre = regle ? donnees.produits.find(p => p.id === regle.alors && !aVariantes(p) && (p.type === 'drop' || p.stock > 0)) : null;   // offre en un clic : pas pour un produit à variantes
@@ -177,10 +179,12 @@ function rendreBrut() {
           ${suggestion ? `<div class="suggestion">${visuelProduit(suggestion)}<div><small>Souvent ajouté</small><strong>${esc(suggestion.nom)}</strong><span>${euros(suggestion.prix)}</span></div><button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${esc(suggestion.id)}">Ajouter</button></div>` : ''}
           <form id="form-code" class="code-promo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(vue.code ? vue.code.code : '')}" autocomplete="off"><button class="sf-btn sf-btn-ligne">${vue.code ? 'Changer' : 'Appliquer'}</button></form>
           ${vue.codeMessage ? `<p class="mini">${esc(vue.codeMessage)}</p>` : ''}
+          <form id="form-carte" class="code-promo"><input name="carte" placeholder="Carte cadeau" aria-label="Code de la carte cadeau" value="${esc(vue.carte ? vue.carte.code : '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"><button class="sf-btn sf-btn-ligne">${vue.carte ? 'Retirer' : 'Utiliser'}</button></form>
+          ${vue.carteMessage ? `<p class="mini" role="status">${esc(vue.carteMessage)}</p>` : ''}
           <fieldset class="modes-livraison"><legend>Livraison</legend>${Object.entries(donnees.livraisons).map(([k, m]) => `
             <label class="${vue.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${esc(k)}" data-c="livraison" ${vue.livraison === k ? 'checked' : ''}>
             <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : esc(fenetreLivraison(k === 'poste-prio' && !delai ? [1, 1] : delai || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
-          <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div></div>
+          <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div>${partCarte ? `<div class="remise"><span>Carte cadeau ····${esc(vue.carte.fin)}</span><span>−${euros(partCarte)}</span></div><div class="total"><span>À payer</span><span>${euros(aPayer)}</span></div>` : ''}</div>
           <form id="commande">
             <label class="champ"><span>Nom et prénom</span><input name="nom" required autocomplete="name"></label>
             <label class="champ"><span>E-mail</span><input name="email" type="email" required autocomplete="email"></label>
@@ -193,7 +197,7 @@ function rendreBrut() {
             <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
             <p class="erreur-form" id="erreur" hidden></p>
             ${!adresseVendeur() ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
-            <button class="sf-btn plein" ${vue.envoi || !adresseVendeur() || donnees.paiementsActifs === false ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : `Payer ${euros(total + port)}`}</button>
+            <button class="sf-btn plein" ${vue.envoi || !adresseVendeur() || donnees.paiementsActifs === false ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : partCarte && !aPayer ? 'Payer avec la carte cadeau' : `Payer ${euros(aPayer)}`}</button>
             <p class="mini">${donnees.paiement === 'stripe' ? (ch && (!donnees.moyens || donnees.moyens.twint) ? 'Paiement sécurisé par TWINT ou carte.' : donnees.boutique.pays === 'be' && (!donnees.moyens || donnees.moyens.bancontact) ? 'Paiement sécurisé par Bancontact ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
@@ -228,7 +232,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, carteCadeau: vue.carte ? vue.carte.code : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
@@ -369,6 +373,7 @@ document.addEventListener('submit', e => {
   if (e.target.id === 'commande') envoyerCommande(e.target);
   else if (e.target.dataset.sf === 'newsletter') inscrireNewsletter(e.target);
   else if (e.target.id === 'form-code') appliquerCode(e.target.elements.code.value);
+  else if (e.target.id === 'form-carte') { if (vue.carte) { vue.carte = null; vue.carteMessage = ''; rendre(); } else utiliserCarte(e.target.elements.carte.value); }
   else if (e.target.id === 'form-avis') envoyerAvis(e.target);
 });
 // Échap ferme la fenêtre du dessus seulement : conditions de vente, puis panier, puis fiche produit.
@@ -377,6 +382,20 @@ document.addEventListener('keydown', e => {
   if (vue.legal) { vue.legal = null; e.stopImmediatePropagation(); rendre(); }
   else if (vue.ouvert) { vue.ouvert = false; e.stopImmediatePropagation(); rendre(); }
 });
+
+/* Carte cadeau : le solde est vérifié par le serveur (essais limités) ; il est déduit du total, le reste se paie en ligne. */
+async function utiliserCarte(code) {
+  code = String(code || '').trim();
+  if (!code) return;
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/carte-cadeau`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+    const json = await rep.json();
+    if (!rep.ok) throw new Error(json.erreur);
+    vue.carte = { code, fin: json.fin, solde: json.solde };
+    vue.carteMessage = `Carte cadeau acceptée : solde ${euros(json.solde)}.`;
+  } catch (e) { vue.carte = null; vue.carteMessage = e.message || 'Carte cadeau non reconnue.'; }
+  rendre();
+}
 
 async function appliquerCode(code) {
   code = String(code || '').trim();
