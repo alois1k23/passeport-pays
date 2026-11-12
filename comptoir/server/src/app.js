@@ -2757,12 +2757,15 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   async function gerer(req, res) {
     // En-têtes de sécurité sur toutes les réponses : aucun script étranger (tout est servi par Comptoir),
     // pas d'affichage dans un cadre d'un autre site (clickjacking), pas de devinette du type de fichier.
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'");
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'; worker-src 'self'; manifest-src 'self'${securise ? '; upgrade-insecure-requests' : ''}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');   // une page ouverte depuis un autre site ne garde pas la main sur la nôtre
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(self)');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(self), usb=(), serial=(), hid=(), bluetooth=(), midi=(), browsing-topics=()');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');   // nos fichiers (photos, données) ne s'intègrent pas dans la page d'un autre site
+    res.setHeader('Origin-Agent-Cluster', '?1');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     if (securise) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     // HEAD : même réponse que GET, sans corps (Node l'omet de lui-même ; la réponse a déjà noté la méthode d'origine).
     if (req.method === 'HEAD') req.method = 'GET';

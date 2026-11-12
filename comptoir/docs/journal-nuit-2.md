@@ -562,3 +562,11 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
   - les règles « schematron » de la norme n'ont pas été exécutées, car ce sont des feuilles de transformation téléchargées et je n'exécute pas de code externe. À contrôler une fois avec le validateur public du FNFE-MPE avant d'annoncer la conformité ;
   - le PDF/A-3 avec le XML intégré (Factur-X complet) n'est pas encore produit ;
   - Comptoir ne transmet rien à une plateforme agréée (PA).
+
+## Cycle 40 (03 h 05) : en-têtes de sécurité renforcés
+
+- `Cross-Origin-Resource-Policy: same-origin` : les photos et les données de Comptoir ne peuvent pas être intégrées dans la page d'un autre site.
+- `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies: none`.
+- Permissions-Policy étendue : USB, port série, HID, Bluetooth, MIDI et `browsing-topics` désactivés.
+- CSP complétée : `worker-src 'self'`, `manifest-src 'self'`, et `upgrade-insecure-requests` en production (HTTPS).
+- 105 tests, bout en bout 51 sur 51.
