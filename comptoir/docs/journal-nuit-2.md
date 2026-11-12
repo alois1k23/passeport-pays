@@ -662,3 +662,9 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - **Reprise** : un avoir repris est daté de sa propre date.
 - Limite connue, écrite telle quelle : sans empreinte envoyée hors du serveur, une personne qui contrôle à la fois la base et la clé peut encore couper la fin du journal ; les empreintes du lundi servent à cela.
 - 114 tests sur 114, bout en bout 51 sur 51.
+
+## Cycle 50 (03 h 50) : contrôle d'accessibilité
+
+- Contrôle automatique maison, sans code externe, sur l'accueil, sept écrans de l'espace marchand et la boutique : boutons et liens sans nom, champs sans étiquette, images sans texte alternatif, sauts de titres, langue de la page, titre principal unique.
+- Espace marchand et accueil : aucun défaut.
+- Boutique sans section d'en-tête : la page n'avait aucun titre principal (`h1`), ce qui gêne les lecteurs d'écran et le référencement. Le nom de la boutique sert désormais de titre principal, invisible à l'écran.

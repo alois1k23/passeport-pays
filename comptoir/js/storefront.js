@@ -277,7 +277,9 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
     }).join('');
     return `<div class="sf" style="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}${ficheHtml}</div>`;
   }
-  return `<div class="sf" style="${varsTheme(b.theme)}">${entete}${sections}${ficheHtml}</div>`;
+  // Sans section d'en-tête (qui porte le titre principal), le nom de la boutique sert de titre principal, pour les lecteurs d'écran et les moteurs de recherche.
+  const titrePrincipal = listeSections.some(x => x.type === 'hero') ? '' : `<h1 class="sf-masque" data-sans-traduction>${esc(b.nom)}</h1>`;
+  return `<div class="sf" style="${varsTheme(b.theme)}">${entete}${titrePrincipal}${sections}${ficheHtml}</div>`;
 }
 
 /* Navigation de la boutique : défile jusqu’à la collection, au texte de présentation ou au pied de page. */
