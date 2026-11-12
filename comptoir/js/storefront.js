@@ -110,14 +110,14 @@ function renduSection(s, etat, mode) {
   const prods = etat.produits.filter(x => x.actif);
   switch (s.type) {
     case 'annonce':
-      return p.texte ? `<div class="sf-annonce">${esc(p.texte)}</div>` : (mode === 'edition' ? '<div class="sf-annonce">Annonce vide : écrivez votre message</div>' : '');
+      return p.texte ? `<div class="sf-annonce" data-sans-traduction>${esc(p.texte)}</div>` : (mode === 'edition' ? '<div class="sf-annonce">Annonce vide : écrivez votre message</div>' : '');
     case 'hero': {
       const vedette = prods[0];
       return `<section class="sf-hero ${p.align === 'centre' ? 'centre' : ''}">
         <div class="sf-hero-texte">
-          <h1>${esc(p.titre)}</h1>
-          ${p.sousTitre ? `<p>${esc(p.sousTitre)}</p>` : ''}
-          ${p.bouton ? `<button class="sf-btn" data-sf="defiler">${esc(p.bouton)}</button>` : ''}
+          <h1 data-sans-traduction>${esc(p.titre)}</h1>
+          ${p.sousTitre ? `<p data-sans-traduction>${esc(p.sousTitre)}</p>` : ''}
+          ${p.bouton ? `<button class="sf-btn" data-sf="defiler" data-sans-traduction>${esc(p.bouton)}</button>` : ''}
         </div>
         ${p.align === 'centre' || !vedette ? '' : visuelProduit(vedette, true)}
       </section>`;
@@ -138,7 +138,7 @@ function renduSection(s, etat, mode) {
       // Côté admin, on vérifie que le code existe vraiment (Conversion ou campagne) ; côté public, le serveur a déjà retiré les codes inconnus.
       const connu = !p.code || typeof etat.campagnes === 'undefined' || typeof Remises === 'undefined' || Remises.codesValables(vente).some(c => c.code === String(p.code).toUpperCase());
       const code = p.code && connu ? `<code>${esc(p.code)}</code>` : p.code && mode === 'edition' ? `<code class="sf-code-inconnu" title="Ce code n’existe pas : créez-le dans Conversion, sinon il n’est pas affiché aux clients">${esc(p.code)} · inconnu</code>` : '';
-      return `<section class="sf-saison"><div><strong>${esc(p.titre)}</strong><span>${esc(p.texte)}</span></div>${code}</section>`;
+      return `<section class="sf-saison"><div data-sans-traduction><strong>${esc(p.titre)}</strong><span>${esc(p.texte)}</span></div>${code}</section>`;
     }
     case 'produits': {
       // « Voir tous les produits » : sans lui, les produits au-delà des 4 à 8 de la vitrine seraient introuvables.
@@ -156,42 +156,42 @@ function renduSection(s, etat, mode) {
         <div class="sf-grille">${liste.map(x => `
           <article class="sf-carte">
             <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>
-            <div class="sf-carte-infos"><h3><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${prixBarreAffiche(x, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(x, etat))}</s> ` : ''}${euros(x.prix)}</span></div>
+            <div class="sf-carte-infos"><h3 data-sans-traduction><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${prixBarreAffiche(x, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(x, etat))}</s> ` : ''}${euros(x.prix)}</span></div>
             ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}<small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}</small>
             <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
           </article>`).join('') || (q ? `<p class="sf-vide">Aucun produit ne correspond à « ${esc(q)} ».</p>` : prods.length ? '<p class="sf-vide">Aucun produit dans cette catégorie.</p>' : '<p class="sf-vide">Nos produits arrivent très bientôt.</p>')}
         </div>${mode !== 'edition' && !q && dispo.length > (Number(p.nombre) || 4) ? `<p class="sf-tout"><button type="button" class="sf-btn" data-sf="tout-voir" data-id="${esc(s.id)}">${tout ? 'Voir moins' : `Voir tous les produits (${dispo.length})`}</button></p>` : ''}</section>`;
     }
     case 'arguments':
-      return `<section class="sf-arguments">${[p.a1, p.a2, p.a3].filter(Boolean).map(a => `<div>${esc(a)}</div>`).join('')}</section>`;
+      return `<section class="sf-arguments" data-sans-traduction>${[p.a1, p.a2, p.a3].filter(Boolean).map(a => `<div>${esc(a)}</div>`).join('')}</section>`;
     case 'texte':
       if (!p.titre && !p.texte && mode !== 'edition') return '';
-      return `<section class="sf-texte" data-ancre="apropos">${p.titre ? `<h2>${esc(p.titre)}</h2>` : ''}${p.texte ? `<p>${esc(p.texte)}</p>` : ''}</section>`;
+      return `<section class="sf-texte" data-ancre="apropos" data-sans-traduction>${p.titre ? `<h2>${esc(p.titre)}</h2>` : ''}${p.texte ? `<p>${esc(p.texte)}</p>` : ''}</section>`;
     case 'avis': {
       // Avis vérifiés réels s’il y en a ; sinon les textes saisis dans l’éditeur.
       const reels = (etat.avisRecents || []).slice(0, 4);
       const etoiles = n => '★★★★★'.slice(0, n) + `<span aria-hidden="true" class="sf-etoiles-vides">${'☆☆☆☆☆'.slice(0, 5 - n)}</span>`;
       if (reels.length) return `<section class="sf-avis"><h2 class="sf-avis-titre">${esc(p.titre || 'Ce qu’en disent nos clients')}</h2>${reels.map(a => `
-        <figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${etoiles(a.note)}</div><blockquote>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom)}${a.ville ? ', ' + esc(a.ville) : ''} · achat vérifié</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}
+        <figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${etoiles(a.note)}</div><blockquote data-sans-traduction>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom)}${a.ville ? ', ' + esc(a.ville) : ''} · achat vérifié</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}
         <p class="sf-methode">Avis vérifiés : seuls les clients dont la commande a été expédiée peuvent noter, via un lien personnel envoyé par e-mail. Tous les avis sont publiés, positifs comme négatifs.</p></section>`;
       // Sans avis vérifiés : rien en ligne (un témoignage saisi à la main n'a pas d'étoiles et ne passe pas pour un avis client).
       const temoignages = [[p.a1, p.n1], [p.a2, p.n2]].filter(a => a[0] && String(a[0]).trim());
       if (!temoignages.length) return mode === 'edition' ? '<section class="sf-avis"><p class="sf-methode">Les avis vérifiés de vos clients s’afficheront ici dès les premières notes. Rien n’est affiché en ligne d’ici là.</p></section>' : '';
       return `<section class="sf-avis"><h2 class="sf-avis-titre">${esc(p.titre || 'Témoignages')}</h2>${temoignages.map(([a, n]) => `
-        <figure><blockquote>${esc(a)}</blockquote>${n ? `<figcaption>${esc(n)}</figcaption>` : ''}</figure>`).join('')}</section>`;
+        <figure data-sans-traduction><blockquote>${esc(a)}</blockquote>${n ? `<figcaption>${esc(n)}</figcaption>` : ''}</figure>`).join('')}</section>`;
     }
     case 'newsletter': {
       // Ancien texte par défaut (« -10 % ») : il ne promet que la remise réellement envoyée par l'e-mail de bienvenue.
       const bv = (((typeof etatVente === 'function' ? etatVente() : etat).automatisations || {}).bienvenue) || etat.newsletter || null;
       const r = bv && bv.actif && bv.code ? Number(bv.remise ?? 10) : 0;
       const texte = p.texte === '-10 % sur votre première commande.' ? (r > 0 ? `-${r} % sur votre première commande.` : 'Les nouveautés de la boutique, quelques fois par mois.') : p.texte;
-      return `<section class="sf-newsletter"><h2>${esc(p.titre)}</h2><p>${esc(texte)}</p>
+      return `<section class="sf-newsletter"><h2 data-sans-traduction>${esc(p.titre)}</h2><p>${esc(texte)}</p>
         <form data-sf="newsletter"><input type="email" placeholder="Votre e-mail" aria-label="Votre e-mail" required><button class="sf-btn">S’inscrire</button></form></section>`;
     }
     case 'faq':
-      return `<section class="sf-faq"><h2>Questions fréquentes</h2>${[[p.q1, p.r1], [p.q2, p.r2]].filter(q => q[0]).map(([q, r]) => `<details><summary>${esc(q)}</summary><p>${esc(r)}</p></details>`).join('')}</section>`;
+      return `<section class="sf-faq"><h2>Questions fréquentes</h2>${[[p.q1, p.r1], [p.q2, p.r2]].filter(q => q[0]).map(([q, r]) => `<details><summary data-sans-traduction>${esc(q)}</summary><p data-sans-traduction>${esc(r)}</p></details>`).join('')}</section>`;
     case 'pied':
-      return `<footer class="sf-pied" data-ancre="contact"><strong>${esc(etat.boutique.nom)}</strong><span>${esc(p.texte)}</span><span>${esc(p.contact && !/@exemple\./i.test(p.contact) ? p.contact : (etat.entreprise && etat.entreprise.email) || '')}</span>
+      return `<footer class="sf-pied" data-ancre="contact"><strong data-sans-traduction>${esc(etat.boutique.nom)}</strong><span data-sans-traduction>${esc(p.texte)}</span><span>${esc(p.contact && !/@exemple\./i.test(p.contact) ? p.contact : (etat.entreprise && etat.entreprise.email) || '')}</span>
         <span class="sf-legal"><button type="button" data-action="doc" data-id="mentions">Mentions légales</button><button type="button" data-action="doc" data-id="cgv">CGV</button></span></footer>`;
     default:
       return '';
@@ -214,11 +214,11 @@ function renduFiche(etat, p, qte = 1) {
     <div class="sf-fiche-visuel">${visuelProduit(p)}</div>
     <div class="sf-fiche-infos">
       ${p.categorie ? `<small class="sf-fiche-cat">${esc(p.categorie)}</small>` : ''}
-      <h2>${esc(p.nom)}</h2>
+      <h2 data-sans-traduction>${esc(p.nom)}</h2>
       <p class="sf-fiche-prix">${prixBarreAffiche(p, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(p, etat))}</s> ` : ''}<strong>${euros(p.prix)}</strong> <small>${esc(mentionTva((etat.entreprise || {}).regime, etat.boutique.pays))}</small></p>
       ${prixBarreAffiche(p, etat) ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
       ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
-      ${p.description ? `<p class="sf-fiche-desc">${esc(p.description)}</p>` : ''}
+      ${p.description ? `<p class="sf-fiche-desc" data-sans-traduction>${esc(p.description)}</p>` : ''}
       <p class="sf-fiche-delai">${esc(fenetreLivraison(delaiProduit(p)))}</p>
       ${(() => {
         // Pays d'expédition (les CGV y renvoient) et, hors du pays du client, frais d'importation possibles.
@@ -232,7 +232,7 @@ function renduFiche(etat, p, qte = 1) {
         <button class="sf-btn" data-sf="ajouter" data-id="${esc(p.id)}" ${epuise ? 'disabled' : ''}>${epuise ? 'Épuisé' : 'Ajouter au panier'}</button>
       </div>
       ${reassurance.length ? `<ul class="sf-fiche-plus">${reassurance.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
-      ${avis.length ? `<div class="sf-fiche-avis"><h3>Avis sur ce produit</h3>${avis.map(a => `<figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${'★★★★★'.slice(0, a.note)}<span aria-hidden="true" class="sf-etoiles-vides">${'☆☆☆☆☆'.slice(0, 5 - a.note)}</span></div><blockquote>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom || '')}${a.ville ? ', ' + esc(a.ville) : ''}</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}</div>` : ''}
+      ${avis.length ? `<div class="sf-fiche-avis"><h3>Avis sur ce produit</h3>${avis.map(a => `<figure><div class="sf-etoiles" aria-label="${a.note} étoiles sur 5">${'★★★★★'.slice(0, a.note)}<span aria-hidden="true" class="sf-etoiles-vides">${'☆☆☆☆☆'.slice(0, 5 - a.note)}</span></div><blockquote data-sans-traduction>${esc(a.texte)}</blockquote><figcaption>${esc(a.prenom || '')}${a.ville ? ', ' + esc(a.ville) : ''}</figcaption>${a.reponse ? `<p class="sf-reponse"><b>Réponse de la boutique :</b> ${esc(a.reponse)}</p>` : ''}</figure>`).join('')}</div>` : ''}
     </div>
   </div>`;
 }

@@ -276,3 +276,26 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - La recherche ignore les accents et les majuscules : « gres » trouve « Vase en grès ». Elle tolère une faute de frappe dans les mots de 4 lettres ou plus. Elle porte sur le nom, la catégorie et la description.
 - La recherche est traduite (allemand, italien, anglais), et le message « Aucun produit ne correspond à … » l'est aussi.
 - Vérifié dans un vrai navigateur avec 10 produits.
+
+## Cycle 17 (01 h 45) : corrections de la troisième revue (score de risque, prévision, traductions)
+
+Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
+- **Score de risque** :
+  - Un vrai client qui réessayait son paiement 4 fois passait en « risque élevé ». Les compteurs comptent désormais des clients et des réseaux **distincts**, propres à chaque boutique (avant, ils étaient partagés entre toutes les boutiques, d'où de fausses alertes sur les réseaux partagés : opérateurs mobiles, bureaux, écoles).
+  - Les signaux de volume (quantité, montant, premier gros achat) sont plafonnés ensemble : un client professionnel n'est jamais en « risque élevé » pour le seul volume.
+  - Le panier moyen ne compte que les ventes en ligne non remboursées.
+  - Le bonus « client connu » est réservé à une commande déjà expédiée, livrée ou retirée.
+  - Les noms nordiques (å, æ, ø, œ) ne sont plus jugés incohérents.
+  - Les adresses formées d'un numéro de téléphone ne sont plus signalées.
+  - La règle « hors du pays », qui ne servait jamais, est retirée.
+  - Les compteurs ne gardent que des empreintes (HMAC), effacées après 24 heures.
+  - L'e-mail au marchand est exact pour une commande mixte (seule la partie fournisseur est retenue).
+- **Prévision de rupture** : le rythme est calculé sur la vraie période de vente, de la première vente des 28 derniers jours à aujourd'hui, et sur 7 jours au moins. Un produit lancé il y a 5 jours n'est plus sous-estimé.
+- **Traductions** :
+  - Les modèles trop larges (« Voir … », « Payer … ») traduisaient à moitié les textes du marchand. Ils sont restreints : « Payer » seulement devant un montant, « Voir » seulement dans les étiquettes d'accessibilité.
+  - Les textes du marchand (bannière, accroche, arguments, à propos, questions fréquentes, témoignages, avis, noms et descriptions des produits, pied de page) sont marqués « ne pas traduire ».
+  - Un produit nommé « Panier » ne bloque plus la traduction du panier, et le texte n'est plus déformé par `$&`.
+  - Nouveaux textes traduits : étapes du suivi de commande, « Merci Anna ! », notes en étoiles, « Épuisé », newsletter, « Tout (6) », « Voir tous les produits (12) », retrait au point de collecte.
+  - Formulations corrigées. En allemand : « Oft zusammen gekauft », « Menge erhöhen », « Transportunternehmen ». En italien : « Contatti », « Spesso acquistati insieme », « marzo » en toutes lettres. En anglais : « Estimated delivery », « away from free shipping ».
+- **Restent en français** (à faire) : e-mails de retrait prêt, d'expédition partielle, de demande d'avis et de relance de panier, ainsi que les messages d'erreur du serveur au moment de commander.
+- Vérifié dans un vrai navigateur. Tests : 91 sur 91.

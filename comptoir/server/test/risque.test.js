@@ -11,8 +11,16 @@ test('règles : commande normale faible, signaux cumulés élevés, client connu
   const k = R.creerCompteurs();
   const normale = R.evaluer({ client: { nom: 'Pia Muster', email: 'pia@exemple.ch' }, lignes: [{ qte: 1 }], total: 60 }, { reseau: '1.2.3.0', compteurs: k, panierMoyen: 55 });
   assert.equal(normale.niveau, 'faible'); assert.deepEqual(normale.raisons, []);
-  for (let i = 0; i < 4; i++) k.ajouter('r:9.9.9.0');
-  const louche = R.evaluer({ client: { nom: 'Xkcd Wrtzpq', email: 'ab1234567@yopmail.com' }, lignes: [{ qte: 10 }], total: 900 }, { reseau: '9.9.9.0', compteurs: k, panierMoyen: 60 });
+  for (let i = 0; i < 4; i++) k.ajouter('r::9.9.9.0', `client${i}@exemple.ch`);
+  // Un client qui réessaie 4 fois son paiement (même e-mail, même réseau) : pas une rafale
+  const k2 = R.creerCompteurs();
+  for (let i = 0; i < 4; i++) k2.ajouter('r::5.5.5.0', 'anna@exemple.ch'), k2.ajouter('e::anna@exemple.ch', '5.5.5.0');
+  assert.equal(R.evaluer({ client: { nom: 'Anna Muster', email: 'anna@exemple.ch' }, lignes: [{ qte: 1 }], total: 80 }, { reseau: '5.5.5.0', compteurs: k2, panierMoyen: 60 }).niveau, 'faible', 'nouvel essai de paiement');
+  // Client professionnel : 12 articles pour CHF 900, sans autre signal : au plus « moyen »
+  assert.notEqual(R.evaluer({ client: { nom: 'Bureau Muster', email: 'achats@muster.ch' }, lignes: [{ qte: 12 }], total: 900 }, { reseau: '7.7.7.0', compteurs: R.creerCompteurs(), panierMoyen: 60 }).niveau, 'eleve');
+  // Nom nordique : pas « incohérent »
+  assert.equal(R.evaluer({ client: { nom: 'Bjørn Strøm', email: 'bjorn@exemple.no' }, lignes: [{ qte: 1 }], total: 50 }, { reseau: '8.8.8.0', compteurs: R.creerCompteurs() }).niveau, 'faible');
+  const louche = R.evaluer({ client: { nom: 'Xkcd Wrtzpq', email: 'ab1234567@yopmail.com' }, lignes: [{ qte: 10 }], total: 900 }, { reseau: '9.9.9.0', compteurs: k, panierMoyen: 60, boutique: '' });
   assert.equal(louche.niveau, 'eleve'); assert.ok(louche.raisons.some(r => /jetable/.test(r)) && louche.raisons.some(r => /même réseau/.test(r)));
   const fidele = R.evaluer({ client: { nom: 'Pia Muster', email: 'pia@exemple.ch' }, lignes: [{ qte: 5 }], total: 80 }, { reseau: '1.2.3.0', compteurs: k, panierMoyen: 55, clientConnu: true });
   assert.equal(fidele.niveau, 'faible');

@@ -145,8 +145,8 @@ function rendreBrut() {
       <aside class="tiroir-corps" style="${varsTheme(th)}" role="dialog" aria-modal="true" aria-labelledby="titre-tiroir">
         <div class="carte-tete"><h2 id="titre-tiroir" tabindex="-1">${vue.message ? 'Votre commande' : 'Panier'}</h2><button class="icone" data-c="fermer">Fermer</button></div>
         ${vue.message ? vue.message : vue.panier.length ? `
-          <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
-            <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span>${esc(l.nom)}</span>
+          <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span data-sans-traduction>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
+            <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span data-sans-traduction>${esc(l.nom)}</span>
             <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId); return pr && l.qte >= (pr.type === 'drop' ? 20 : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
             <span class="num">${euros(l.prixInitial * l.qte)}</span></li>`).join('')}</ul>
           ${donnees.offres.barrePort && seuil > 0 && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuil * 100)}%"></i></span></div>` : ''}
@@ -241,7 +241,7 @@ async function suivreCommande(id, jeton, annule) {
       vue.message = `<div class="confirm"><p class="confirm-merci">${c.prenom ? `Merci ${esc(c.prenom)} !` : 'Merci !'}</p><h3>Commande n° ${c.numero}</h3><p>${c.statut === 'attente' && i >= 19 ? 'La confirmation du paiement prend plus de temps que prévu. Si votre paiement est passé, vous recevrez la confirmation par e-mail ; sinon, rien n’a été débité et vous pouvez réessayer.' : libelles[c.statut] || ''}</p>
         ${['annulee', 'remboursee'].includes(c.statut) ? '' : `<ol class="suivi-etapes">${etapes.map(([n, fait]) => `<li class="${fait ? 'fait' : ''}">${n}</li>`).join('')}</ol>`}
         ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
-        <ul class="lignes-panier">${c.lignes.map(l => `<li><span>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
+        <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
         <button class="sf-btn plein" data-c="fermer">Continuer mes achats</button></div>
@@ -377,7 +377,7 @@ async function formulaireAvis(id, jeton) {
     if (!rep.ok) throw new Error(json.erreur);
     vue.avis = { id, jeton };
     vue.message = json.produits.length ? `<form id="form-avis" class="form-avis"><p>Merci ${esc(json.prenom)} ! Votre avis sera publié avec votre prénom et votre ville, marqué « achat vérifié ».</p>
-      ${json.produits.map(p => `<fieldset data-produit="${esc(p.produitId)}"><legend>${esc(p.nom)}</legend>
+      ${json.produits.map(p => `<fieldset data-produit="${esc(p.produitId)}"><legend data-sans-traduction>${esc(p.nom)}</legend>
         <div class="etoiles-saisie">${[5, 4, 3, 2, 1].map(n => `<input type="radio" id="n-${esc(p.produitId)}-${n}" name="note-${esc(p.produitId)}" value="${n}" required><label for="n-${esc(p.produitId)}-${n}" title="${n} étoile${n > 1 ? 's' : ''}">★<span class="sf-lecteur">${n} étoile${n > 1 ? 's' : ''}</span></label>`).join('')}</div>
         <textarea name="texte-${esc(p.produitId)}" rows="3" maxlength="1000" placeholder="Qu’avez-vous aimé ? Qu’est-ce qui pourrait être mieux ?"></textarea></fieldset>`).join('')}
       <button class="sf-btn plein">Publier mon avis</button></form>` : '<p>Vous avez déjà donné votre avis pour cette commande. Merci !</p>';

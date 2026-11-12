@@ -569,7 +569,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
       const drop = res.c.lignes.every(l => l.type === 'drop'), auto = config.reglages.autoTransmission;
       const retenue = res.c.risque && res.c.risque.niveau === 'eleve';
-      const quoiFaire = retenue ? `Attention : risque de fraude élevé (${res.c.risque.score}/100 : ${res.c.risque.raisons.join(' ; ')}). ${drop && auto ? 'La transmission automatique au fournisseur est retenue : vérifiez la commande, puis transmettez-la ou remboursez-la depuis Commandes.' : 'Vérifiez la commande avant de l’expédier.'}` : res.c.alerteStock ? 'Attention : rupture de stock pour cette commande. Réapprovisionnez, ou remboursez le client depuis Commandes.' : res.c.parent ? `Complément de la commande n° ${(lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.parent)) || {}).numero || ''} : à joindre au même colis.` : res.c.livraison === 'retrait' ? 'À préparer pour un retrait en magasin.' : drop && auto ? 'Rien à faire : la commande part automatiquement chez le fournisseur.' : drop ? 'À transmettre au fournisseur depuis Commandes.' : 'À préparer et expédier.';
+      const quoiFaire = retenue ? `Attention : risque de fraude élevé (${res.c.risque.score}/100 : ${res.c.risque.raisons.join(' ; ')}). ${auto && res.c.lignes.some(l => l.type === 'drop') ? `La transmission automatique ${drop ? '' : 'de la partie fournisseur '}est retenue : vérifiez la commande, puis transmettez-la ou remboursez-la depuis Commandes.` : ''}${drop ? '' : ' Vérifiez-la avant d’expédier vos articles.'}${res.c.alerteStock ? ' Rupture de stock aussi sur cette commande.' : ''}` : res.c.alerteStock ? 'Attention : rupture de stock pour cette commande. Réapprovisionnez, ou remboursez le client depuis Commandes.' : res.c.parent ? `Complément de la commande n° ${(lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.parent)) || {}).numero || ''} : à joindre au même colis.` : res.c.livraison === 'retrait' ? 'À préparer pour un retrait en magasin.' : drop && auto ? 'Rien à faire : la commande part automatiquement chez le fournisseur.' : drop ? 'À transmettre au fournisseur depuis Commandes.' : 'À préparer et expédier.';
       // Produits en stock tombés à zéro avec cette vente : ils s'affichent « Épuisé » ; le marchand doit le savoir.
       // Une seule alerte, au passage à zéro : le stock d'avant cette vente était positif (pas de doublon à chaque vente suivante).
       const vendus = {}; for (const l of res.c.lignes) if (l.type !== 'drop') vendus[l.produitId] = (vendus[l.produitId] || 0) + l.qte;
@@ -1389,7 +1389,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const panierMoyen = boutiqueId => {
     const m = paniersMoyens.get(boutiqueId);
     if (m && Date.now() - m.le < 600000) return m.v;
-    const v = db.prepare("SELECT AVG(json_extract(donnees, '$.total')) AS v FROM (SELECT donnees FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee') ORDER BY date DESC LIMIT 200)").get(boutiqueId).v || 0;
+    // Panier moyen des ventes en ligne réellement conservées (pas la caisse, pas les remboursements).
+    const v = db.prepare("SELECT AVG(json_extract(donnees, '$.total')) AS v FROM (SELECT donnees FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee', 'remboursee') AND COALESCE(json_extract(donnees, '$.canal'), 'web') = 'web' ORDER BY date DESC LIMIT 200)").get(boutiqueId).v || 0;
     paniersMoyens.set(boutiqueId, { v, le: Date.now() });
     return v;
   };
@@ -1450,11 +1451,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
       // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.
       try {
-        const clientConnu = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee') AND lower(json_extract(donnees, '$.client.email')) = ? LIMIT 1").get(b.id, String(client.email || '').toLowerCase());
-        c.risque = Risque.evaluer(c, { reseau: ctx.ip, compteurs: compteursRisque, panierMoyen: panierMoyen(b.id), clientConnu, paysBoutique: config.boutique.pays });
+        // Client de confiance : une commande déjà expédiée, livrée ou retirée (pas une commande remboursée).
+        const clientConnu = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut IN ('expediee', 'livree', 'retiree') AND lower(json_extract(donnees, '$.client.email')) = ? LIMIT 1").get(b.id, String(client.email || '').toLowerCase());
+        c.risque = Risque.evaluer(c, { reseau: ctx.ip, compteurs: compteursRisque, panierMoyen: panierMoyen(b.id), clientConnu, boutique: b.id });
         if (c.risque.niveau !== 'faible') c.historique.push({ date: now, texte: `Risque ${c.risque.niveau === 'eleve' ? 'élevé' : 'moyen'} (${c.risque.score}/100) : ${c.risque.raisons.join(' ; ')}` });
       } catch (e) { journal.error('[risque]', e.message); }
-      compteursRisque.ajouter('r:' + ctx.ip, now); if (client.email) compteursRisque.ajouter('e:' + String(client.email).toLowerCase(), now);
+      if (client.email) { const em = String(client.email).toLowerCase(); compteursRisque.ajouter(`r:${b.id}:${ctx.ip}`, em, now); compteursRisque.ajouter(`e:${b.id}:${em}`, ctx.ip, now); }
       if (parFacture) {
         c.moyen = 'facture'; c.facture = prochaineFacture(b.id, now); c.dateFacture = now;
         c.echeance = now + config.reglages.echeanceJours * 86400000; c.referenceQr = referencePaiement(b, numero, config.entreprise.iban);
@@ -1906,10 +1908,12 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       const echues = toutes.filter(c => c.statut === 'attente' && c.moyen === 'facture' && c.echeance && c.echeance < maintenant);
       const risquees = toutes.filter(c => ['payee', 'preparation'].includes(c.statut) && c.risque && c.risque.niveau === 'eleve');
       // Ruptures prévues (même calcul que le tableau de bord : rythme des 28 derniers jours)
-      const ventes28 = db.prepare("SELECT donnees FROM commandes WHERE boutique_id = ? AND date >= ? AND statut NOT IN ('attente', 'annulee', 'remboursee')").all(b.id, maintenant - 28 * 86400000).map(r2 => JSON.parse(r2.donnees));
+      const ventes28 = db.prepare("SELECT date, donnees FROM commandes WHERE boutique_id = ? AND date >= ? AND statut NOT IN ('attente', 'annulee', 'remboursee')").all(b.id, maintenant - 28 * 86400000).map(r2 => ({ ...JSON.parse(r2.donnees), date: r2.date }));
       const ruptures = listerProduits(b.id).filter(p => p.actif !== false && p.type !== 'drop' && p.stock > 0).map(p => {
-        const v = ventes28.reduce((a, c) => a + (c.lignes || []).filter(l => l.produitId === p.id).reduce((x, l) => x + l.qte, 0), 0);
-        return v >= 2 ? { p, jours: Math.floor(p.stock / (v / 28)) } : null;
+        let v = 0, premiere = maintenant;
+        for (const c of ventes28) { const q = (c.lignes || []).filter(l => l.produitId === p.id).reduce((x, l) => x + l.qte, 0); if (q) { v += q; premiere = Math.min(premiere, c.date || maintenant); } }
+        const periode = Math.max(7, Math.min(28, (maintenant - premiere) / 86400000));   // même calcul que le tableau de bord
+        return v >= 2 ? { p, jours: Math.floor(p.stock / (v / periode)) } : null;
       }).filter(x => x && x.jours <= 14).sort((a, b2) => a.jours - b2.jours).slice(0, 5);
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
       if (!mch) continue;

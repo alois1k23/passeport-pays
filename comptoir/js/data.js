@@ -491,13 +491,15 @@ function droitPays(pays) {
 function previsionStock(p, commandes = etat.commandes, maintenant = Date.now()) {
   if (!p || p.type === 'drop' || typeof p.stock !== 'number') return null;
   const depuis = maintenant - 28 * 86400000;
-  let vendus = 0;
+  let vendus = 0, premiere = maintenant;
   for (const c of commandes) {
     if (c.date < depuis || ['annulee', 'remboursee', 'attente'].includes(c.statut)) continue;
-    for (const l of c.lignes || []) if (l.produitId === p.id) vendus += l.qte || 0;
+    for (const l of c.lignes || []) if (l.produitId === p.id) { vendus += l.qte || 0; premiere = Math.min(premiere, c.date); }
   }
   if (vendus < 2) return null;   // trop peu de ventes pour une prévision honnête
-  const parJour = vendus / 28;
+  // Période réelle de vente : depuis la première vente de la fenêtre (produit récent ou de retour en stock), 7 jours au moins.
+  const periode = Math.max(7, Math.min(28, (maintenant - premiere) / 86400000));
+  const parJour = vendus / periode;
   const jours = Math.max(0, Math.floor(p.stock / parJour));
   return { parJour, jours, aCommander: Math.max(0, Math.ceil(parJour * 30) - p.stock) };
 }

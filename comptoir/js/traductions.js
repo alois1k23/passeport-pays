@@ -10,7 +10,7 @@ const Traductions = (() => {
       'Boutique': 'Shop', 'À propos': 'Über uns', 'Contact': 'Kontakt', 'Panier': 'Warenkorb', 'Nos produits': 'Unsere Produkte', 'Tous nos produits': 'Alle Produkte',
       'Ajouter au panier': 'In den Warenkorb', 'Ajouter': 'Hinzufügen', 'Ajouter à ma commande': 'Zu meiner Bestellung hinzufügen', 'Appliquer': 'Anwenden', 'Changer': 'Ändern',
       'Refuser': 'Ablehnen', 'Accepter': 'Akzeptieren', 'Fermer': 'Schliessen', 'Votre panier est vide.': 'Ihr Warenkorb ist leer.', 'Continuer mes achats': 'Weiter einkaufen',
-      'Revenir au panier': 'Zurück zum Warenkorb', 'Souvent ajouté': 'Oft dazu gekauft', 'Livraison': 'Versand', 'Sous-total': 'Zwischensumme', 'Total': 'Total', 'Total payé': 'Bezahlter Betrag',
+      'Revenir au panier': 'Zurück zum Warenkorb', 'Souvent ajouté': 'Oft zusammen gekauft', 'Livraison': 'Versand', 'Sous-total': 'Zwischensumme', 'Total': 'Total', 'Total payé': 'Bezahlter Betrag',
       'Livraison offerte': 'Gratisversand', 'Offerte': 'Gratis', 'Offert': 'Gratis', 'pour la livraison offerte': 'bis zum Gratisversand', 'Plus que': 'Noch', 'sur toute la commande.': 'auf die ganze Bestellung.',
       'Nom et prénom': 'Vor- und Nachname', 'E-mail': 'E-Mail', 'Adresse': 'Adresse', 'NPA': 'PLZ', 'Code postal': 'Postleitzahl', 'Ville': 'Ort', 'Code promo': 'Rabattcode',
       'Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)': 'Neuheiten und Angebote per E-Mail erhalten (freiwillig, jederzeit abbestellbar)',
@@ -30,41 +30,42 @@ const Traductions = (() => {
       'Avis vérifiés : seuls les clients dont la commande a été expédiée peuvent noter, via un lien personnel envoyé par e-mail. Tous les avis sont publiés, positifs comme négatifs.': 'Verifizierte Bewertungen: Nur Kundinnen und Kunden mit versandter Bestellung können bewerten, über einen persönlichen Link per E-Mail. Alle Bewertungen werden veröffentlicht, positive wie negative.',
       'Vous avez déjà donné votre avis pour cette commande. Merci !': 'Sie haben diese Bestellung bereits bewertet. Danke!', 'Lien d’avis invalide.': 'Ungültiger Bewertungslink.', 'Réponse de la boutique :': 'Antwort des Shops:',
       'Aucun produit dans cette catégorie.': 'Keine Produkte in dieser Kategorie.', 'Nos produits arrivent très bientôt.': 'Unsere Produkte sind bald da.', 'Voir moins': 'Weniger anzeigen', 'Questions fréquentes': 'Häufige Fragen',
-      'Les nouveautés de la boutique, quelques fois par mois.': 'Neuheiten des Shops, ein paar Mal im Monat.', 'Inscription impossible.': 'Anmeldung nicht möglich.', 'Non merci': 'Nein, danke', 'Uniquement maintenant': 'Nur jetzt',
-      'Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.': 'Durchgestrichener Preis: während mindestens 30 Tagen vor der Senkung verlangter Preis.',
+      'Les nouveautés de la boutique, quelques fois par mois.': 'Neuheiten des Shops, ein paar Mal im Monat.', 'Inscription impossible.': 'Anmeldung nicht möglich.', 'Non merci': 'Nein, danke', 'Uniquement maintenant': 'Einmaliges Angebot',
+      'Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.': 'Durchgestrichener Preis: Preis, der mindestens 30 Tage vor der Preissenkung verlangt wurde.',
       'Mentions légales': 'Impressum', 'Conditions générales de vente': 'Allgemeine Geschäftsbedingungen', 'Impressum et protection des données': 'Impressum und Datenschutz',
-      'Vos données servent uniquement à traiter votre commande. Elles sont transmises au prestataire de paiement, au transporteur et, pour les articles expédiés par nos partenaires, au fournisseur concerné. Vous pouvez demander leur consultation ou leur effacement par e-mail.': 'Ihre Daten dienen nur der Abwicklung Ihrer Bestellung. Sie werden an den Zahlungsanbieter, den Transporteur und bei Artikeln unserer Partner an den betreffenden Lieferanten weitergegeben. Sie können per E-Mail Auskunft oder Löschung verlangen.',
+      'Vos données servent uniquement à traiter votre commande. Elles sont transmises au prestataire de paiement, au transporteur et, pour les articles expédiés par nos partenaires, au fournisseur concerné. Vous pouvez demander leur consultation ou leur effacement par e-mail.': 'Ihre Daten dienen nur der Abwicklung Ihrer Bestellung. Sie werden an den Zahlungsanbieter, das Transportunternehmen und bei Artikeln unserer Partner an den betreffenden Lieferanten weitergegeben. Sie können per E-Mail Auskunft oder Löschung verlangen.',
       'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.': 'Dieser Shop vervollständigt seine rechtlichen Angaben: Bestellungen sind bald möglich.',
       'Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.': 'Dieser Shop aktiviert gerade seine Online-Zahlungen: Bestellungen sind bald möglich.',
       'Pas de livraison offerte.': 'Kein Gratisversand.', 'Carte': 'Karte', 'TWINT ou carte': 'TWINT oder Karte',
       'Rechercher un produit': 'Produkt suchen', '@Rechercher un produit': 'Produkt suchen',
-      '@Navigation de la boutique': 'Shop-Navigation', '@Ouvrir le panier': 'Warenkorb öffnen', '@Retirer un': 'Eins entfernen', '@Ajouter un': 'Eins hinzufügen', '@Code promo': 'Rabattcode', '@Cookies': 'Cookies', '@Langue': 'Sprache'
+      'Préparation': 'Vorbereitung', 'Retirée': 'Abgeholt', 'Épuisé': 'Ausverkauft', 'Quantité': 'Menge', 'S’inscrire': 'Anmelden', 'Votre e-mail': 'Ihre E-Mail', '@Votre e-mail': 'Ihre E-Mail', 'Retirer': 'Entfernen', 'Témoignages': 'Erfahrungsberichte', 'Tout': 'Alle', 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.': 'Sie erhalten eine Bestätigung per E-Mail, mit dem Link zur Sendungsverfolgung.', 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.': 'Sobald die Zahlung eingegangen ist, erhalten Sie eine Bestätigung per E-Mail, mit dem Link zur Sendungsverfolgung.', 'Retrait en boutique (click & collect)': 'Abholung im Geschäft (Click & Collect)', 'achat vérifié': 'verifizierter Kauf', '@Catégories': 'Kategorien',
+      '@Navigation de la boutique': 'Shop-Navigation', '@Ouvrir le panier': 'Warenkorb öffnen', '@Retirer un': 'Menge verringern', '@Ajouter un': 'Menge erhöhen', '@Code promo': 'Rabattcode', '@Cookies': 'Cookies', '@Langue': 'Sprache'
     },
     it: {
-      'Boutique': 'Negozio', 'À propos': 'Chi siamo', 'Contact': 'Contatto', 'Panier': 'Carrello', 'Nos produits': 'I nostri prodotti', 'Tous nos produits': 'Tutti i prodotti',
+      'Boutique': 'Negozio', 'À propos': 'Chi siamo', 'Contact': 'Contatti', 'Panier': 'Carrello', 'Nos produits': 'I nostri prodotti', 'Tous nos produits': 'Tutti i prodotti',
       'Ajouter au panier': 'Aggiungi al carrello', 'Ajouter': 'Aggiungi', 'Ajouter à ma commande': 'Aggiungi al mio ordine', 'Appliquer': 'Applica', 'Changer': 'Modifica',
       'Refuser': 'Rifiuta', 'Accepter': 'Accetta', 'Fermer': 'Chiudi', 'Votre panier est vide.': 'Il carrello è vuoto.', 'Continuer mes achats': 'Continua gli acquisti',
-      'Revenir au panier': 'Torna al carrello', 'Souvent ajouté': 'Spesso aggiunto', 'Livraison': 'Spedizione', 'Sous-total': 'Subtotale', 'Total': 'Totale', 'Total payé': 'Totale pagato',
+      'Revenir au panier': 'Torna al carrello', 'Souvent ajouté': 'Spesso acquistati insieme', 'Livraison': 'Spedizione', 'Sous-total': 'Subtotale', 'Total': 'Totale', 'Total payé': 'Totale pagato',
       'Livraison offerte': 'Spedizione gratuita', 'Offerte': 'Gratuita', 'Offert': 'Gratuito', 'pour la livraison offerte': 'alla spedizione gratuita', 'Plus que': 'Mancano', 'sur toute la commande.': 'su tutto l’ordine.',
       'Nom et prénom': 'Nome e cognome', 'E-mail': 'E-mail', 'Adresse': 'Indirizzo', 'NPA': 'NPA', 'Code postal': 'Codice postale', 'Ville': 'Località', 'Code promo': 'Codice sconto',
       'Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)': 'Ricevere novità e offerte via e-mail (facoltativo, disiscrizione in qualsiasi momento)',
       'Mode test : le paiement est simulé, aucun montant n’est débité. En payant, vous acceptez les': 'Modalità di prova: il pagamento è simulato, nessun importo viene addebitato. Pagando accetti le',
       'CGV': 'CG', 'Paiement': 'Pagamento', 'Retrait en magasin': 'Ritiro in negozio', 'Disponible au point de retrait': 'Disponibile al punto di ritiro',
       'Paiement sécurisé par carte.': 'Pagamento sicuro con carta.', 'Paiement sécurisé par TWINT ou carte.': 'Pagamento sicuro con TWINT o carta.', 'Paiement sécurisé par Bancontact ou carte.': 'Pagamento sicuro con Bancontact o carta.',
-      'Redirection vers le paiement…': 'Reindirizzamento al pagamento…', 'Paiement en cours de confirmation…': 'Conferma del pagamento in corso…', 'Reprise de votre commande…': 'Ripresa del tuo ordine…',
-      'Le paiement a été annulé. Votre panier est conservé : vous pouvez réessayer.': 'Il pagamento è stato annullato. Il carrello è conservato: puoi riprovare.',
+      'Redirection vers le paiement…': 'Reindirizzamento al pagamento…', 'Paiement en cours de confirmation…': 'Conferma del pagamento in corso…', 'Reprise de votre commande…': 'Recupero del tuo ordine…',
+      'Le paiement a été annulé. Votre panier est conservé : vous pouvez réessayer.': 'Il pagamento è stato annullato. Il carrello è stato salvato: puoi riprovare.',
       'Paiement reçu. Nous préparons votre commande.': 'Pagamento ricevuto. Stiamo preparando il tuo ordine.', 'Paiement reçu. Votre commande est en préparation chez notre partenaire.': 'Pagamento ricevuto. Il tuo ordine è in preparazione presso il nostro partner.',
       'Merci !': 'Grazie!', 'Commande reçue': 'Ordine ricevuto', 'Votre commande': 'Il tuo ordine', 'Votre commande est en préparation.': 'Il tuo ordine è in preparazione.',
       'Votre colis est en route.': 'Il tuo pacco è in viaggio.', 'Votre colis a été livré.': 'Il tuo pacco è stato consegnato.', 'Votre commande vous attend en boutique.': 'Il tuo ordine ti aspetta in negozio.',
       'Commande annulée.': 'Ordine annullato.', 'Commande remboursée.': 'Ordine rimborsato.', 'Commande retirée. Merci !': 'Ordine ritirato. Grazie!', 'Commande introuvable.': 'Ordine non trovato.',
       'Expédiée': 'Spedito', 'Livrée': 'Consegnato', 'Prête à retirer': 'Pronto per il ritiro', 'Numéro de suivi :': 'Numero di tracciamento:',
       'La commande n’a pas pu être créée.': 'Non è stato possibile creare l’ordine.', 'Impossible de reprendre cette commande.': 'Impossibile riprendere questo ordine.',
-      'Envoi impossible. Réessayez dans un instant.': 'Invio impossibile. Riprova tra un momento.', 'Code non reconnu.': 'Codice non riconosciuto.', 'Offre indisponible.': 'Offerta non disponibile.',
+      'Envoi impossible. Réessayez dans un instant.': 'Invio non riuscito. Riprova tra un momento.', 'Code non reconnu.': 'Codice non riconosciuto.', 'Offre indisponible.': 'Offerta non disponibile.',
       'Avis sur ce produit': 'Recensioni di questo prodotto', 'Ce qu’en disent nos clients': 'Cosa dicono i nostri clienti', 'Publier mon avis': 'Pubblica la mia recensione', 'Merci, votre avis est publié.': 'Grazie, la tua recensione è pubblicata.',
       'Avis vérifiés : seuls les clients dont la commande a été expédiée peuvent noter, via un lien personnel envoyé par e-mail. Tous les avis sont publiés, positifs comme négatifs.': 'Recensioni verificate: solo i clienti con un ordine spedito possono valutare, tramite un link personale inviato via e-mail. Tutte le recensioni sono pubblicate, positive e negative.',
       'Vous avez déjà donné votre avis pour cette commande. Merci !': 'Hai già recensito questo ordine. Grazie!', 'Lien d’avis invalide.': 'Link di recensione non valido.', 'Réponse de la boutique :': 'Risposta del negozio:',
       'Aucun produit dans cette catégorie.': 'Nessun prodotto in questa categoria.', 'Nos produits arrivent très bientôt.': 'I nostri prodotti arrivano a breve.', 'Voir moins': 'Mostra meno', 'Questions fréquentes': 'Domande frequenti',
-      'Les nouveautés de la boutique, quelques fois par mois.': 'Le novità del negozio, qualche volta al mese.', 'Inscription impossible.': 'Iscrizione impossibile.', 'Non merci': 'No, grazie', 'Uniquement maintenant': 'Solo ora',
+      'Les nouveautés de la boutique, quelques fois par mois.': 'Le novità del negozio, qualche volta al mese.', 'Inscription impossible.': 'Iscrizione non riuscita.', 'Non merci': 'No, grazie', 'Uniquement maintenant': 'Offerta unica',
       'Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.': 'Prezzo barrato: prezzo praticato per almeno 30 giorni prima della riduzione.',
       'Mentions légales': 'Note legali', 'Conditions générales de vente': 'Condizioni generali di vendita', 'Impressum et protection des données': 'Impressum e protezione dei dati',
       'Vos données servent uniquement à traiter votre commande. Elles sont transmises au prestataire de paiement, au transporteur et, pour les articles expédiés par nos partenaires, au fournisseur concerné. Vous pouvez demander leur consultation ou leur effacement par e-mail.': 'I tuoi dati servono solo a gestire il tuo ordine. Sono trasmessi al fornitore di pagamento, al corriere e, per gli articoli spediti dai nostri partner, al fornitore interessato. Puoi chiederne la consultazione o la cancellazione via e-mail.',
@@ -72,19 +73,20 @@ const Traductions = (() => {
       'Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.': 'Questo negozio sta attivando i pagamenti online: gli ordini apriranno a breve.',
       'Pas de livraison offerte.': 'Nessuna spedizione gratuita.', 'Carte': 'Carta', 'TWINT ou carte': 'TWINT o carta',
       'Rechercher un produit': 'Cerca un prodotto', '@Rechercher un produit': 'Cerca un prodotto',
-      '@Navigation de la boutique': 'Navigazione del negozio', '@Ouvrir le panier': 'Apri il carrello', '@Retirer un': 'Togli uno', '@Ajouter un': 'Aggiungi uno', '@Code promo': 'Codice sconto', '@Cookies': 'Cookie', '@Langue': 'Lingua'
+      'Préparation': 'Preparazione', 'Retirée': 'Ritirato', 'Épuisé': 'Esaurito', 'Quantité': 'Quantità', 'S’inscrire': 'Iscriviti', 'Votre e-mail': 'La tua e-mail', '@Votre e-mail': 'La tua e-mail', 'Retirer': 'Rimuovi', 'Témoignages': 'Testimonianze', 'Tout': 'Tutto', 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.': 'Ti inviamo una conferma via e-mail, con il link per seguire il tuo ordine.', 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.': 'Riceverai una conferma via e-mail appena arriva il pagamento, con il link per seguire il tuo ordine.', 'Retrait en boutique (click & collect)': 'Ritiro in negozio (click & collect)', 'achat vérifié': 'acquisto verificato', '@Catégories': 'Categorie',
+      '@Navigation de la boutique': 'Navigazione del negozio', '@Ouvrir le panier': 'Apri il carrello', '@Retirer un': 'Rimuovi uno', '@Ajouter un': 'Aggiungi uno', '@Code promo': 'Codice sconto', '@Cookies': 'Cookie', '@Langue': 'Lingua'
     },
     en: {
       'Boutique': 'Shop', 'À propos': 'About', 'Contact': 'Contact', 'Panier': 'Cart', 'Nos produits': 'Our products', 'Tous nos produits': 'All products',
       'Ajouter au panier': 'Add to cart', 'Ajouter': 'Add', 'Ajouter à ma commande': 'Add to my order', 'Appliquer': 'Apply', 'Changer': 'Change',
       'Refuser': 'Decline', 'Accepter': 'Accept', 'Fermer': 'Close', 'Votre panier est vide.': 'Your cart is empty.', 'Continuer mes achats': 'Continue shopping',
-      'Revenir au panier': 'Back to cart', 'Souvent ajouté': 'Often added', 'Livraison': 'Shipping', 'Sous-total': 'Subtotal', 'Total': 'Total', 'Total payé': 'Total paid',
-      'Livraison offerte': 'Free shipping', 'Offerte': 'Free', 'Offert': 'Free', 'pour la livraison offerte': 'to free shipping', 'Plus que': 'Only', 'sur toute la commande.': 'on the whole order.',
+      'Revenir au panier': 'Back to cart', 'Souvent ajouté': 'Frequently bought together', 'Livraison': 'Shipping', 'Sous-total': 'Subtotal', 'Total': 'Total', 'Total payé': 'Total paid',
+      'Livraison offerte': 'Free shipping', 'Offerte': 'Free', 'Offert': 'Free', 'pour la livraison offerte': 'away from free shipping', 'Plus que': 'Only', 'sur toute la commande.': 'on the whole order.',
       'Nom et prénom': 'Full name', 'E-mail': 'Email', 'Adresse': 'Address', 'NPA': 'Postcode', 'Code postal': 'Postcode', 'Ville': 'Town', 'Code promo': 'Promo code',
       'Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)': 'Receive news and offers by email (optional, unsubscribe at any time)',
       'Mode test : le paiement est simulé, aucun montant n’est débité. En payant, vous acceptez les': 'Test mode: payment is simulated, nothing is charged. By paying, you accept the',
       'CGV': 'terms of sale', 'Paiement': 'Payment', 'Retrait en magasin': 'In-store pickup', 'Disponible au point de retrait': 'Available at the pickup point',
-      'Paiement sécurisé par carte.': 'Secure payment by card.', 'Paiement sécurisé par TWINT ou carte.': 'Secure payment by TWINT or card.', 'Paiement sécurisé par Bancontact ou carte.': 'Secure payment by Bancontact or card.',
+      'Paiement sécurisé par carte.': 'Secure card payment.', 'Paiement sécurisé par TWINT ou carte.': 'Secure payment with TWINT or card.', 'Paiement sécurisé par Bancontact ou carte.': 'Secure payment with Bancontact or card.',
       'Redirection vers le paiement…': 'Redirecting to payment…', 'Paiement en cours de confirmation…': 'Confirming payment…', 'Reprise de votre commande…': 'Resuming your order…',
       'Le paiement a été annulé. Votre panier est conservé : vous pouvez réessayer.': 'Payment was cancelled. Your cart is saved: you can try again.',
       'Paiement reçu. Nous préparons votre commande.': 'Payment received. We are preparing your order.', 'Paiement reçu. Votre commande est en préparation chez notre partenaire.': 'Payment received. Your order is being prepared by our partner.',
@@ -98,7 +100,7 @@ const Traductions = (() => {
       'Avis vérifiés : seuls les clients dont la commande a été expédiée peuvent noter, via un lien personnel envoyé par e-mail. Tous les avis sont publiés, positifs comme négatifs.': 'Verified reviews: only customers whose order has shipped can rate, via a personal link sent by email. All reviews are published, positive or negative.',
       'Vous avez déjà donné votre avis pour cette commande. Merci !': 'You have already reviewed this order. Thank you!', 'Lien d’avis invalide.': 'Invalid review link.', 'Réponse de la boutique :': 'Reply from the shop:',
       'Aucun produit dans cette catégorie.': 'No products in this category.', 'Nos produits arrivent très bientôt.': 'Our products are coming very soon.', 'Voir moins': 'Show less', 'Questions fréquentes': 'Frequently asked questions',
-      'Les nouveautés de la boutique, quelques fois par mois.': 'News from the shop, a few times a month.', 'Inscription impossible.': 'Sign-up failed.', 'Non merci': 'No thanks', 'Uniquement maintenant': 'Only now',
+      'Les nouveautés de la boutique, quelques fois par mois.': 'News from the shop, a few times a month.', 'Inscription impossible.': 'Sign-up failed.', 'Non merci': 'No thanks', 'Uniquement maintenant': 'One-time offer',
       'Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.': 'Crossed-out price: price charged for at least 30 days before the reduction.',
       'Mentions légales': 'Legal notice', 'Conditions générales de vente': 'Terms of sale', 'Impressum et protection des données': 'Legal notice and privacy',
       'Vos données servent uniquement à traiter votre commande. Elles sont transmises au prestataire de paiement, au transporteur et, pour les articles expédiés par nos partenaires, au fournisseur concerné. Vous pouvez demander leur consultation ou leur effacement par e-mail.': 'Your data is only used to process your order. It is shared with the payment provider, the carrier and, for items shipped by our partners, the supplier concerned. You can ask to see or erase it by email.',
@@ -106,12 +108,13 @@ const Traductions = (() => {
       'Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.': 'This shop is activating its online payments: orders open very soon.',
       'Pas de livraison offerte.': 'No free shipping.', 'Carte': 'Card', 'TWINT ou carte': 'TWINT or card',
       'Rechercher un produit': 'Search for a product', '@Rechercher un produit': 'Search for a product',
+      'Préparation': 'Preparing', 'Retirée': 'Collected', 'Épuisé': 'Sold out', 'Quantité': 'Quantity', 'S’inscrire': 'Subscribe', 'Votre e-mail': 'Your email', '@Votre e-mail': 'Your email', 'Retirer': 'Remove', 'Témoignages': 'Testimonials', 'Tout': 'All', 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.': 'A confirmation email is on its way, with a link to track your order.', 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.': 'You will receive a confirmation email as soon as payment is received, with a link to track your order.', 'Retrait en boutique (click & collect)': 'In-store pickup (click & collect)', 'achat vérifié': 'verified purchase', '@Catégories': 'Categories',
       '@Navigation de la boutique': 'Shop navigation', '@Ouvrir le panier': 'Open cart', '@Retirer un': 'Remove one', '@Ajouter un': 'Add one', '@Code promo': 'Promo code', '@Cookies': 'Cookies', '@Langue': 'Language'
     }
   };
   // Dates courtes françaises (« lun. 16 nov. ») → langue du client
   const JOURS = { de: { 'lun.': 'Mo.', 'mar.': 'Di.', 'mer.': 'Mi.', 'jeu.': 'Do.', 'ven.': 'Fr.', 'sam.': 'Sa.', 'dim.': 'So.' }, it: { 'lun.': 'lun.', 'mar.': 'mar.', 'mer.': 'mer.', 'jeu.': 'gio.', 'ven.': 'ven.', 'sam.': 'sab.', 'dim.': 'dom.' }, en: { 'lun.': 'Mon', 'mar.': 'Tue', 'mer.': 'Wed', 'jeu.': 'Thu', 'ven.': 'Fri', 'sam.': 'Sat', 'dim.': 'Sun' } };
-  const MOIS = { de: ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sept.', 'Okt.', 'Nov.', 'Dez.'], it: ['gen.', 'feb.', 'mar.', 'apr.', 'mag.', 'giu.', 'lug.', 'ago.', 'set.', 'ott.', 'nov.', 'dic.'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };
+  const MOIS = { de: ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sept.', 'Okt.', 'Nov.', 'Dez.'], it: ['gen.', 'feb.', 'marzo', 'apr.', 'mag.', 'giu.', 'lug.', 'ago.', 'set.', 'ott.', 'nov.', 'dic.'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };
   const MOIS_FR = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
   const date = (t, l) => t.replace(/(lun\.|mar\.|mer\.|jeu\.|ven\.|sam\.|dim\.) (\d{1,2}) (janv\.|févr\.|mars|avr\.|mai|juin|juil\.|août|sept\.|oct\.|nov\.|déc\.)/g, (_, j, n, m) => {
     const mm = MOIS[l][MOIS_FR.indexOf(m)];
@@ -120,37 +123,40 @@ const Traductions = (() => {
   // Modèles avec montants, nombres ou dates
   const MODELES = {
     de: [[/^Livré entre le (.+) et le (.+)$/, (m, l) => `Lieferung zwischen ${date(m[1], l)} und ${date(m[2], l)}`], [/^Livré le (.+)$/, (m, l) => `Lieferung am ${date(m[1], l)}`],
-      [/^Payer (.+)$/, m => `${m[1]} bezahlen`], [/^Ajoutez (\d+) articles? :$/, m => `Fügen Sie ${m[1]} Artikel hinzu:`], [/^Voir (.+)$/, m => `${m[1]} ansehen`],
+      [/^Ajoutez (\d+) articles? :$/, m => `Fügen Sie ${m[1]} Artikel hinzu:`],
       [/^(.+) utilise uniquement des cookies nécessaires au panier\. Aucune mesure d’audience n’est activée sans votre accord\.$/, m => `${m[1]} verwendet nur für den Warenkorb nötige Cookies. Ohne Ihre Zustimmung wird keine Reichweitenmessung aktiviert.`],
       [/^Facture QR, payable sous (\d+) jours \(expédition dès réception du paiement\)$/, m => `QR-Rechnung, zahlbar innert ${m[1]} Tagen (Versand nach Zahlungseingang)`], [/^(TWINT ou carte|Carte), maintenant$/, m => `${m[1] === 'Carte' ? 'Karte' : 'TWINT oder Karte'}, jetzt`],
       [/^(.+?) En payant, vous acceptez les$/, m => `${D.de[m[1]] || m[1]} Mit der Zahlung akzeptieren Sie die`],
       [/^(\d+) résultats?$/, m => `${m[1]} Treffer`], [/^Aucun produit ne correspond à « (.+) »\.$/, m => `Kein Produkt entspricht « ${m[1]} ».`],
+      [/^Payer ((?:CHF )?[\d’'.,\s]+(?: €)?)$/, m => `${m[1]} bezahlen`], [/^Voir tous les produits \((\d+)\)$/, m => `Alle Produkte anzeigen (${m[1]})`], [/^Merci (.+) !$/, m => `Danke, ${m[1]}!`], [/^(\d) étoiles? sur 5$/, m => `${m[1]} von 5 Sternen`], [/^Disponible au point de retrait (.+)$/, (m, l) => `Am Abholort verfügbar ${date(m[1].replace(/^entre le (.+) et le (.+)$/, 'zwischen $1 und $2').replace(/^le /, 'am '), l)}`], [/^Tout \((\d+)\)$/, m => `Alle (${m[1]})`],
       [/^Commande n° (\d+)$/, m => `Bestellung Nr. ${m[1]}`]],
     it: [[/^Livré entre le (.+) et le (.+)$/, (m, l) => `Consegna tra ${date(m[1], l)} e ${date(m[2], l)}`], [/^Livré le (.+)$/, (m, l) => `Consegna il ${date(m[1], l)}`],
-      [/^Payer (.+)$/, m => `Paga ${m[1]}`], [/^Ajoutez (\d+) articles? :$/, m => `Aggiungi ${m[1]} ${m[1] === '1' ? 'articolo' : 'articoli'}:`], [/^Voir (.+)$/, m => `Vedi ${m[1]}`],
-      [/^(.+) utilise uniquement des cookies nécessaires au panier\. Aucune mesure d’audience n’est activée sans votre accord\.$/, m => `${m[1]} usa solo i cookie necessari al carrello. Nessuna misurazione del pubblico senza il tuo consenso.`],
+      [/^Ajoutez (\d+) articles? :$/, m => `Aggiungi ${m[1]} ${m[1] === '1' ? 'articolo' : 'articoli'}:`],
+      [/^(.+) utilise uniquement des cookies nécessaires au panier\. Aucune mesure d’audience n’est activée sans votre accord\.$/, m => `${m[1]} usa solo i cookie necessari al carrello. Nessuna misurazione dell’audience viene attivata senza il tuo consenso.`],
       [/^Facture QR, payable sous (\d+) jours \(expédition dès réception du paiement\)$/, m => `Fattura QR, pagabile entro ${m[1]} giorni (spedizione alla ricezione del pagamento)`], [/^(TWINT ou carte|Carte), maintenant$/, m => `${m[1] === 'Carte' ? 'Carta' : 'TWINT o carta'}, subito`],
       [/^(.+?) En payant, vous acceptez les$/, m => `${D.it[m[1]] || m[1]} Pagando accetti le`],
       [/^(\d+) résultats?$/, m => `${m[1]} ${m[1] === "1" ? "risultato" : "risultati"}`], [/^Aucun produit ne correspond à « (.+) »\.$/, m => `Nessun prodotto corrisponde a « ${m[1]} ».`],
+      [/^Payer ((?:CHF )?[\d’'.,\s]+(?: €)?)$/, m => `Paga ${m[1]}`], [/^Voir tous les produits \((\d+)\)$/, m => `Mostra tutti i prodotti (${m[1]})`], [/^Merci (.+) !$/, m => `Grazie, ${m[1]}!`], [/^(\d) étoiles? sur 5$/, m => `${m[1]} stelle su 5`], [/^Disponible au point de retrait (.+)$/, (m, l) => `Disponibile al punto di ritiro ${date(m[1].replace(/^entre le (.+) et le (.+)$/, 'tra $1 e $2').replace(/^le /, 'il '), l)}`], [/^Tout \((\d+)\)$/, m => `Tutto (${m[1]})`],
       [/^Commande n° (\d+)$/, m => `Ordine n. ${m[1]}`]],
-    en: [[/^Livré entre le (.+) et le (.+)$/, (m, l) => `Delivered between ${date(m[1], l)} and ${date(m[2], l)}`], [/^Livré le (.+)$/, (m, l) => `Delivered on ${date(m[1], l)}`],
-      [/^Payer (.+)$/, m => `Pay ${m[1]}`], [/^Ajoutez (\d+) articles? :$/, m => `Add ${m[1]} item${m[1] === '1' ? '' : 's'}:`], [/^Voir (.+)$/, m => `View ${m[1]}`],
+    en: [[/^Livré entre le (.+) et le (.+)$/, (m, l) => `Estimated delivery: ${date(m[1], l)} – ${date(m[2], l)}`], [/^Livré le (.+)$/, (m, l) => `Estimated delivery: ${date(m[1], l)}`],
+      [/^Ajoutez (\d+) articles? :$/, m => `Add ${m[1]} item${m[1] === '1' ? '' : 's'}:`],
       [/^(.+) utilise uniquement des cookies nécessaires au panier\. Aucune mesure d’audience n’est activée sans votre accord\.$/, m => `${m[1]} only uses cookies needed for the cart. No audience measurement without your consent.`],
       [/^Facture QR, payable sous (\d+) jours \(expédition dès réception du paiement\)$/, m => `QR invoice, payable within ${m[1]} days (shipped once payment is received)`], [/^(TWINT ou carte|Carte), maintenant$/, m => `${m[1] === 'Carte' ? 'Card' : 'TWINT or card'}, now`],
       [/^(.+?) En payant, vous acceptez les$/, m => `${D.en[m[1]] || m[1]} By paying, you accept the`],
       [/^(\d+) résultats?$/, m => `${m[1]} ${m[1] === "1" ? "result" : "results"}`], [/^Aucun produit ne correspond à « (.+) »\.$/, m => `No product matches « ${m[1]} ».`],
+      [/^Payer ((?:CHF )?[\d’'.,\s]+(?: €)?)$/, m => `Pay ${m[1]}`], [/^Voir tous les produits \((\d+)\)$/, m => `View all products (${m[1]})`], [/^Merci (.+) !$/, m => `Thank you, ${m[1]}!`], [/^(\d) étoiles? sur 5$/, m => `${m[1]} out of 5 stars`], [/^Disponible au point de retrait (.+)$/, (m, l) => `Available at the pickup point ${date(m[1].replace(/^entre le (.+) et le (.+)$/, 'between $1 and $2').replace(/^le /, 'on '), l)}`], [/^Tout \((\d+)\)$/, m => `All (${m[1]})`],
       [/^Commande n° (\d+)$/, m => `Order no. ${m[1]}`]]
   };
   const NOMS = { fr: 'Français', de: 'Deutsch', it: 'Italiano', en: 'English' };
   const NOTE_LEGALE = { de: 'Diese Bedingungen sind auf Französisch verfasst; die französische Fassung ist massgebend.', it: 'Queste condizioni sono redatte in francese; fa fede la versione francese.', en: 'These terms are written in French; the French version prevails.' };
 
-  let langue = 'fr', exclus = new Set();
+  let langue = 'fr';
   function traduireTexte(t) {
     if (langue === 'fr') return null;
-    const brut = t.trim(); if (!brut || exclus.has(brut)) return null;
+    const brut = t.trim(); if (!brut) return null;
     const d = D[langue][brut];
-    if (d) return t.replace(brut, d);
-    for (const [re, f] of MODELES[langue]) { const m = re.exec(brut); if (m) return t.replace(brut, f(m, langue)); }
+    if (d) return t.replace(brut, () => d);   // fonction : « $& » ou « $' » dans un texte restent du texte
+    for (const [re, f] of MODELES[langue]) { const m = re.exec(brut); if (m) { const r = f(m, langue); return t.replace(brut, () => r); } }
     return null;
   }
   function traduire(racine = document.body) {
@@ -162,10 +168,14 @@ const Traductions = (() => {
       const t = traduireTexte(n.nodeValue); if (t !== null && t !== n.nodeValue) n.nodeValue = t;
     }
     const el = racine.nodeType === 1 ? racine : document.body;
+    const VOIR = { de: n => `${n} ansehen`, it: n => `Vedi ${n}`, en: n => `View ${n}` };
     for (const e of [el, ...el.querySelectorAll('[placeholder],[aria-label],[title]')]) {
+      if (e.closest && e.closest('[data-sans-traduction]')) continue;
       for (const a of ['placeholder', 'aria-label', 'title']) {
         const v = e.getAttribute && e.getAttribute(a); if (!v) continue;
-        const d = D[langue]['@' + v] || traduireTexte(v); if (d && d !== v) e.setAttribute(a, d);
+        // « Voir <produit> » : seulement dans une étiquette d'accessibilité (jamais dans le texte du marchand)
+        const voir = a === 'aria-label' && /^Voir (.+)$/.exec(v);
+        const d = D[langue]['@' + v] || (voir ? VOIR[langue](voir[1]) : traduireTexte(v)); if (d && d !== v) e.setAttribute(a, d);
       }
     }
     // Pages légales : note sur la version qui fait foi
@@ -183,7 +193,6 @@ const Traductions = (() => {
   function demarrer(langues, noms = []) {
     langues = (Array.isArray(langues) && langues.length ? langues : ['fr']).filter(l => l === 'fr' || D[l]);
     if (!langues.includes('fr')) langues.unshift('fr');
-    exclus = new Set(noms.map(x => String(x || '').trim()).filter(Boolean));
     let voulu = new URLSearchParams(location.search).get('lang');
     if (!voulu) { try { voulu = localStorage.getItem('comptoir-langue'); } catch { /* ignoré */ } }
     if (!voulu) voulu = (navigator.languages || [navigator.language || 'fr']).map(x => String(x).slice(0, 2).toLowerCase()).find(x => langues.includes(x));
