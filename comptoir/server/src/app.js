@@ -2845,6 +2845,8 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
         throw erreur(404, 'Page introuvable.', 'introuvable');
       }
       const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: reseauIp(ipClient(req)), corps: {}, corpsBrut: '' };
+      // HTTPS : seule la session « __Host- » compte ; un cookie de session sans préfixe (posé par un sous-domaine, en HTTP) est ignoré.
+      if (securise) { const h = ctx.cookies[`__Host-${auth.COOKIE}`]; delete ctx.cookies[auth.COOKIE]; if (h) ctx.cookies[auth.COOKIE] = h; }
       if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
         ctx.corpsBrut = (await lireCorps(req)).toString('utf8');
         const type = req.headers['content-type'] || '';

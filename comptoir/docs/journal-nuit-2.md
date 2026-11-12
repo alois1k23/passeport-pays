@@ -611,3 +611,9 @@ Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 30
 ## Cycle 45 (03 h 25) : « Mes commandes » traduit
 
 - L'e-mail « Mes commandes » (liens de suivi envoyés à l'adresse du client) part dans la langue de sa commande la plus récente, statuts et dates compris. Test ajouté, 108 tests sur 108.
+
+## Cycle 46 (03 h 30) : cookie de session « __Host- »
+
+- En production (HTTPS), le cookie de session s'appelle `__Host-comptoir_session` : le navigateur exige alors `Secure`, `Path=/` et l'absence de domaine. Ni un sous-domaine ni une page en HTTP ne peuvent poser ou remplacer la session d'un marchand (fixation de session). Un cookie de session sans préfixe est ignoré.
+- Effet à la mise en ligne : les sessions ouvertes avant ce changement devront se reconnecter une fois.
+- Test ajouté (`cookie-host.test.js`) : 109 tests sur 109.

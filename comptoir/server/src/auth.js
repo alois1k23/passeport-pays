@@ -40,7 +40,8 @@ function creerSession(db, marchandId) {
 function cookieSession(jeton, securise) {
   const attributs = ['Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${jeton ? DUREE_SESSION / 1000 : 0}`];
   if (securise) attributs.push('Secure');
-  return `${COOKIE}=${jeton || ''}; ${attributs.join('; ')}`;
+  // HTTPS : préfixe __Host- (Secure, Path=/, sans Domain) : ni un sous-domaine ni une page en HTTP ne peuvent poser ou remplacer la session.
+  return `${securise ? '__Host-' : ''}${COOKIE}=${jeton || ''}; ${attributs.join('; ')}`;
 }
 
 function marchandDepuisRequete(db, cookies) {
