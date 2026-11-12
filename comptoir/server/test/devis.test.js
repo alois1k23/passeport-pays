@@ -76,7 +76,10 @@ test('parcours : création, envoi, consultation, acceptation unique, commande pa
     const d = (await api('GET', `/api/admin/devis/${id}`)).json.devis;
     assert.equal(d.statut, 'accepte'); assert.equal(d.acceptation.nom, 'C. Roux, directrice'); assert.match(d.acceptation.empreinte, /^[0-9a-f]{64}$/);
     assert.ok(!JSON.stringify(d).includes('127.0.0.1'), 'adresse IP non stockée en clair');
-    const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(d.commande.id); const c = JSON.parse(row.donnees);
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(d.commande.id);
+    assert.ok(!row.donnees.includes('Hôtel du Lac') && !row.donnees.includes(client.email), 'client chiffré en base');
+    const commandeApi = async id => (await api('GET', '/api/admin/etat')).json.commandes.find(x => x.id === id);
+    const c = await commandeApi(d.commande.id);
     assert.equal(row.statut, 'attente'); assert.equal(c.total, d.total); assert.equal(c.client.nom, 'Hôtel du Lac SA'); assert.equal(c.client.tva, client.tva);
     // Le devis accepté ne change plus.
     assert.equal((await api('PUT', `/api/admin/devis/${id}`, { client, lignes: [{ nom: 'X', qte: 1, prixHt: 1 }] })).statut, 409);
@@ -88,10 +91,10 @@ test('parcours : création, envoi, consultation, acceptation unique, commande pa
     assert.equal(db.prepare('SELECT montant_centimes FROM paiements WHERE id = ?').get(pid).montant_centimes, Math.round(d.total * 100));
     await fetch(`${base}/paiement-simule/${pid}/confirmer`, { method: 'POST', redirect: 'manual' });
     const apres = db.prepare('SELECT statut, donnees FROM commandes WHERE id = ?').get(d.commande.id);
-    assert.equal(apres.statut, 'payee'); assert.ok(JSON.parse(apres.donnees).facture);
+    assert.equal(apres.statut, 'payee'); assert.ok((await commandeApi(d.commande.id)).facture);
     assert.equal(JSON.parse(db.prepare('SELECT donnees FROM produits WHERE id = ?').get(produit).donnees).stock, 90, 'stock du catalogue ; la ligne libre n’y touche pas');
     const cfg = JSON.parse(db.prepare('SELECT config FROM boutiques').get().config); cfg.entreprise.tvaIntra = 'FR12345678901'; cfg.entreprise.siret = '12345678901234'; db.prepare('UPDATE boutiques SET config = ?').run(JSON.stringify(cfg));
-    const c2 = { ...JSON.parse(apres.donnees), numero: 1 };
+    const c2 = { ...(await commandeApi(d.commande.id)), numero: 1 };
     const xml = F.produire(c2, cfg); assert.deepEqual(F.verifier(xml), []); assert.ok(xml.includes(`<ram:GrandTotalAmount>${d.total.toFixed(2)}</ram:GrandTotalAmount>`));
     assert.ok(!c2.lignes.some(l => l.type === 'drop' && !l.codeFournisseur));
   } finally { s.close(); }

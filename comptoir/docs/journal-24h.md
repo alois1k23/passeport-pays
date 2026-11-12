@@ -229,3 +229,21 @@ Relecture indépendante du programme de fidélité : 200 000 paniers aléatoires
 - **Essayé puis retiré** : un cache des réponses compressées. Avec 1000 boutiques visitées au hasard, il ne servait presque jamais et ne gagnait rien.
 - **Limite honnête** : un seul processus Node, dont les compteurs anti-abus et les flux en direct sont en mémoire. Au-delà d'environ 800 requêtes par seconde soutenues, il faudrait plusieurs processus, avec ces états partagés (base ou Redis). C'est une étape d'architecture, pas un réglage.
 - Simulation de 60 jours (100 marchands) relancée après les chantiers des cartes cadeaux, des devis et de la fidélité : 68 335 requêtes, médiane 2 ms, **0 anomalie**. 140 tests sur 140, bout en bout 51 sur 51.
+
+### Cycle 14 (00 h 55) : données personnelles des clients chiffrées au repos
+
+- Dans chaque commande, les données du client (nom, e-mail, adresse, code postal, ville, téléphone, numéro de TVA) sont désormais **chiffrées en AES-256-GCM**. Ce chiffrement authentifié détecte une donnée modifiée ou recopiée ailleurs dans la base. La clé est dérivée (HKDF) de `SECRET_CHIFFREMENT`.
+- **Index aveugle** : une nouvelle colonne contient une empreinte HMAC de l'e-mail (avec une clé distincte), indexée. Elle sert à retrouver les commandes d'un client : « mes commandes », client de confiance pour le score de risque, code de bienvenue réservé à une première commande. L'adresse n'est jamais stockée en clair, et l'index ne permet pas de la retrouver.
+- **Transparent pour le reste du code** : déchiffrement à la lecture, chiffrement à chaque écriture. Les recherches qui lisaient l'e-mail en clair dans la base passent par l'index. Les commandes anciennes, ou importées en clair, sont chiffrées une fois au démarrage, par lots.
+- **Vérifié** :
+  - après une commande, ni le nom, ni l'e-mail, ni la rue, ni le code postal n'apparaissent dans la base ;
+  - une donnée falsifiée ou lue avec une autre clé est refusée ;
+  - la migration d'une commande en clair se fait sans perte ;
+  - l'effacement d'un client fonctionne.
+  
+  Simulation de 60 jours (100 marchands) : 0 anomalie, l'audit déchiffrant avec la clé comme le serveur. Test de charge sur 1000 boutiques : aucune erreur, environ 700 requêtes par seconde (le déchiffrement coûte un peu à l'espace marchand).
+- **Limites honnêtes** :
+  - sans `SECRET_CHIFFREMENT`, la clé est dans la base : le chiffrement ne protège alors pas d'une copie complète. Le démarrage le signale déjà ;
+  - la file des e-mails (destinataire, contenu) et les comptes marchands restent en clair : ce sont des données d'exploitation, à purger selon la durée de conservation ;
+  - changer `SECRET_CHIFFREMENT` rend les données existantes illisibles (documenté dans MISE-EN-LIGNE.md).
+- 2 nouveaux tests : 142 tests sur 142, bout en bout 51 sur 51.

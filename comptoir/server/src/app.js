@@ -17,6 +17,7 @@ const FacturxPdf = require('./facturx-pdf');
 const CartesCadeaux = require('./cartes-cadeaux');
 const Devis = require('./devis');
 const Fidelite = require('./fidelite');
+const Pii = require('./pii');
 const JournalInalterable = require('./journal-inalterable');
 const WebPush = require('./webpush');
 const { AsyncLocalStorage } = require('node:async_hooks');
@@ -226,7 +227,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const listerProduits = (boutiqueId, avecSupprimes = false) =>
     db.prepare(`SELECT id, donnees FROM produits WHERE boutique_id = ? ${avecSupprimes ? '' : 'AND supprime = 0'} ORDER BY ordre, rowid`).all(boutiqueId)
       .map(p => ({ ...JSON.parse(p.donnees), id: p.id }));
-  const lireCommande = row => row && ({ ...JSON.parse(row.donnees), id: row.id, numero: row.numero, date: row.date, statut: row.statut });
+  /* Données personnelles des clients chiffrées au repos (pii.js) : déchiffrées à la lecture, chiffrées à l'écriture,
+     et un index aveugle de l'e-mail (colonne email_index) pour retrouver les commandes d'un client. */
+  let PII = null;
+  const lireDonneesCommande = texte => { const d = JSON.parse(texte); return PII ? PII.depuisStockage(d) : d; };
+  const stockerDonneesCommande = donnees => JSON.stringify(PII ? PII.versStockage(donnees) : donnees);
+  const indexEmail = donnees => PII && donnees && donnees.client ? PII.index(donnees.client.email) : null;
+  const insererCommande = (id, boutiqueId, numero, date, statut, jeton, donnees) =>
+    db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees, email_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, boutiqueId, numero, date, statut, jeton, stockerDonneesCommande(donnees), indexEmail(donnees));
+  const lireCommande = row => row && ({ ...lireDonneesCommande(row.donnees), id: row.id, numero: row.numero, date: row.date, statut: row.statut });
   const commandeDeBoutique = (boutiqueId, id) => {
     const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(id, boutiqueId));
     if (!c) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
@@ -260,7 +269,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const enregistrerCommande = c => {
     const { id, numero, date, statut, ...donnees } = c;
     const avant = db.prepare('SELECT statut, boutique_id FROM commandes WHERE id = ?').get(id);
-    db.prepare('UPDATE commandes SET statut = ?, donnees = ?, maj_le = ? WHERE id = ?').run(statut, JSON.stringify(donnees), Date.now(), id);
+    db.prepare('UPDATE commandes SET statut = ?, donnees = ?, email_index = ?, maj_le = ? WHERE id = ?').run(statut, stockerDonneesCommande(donnees), indexEmail(donnees), Date.now(), id);
     if ((donnees.facture || donnees.avoir) && avant) sceller(avant.boutique_id, c);
     // Changement de statut : les webhooks du marchand sont prévenus (commande.payee, .expediee, .remboursee…).
     if (avant && avant.statut !== statut) {
@@ -330,6 +339,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const Cartes = CartesCadeaux.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:cartes-cadeaux', 32)));
   const DV = Devis.creer(db);
   const FID = Fidelite.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:fidelite', 32)));   // fidélité : empreinte HMAC, jamais en clair
+  PII = Pii.creer(cleChiffrement);
+  try { db.exec('ALTER TABLE commandes ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
+  db.exec('CREATE INDEX IF NOT EXISTS commandes_email_index ON commandes (boutique_id, email_index)');
+  // Commandes d'avant le chiffrement (ou importées) : chiffrées une fois, par lots, au démarrage.
+  for (let n = 0; ; ) {
+    const lot = db.prepare("SELECT id, donnees FROM commandes WHERE json_extract(donnees, '$.client') IS NOT NULL LIMIT 2000").all();
+    if (!lot.length) { if (n) journal.log(`[donnees-clients] ${n} commande(s) chiffrée(s)`); break; }
+    transaction(db, () => { for (const r of lot) { const d = JSON.parse(r.donnees); db.prepare('UPDATE commandes SET donnees = ?, email_index = ? WHERE id = ?').run(stockerDonneesCommande(d), indexEmail(d), r.id); } });
+    n += lot.length;
+  }
   auth.persisterLimites(db, cleChiffrement);   // compteurs anti-abus rechargés (empreintes HMAC) : un redémarrage ne les remet pas à zéro
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
@@ -1814,7 +1833,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       prix.figerTaux(donnees, config);
       // Espèces en francs : le client paie le montant arrondi à 5 centimes (sur ce qui reste après la carte) ; l'écart est noté.
       if (ctx.corps.moyen === 'especes' && config.boutique.pays === 'ch' && reste) { const enc = Math.round(reste * 20) / 20; donnees.encaisse = prix.arrondi(enc); donnees.arrondi = prix.arrondi(enc - reste); }
-      db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, ctx.boutique.id, numero, now, 'retiree', auth.nouvelId(), JSON.stringify(donnees));
+      insererCommande(id, ctx.boutique.id, numero, now, 'retiree', auth.nouvelId(), donnees);
       if (carte && !Cartes.debiter(carte.id, centimesCarte, { commandeId: id, texte: `Ticket n° ${numero}`, maintenant: Date.now() })) throw erreur(409, 'Le solde de la carte cadeau vient de changer : vérifiez-le et réessayez.', 'carte_solde');
       sceller(ctx.boutique.id, { id, numero, date: now, statut: 'retiree', ...donnees });   // ticket de caisse scellé à l'encaissement
       ajusterStock(ctx.boutique.id, lignes, -1);
@@ -2041,7 +2060,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const emailClient = String((ctx.corps.client || {}).email || '').trim().toLowerCase();
     const reserve = {};
     for (const r2 of db.prepare("SELECT date, donnees FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ?").all(b.id, Date.now() - 90 * 86400000)) {
-      const d = JSON.parse(r2.donnees);
+      const d = lireDonneesCommande(r2.donnees);
       // 30 minutes pour un paiement en ligne, 48 heures pour une facture QR (une commande fictive sur facture ne bloque pas le stock un mois).
       // Devis accepté : payé souvent par virement, stock réservé 7 jours.
       const active = r2.date > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 30 * 60000);
@@ -2068,8 +2087,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Le code de bienvenue est annoncé « sur votre première commande » : refusé à une adresse qui a déjà commandé ici.
     const bienvenue = ((config.automatisations || {}).bienvenue || {});
     if (calcul.motif && calcul.motif.code && bienvenue.code && calcul.motif.code.toUpperCase() === String(bienvenue.code).toUpperCase()) {
-      const deja = db.prepare("SELECT donnees FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee')").all(b.id)
-        .some(r => { try { return String(JSON.parse(r.donnees).client.email || '').toLowerCase() === client.email.toLowerCase(); } catch { return false; } });
+      const deja = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee') AND email_index = ? LIMIT 1").get(b.id, PII.index(client.email) || '');
       if (deja) throw erreur(400, `Le code ${bienvenue.code} est réservé à une première commande.`, 'code_premiere_commande');
     }
     let lignes = calcul.lignes, remise = calcul.remise, apresRemise = calcul.apresRemise;
@@ -2130,7 +2148,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.
       try {
         // Client de confiance : une commande déjà expédiée, livrée ou retirée (pas une commande remboursée).
-        const clientConnu = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut IN ('expediee', 'livree', 'retiree') AND lower(json_extract(donnees, '$.client.email')) = ? LIMIT 1").get(b.id, String(client.email || '').toLowerCase());
+        const clientConnu = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut IN ('expediee', 'livree', 'retiree') AND email_index = ? LIMIT 1").get(b.id, PII.index(client.email) || '');
         c.risque = Risque.evaluer(c, { reseau: ctx.ip, compteurs: compteursRisque, panierMoyen: panierMoyen(b.id), clientConnu, boutique: b.id });
         if (c.risque.niveau !== 'faible') c.historique.push({ date: now, texte: `Risque ${c.risque.niveau === 'eleve' ? 'élevé' : 'moyen'} (${c.risque.score}/100) : ${c.risque.raisons.join(' ; ')}` });
       } catch (e) { journal.error('[risque]', e.message); }
@@ -2151,7 +2169,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       }
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
-      db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
+      insererCommande(id, b.id, n, date, statut, jeton, donnees);
       // Débit conditionnel (solde suffisant) : deux commandes simultanées ne dépensent pas deux fois la même carte.
       if (carte && !Cartes.debiter(carte.id, centimesCarte, { commandeId: c.id, texte: `Commande n° ${numero}`, maintenant: now })) throw erreur(409, 'Le solde de la carte cadeau vient de changer : vérifiez-le et réessayez.', 'carte_solde');
       if (donnees.facture) sceller(b.id, c);   // facture QR émise à la commande
@@ -2447,12 +2465,12 @@ ${bloc}</main></body></html>`;
         historique: [{ date: maintenant, texte: `Commande issue du devis ${frais.numero}, accepté en ligne par ${nom}` }] };
       const jetonCommande = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
-      db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jetonCommande, JSON.stringify(donnees));
+      insererCommande(id, b.id, n, date, statut, jetonCommande, donnees);
       // Stock : l'acceptation n'est pas bloquée (le marchand peut réassortir), mais un manque est signalé tout de suite.
       const prods = listerProduits(b.id);
       const manques = frais.lignes.filter(l => l.produitId && l.type !== 'drop').filter(l => { const p = prods.find(x => x.id === l.produitId); if (!p) return true; const v = l.varianteId && Array.isArray(p.variantes) ? p.variantes.find(x => x.id === l.varianteId) : null; return (v ? v.stock : p.stock) < l.qte; }).map(l => l.nom);
       if (manques.length) c.historique.push({ date: maintenant, texte: `Stock insuffisant à l’acceptation : ${manques.join(', ')}. Réassortissez avant l’expédition.` });
-      if (manques.length) { const { id: _i, numero: _n, date: _d, statut: _s, ...dn } = c; db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(JSON.stringify(dn), c.id); }
+      if (manques.length) { const { id: _i, numero: _n, date: _d, statut: _s, ...dn } = c; db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(stockerDonneesCommande(dn), c.id); }
       frais.manques = manques;
       frais.statut = 'accepte';
       frais.acceptation = { le: maintenant, nom, reseau: crypto.createHmac('sha256', cleChiffrement).update(`devis:${ctx.ip}`).digest('hex').slice(0, 32), empreinte: Devis.empreinteContenu(frais.numero, frais) };
@@ -2805,7 +2823,7 @@ ${bloc}</main></body></html>`;
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
-      db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
+      insererCommande(id, b.id, n, date, statut, jeton, donnees);
       const pp = { id: auth.nouvelId('pay_'), commande_id: c.id };
       db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le, compte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(pp.id, c.id, paiement.nom, Math.round(c.total * 100), devise, 'cree', now, compte);
       return { commande: { ...c, jeton }, pmt: pp };
@@ -2846,7 +2864,7 @@ ${bloc}</main></body></html>`;
     auth.limiter('mes-commandes:' + ctx.ip, 10 * facteurLimites, 3600000, 'Trop de demandes. Réessayez plus tard.');
     const b = boutiqueParSlug(ctx.params.slug);
     const email = valider.email(ctx.corps.email).toLowerCase();
-    const rows = db.prepare("SELECT id, numero, date, statut, donnees FROM commandes WHERE boutique_id = ? AND date > ? AND statut NOT IN ('attente', 'annulee') AND lower(json_extract(donnees, '$.client.email')) = ? ORDER BY date DESC LIMIT 20").all(b.id, Date.now() - 365 * 86400000, email);
+    const rows = db.prepare("SELECT id, numero, date, statut, donnees FROM commandes WHERE boutique_id = ? AND date > ? AND statut NOT IN ('attente', 'annulee') AND email_index = ? ORDER BY date DESC LIMIT 20").all(b.id, Date.now() - 365 * 86400000, PII.index(email));
     if (!rows.length) return { ok: true };
     // Compté seulement quand un e-mail part : des demandes pour une adresse sans commande n'épuisent pas celles du vrai client.
     try { auth.limiter(`mes-commandes-adresse:${b.id}|${email}`, 3, 86400000, ''); } catch { return { ok: true }; }

@@ -21,6 +21,7 @@ const path = require('node:path');
 const S = path.join(__dirname, '../../server/src/');
 const { ouvrir } = require(S + 'db');
 const { creerApp } = require(S + 'app');
+const Pii = require(S + 'pii');
 
 const N = Number(process.argv[2] || 100), JOURS = Number(process.argv[3] || 60);
 const anomalies = [];
@@ -48,6 +49,9 @@ const durees = [];
     serveur.removeAllListeners('request'); db.close();
     db = ouvrir(fichier); gerer = creerApp({ db, env: ENV, urlPublique: base, journal: silencieux }); serveur.on('request', gerer);
   }
+  // Données clients chiffrées en base : l'audit les déchiffre avec la clé de la base (comme le serveur).
+  let pii = null;
+  const lireDonnees = t => { pii = pii || Pii.creer(Buffer.from(db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex')); return pii.depuisStockage(JSON.parse(t)); };
   const desinscrits = new Map(), effaces = [], supprimes = [];
 
   let ipSuivante = 1;
@@ -193,7 +197,7 @@ const durees = [];
     if (jour === 20) for (const m of marchands.filter(x => x.i % 11 === 3 && !x.supprime)) {
       const b = db.prepare('SELECT id FROM boutiques WHERE slug = ?').get(m.slug);
       const parClient = {};
-      for (const r of db.prepare('SELECT statut, donnees FROM commandes WHERE boutique_id = ?').all(b.id)) { const e = JSON.parse(r.donnees).client.email; (parClient[e] = parClient[e] || []).push(r.statut); }
+      for (const r of db.prepare('SELECT statut, donnees FROM commandes WHERE boutique_id = ?').all(b.id)) { const e = lireDonnees(r.donnees).client.email; (parClient[e] = parClient[e] || []).push(r.statut); }
       const cible = Object.entries(parClient).find(([e, st]) => e && !/^rafale/.test(e) && st.every(x => ['livree', 'retiree', 'remboursee', 'annulee'].includes(x)));
       if (!cible) continue;
       const x = await m.c('POST', '/api/admin/clients/effacer', { email: cible[0] });
@@ -231,7 +235,7 @@ const durees = [];
 
   /* ---------- Vérifications de fin de mois ---------- */
   const bilan = { formules: {}, commandes: {}, emails: {}, abonnements: {} };
-  const lireC = r => ({ ...JSON.parse(r.donnees), id: r.id, numero: r.numero, statut: r.statut, date: r.date });
+  const lireC = r => ({ ...lireDonnees(r.donnees), id: r.id, numero: r.numero, statut: r.statut, date: r.date });
   for (const m of marchands.filter(x => !x.supprime)) {
     const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(m.slug);
     const cmds = db.prepare('SELECT * FROM commandes WHERE boutique_id = ?').all(b.id).map(lireC);
@@ -284,7 +288,7 @@ const durees = [];
   }
   // Survente : une vente payée sans stock est signalée au marchand (alerte de rupture), jamais silencieuse
   for (const r of db.prepare("SELECT boutique_id, numero, donnees FROM commandes WHERE statut NOT IN ('attente', 'annulee', 'remboursee')").all()) {
-    const c = JSON.parse(r.donnees);
+    const c = lireDonnees(r.donnees);
     if (c.canal !== 'magasin' && c.lignes.some(l => l.type !== 'drop' && l.retireStock !== undefined && l.retireStock < l.qte) && !c.alerteStock) note(`commande ${r.numero}`, 'vendue sans stock et sans alerte de rupture');
   }
   // Désinscrits : plus aucun e-mail commercial après le clic
@@ -295,7 +299,7 @@ const durees = [];
   }
   // Données effacées : plus de trace du client, plus d'e-mail
   for (const ef of effaces) {
-    const restes = db.prepare('SELECT donnees FROM commandes WHERE boutique_id = ?').all(ef.boutique).filter(r => JSON.parse(r.donnees).client.email.toLowerCase() === ef.email.toLowerCase());
+    const restes = db.prepare('SELECT donnees FROM commandes WHERE boutique_id = ?').all(ef.boutique).filter(r => lireDonnees(r.donnees).client.email.toLowerCase() === ef.email.toLowerCase());
     if (restes.length) note(`boutique ${ef.m.i}`, 'commandes non anonymisées après l’effacement', `${restes.length} commande(s)`);
     const mails = db.prepare('SELECT sujet FROM emails WHERE boutique_id = ? AND lower(destinataire) = ? AND cree_le > ?').all(ef.boutique, ef.email.toLowerCase(), ef.t);   // (d'autres boutiques peuvent encore lui écrire)
     if (mails.length) note(`boutique ${ef.m.i}`, 'e-mail envoyé à un client effacé', mails[0].sujet);
@@ -319,7 +323,7 @@ const durees = [];
   }
   // Demande d'avis : seulement après une livraison ou un retrait
   for (const ml of db.prepare("SELECT boutique_id, destinataire, cree_le FROM emails WHERE sujet LIKE 'Votre avis sur%'").all()) {
-    const recu = db.prepare('SELECT donnees FROM commandes WHERE boutique_id = ?').all(ml.boutique_id).map(r => JSON.parse(r.donnees))
+    const recu = db.prepare('SELECT donnees FROM commandes WHERE boutique_id = ?').all(ml.boutique_id).map(r => lireDonnees(r.donnees))
       .some(c => c.client.email === ml.destinataire && (c.historique || []).some(h => /^(Livrée|Remise au client)/.test(h.texte) && h.date <= ml.cree_le));
     if (!recu) { note('e-mail', 'demande d’avis avant la réception de la commande', ml.destinataire); break; }
   }
