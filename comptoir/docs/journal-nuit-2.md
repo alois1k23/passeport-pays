@@ -458,3 +458,19 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Démo** : un « Plaid en laine du Jura » (2 tailles × 2 couleurs, prix selon la taille).
 - **Limites** : pas de variantes pour les produits en dropshipping (codes fournisseur par variante à prévoir). Les offres en un clic et le lien de panier ne proposent pas les produits à variantes, le client les choisit sur la fiche.
 - Testé : test serveur (variante obligatoire, inconnue, sans stock, prix, stock retiré puis rendu), puis parcours complet dans un vrai navigateur (éditeur, boutique, panier, paiement) et caisse de la démo. 98 tests sur 98.
+
+## Cycle 30 (02 h 30) : bon de réassort, variantes dans l'API
+
+- **Bon de réassort** (Produits > « Réassort ») :
+  - pour les produits en stock, et par variante, Comptoir conseille la quantité à recommander pour tenir 30 jours, au rythme des 28 derniers jours (même calcul que la prévision de rupture) ;
+  - le marchand ajuste ; le coût d'achat estimé suit ;
+  - « Copier le texte pour le fournisseur » prépare un e-mail tout prêt ; export CSV ;
+  - rien n'est envoyé automatiquement.
+- **API v1 et variantes** :
+  - les produits exposent `options` et `variantes` ;
+  - le stock et le prix se mettent à jour variante par variante ;
+  - le stock global seul est refusé pour un produit à variantes, pour que le total reste la somme des variantes ;
+  - les lignes de commande portent `varianteId` ;
+  - documentation mise à jour, testé.
+- **Référencement** : un produit à variantes annonce sa fourchette de prix (`AggregateOffer`).
+- **Fiche des fonctionnalités** : `docs/FONCTIONNALITES.md`, limites connues comprises.
