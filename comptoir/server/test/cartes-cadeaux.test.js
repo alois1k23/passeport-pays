@@ -1,0 +1,153 @@
+// Cartes cadeaux : code secret (empreinte seule en base), débit atomique, registre, paiement en ligne et en caisse,
+// annulation, remboursement, paiement abandonné puis repris, limites d'essais.
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const crypto = require('node:crypto');
+const { ouvrir } = require('../src/db');
+const { creerApp } = require('../src/app');
+const CC = require('../src/cartes-cadeaux');
+
+test('module : code, empreinte, saisie tolérante, débit atomique, registre', () => {
+  const db = ouvrir(':memory:'), K = CC.creer(db, crypto.randomBytes(32));
+  const { carte, code } = K.emettre('b1', { montant: 50, devise: 'EUR' });
+  assert.match(code, /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+  assert.equal(carte.solde, 50); assert.equal(carte.fin, code.slice(-4));
+  assert.ok(!JSON.stringify(db.prepare('SELECT * FROM cartes_cadeaux').all()).includes(code.replace(/-/g, '')), 'code jamais stocké en clair');
+  const brut = code.replace(/-/g, '');
+  assert.ok(K.trouver('b1', brut.toLowerCase()), 'minuscules et sans tirets');
+  assert.ok(K.trouver('b1', ` ${code.replace(/0/g, 'O')} `), 'O lu comme 0');
+  assert.equal(K.trouver('b2', code), null, 'carte d’une autre boutique');
+  assert.equal(K.trouver('b1', 'AAAA-AAAA-AAAA-AAAA'), null);
+  const row = K.trouver('b1', code);
+  assert.equal(K.debiter(row.id, 3000), true); assert.equal(K.debiter(row.id, 2001), false, 'solde insuffisant : rien n’est débité');
+  assert.equal(K.debiter(row.id, 2000), true); assert.equal(K.debiter(row.id, 1), false);
+  K.crediter(row.id, 500, { type: 'remboursement' });
+  assert.equal(K.disponible(K.trouver('b1', code)), 500);
+  assert.deepEqual(K.verifier('b1'), []);
+  const { mouvements } = K.detail('b1', row.id);
+  assert.deepEqual(mouvements.map(m => [m.type, m.montant, m.solde]), [['emission', 50, 50], ['utilisation', -30, 20], ['utilisation', -20, 0], ['remboursement', 5, 5]]);
+  // Expirée ou désactivée : plus utilisable.
+  const exp = K.emettre('b1', { montant: 10, devise: 'EUR', expireLe: Date.now() - 1 });
+  assert.equal(K.disponible(K.trouver('b1', exp.code)), 0); assert.equal(K.debiter(exp.carte.id, 100), false);
+  K.desactiver('b1', row.id); assert.equal(K.debiter(row.id, 100), false);
+  assert.throws(() => K.emettre('b1', { montant: 0.5, devise: 'EUR' }), /entre 1 et 10 000/);
+  assert.throws(() => K.emettre('b1', { montant: 20000, devise: 'EUR' }), /entre 1 et 10 000/);
+  // Altération du registre détectée.
+  db.prepare('UPDATE cartes_cadeaux SET solde = solde + 100 WHERE id = ?').run(exp.carte.id);
+  assert.deepEqual(K.verifier('b1'), [exp.carte.id]);
+});
+
+async function boutique() {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  const app = creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } });
+  s.on('request', app);
+  let cookie = '';
+  const appel = async (m, chemin, corps, avecSession = true) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && avecSession ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length && avecSession) cookie = sc.map(x => x.split(';')[0]).join('; '); let json = null; try { json = await r.clone().json(); } catch { /* pas du JSON */ } return { statut: r.status, json }; };
+  const conf = { boutique: { nom: 'Cadeaux', pays: 'fr', secteur: 'maison', sections: [] }, entreprise: { raison: 'Cadeaux SAS', adresse: '5 rue Neuve, 69001 Lyon', email: 'c@exemple.fr', tvaIntra: 'FR12345678901', siret: '12345678901234' } };
+  assert.equal((await appel('POST', '/api/auth/inscription', { email: 'cc@exemple.fr', motDePasse: 'un mot de passe solide', config: conf, produits: [{ nom: 'Vase', prix: 40, stock: 50, type: 'stock' }] })).statut, 201);
+  const etat = (await appel('GET', '/api/admin/etat')).json;
+  return { db, s, base, app, appel, slug: db.prepare('SELECT slug FROM boutiques').get().slug, produit: etat.produits[0].id };
+}
+const client = { nom: 'Lou Martin', email: 'lou@exemple.fr', adresse: '3 rue Haute', npa: '69002', ville: 'Lyon' };
+
+test('en ligne : carte partielle, totale, paiement abandonné puis repris, annulation, remboursement', async () => {
+  const { db, s, appel, slug, produit, app } = await boutique();
+  try {
+    const emise = await appel('POST', '/api/admin/cartes-cadeaux', { montant: 50, destinataire: 'Lou' });
+    assert.equal(emise.statut, 201); const code = emise.json.code;
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 50);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code: 'ZZZZ-ZZZZ-ZZZZ-ZZZZ' }, false)).statut, 404);
+
+    // 1 vase (40 €) + 5,90 € de port : la carte paie tout. Commande payée sans paiement en ligne, facture émise.
+    const port = (await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code.toLowerCase() }, false));
+    assert.equal(port.statut, 201, JSON.stringify(port.json)); assert.equal(port.json.payeeParCarte, true);
+    let c = (await appel('GET', `/api/admin/commandes/${port.json.commandeId}`)).json;
+    c = c && c.commande ? c.commande : JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(port.json.commandeId).donnees);
+    const statut1 = db.prepare('SELECT statut FROM commandes WHERE id = ?').get(port.json.commandeId).statut;
+    assert.equal(statut1, 'payee'); assert.ok(c.facture); assert.equal(c.carteCadeau.montant, 45.9);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 4.1);
+
+    // 2 vases (76 € après la remise par palier, port offert) : 4,10 € sur la carte, 71,90 € en ligne. Le paiement en ligne porte sur le reste.
+    const mixte = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 2 }], livraison: 'colissimo', client, carteCadeau: code }, false);
+    assert.equal(mixte.statut, 201); assert.match(mixte.json.paiementUrl, /paiement-simule/);
+    const pid = mixte.json.paiementUrl.split('/').pop();
+    assert.equal(db.prepare('SELECT montant_centimes FROM paiements WHERE id = ?').get(pid).montant_centimes, 7190);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).statut, 404, 'solde réservé : carte épuisée');
+    // Carte épuisée : une seconde commande est refusée, rien n'est débité.
+    assert.equal((await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false)).statut, 400);
+
+    // Paiement abandonné : 2 heures plus tard, la carte est recréditée et le lien fermé.
+    app.automatisationsEcheances(Date.now() + 2 * 3600000 + 60000);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 4.1);
+    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pid).statut, 'annule');
+    // Le client reprend son paiement : la carte est débitée à nouveau, le nouveau lien porte sur le reste.
+    const jeton = mixte.json.jeton;
+    const rep = await appel('POST', `/api/public/${slug}/commandes/${mixte.json.commandeId}/reprendre`, { jeton }, false);
+    assert.equal(rep.statut, 200, JSON.stringify(rep.json));
+    const pid2 = rep.json.paiementUrl.split('/').pop();
+    assert.equal(db.prepare('SELECT montant_centimes FROM paiements WHERE id = ?').get(pid2).montant_centimes, 7190);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).statut, 404);
+    assert.equal((await appel('POST', `/paiement-simule/${pid2}/confirmer`, null, false)).statut, 303);
+    assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(mixte.json.commandeId).statut, 'payee');
+
+    // Remboursement : la part de la carte revient sur la carte.
+    assert.equal((await appel('POST', `/api/admin/commandes/${mixte.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 200);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 4.1);
+    // Annulation d'une commande en attente : la réservation revient aussi.
+    const att = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false);
+    assert.equal((await appel('POST', `/api/admin/commandes/${att.json.commandeId}/statut`, { statut: 'annulee' })).statut, 200);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 4.1);
+    // Annulation puis passage du nettoyage : pas de second crédit.
+    app.automatisationsEcheances(Date.now() + 4 * 3600000);
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 4.1);
+
+    const liste = (await appel('GET', '/api/admin/cartes-cadeaux')).json;
+    assert.equal(liste.registreCoherent, true); assert.equal(liste.cartes[0].solde, 4.1);
+    assert.ok(!JSON.stringify(liste).includes(code.replace(/-/g, '')), 'le code n’est plus jamais renvoyé');
+  } finally { s.close(); }
+});
+
+test('paiement reçu après libération, alors que la carte a été vidée ailleurs : argent à rendre, commande non payée', async () => {
+  const { db, s, appel, slug, produit, app } = await boutique();
+  try {
+    const { code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 30 })).json;
+    const cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, carteCadeau: code }, false);
+    const pid = cmd.json.paiementUrl.split('/').pop();
+    app.automatisationsEcheances(Date.now() + 3 * 3600000);
+    db.prepare("UPDATE paiements SET statut = 'cree' WHERE id = ?").run(pid);   // lien encore ouvert chez le prestataire
+    // La carte sert entre-temps en caisse.
+    assert.equal((await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 1 }], moyen: 'carte', carteCadeau: code, cle: 'cc1' })).statut, 201);
+    await appel('POST', `/paiement-simule/${pid}/confirmer`, null, false);
+    assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cmd.json.commandeId).statut, 'attente');
+    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pid).statut, 'a_rembourser');
+  } finally { s.close(); }
+});
+
+test('caisse : carte puis reste en espèces, hors ligne refusé ; droits et limites', async () => {
+  const { db, s, appel, slug, produit } = await boutique();
+  try {
+    const { code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 25, expireMois: 12 })).json;
+    const v = await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 1 }], moyen: 'especes', carteCadeau: code, cle: 'k1' });
+    assert.equal(v.statut, 201); assert.match(v.json.carteCadeau, /25,00/); assert.match(v.json.reste, /15,00/); assert.match(v.json.soldeCarte, /0,00/);
+    const c = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(v.json.id).donnees);
+    assert.equal(c.carteCadeau.montant, 25); assert.equal(c.total, 40);
+    // Même ticket renvoyé : pas de second débit.
+    assert.equal((await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 1 }], moyen: 'especes', carteCadeau: code, cle: 'k1' })).json.id, v.json.id);
+    assert.equal((await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 1 }], moyen: 'carte', carteCadeau: code, cle: 'k2' })).statut, 400, 'carte épuisée');
+    const autre = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 10 })).json.code;
+    assert.equal((await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 1 }], moyen: 'carte', carteCadeau: autre, horsLigneLe: Date.now() - 60000, cle: 'k3' })).statut, 400, 'hors ligne : refusée');
+    // Validations
+    assert.equal((await appel('POST', '/api/admin/cartes-cadeaux', { montant: 'abc' })).statut, 400);
+    assert.equal((await appel('POST', '/api/admin/cartes-cadeaux', { montant: 10, expireMois: 0 })).statut, 400);
+    // Sans session
+    assert.equal((await appel('POST', '/api/admin/cartes-cadeaux', { montant: 10 }, false)).statut, 401);
+    assert.equal((await appel('GET', '/api/admin/cartes-cadeaux', null, false)).statut, 401);
+    // Essais de codes au hasard : bloqués après 20.
+    let dernier = 0;
+    for (let i = 0; i < 22; i++) dernier = (await appel('POST', `/api/public/${slug}/carte-cadeau`, { code: crypto.randomBytes(8).toString('hex') }, false)).statut;
+    assert.equal(dernier, 429);
+  } finally { s.close(); }
+});
