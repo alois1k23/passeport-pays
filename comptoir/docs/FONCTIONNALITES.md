@@ -1,0 +1,89 @@
+# Comptoir : fonctionnalités
+
+Comptoir est une plateforme de boutique en ligne pour la Suisse, la France et la Belgique, pensée pour un commerçant seul ou une petite équipe, en dropshipping comme avec un stock propre.
+
+Ce document décrit ce qui existe et a été testé. Les limites connues sont indiquées.
+
+## Vendre
+
+### Boutique et catalogue
+
+- Boutique prête en une soirée : modèles, sections, éditeur visuel, domaine personnalisé vérifié (DNS et TXT).
+- **Variantes** : tailles et couleurs (2 options), avec stock et prix par variante.
+- **Boutique en quatre langues** : français, allemand, italien et anglais. Les e-mails de commande partent dans la langue du client, et chaque version est référencée (`hreflang`).
+- **Recherche instantanée** : sans accents, et tolérante aux fautes de frappe.
+- **Lien de panier** : un panier prêt à envoyer par WhatsApp, e-mail ou QR code.
+
+### Paiement
+
+- Paiement par TWINT, carte ou Bancontact (Stripe Connect). Chaque boutique encaisse sur son propre compte.
+- **QR-facture suisse** (norme SIX). L'import du relevé bancaire camt.053 ou camt.054 marque les commandes payées. Les versements partiels s'additionnent, et les doublons et trop-perçus sont signalés.
+
+### En boutique physique
+
+- **Caisse** (marchés, pop-up, magasin), avec un stock unique pour la caisse et le site.
+- Retrait en magasin.
+
+### Après la vente
+
+- Retours : demande du client depuis le suivi de commande, dans le délai légal ou celui du marchand.
+- Relances de paiement, demandes d'avis vérifiés, e-mail de bienvenue.
+- Codes promo, remises par quantité, offres dans le panier et après l'achat.
+
+## Piloter
+
+- **Tableau de bord en direct** : chaque commande s'affiche à l'instant. **Notifications sur le téléphone**, même Comptoir fermé, chiffrées de bout en bout.
+- **Application installable** (PWA).
+- **Rapport du lundi** par e-mail : ventes, meilleurs produits, choses à faire, ruptures prévues.
+- **Prévision de rupture** : jours de stock restants et quantité à recommander.
+- **Marge réelle** : coût fournisseur, port, TVA d'importation, frais de paiement et publicité.
+- **Décompte de TVA** par trimestre, semestre ou année, avec export CSV pour la fiduciaire et suivi du seuil suisse.
+- Analyse : ventes, produits, clients, marketing, rentabilité.
+- **Équipe** : jusqu'à 5 collaborateurs, avec les rôles « Commandes » ou « Gestion complète ». Leurs actions sont tracées à leur nom.
+- **API et webhooks signés** (formule Croissance) : comptabilité, entrepôt, Zapier, Make.
+
+## Protéger
+
+### Comptes
+
+- **Clés d'accès** (Face ID, Touch ID, Windows Hello) et **double authentification**, avec codes de secours.
+- Alerte à chaque nouvel appareil, déconnexion à distance, journal d'activité.
+- Mots de passe courants ou parus dans des fuites de données refusés (anonymat k).
+
+### Fraude
+
+- **Score de risque explicable** pour chaque commande.
+- Transmission au fournisseur retenue quand le risque est élevé.
+
+### Stock
+
+- **Réservation de stock** pendant le paiement : pas de double vente du dernier exemplaire.
+
+### Données
+
+- Sauvegardes quotidiennes vérifiées et **chiffrées** (AES-256-GCM).
+- Aucune ressource tierce dans les boutiques : ni traceur, ni police Google.
+- En-têtes de sécurité stricts (CSP sans script externe).
+
+### Conformité
+
+- Mentions légales, CGV, factures et avoirs numérotés sans trou.
+- Droit de rétractation (France, Belgique), effacement des données d'un client sur demande.
+
+## Exploiter la plateforme
+
+- **Console de l'exploitant** (`/operateur`) :
+  - marchands, abonnements, revenu mensuel récurrent ;
+  - files d'e-mails et de webhooks ;
+  - dernière sauvegarde.
+- Point de santé `/sante` pour la surveillance.
+- Vérification avant la mise en ligne : `node server/server.js --verifier`.
+- Tests automatiques, simulation de 100 marchands sur 60 jours, et essai de bout en bout avec un vrai navigateur.
+
+## Limites connues
+
+- **QR-facture** : à vérifier avec une vraie application bancaire avant d'ouvrir. Le QR code n'a pas été relu par un lecteur indépendant pendant les tests.
+- **Notifications push** : à vérifier sur un vrai téléphone. Sur iPhone, Comptoir doit d'abord être ajouté à l'écran d'accueil.
+- **Variantes** : pas encore pour les produits en dropshipping.
+- **Traductions** : les e-mails marketing (relance « vous nous manquez », newsletters) et la page sans JavaScript restent en français.
+- **Publication sur les réseaux sociaux** : préparée par Comptoir, mais publiée par copier-coller, en attendant les connexions officielles des réseaux.
