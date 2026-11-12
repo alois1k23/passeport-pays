@@ -49,6 +49,17 @@ test('équipe de bout en bout', async () => {
     assert.equal((await mia('GET', '/api/admin/clients/export?email=ab@x.ch')).s, 200);
     assert.equal((await mia('GET', '/api/admin/integrations')).s, 403);
     assert.equal((await mia('POST', '/api/admin/reinitialiser', {})).s, 403, 'pas de remise à zéro');
+    // Faille relevée par l'audit : un membre ne peut pas changer l'IBAN (paiements détournés)
+    const etatMia = (await mia('GET', '/api/admin/etat')).j;
+    const { version, serveur, produits, commandes, publications, abonnes, envois, avis, desinscrits, ...cfg } = etatMia;
+    cfg.entreprise = { ...cfg.entreprise, iban: 'CH93 0076 2011 6238 5295 7' };
+    assert.equal((await mia('PUT', '/api/admin/config', { config: cfg })).s, 200);
+    assert.notEqual(JSON.parse(db.prepare('SELECT config FROM boutiques').get().config).entreprise.iban, 'CH93 0076 2011 6238 5295 7', 'IBAN inchangé');
+    assert.equal((await mia('POST', '/api/admin/paiements/camt', { xml: '<Document>camt.054</Document>' })).s, 403, 'import bancaire réservé au propriétaire');
+    // Rôle commandes : une commande impayée ne se marque pas « payée »
+    const cmd2 = await fetch(`${base}/api/public/${ins.j.slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C D', email: 'cd@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } }) }).then(r => r.json());
+    assert.equal((await leo('POST', `/api/admin/commandes/${cmd2.commandeId}/statut`, { statut: 'payee' })).s, 403);
+    assert.equal((await leo('GET', '/api/admin/etat')).j.entreprise.iban, undefined, 'pas d’IBAN pour le rôle commandes');
     // Liste et retrait
     const eq = (await p('GET', '/api/admin/equipe')).j;
     assert.deepEqual(eq.membres.map(x => x.email).sort(), ['leo@exemple.ch', 'mia@exemple.ch']);

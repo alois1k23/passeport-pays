@@ -590,7 +590,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const vendus = {}; for (const l of res.c.lignes) if (l.type !== 'drop') vendus[l.produitId] = (vendus[l.produitId] || 0) + l.qte;
       const epuises = res.c.alerteStock ? [] : listerProduits(res.boutique.id).filter(p => vendus[p.id] && p.type !== 'drop' && p.stock <= 0 && p.stock + vendus[p.id] > 0);   // en rupture, l'e-mail de commande le dit déjà
       if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
-      notifierPush(res.boutique.marchand_id, { titre: `${res.c.parent ? 'Complément' : 'Nouvelle commande'} n° ${res.c.numero}`, texte: `${formatMontant(res.c.total, config)}${res.c.risque && res.c.risque.niveau === 'eleve' ? ' · risque de fraude élevé, à vérifier' : ''}`, url: '/app#commandes' }).catch(() => {});
+      notifierEquipe(res.boutique, { titre: `${res.c.parent ? 'Complément' : 'Nouvelle commande'} n° ${res.c.numero}`, texte: `${formatMontant(res.c.total, config)}${res.c.risque && res.c.risque.niveau === 'eleve' ? ' · risque de fraude élevé, à vérifier' : ''}`, url: '/app#commandes' }).catch(() => {});
       if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
         `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
     }
@@ -660,7 +660,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Rôles de l'équipe. « commandes » : préparer, expédier, transmettre, encaisser à la caisse (pas de remboursement,
      pas de réglages). « complet » : tout, sauf l'abonnement, l'équipe, les paiements, les intégrations et la remise à zéro. */
   const PERMIS_COMMANDES = /^(GET \/api\/admin\/(etat|signature|flux|commandes\/[\w-]+\/facture-qr)|POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)|PATCH \/api\/admin\/commandes\/[\w-]+|POST \/api\/admin\/caisse)$/;
-  const INTERDIT_COMPLET = /^(\w+ \/api\/admin\/(integrations|equipe|paiements\/activer|reinitialiser)(\/.*)?)$/;
+  const INTERDIT_COMPLET = /^(\w+ \/api\/admin\/(integrations|equipe|paiements|domaine|reinitialiser)(\/.*)?)$/;
   const exigerProprietaire = ctx => { exigerCompte(ctx); if (ctx.role !== 'proprietaire') throw erreur(403, 'Seul le propriétaire de la boutique gère l’abonnement et l’équipe.', 'role'); };
   const verifierRole = ctx => {
     if (!ctx.role || ctx.role === 'proprietaire') return;
@@ -948,6 +948,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   r.post('/api/admin/equipe/inviter', exigerProprietaire, ctx => {
     const email = valider.email(ctx.corps.email).toLowerCase(), role = String(ctx.corps.role || '');
     if (!ROLES[role]) throw erreur(400, 'Rôle inconnu.', 'role');
+    { const e = abo.etat(ctx.marchand.id); if (e.obligatoire && !e.actif) throw erreur(402, 'Inviter une équipe demande un abonnement actif.', 'abonnement_requis'); }
+    auth.limiter('invitation-ip:' + ctx.ip, 30 * facteurLimites, 86400000, 'Trop d’invitations aujourd’hui.');
     auth.limiter('invitation:' + ctx.boutique.id, 20, 86400000, 'Trop d’invitations aujourd’hui.');
     if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(email)) throw erreur(409, 'Cette adresse a déjà un compte Comptoir : invitez une autre adresse (un compte ne sert qu’à une boutique).', 'email_pris');
     if (db.prepare('SELECT COUNT(*) n FROM equipe WHERE boutique_id = ?').get(ctx.boutique.id).n + db.prepare('SELECT COUNT(*) n FROM invitations WHERE boutique_id = ? AND expire_le > ?').get(ctx.boutique.id, Date.now()).n >= 5) throw erreur(409, '5 membres au plus dans l’équipe.', 'equipe_pleine');
@@ -965,6 +967,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (!m) throw erreur(404, 'Membre inconnu.', 'introuvable');
     // Le compte du membre est supprimé (il ne servait qu'à cette boutique) : sessions, clés d'accès et notifications avec lui.
     db.prepare('DELETE FROM marchands WHERE id = ?').run(String(ctx.params.id));
+    db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());
     noterActivite(ctx.marchand.id, 'membre-retire', m.email, ctx);
     return { ok: true };
   });
@@ -1049,6 +1052,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   try { db.exec('ALTER TABLE abonnements_push ADD COLUMN session TEXT'); } catch { /* déjà là */ }
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'vapid'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('vapid', ?)").run(JSON.stringify(WebPush.genererClesVapid()));
   const vapid = { ...JSON.parse(db.prepare("SELECT valeur FROM cles WHERE nom = 'vapid'").get().valeur), sujet: env.EXPLOITANT_EMAIL ? `mailto:${env.EXPLOITANT_EMAIL}` : urlPublique };
+  // Propriétaire et membres de l'équipe (chacun sur ses appareils abonnés)
+  const notifierEquipe = async (boutique, message) => { for (const id of [boutique.marchand_id, ...db.prepare('SELECT marchand_id FROM equipe WHERE boutique_id = ?').all(boutique.id).map(x => x.marchand_id)]) await notifierPush(id, message); };
   async function notifierPush(marchandId, message) {
     // Appareil déconnecté (déconnexion, appareil révoqué, session expirée) : plus de notification, l'abonnement est retiré.
     db.prepare('DELETE FROM abonnements_push WHERE marchand_id = ? AND (session IS NULL OR session NOT IN (SELECT jeton_hash FROM sessions WHERE expire_le > ?))').run(marchandId, Date.now());
@@ -1218,7 +1223,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails', 'comptes_stripe']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
-      for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) db.prepare('DELETE FROM marchands WHERE id IN (SELECT marchand_id FROM equipe WHERE boutique_id = ?)').run(b.id);   // comptes de l'équipe
+      for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {   // comptes de l'équipe, et leurs e-mails de compte
+        db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) IN (SELECT lower(m2.email) FROM equipe e JOIN marchands m2 ON m2.id = e.marchand_id WHERE e.boutique_id = ?)').run(b.id);
+        db.prepare('DELETE FROM marchands WHERE id IN (SELECT marchand_id FROM equipe WHERE boutique_id = ?)').run(b.id);
+      }
       db.prepare('DELETE FROM marchands WHERE id = ?').run(m.id); // boutiques, produits, commandes, sessions : suppression en cascade
     });
   }
@@ -1266,7 +1274,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    return { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.marchand.id), jetonDomaine: jetonDomaine(ctx.boutique.id), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
+    if (ctx.role === 'commandes') { const { iban, ...entreprise } = etatComplet.entreprise || {}; return { ...etatComplet, entreprise, desinscrits: [], abonnes: [], envois: [] }; }
+    return etatComplet;
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -1277,7 +1288,14 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return config;
   }
   r.put('/api/admin/config', exigerMarchand, ctx => {
-    const config = garderDomaine(nettoyerConfig(ctx.corps.config), lireConfig(ctx.boutique));
+    const avant = lireConfig(ctx.boutique);
+    const config = garderDomaine(nettoyerConfig(ctx.corps.config), avant);
+    // Membre de l'équipe : l'identité de l'entreprise, l'IBAN et le paiement sur facture restent ceux du propriétaire
+    // (sinon un membre pourrait faire verser les paiements des clients sur son propre compte).
+    if (ctx.role !== 'proprietaire') {
+      config.entreprise = { ...config.entreprise, ...Object.fromEntries(['iban', 'raison', 'adresse', 'siret', 'tvaIntra', 'regime', 'forme', 'email'].map(k => [k, (avant.entreprise || {})[k]])) };
+      config.reglages = { ...config.reglages, factureQr: (avant.reglages || {}).factureQr, echeanceJours: (avant.reglages || {}).echeanceJours };
+    }
     db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(config), ctx.boutique.id);
     return { ok: true };
   });
@@ -1343,6 +1361,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     const cible = ctx.corps.statut;
     if (cible === 'remboursee' && c.retour && c.retour.statut === 'demande') c.retour.statut = 'rembourse';
+    if (ctx.role === 'commandes' && cible === 'payee') throw erreur(403, 'Marquer une commande comme payée est réservé au propriétaire ou à la gestion complète.', 'role');
     if (ctx.role === 'commandes' && ['remboursee', 'annulee'].includes(cible)) throw erreur(403, 'Rembourser ou annuler une commande est réservé au propriétaire ou à la gestion complète.', 'role');
     if (!transitionsPossibles(c).includes(cible)) throw erreur(409, `Impossible de passer de « ${c.statut} » à « ${cible} ».`, 'transition_invalide');
     const config = lireConfig(ctx.boutique);
@@ -1582,7 +1601,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const reserve = {};
     for (const r2 of db.prepare("SELECT date, donnees FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ?").all(b.id, Date.now() - 90 * 86400000)) {
       const d = JSON.parse(r2.donnees);
-      const active = d.moyen === 'facture' ? (d.echeance || 0) > Date.now() : r2.date > Date.now() - 30 * 60000;
+      // 30 minutes pour un paiement en ligne, 48 heures pour une facture QR (une commande fictive sur facture ne bloque pas le stock un mois).
+      const active = r2.date > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : 30 * 60000);
       if (!active || String((d.client || {}).email || '').toLowerCase() === emailClient) continue;   // son propre essai précédent ne bloque pas le client
       for (const l of d.lignes || []) if (l.type !== 'drop') reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0);
     }
@@ -1802,7 +1822,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     }
     // Suite du paiement (e-mails, transmission au fournisseur) : une erreur sur une commande n'empêche pas les autres.
     for (const res of aTraiter) { try { await apresPaiement(res); } catch (err) { journal.error('[camt]', res.c.numero, err.message); } }
-    if (resultat.payees.length || resultat.doublons.length) noterActivite(ctx.marchand.id, 'import-camt', `${resultat.payees.length} payée(s)`, ctx);
+    if (resultat.payees.length || resultat.doublons.length) noterActivite(ctx.boutique.marchand_id, 'import-camt', `${resultat.payees.length} payée(s)`, ctx);
     return resultat;
   });
   /* ---------- Intégrations : gestion (espace marchand, formule Croissance) ---------- */
@@ -2161,7 +2181,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
     if (mch) envoyerEmail(null, mch.email, `Retour demandé : commande n° ${c.numero}`, `Bonjour,\n\n${c.client.nom} demande à retourner :\n${lignes.map(l => `- ${l.qte} × ${l.nom} (${f(l.prix * l.qte)})`).join('\n')}\n${motif ? `\nMotif : ${motif}\n` : ''}\nÀ réception des articles, remboursez depuis Commandes (n° ${c.numero}).\n${urlPublique}/app#commandes\n\nL’équipe Comptoir`);
     envoyerEmail(b.id, c.client.email, `Votre demande de retour (commande n° ${c.numero})`, `Bonjour ${c.client.nom},\n\nNous avons bien reçu votre demande de retour :\n${lignes.map(l => `- ${l.qte} × ${l.nom}`).join('\n')}\n\nRenvoyez les articles à cette adresse, dans leur emballage si possible :\n${e.raison || config.boutique.nom}\n${e.adresse || ''}\n\nLe remboursement intervient dès réception${config.boutique.pays === 'ch' ? '' : ', au plus tard 14 jours après votre demande'}.\n\n${config.boutique.nom}`);
-    notifierPush(b.marchand_id, { titre: `Retour demandé · n° ${c.numero}`, texte: `${lignes.reduce((a, l) => a + l.qte, 0)} article(s), ${f(c.retour.montant)}`, url: '/app#commandes' }).catch(() => {});
+    notifierEquipe(b, { titre: `Retour demandé · n° ${c.numero}`, texte: `${lignes.reduce((a, l) => a + l.qte, 0)} article(s), ${f(c.retour.montant)}`, url: '/app#commandes' }).catch(() => {});
     return { statut: 201, corps: { ok: true } };
   });
   r.get('/api/public/:slug/commandes/:id', async ctx => {
@@ -2313,7 +2333,8 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
         if (maintenant - a.controle > (Number(env.FLUX_CONTROLE_MS) || 30000)) {
           a.controle = maintenant;
           const sess = db.prepare('SELECT marchand_id FROM sessions WHERE jeton_hash = ? AND expire_le > ?').get(a.session, maintenant);
-          const e = sess && abo.etat(sess.marchand_id);
+          const proprio = sess && db.prepare('SELECT marchand_id FROM boutiques WHERE id = ?').get(a.boutiqueId);
+          const e = sess && proprio && abo.etat(proprio.marchand_id);   // abonnement de la boutique (propriétaire), aussi pour l'équipe
           if (!sess || (e.obligatoire && !e.actif)) {   /* session terminée ou abonnement échu */ ecrire(a, 'event: fin\ndata: {}\n\n'); a.res.end(); flux.delete(a); continue; }
         }
         if (cle !== null && a.signature !== cle) {
@@ -2334,7 +2355,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     ctx.res.write('retry: 5000\nevent: pret\ndata: {}\n\n');
     flux.add(a);
     ctx.req.on('close', () => flux.delete(a));
-    if (!minuterieFlux) { minuterieFlux = setInterval(tourDeFlux, Number(env.FLUX_INTERVALLE_MS) || 2000); minuterieFlux.unref(); }
+    if (!minuterieFlux) requeteCourante.exit(() => { minuterieFlux = setInterval(tourDeFlux, Number(env.FLUX_INTERVALLE_MS) || 2000); minuterieFlux.unref(); });   // hors du contexte de cette requête
     return { diffusion: true };
   });
 
@@ -2382,7 +2403,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     ].join('\n');
     // Contenu lisible sans JavaScript (robots, aperçus) ; remplacé par la boutique interactive au chargement.
     const sansJs = `<noscript><main class="page-erreur"><h1>${escHtml(p ? p.nom : nom)}</h1>${p ? `<p>${escHtml(court(p.description))}</p><p><strong>${escHtml(formatMontant(p.prix, config))}</strong></p>` : `<p>${escHtml(description)}</p><ul>${produits.slice(0, 60).map(x => `<li><a href="${escHtml(urlProduit(x))}">${escHtml(x.nom)}</a> · ${escHtml(formatMontant(x.prix, config))}</li>`).join('')}</ul>`}<p>Activez JavaScript pour commander.</p></main></noscript>`;
-    return fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace(/<title>[^<]*<\/title>/, '').replace('<head>', () => `<head>\n${tete}`).replace('<div id="app"></div>', () => `<div id="app"></div>${sansJs}`);   // fonctions : « $' » ou « $& » dans un nom de boutique restent du texte
+    return fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace(/<title>[^<]*<\/title>/, '').replace('<html lang="fr">', () => `<html lang="${langueOk || 'fr'}">`).replace('<head>', () => `<head>\n${tete}`).replace('<div id="app"></div>', () => `<div id="app"></div>${sansJs}`);   // fonctions : « $' » ou « $& » dans un nom de boutique restent du texte
   }
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
@@ -2488,9 +2509,9 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (abo.prestataire === 'simulation' && env.NODE_ENV === 'production' && abo.obligatoire) throw erreur(503, 'Le paiement des abonnements n’est pas encore configuré (clé Stripe manquante).', 'paiement_non_configure');
     return abo.commencer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || ''), devise: deviseDe(ctx.boutique) });
   });
-  r.post('/api/abonnement/changer', exigerMarchand, ctx => abo.changer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || '') }));
-  r.post('/api/abonnement/resilier', exigerMarchand, async ctx => { const r2 = await abo.resilier({ marchand: ctx.marchand }); if (!r2.url) emailAbonnement(ctx.marchand.id, 'resiliation'); return r2; });
-  r.post('/api/abonnement/reprendre', exigerMarchand, ctx => abo.reprendre({ marchand: ctx.marchand }));
+  r.post('/api/abonnement/changer', ctx => { exigerProprietaire(ctx); exigerMarchand(ctx); }, ctx => abo.changer({ marchand: ctx.marchand, formule: String(ctx.corps.formule || '') }));
+  r.post('/api/abonnement/resilier', ctx => { exigerProprietaire(ctx); exigerMarchand(ctx); }, async ctx => { const r2 = await abo.resilier({ marchand: ctx.marchand }); if (!r2.url) emailAbonnement(ctx.marchand.id, 'resiliation'); return r2; });
+  r.post('/api/abonnement/reprendre', ctx => { exigerProprietaire(ctx); exigerMarchand(ctx); }, ctx => abo.reprendre({ marchand: ctx.marchand }));
   /* E-mails de Comptoir au marchand sur son abonnement (activation, paiement en échec, résiliation, fin). */
   function emailAbonnement(marchandId, evenement) {
     const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(marchandId);

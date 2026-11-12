@@ -418,3 +418,25 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - les polices locales (`css/polices.css`, `fonts/`), publiées avec la démo.
 - Le tableau de bord rappelle de protéger le compte (clé d'accès ou double authentification) tant qu'aucune des deux n'est active. Le rappel disparaît dès l'activation.
 - Essai de bout en bout 51 sur 51, et simulation complète 0 anomalie, après l'ajout de l'équipe.
+
+## Cycle 28 (02 h 15) : console de l'exploitant, corrections de l'audit de l'équipe
+
+- **Console de l'exploitant** (`/operateur`), pour la personne qui gère la plateforme :
+  - comptes marchands, membres d'équipe, inscriptions de la semaine ;
+  - abonnements actifs par formule, revenu mensuel récurrent, impayés ;
+  - commandes sur 24 heures, 7 jours et 30 jours, volume vendu ;
+  - e-mails et webhooks en file, appareils notifiés ;
+  - dernière sauvegarde (avec la mention « chiffrée » ou « NON chiffrée ») ;
+  - durée de marche.
+  - Accès réservé aux adresses de `OPERATEUR_EMAILS`, avec un compte protégé par double authentification ou clé d'accès. Pour tout autre visiteur, la page n'existe pas (404). Aucune donnée de client final n'y figure.
+- **Santé** : `/sante` répond `{ ok, depuis }` pour un service de surveillance externe.
+- **Audit de l'équipe**, corrections :
+  1. **Grave** : un membre en gestion complète pouvait changer l'IBAN et détourner les paiements des factures QR. Désormais l'identité de l'entreprise, l'IBAN et le paiement sur facture restent ceux du propriétaire. L'import bancaire, l'activation des paiements et le domaine sont réservés au propriétaire.
+  2. Un membre « Commandes » ne peut plus marquer « payée » une commande impayée.
+  3. Une commande sur facture QR ne réserve plus le stock jusqu'à l'échéance, seulement 48 heures. Une commande fictive ne bloque donc plus un produit pendant un mois.
+  4. L'équipe utilise partout l'abonnement du propriétaire : état de l'application, flux en direct (qui se fermait pour les membres), fonctions de la formule. Les notifications des commandes vont aussi aux membres. L'import bancaire est noté au journal du propriétaire. Les routes d'abonnement sont réservées au propriétaire.
+  5. Inviter demande un abonnement actif, avec une limite par réseau, pour éviter qu'une inscription gratuite serve à envoyer des e-mails.
+  6. Le rôle « Commandes » ne reçoit plus l'IBAN ni les listes marketing.
+  7. Les e-mails de compte d'un membre retiré ou supprimé sont effacés.
+  8. L'attribut `lang` de la page suit la langue demandée.
+- Tests de non-régression ajoutés (IBAN inchangé, import bancaire refusé, « payée » refusé, pas d'IBAN pour le rôle « Commandes »). 97 tests sur 97.
