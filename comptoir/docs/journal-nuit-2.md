@@ -637,7 +637,7 @@ Relecture indépendante des cycles 41 et 43 : 11 constats, dont 4 graves sur le 
 - **Formulation** : « aide à la traçabilité, non certifiée » ; plus de mention de l'attestation de l'éditeur (supprimée par la loi de finances 2025) ; l'empreinte du lundi est mentionnée « si le rapport est activé ». Boutiques supprimées : journal gardé pour l'archivage, plus clôturé.
 - 111 tests sur 111, bout en bout 51 sur 51.
 
-## Cycle 48 (03 h 40) : bilan de sécurité du compte
+## Cycle 48 (03 h 35) : bilan de sécurité du compte
 
 - En tête de Paramètres, Sécurité : un bilan qui dit ce qui protège le compte et ce qui reste à faire, du plus important au conseil :
   - connexion protégée au-delà du mot de passe (clé d'accès ou double authentification) ;
