@@ -685,7 +685,7 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - **Console de l'exploitant** : état des journaux des ventes (intacts, avec anomalie), alerte si la clé de signature a changé ou si elle est gardée dans la base.
 - 114 tests sur 114, bout en bout 51 sur 51.
 
-## Cycle 53 (04 h 10) : « Exiger la clé d'accès »
+## Cycle 53 (04 h 00) : « Exiger la clé d'accès »
 
 - Un marchand qui a au moins une clé d'accès peut **refuser la connexion par mot de passe** : seule la clé ouvre son compte. C'est la meilleure protection contre l'hameçonnage, car un mot de passe volé ne suffit plus.
 - Si quelqu'un se présente avec le bon mot de passe, la connexion est refusée et le marchand reçoit un e-mail (une fois par heure au plus) : son mot de passe est connu d'un tiers.
