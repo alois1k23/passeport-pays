@@ -36,7 +36,7 @@ Nuit du 11 au 12 novembre 2026, de 23 h 30 à 06 h 50 (heure de Lausanne). Tout 
   - en-têtes stricts (CSP, CORP, Permissions-Policy) et cookie de session `__Host-` ;
   - signalement des violations CSP, sans donnée personnelle ;
   - sauvegardes chiffrées et score de risque des commandes.
-- **Relectures** : seize relectures indépendantes ciblées, deux audits de sécurité et un audit global final de toute la nuit. Chaque constat a été corrigé et testé, ou noté ci-dessous.
+- **Relectures** : seize relectures indépendantes ciblées, deux audits de sécurité, un audit global final de tout le serveur et un audit des injections dans l'interface (XSS). Chaque constat a été corrigé et testé, ou noté ci-dessous.
 
 ### Ce qui a été testé
 
@@ -864,7 +864,7 @@ Relecture de la récupération différée, sous l'angle de l'attaquant qui contr
 - Simulation de 100 marchands sur 60 jours (8 502 commandes) : 0 anomalie, aucune erreur serveur, p95 de 7 ms, journal des ventes vérifié chez chaque marchand.
 - Démo (artefact) republiée, version 21, chargée sans erreur sur sept écrans.
 
-### Cycle 65 (05 h 15) : audit des injections dans l'interface (XSS)
+### Cycle 65 (05 h 10) : audit des injections dans l'interface (XSS)
 
 - Audit indépendant de tout le JavaScript ajouté ou modifié cette nuit : chaque nouvel affichage a été rendu dans un vrai navigateur avec une charge piégée (`"'><img class=pwn src=x>`) dans chaque champ qu'un client, un membre de l'équipe ou un tiers peut contrôler (variantes, références fournisseur, journal des ventes, bilan de sécurité, file de la caisse hors ligne, nom de boutique, messages). **Aucune injection** : tout s'affiche comme du texte.
 - Durcissements appliqués quand même (valeurs aujourd'hui produites par le serveur) : numéros de facture et d'avoir échappés dans la fiche commande, classe du bilan limitée aux valeurs connues, compteurs du journal forcés en nombres, avertissement dans le code sur l'aide qui insère du HTML brut.
