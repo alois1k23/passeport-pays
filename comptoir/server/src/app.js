@@ -226,7 +226,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     livraison: c.livraison, canal: c.canal || 'web', moyen: c.moyen || 'en_ligne', facture: c.facture || null, suivi: c.suivi || null, transporteur: c.transporteur || null,
     // Données personnelles du client : seulement avec la permission clients:lecture (sinon le pays de livraison suffit).
     client: !c.client ? null : client ? { nom: c.client.nom, email: c.client.email, adresse: c.client.adresse, npa: c.client.npa, ville: c.client.ville, pays: c.client.pays || null } : { pays: c.client.pays || null },
-    lignes: (c.lignes || []).map(l => ({ produitId: l.produitId, nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock' })) });
+    lignes: (c.lignes || []).map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock' })) });
   const enregistrerCommande = c => {
     const { id, numero, date, statut, ...donnees } = c;
     const avant = db.prepare('SELECT statut, boutique_id FROM commandes WHERE id = ?').get(id);
@@ -1913,7 +1913,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     emailExpedition(ctx.boutique, c, lireConfig(ctx.boutique));
     return commandeApi(c, deviseDeBoutique(ctx.boutique), { client: avecClient(ctx) });
   });
-  const produitApi = (p, slug) => ({ id: p.id, nom: p.nom, prix: p.prix, stock: p.type === 'drop' ? null : p.stock, type: p.type, actif: p.actif !== false, categorie: p.categorie || '', image: p.image ? `${urlPublique}/api/public/${encodeURIComponent(slug)}/image/${p.id}` : null });
+  const produitApi = (p, slug) => ({ id: p.id, nom: p.nom, prix: p.prix, stock: p.type === 'drop' ? null : p.stock, ...(Array.isArray(p.variantes) && p.variantes.length ? { options: p.options, variantes: p.variantes.map(v => ({ id: v.id, valeurs: v.valeurs, stock: v.stock, prix: typeof v.prix === 'number' ? v.prix : p.prix })) } : {}), type: p.type, actif: p.actif !== false, categorie: p.categorie || '', image: p.image ? `${urlPublique}/api/public/${encodeURIComponent(slug)}/image/${p.id}` : null });
   r.get('/api/v1/produits', exigerCle('produits:lecture'), ctx => ({ donnees: listerProduits(ctx.boutique.id).map(p => produitApi(p, ctx.boutique.slug)) }));
   r.patch('/api/v1/produits/:id', exigerCle('produits:ecriture'), ctx => {
     const ancien = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(ctx.params.id, ctx.boutique.id);
@@ -1921,11 +1921,23 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const avant = JSON.parse(ancien.donnees);
     const c = ctx.corps || {}, maj = { ...avant };
     if (c.prix !== undefined) maj.prix = c.prix;
+    if (c.stock !== undefined && avant.type !== 'drop' && Array.isArray(avant.variantes) && avant.variantes.length) throw erreur(400, 'Produit à variantes : mettez à jour le stock de chaque variante (« variantes »: [{ "id", "stock" }]).', 'variantes');
     if (c.stock !== undefined && avant.type !== 'drop') maj.stock = c.stock;
+    // Stock ou prix d'une ou plusieurs variantes (identifiant = combinaison, ex. « M/Noir »)
+    if (c.variantes !== undefined) {
+      if (!Array.isArray(c.variantes) || !Array.isArray(avant.variantes) || !avant.variantes.length) throw erreur(400, '« variantes » : ce produit n’a pas de variantes.', 'variantes');
+      maj.variantes = avant.variantes.map(v => {
+        const u = c.variantes.find(x => x && x.id === v.id); if (!u) return v;
+        if (u.stock !== undefined && (!Number.isInteger(u.stock) || u.stock < 0 || u.stock > 1e6)) throw erreur(400, `Stock invalide pour la variante « ${v.id} ».`, 'stock');
+        if (u.prix !== undefined && u.prix !== null && (typeof u.prix !== 'number' || !(u.prix > 0) || u.prix > 1e6)) throw erreur(400, `Prix invalide pour la variante « ${v.id} ».`, 'prix');
+        return { ...v, ...(u.stock !== undefined ? { stock: u.stock } : {}), ...(u.prix === null ? { prix: undefined } : u.prix !== undefined ? { prix: u.prix } : {}) };
+      });
+      if (c.variantes.some(x => !x || !avant.variantes.some(v => v.id === x.id))) throw erreur(400, 'Variante inconnue.', 'variantes');
+    }
     if (c.actif !== undefined) { if (typeof c.actif !== 'boolean') throw erreur(400, '« actif » doit valoir true ou false.', 'actif'); maj.actif = c.actif; }
     if (c.stock !== undefined && (!Number.isInteger(c.stock) || c.stock < 0 || c.stock > 1e6)) throw erreur(400, '« stock » doit être un entier positif.', 'stock');
     if (c.prix !== undefined && (typeof c.prix !== 'number' || !(c.prix > 0) || c.prix > 1e6)) throw erreur(400, '« prix » doit être un nombre positif.', 'prix');
-    const propre = nettoyerProduit({ ...maj, type: avant.type, source: avant.source, codeFournisseur: avant.codeFournisseur, image: avant.image }, avant.historiquePrix || []);
+    const propre = nettoyerProduit({ ...maj, type: avant.type, source: avant.source, codeFournisseur: avant.codeFournisseur, image: avant.image, options: avant.options, variantes: maj.variantes || avant.variantes }, avant.historiquePrix || []);
     db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, propre), ctx.params.id);
     if (avant.type !== 'drop' && (avant.stock || 0) > 0 && propre.stock <= 0) integ.emettre(ctx.boutique.id, 'produit.rupture', { id: ctx.params.id, nom: propre.nom, stock: 0 });
     return produitApi({ ...propre, id: ctx.params.id }, ctx.boutique.slug);

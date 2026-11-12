@@ -83,7 +83,9 @@ Les statuts possibles :
 
 `GET /produits` liste les produits.
 
-`PATCH /produits/:id` modifie un produit. Le corps contient un ou plusieurs de ces champs : `{ "prix": 39.9, "stock": 12, "actif": true }`. Le prix est un nombre positif, le stock un entier positif ou nul, `actif` un vrai booléen (`true` ou `false`, pas `"false"`). Un stock mis à zéro déclenche l'événement `produit.rupture`. Le stock d'un produit en dropshipping vient du fournisseur et ne se modifie pas.
+`PATCH /produits/:id` modifie un produit. Le corps contient un ou plusieurs de ces champs : `{ "prix": 39.9, "stock": 12, "actif": true }`. Le prix est un nombre positif, le stock un entier positif ou nul, `actif` un vrai booléen (`true` ou `false`, pas `"false"`). Un stock mis à zéro déclenche l'événement `produit.rupture`.
+
+**Produits à variantes** (tailles, couleurs) : `GET /produits` renvoie `options` et `variantes` (`id` = combinaison, ex. `M/Noir` ; `valeurs`, `stock`, `prix`). Le stock se met à jour variante par variante : `{ "variantes": [{ "id": "M/Noir", "stock": 12 }, { "id": "L/Noir", "prix": 39.9 }] }` (`"prix": null` revient au prix du produit). Le champ `stock` seul est refusé pour un tel produit (le stock total est la somme des variantes). Les lignes de commande d'une variante portent `varianteId`. Le stock d'un produit en dropshipping vient du fournisseur et ne se modifie pas.
 
 ### Clients
 
