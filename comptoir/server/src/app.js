@@ -329,7 +329,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Changer SECRET_CHIFFREMENT rend les cartes en cours introuvables : la clé ne se change pas sans migration.
   const Cartes = CartesCadeaux.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:cartes-cadeaux', 32)));
   const DV = Devis.creer(db);
-  const FID = Fidelite.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:fidelite', 32)));   // codes des cartes cadeaux : empreinte HMAC, jamais en clair
+  const FID = Fidelite.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:fidelite', 32)));   // fidélité : empreinte HMAC, jamais en clair
   auth.persisterLimites(db, cleChiffrement);   // compteurs anti-abus rechargés (empreintes HMAC) : un redémarrage ne les remet pas à zéro
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
@@ -629,6 +629,32 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return frais;
   }
 
+  /* Réservations d'une commande en attente (part payée par carte cadeau, points de fidélité utilisés) : débitées à la
+     commande, rendues si le paiement n'aboutit pas, débitées à nouveau si le client paie quand même. Toujours appelées
+     dans une transaction. */
+  function libererReservations(bid, c, texte, maintenant = Date.now()) {
+    const faits = [];
+    if (c.carteCadeau && !c.carteCadeau.liberee && !c.carteCadeau.rendue) { Cartes.crediter(c.carteCadeau.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} : ${texte}`, maintenant }); c.carteCadeau.liberee = maintenant; faits.push('carte cadeau'); }
+    if (c.fidelite && c.fidelite.debite && !c.fidelite.liberee && !c.fidelite.annule && c.client && c.client.email) { FID.crediter(bid, c.client.email, c.fidelite.debite, { commandeId: c.id, type: 'liberation', maintenant }); c.fidelite.liberee = maintenant; faits.push('points de fidélité'); }
+    if (faits.length) historique(c, `${texte[0].toUpperCase()}${texte.slice(1)} : ${faits.join(' et ')} rendus (repris si le paiement aboutit)`);
+    return faits.length > 0;
+  }
+  // Les reprendre : tout ou rien (si l'un manque, rien n'est débité). Renvoie null, ou le motif du refus.
+  function reprendreReservations(bid, c, maintenant = Date.now()) {
+    const carte = c.carteCadeau && c.carteCadeau.liberee ? db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(c.carteCadeau.id) : null;
+    if (carte && Cartes.disponible(carte, maintenant) < Math.round(c.carteCadeau.montant * 100)) return `la carte cadeau ····${c.carteCadeau.fin} n’a plus le solde réservé`;
+    if (c.fidelite && c.fidelite.liberee && FID.solde(bid, c.client.email, maintenant) < c.fidelite.debite) return 'les points de fidélité utilisés ont été dépensés entre-temps';
+    if (carte) { Cartes.debiter(carte.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} (reprise)`, maintenant }); delete c.carteCadeau.liberee; c.carteCadeau.reserveLe = maintenant; }
+    if (c.fidelite && c.fidelite.liberee) { FID.debiter(bid, c.client.email, c.fidelite.debite, { commandeId: c.id, maintenant }); delete c.fidelite.liberee; c.fidelite.reserveLe = maintenant; }
+    return null;
+  }
+  // Points gagnés sur une commande payée en ligne (prix réellement payés), une seule fois.
+  function gagnerPoints(bid, c) {
+    if (!c.client || !c.client.email || (c.canal || 'web') !== 'web' || (c.fidelite && c.fidelite.gagnes)) return;
+    const reg = FID.reglages(bid); if (!reg.actif) return;
+    const gagnes = FID.gagnes(reg, Math.round(c.lignes.reduce((a, l) => a + l.prix * l.qte, 0) * 100));
+    if (gagnes > 0) { FID.crediter(bid, c.client.email, gagnes, { commandeId: c.id }); c.fidelite = { ...(c.fidelite || {}), gagnes }; }
+  }
   /* Appelé une seule fois quand le paiement est confirmé (idempotent). */
   /* Commande payée (dans une transaction) : facture, complément rattaché, alerte de rupture, stock. */
   function marquerPayee(row, texte) {
@@ -641,18 +667,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (pr) { const parent = lireCommande(pr); parent.complements = [...(parent.complements || []), c.id]; historique(parent, `Complément n° ${c.numero} ajouté après l’achat : à expédier dans le même colis`); enregistrerCommande(parent); }
     }
     historique(c, texte);
-    // Fidélité : points utilisés débités maintenant (paiement reçu), points gagnés crédités sur les articles payés.
-    if (c.client && c.client.email && ['web', 'devis'].includes(c.canal || 'web')) {
-      const reg = FID.reglages(row.boutique_id);
-      if (c.fidelite && c.fidelite.points && c.fidelite.debite === undefined) {
-        c.fidelite.debite = FID.debiter(row.boutique_id, c.client.email, c.fidelite.points, { commandeId: c.id });
-        if (c.fidelite.debite < c.fidelite.points) historique(c, `Points de fidélité : ${c.fidelite.debite} débités sur ${c.fidelite.points} (solde utilisé entre-temps)`);
-      }
-      if (reg.actif && !(c.fidelite && c.fidelite.gagnes)) {
-        const gagnes = FID.gagnes(reg, Math.round(c.lignes.reduce((a, l) => a + l.prix * l.qte, 0) * 100));
-        if (gagnes > 0) { FID.crediter(row.boutique_id, c.client.email, gagnes, { commandeId: c.id }); c.fidelite = { ...(c.fidelite || {}), gagnes }; }
-      }
-    }
+    // Fidélité : points gagnés sur les articles payés (les points utilisés ont été débités à la commande).
+    gagnerPoints(row.boutique_id, c);
     // Stock : la vente est faite (le client a payé), mais une rupture est signalée au lieu d'être cachée.
     const prods = listerProduits(row.boutique_id);
     const manques = c.lignes.filter(l => l.type !== 'drop').map(l => ({ l, p: prods.find(x => x.id === l.produitId) })).filter(x => {
@@ -716,16 +732,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         enregistrerCommande(c0);
         return { aRembourser: { ...p, statut: 'a_rembourser', ref_externe: refExterne || p.ref_externe } };
       }
-      // Carte cadeau recréditée entre-temps (paiement resté longtemps en suspens) : elle est débitée à nouveau ; si son
-      // solde ne suffit plus, l'argent reçu est à rendre et la commande reste en attente.
+      // Carte cadeau ou points rendus entre-temps (paiement resté longtemps en suspens) : repris maintenant ; s'ils ne
+      // sont plus disponibles, l'argent reçu est à rendre et la commande reste en attente (jamais payée à moitié).
       const c1 = lireCommande(row);
-      if (c1.carteCadeau && c1.carteCadeau.liberee) {
-        if (!Cartes.debiter(c1.carteCadeau.id, Math.round(c1.carteCadeau.montant * 100), { commandeId: c1.id, texte: `Commande n° ${c1.numero} (paiement reçu)` })) {
+      if ((c1.carteCadeau && c1.carteCadeau.liberee) || (c1.fidelite && c1.fidelite.liberee)) {
+        const refus = reprendreReservations(row.boutique_id, c1);
+        if (refus) {
           db.prepare("UPDATE paiements SET statut = 'a_rembourser', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
-          historique(c1, 'Paiement reçu, mais la carte cadeau n’a plus le solde nécessaire : paiement à rembourser, commande non validée.'); enregistrerCommande(c1);
+          historique(c1, `Paiement reçu, mais ${refus} : paiement à rembourser, commande non validée.`); enregistrerCommande(c1);
           return { aRembourser: { ...p, statut: 'a_rembourser', ref_externe: refExterne || p.ref_externe } };
         }
-        delete c1.carteCadeau.liberee; c1.carteCadeau.reserveLe = Date.now(); historique(c1, 'Carte cadeau débitée à nouveau au paiement'); enregistrerCommande(c1);
+        historique(c1, 'Réservations reprises au paiement'); enregistrerCommande(c1);
       }
       db.prepare("UPDATE paiements SET statut = 'paye', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
       // Les autres liens de paiement encore ouverts pour cette commande ne servent plus.
@@ -1701,10 +1718,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // À partir d'ici, plus d'attente : numéros de pièces attribués et commande enregistrée d'un seul tenant (transaction :
     // une erreur ne consomme pas de numéro sans pièce).
     transaction(db, () => {
-    // Carte cadeau recréditée (paiement abandonné) : débitée à nouveau avant de marquer payée, sinon la part de la carte serait offerte.
-    if (cible === 'payee' && c.carteCadeau && c.carteCadeau.liberee) {
-      if (!Cartes.debiter(c.carteCadeau.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} (marquée payée)` })) throw erreur(409, `La carte cadeau ····${c.carteCadeau.fin} n’a plus le solde réservé pour cette commande (${formatMontant(c.carteCadeau.montant, config)}) : encaissez ce montant autrement, puis annulez et recréez la commande.`, 'carte_solde');
-      delete c.carteCadeau.liberee; c.carteCadeau.reserveLe = Date.now(); historique(c, 'Carte cadeau débitée à nouveau');
+    // Carte cadeau ou points rendus (paiement abandonné) : repris avant de marquer payée, sinon leur part serait offerte.
+    if (cible === 'payee') {
+      const refus = reprendreReservations(ctx.boutique.id, c);
+      if (refus) throw erreur(409, `Impossible de marquer payée : ${refus}. Encaissez ce montant autrement, puis annulez et recréez la commande.`, 'reservation');
+      gagnerPoints(ctx.boutique.id, c);   // paiement reçu hors ligne (virement) : points gagnés comme en ligne
     }
     if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
     if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
@@ -1712,11 +1730,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
     if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1);   // vendu : le stock baisse comme pour un paiement en ligne
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1);
-    // Fidélité : points gagnés retirés, points utilisés rendus (une seule fois).
+    // Fidélité : points gagnés retirés, points utilisés rendus (une seule fois). Des points gagnés déjà dépensés ne
+    // peuvent pas être repris : l'écart est noté dans l'historique (à déduire du remboursement si le marchand le souhaite).
     if ((cible === 'remboursee' || cible === 'annulee') && c.fidelite && !c.fidelite.annule && c.client && c.client.email) {
-      if (c.fidelite.gagnes) FID.debiter(ctx.boutique.id, c.client.email, c.fidelite.gagnes, { commandeId: c.id, type: 'annulation' });
-      if (c.fidelite.debite) FID.crediter(ctx.boutique.id, c.client.email, c.fidelite.debite, { commandeId: c.id, type: 'remboursement' });
-      if (c.fidelite.gagnes || c.fidelite.debite) { c.fidelite.annule = Date.now(); historique(c, 'Points de fidélité de la commande annulés'); }
+      const repris = c.fidelite.gagnes ? FID.debiter(ctx.boutique.id, c.client.email, c.fidelite.gagnes, { commandeId: c.id, type: 'annulation' }) : 0;
+      if (c.fidelite.debite && !c.fidelite.liberee) FID.crediter(ctx.boutique.id, c.client.email, c.fidelite.debite, { commandeId: c.id, type: 'remboursement' });
+      if (c.fidelite.gagnes || c.fidelite.debite) {
+        c.fidelite.annule = Date.now();
+        const reg = FID.reglages(ctx.boutique.id), manque = (c.fidelite.gagnes || 0) - repris;
+        historique(c, `Points de fidélité de la commande annulés${manque > 0 ? ` ; ${manque} points gagnés avaient déjà été utilisés (valeur ${formatMontant(FID.valeur(reg, manque) / 100, config)}), non repris` : ''}`);
+      }
     }
     // Partie payée par carte cadeau : rendue sur la carte (le reste est remboursé par le moyen de paiement d'origine).
     if ((cible === 'remboursee' || cible === 'annulee') && c.carteCadeau && !c.carteCadeau.liberee && !c.carteCadeau.rendue) {
@@ -1931,6 +1954,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const ouvertes = commandes.filter(c => ['attente', 'payee', 'preparation', 'fournisseur', 'prete'].includes(c.statut));
     if (ouvertes.length) throw erreur(409, `Commande n° ${ouvertes[0].numero} encore en cours : effacez les données une fois qu’elle est expédiée ou annulée (l’adresse sert à la livraison).`, 'commande_en_cours');
     transaction(db, () => {
+      FID.effacer(ctx.boutique.id, email);   // points de fidélité de ce client
       for (const c of commandes) {
         c.client = { nom: 'Client effacé', email: '', adresse: '', npa: '', ville: '', consentement: null };
         // Texte libre écrit par le client (motif de retour, repris dans l'historique) : effacé aussi.
@@ -2056,8 +2080,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (!reg.actif) throw erreur(400, 'Le programme de fidélité n’est pas actif.', 'fidelite_inactive');
       auth.limiter(`fidelite-commande:${b.id}:${ctx.ip}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
       if (!FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''))) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
-      const engages = db.prepare("SELECT COALESCE(SUM(json_extract(donnees, '$.fidelite.points')), 0) n FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ? AND lower(json_extract(donnees, '$.client.email')) = ? AND json_extract(donnees, '$.fidelite.debite') IS NULL").get(b.id, Date.now() - 2 * 3600000, client.email.toLowerCase()).n;
-      const res = Fidelite.appliquerPoints(lignes, reg, Math.max(0, FID.solde(b.id, client.email) - engages));
+      // Points réservés par une commande en attente : déjà débités, donc absents du solde (pas de double utilisation).
+      const res = Fidelite.appliquerPoints(lignes, reg, FID.solde(b.id, client.email));
       if (!res) throw erreur(400, `Pas assez de points pour une remise (minimum ${reg.seuil} points).`, 'fidelite_insuffisant');
       lignes = res.lignes; remise = prix.arrondi(remise + res.remise / 100); apresRemise = prix.arrondi(apresRemise - res.remise / 100);
       fidelite = { points: res.points, montant: res.remise / 100 };
@@ -2118,6 +2142,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         c.carteCadeau = { id: carte.id, fin: carte.fin, montant: centimesCarte / 100, reserveLe: now };
         c.historique.push({ date: now, texte: `Carte cadeau ····${carte.fin} : ${formatMontant(centimesCarte / 100, config)} réservés${resteCentimes ? `, reste ${formatMontant(resteCentimes / 100, config)} à payer en ligne` : ''}` });
       }
+      // Points de fidélité débités dès la commande (rendus si le paiement n'aboutit pas) : jamais utilisés deux fois.
+      if (fidelite) {
+        if (FID.debiter(b.id, client.email, fidelite.points, { commandeId: c.id, maintenant: now }) < fidelite.points) throw erreur(409, 'Le solde de vos points vient de changer : réessayez.', 'fidelite_solde');
+        c.fidelite = { ...fidelite, debite: fidelite.points, reserveLe: now };
+      }
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jeton, JSON.stringify(donnees));
@@ -2150,6 +2179,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Paiement impossible à ouvrir : la commande n'a jamais existé pour le client (pas de relance, pas de commande fantôme).
       transaction(db, () => {
         if (commande.carteCadeau) Cartes.crediter(commande.carteCadeau.id, Math.round(commande.carteCadeau.montant * 100), { commandeId: commande.id, texte: `Commande n° ${commande.numero} : paiement en ligne impossible` });
+        if (commande.fidelite && commande.fidelite.debite) FID.crediter(b.id, commande.client.email, commande.fidelite.debite, { commandeId: commande.id, type: 'liberation' });
         db.prepare('DELETE FROM paiements WHERE commande_id = ?').run(commande.id); db.prepare('DELETE FROM commandes WHERE id = ?').run(commande.id);
       });
       throw e;
@@ -2263,7 +2293,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (!reg.actif) throw erreur(404, 'Programme de fidélité inactif.', 'fidelite_inactive');
     const email = valider.email(ctx.corps.email);
     auth.limiter(`fidelite-solde:${b.id}:${ctx.ip}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
-    if (!FID.verifierCode(b.id, email, String(ctx.corps.code || ''))) throw erreur(400, 'Code invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
+    if (!FID.verifierCode(b.id, email, String(ctx.corps.code || ''))) { auth.limiter(`fidelite-echecs:${b.id}`, 300 * facteurLimites, 3600000, 'Vérification des codes momentanément indisponible.'); throw erreur(400, 'Code invalide ou expiré : demandez-en un nouveau.', 'fidelite_code'); }
     const points = FID.solde(b.id, email);
     return { points, valeur: FID.valeur(reg, points) / 100, seuil: reg.seuil, plafondPct: reg.plafondPct, utilisable: points >= reg.seuil };
   });
@@ -2909,11 +2939,11 @@ ${bloc}</main></body></html>`;
     if (!row || !auth.egal(String(ctx.corps.jeton || ''), row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     const ouverts = transaction(db, () => {
       const frais = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id), c = lireCommande(frais);
-      if (frais.statut !== 'attente' || !c.carteCadeau || c.carteCadeau.liberee) return [];
+      if (frais.statut !== 'attente' || c.moyen === 'facture') return [];
       const liens = db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id);
+      if (!libererReservations(row.boutique_id, c, 'paiement annulé par le client')) return [];
       db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND statut = 'cree'").run(c.id);
-      Cartes.crediter(c.carteCadeau.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} : paiement annulé par le client` });
-      c.carteCadeau.liberee = Date.now(); historique(c, 'Paiement annulé par le client : montant de la carte cadeau recrédité'); enregistrerCommande(c);
+      enregistrerCommande(c);
       return liens;
     });
     for (const p of ouverts) if (p.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(p).catch(e => journal.error('[paiement] expiration', e.message));
@@ -2937,12 +2967,13 @@ ${bloc}</main></body></html>`;
       db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(ancien.id);
       if (ancien.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(ancien).catch(e => journal.error('[paiement] expiration', e.message));
     }
-    // Carte cadeau recréditée (paiement abandonné) : débitée à nouveau avant de rouvrir le paiement du reste.
-    if (c.carteCadeau && c.carteCadeau.liberee) transaction(db, () => {
+    // Carte cadeau ou points rendus (paiement abandonné) : repris avant de rouvrir le paiement du reste.
+    if ((c.carteCadeau && c.carteCadeau.liberee) || (c.fidelite && c.fidelite.liberee)) transaction(db, () => {
       const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
-      if (frais.statut !== 'attente' || !frais.carteCadeau || !frais.carteCadeau.liberee) return;
-      if (!Cartes.debiter(frais.carteCadeau.id, Math.round(frais.carteCadeau.montant * 100), { commandeId: frais.id, texte: `Commande n° ${frais.numero} (paiement repris)` })) throw erreur(409, 'Le solde de la carte cadeau ne suffit plus pour cette commande : passez une nouvelle commande.', 'carte_solde');
-      delete frais.carteCadeau.liberee; frais.carteCadeau.reserveLe = Date.now(); historique(frais, 'Paiement repris : carte cadeau débitée à nouveau'); enregistrerCommande(frais);
+      if (frais.statut !== 'attente') return;
+      const refus = reprendreReservations(b.id, frais);
+      if (refus) throw erreur(409, `Paiement impossible : ${refus}. Passez une nouvelle commande.`, 'reservation');
+      historique(frais, 'Paiement repris : réservations reprises'); enregistrerCommande(frais);
       Object.assign(c, frais);
     });
     const resteCentimes = Math.round(c.total * 100) - (c.carteCadeau ? Math.round(c.carteCadeau.montant * 100) : 0);
@@ -2962,17 +2993,17 @@ ${bloc}</main></body></html>`;
      et le montant revient sur la carte. Si le paiement arrive quand même, la carte est débitée à nouveau (ou l'argent
      est rendu si son solde ne suffit plus) : jamais de commande payée à moitié. */
   function libererCartes(maintenant) {
-    // Délai compté depuis la dernière réservation (création, reprise du paiement), pas depuis la commande.
-    const rows = db.prepare("SELECT * FROM commandes WHERE statut = 'attente' AND json_extract(donnees, '$.carteCadeau.id') IS NOT NULL AND json_extract(donnees, '$.carteCadeau.liberee') IS NULL AND COALESCE(json_extract(donnees, '$.carteCadeau.reserveLe'), date) < ? LIMIT 200").all(maintenant - 2 * 3600000);
+    // Délai compté depuis la dernière réservation (création, reprise du paiement), pas depuis la commande. Une facture QR
+    // (payable jusqu'à son échéance, par virement) garde ses réservations.
+    const rows = db.prepare(`SELECT * FROM commandes WHERE statut = 'attente' AND COALESCE(json_extract(donnees, '$.moyen'), '') <> 'facture'
+      AND ((json_extract(donnees, '$.carteCadeau.id') IS NOT NULL AND json_extract(donnees, '$.carteCadeau.liberee') IS NULL) OR (json_extract(donnees, '$.fidelite.debite') > 0 AND json_extract(donnees, '$.fidelite.liberee') IS NULL))
+      AND COALESCE(json_extract(donnees, '$.carteCadeau.reserveLe'), json_extract(donnees, '$.fidelite.reserveLe'), date) < ? LIMIT 200`).all(maintenant - 2 * 3600000);
     for (const row of rows) {
       const ouverts = transaction(db, () => {
         const frais = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);
         if (!frais || frais.statut !== 'attente') return [];
         const c = lireCommande(frais);
-        if (!c.carteCadeau || c.carteCadeau.liberee) return [];
-        Cartes.crediter(c.carteCadeau.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} : paiement non terminé`, maintenant });
-        c.carteCadeau.liberee = maintenant;
-        historique(c, 'Paiement non terminé après 2 heures : montant de la carte cadeau recrédité (débité à nouveau si le client reprend son paiement)');
+        if (!libererReservations(row.boutique_id, c, 'paiement non terminé après 2 heures', maintenant)) return [];
         enregistrerCommande(c);
         const p = db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id);
         db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND statut = 'cree'").run(c.id);

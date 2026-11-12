@@ -246,6 +246,8 @@ async function envoyerCommande(form) {
       body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
+    // Code de fidélité expiré ou déjà utilisé : retour à la demande d'un nouveau code (sinon le client resterait bloqué).
+    if (!rep.ok && json.code === 'fidelite_code') { vue.fid = null; vue.fidMessage = json.erreur; }
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
     try { if (json.commandeId) sessionStorage.setItem('comptoir-paiement-' + json.commandeId, '1'); } catch { /* ignoré */ }
     if (json.factureUrl) { vue.panier = []; try { localStorage.removeItem('comptoir-panier-' + slug); } catch { /* ignoré */ } location.href = json.factureUrl; return; }   // facture QR : la facture s'ouvre, à payer avec l'application bancaire
@@ -359,6 +361,7 @@ document.addEventListener('click', e => {
   } else if (c === 'cookies') { try { localStorage.setItem('comptoir-cookies', el.dataset.v); } catch { /* ignoré */ } if (el.dataset.v === 'accord') mesurer('vue'); rendre(); }
   else if (c === 'legal') { vue.legal = el.dataset.v; rendre(); }
   else if (c === 'legal-fermer') { vue.legal = null; rendre(); }
+  else if (c === 'fid-reset') { vue.fid = null; vue.fidMessage = ''; rendre(); }
 });
 document.addEventListener('change', e => {
   if (e.target.dataset.c === 'livraison') { vue.livraison = e.target.value; mesurer('livraison'); rendre(); }
@@ -405,7 +408,8 @@ function blocFidelite(reg, remise, gagnes) {
   const gain = gagnes > 0 ? `<p class="mini">Cette commande vous rapporte ${gagnes} point${gagnes > 1 ? 's' : ''} de fidélité.</p>` : '';
   const msg = vue.fidMessage ? `<p class="mini" role="status">${esc(vue.fidMessage)}</p>` : '';
   if (!f) return `<details class="fidelite-sf"><summary>Utiliser mes points de fidélité</summary><form id="form-fid-email" class="code-promo"><input name="email" type="email" required placeholder="Votre e-mail" aria-label="E-mail de vos points de fidélité" autocomplete="email"><button class="sf-btn sf-btn-ligne">Recevoir un code</button></form></details>${msg}${gain}`;
-  if (f.points === undefined) return `<form id="form-fid-code" class="code-promo"><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="Code à 6 chiffres" aria-label="Code reçu par e-mail" autocomplete="one-time-code"><button class="sf-btn sf-btn-ligne">Valider</button></form>${msg}${gain}`;
+  const changer = '<button type="button" class="bouton-lien" data-c="fid-reset">Changer d’adresse ou demander un nouveau code</button>';
+  if (f.points === undefined) return `<form id="form-fid-code" class="code-promo"><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="Code à 6 chiffres" aria-label="Code reçu par e-mail" autocomplete="one-time-code"><button class="sf-btn sf-btn-ligne">Valider</button></form>${msg}<p class="mini">${changer}</p>${gain}`;
   if (f.points < reg.seuil) return `<p class="mini">Vous avez ${f.points} points : utilisables dès ${reg.seuil} points.</p>${gain}`;
   return `<label class="case-sf"><input type="checkbox" data-c="fid-utiliser" ${f.utiliser ? 'checked' : ''}> Utiliser mes ${f.points} points${remise ? ` (−${euros(remise)})` : ` (valeur ${euros(f.valeur)})`}</label>${gain}`;
 }

@@ -194,3 +194,21 @@ Relecture indépendante des devis : 5000 devis aléatoires contrôlés par les r
 - Un devis expiré qu'on renvoie retrouve sa durée de validité.
 - **Restent ouverts** : un instantané de la page acceptée (preuve plus complète), et les mentions B2B françaises (pénalités de retard, indemnité de 40 €) sur la facture.
 - Tests renforcés : la facture électronique d'une commande issue d'un devis est vérifiée. Grande quantité, client d'un autre pays : 139 tests sur 139. Vérifié dans un vrai navigateur.
+
+### Cycle 12 (00 h 45) : corrections de la relecture de la fidélité
+
+Relecture indépendante du programme de fidélité : 200 000 paniers aléatoires, scénarios rejoués. Points corrigés :
+- **Grave, double utilisation des points** :
+  - une commande marquée payée à la main (virement) ne débitait jamais ses points ;
+  - les points n'étaient bloqués que 2 heures alors qu'une commande peut être payée plus tard.
+
+  Un client pouvait donc obtenir plusieurs remises avec les mêmes points. Les points sont désormais **débités dès la commande**, comme une carte cadeau. Ils sont rendus si le paiement n'aboutit pas (abandon, 2 heures sans paiement, annulation, échec d'ouverture du paiement) et repris si le client paie quand même. Si les points ont été dépensés entre-temps, le paiement est refusé ou marqué « à rendre ». La carte cadeau et les points passent par les mêmes fonctions (réservation, libération, reprise, tout ou rien).
+- **Remboursement** : les points gagnés déjà dépensés ne peuvent pas être repris. L'écart et sa valeur sont maintenant notés dans l'historique de la commande, au lieu de disparaître.
+- **Force brute sur le code** : un nouveau code remettait le compteur d'erreurs à zéro. Les échecs sont maintenant comptés par adresse sur 24 heures (10 au plus), même en redemandant des codes. Les échecs sont aussi limités par boutique.
+- **Droit à l'effacement** : effacer un client efface aussi ses points, son code et ses mouvements.
+- **Garde-fou** : un programme qui rendrait plus de 30 % du prix en points est refusé (une faute de frappe ne ruine plus la boutique). Une mise à jour partielle des réglages garde les autres valeurs.
+- **Arrondi** : la remise est arrondie au centime supérieur des prix, donc elle ne dépasse jamais la valeur des points.
+- **Boutique** : un code expiré ou déjà utilisé ramène à la demande d'un nouveau code, et on peut changer d'adresse.
+- Les commandes issues d'un devis (clients professionnels) ne rapportent plus de points.
+- **Restent ouverts** : l'expiration des points se calcule à la lecture du compte (statistiques un peu hautes pour les comptes inactifs jamais relus), et l'e-mail du code n'existe qu'en français.
+- 1 nouveau test de régression (réservation, paiement manuel, abandon, reprise refusée, annulation, force brute, effacement, générosité) : 140 tests sur 140. Bout en bout 51 sur 51, vérifié dans un vrai navigateur.

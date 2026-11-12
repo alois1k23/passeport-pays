@@ -76,7 +76,7 @@ test('parcours : gain, code par e-mail, utilisation, annulation ; anti-énuméra
     cmd = await commander({ fidelite: { code } });
     assert.equal(cmd.statut, 201, JSON.stringify(cmd.json)); assert.equal(cmd.json.total, 90, 'livraison offerte (seuil calculé avant les points)');
     const c = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(cmd.json.commandeId).donnees);
-    assert.equal(c.lignes[0].prix, 90); assert.deepEqual(c.fidelite, { points: 200, montant: 10 }); assert.match(c.motifRemise, /200 points/);
+    assert.equal(c.lignes[0].prix, 90); assert.deepEqual([c.fidelite.points, c.fidelite.montant, c.fidelite.debite], [200, 10, 200], 'points débités dès la commande'); assert.match(c.motifRemise, /200 points/);
     assert.equal((await commander({ fidelite: { code } })).statut, 400, 'code à usage unique');
     await payer(cmd);
     const apres = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(cmd.json.commandeId).donnees).fidelite;
@@ -89,5 +89,66 @@ test('parcours : gain, code par e-mail, utilisation, annulation ; anti-énuméra
     // Sans session : refusé.
     assert.equal((await appel('PUT', '/api/admin/fidelite', { actif: false }, false)).statut, 401);
     assert.equal((await appel('PUT', '/api/admin/fidelite', { actif: true, pointsParUnite: 1000 })).statut, 400);
+  } finally { s.close(); }
+});
+
+test('relecture : points réservés dès la commande, paiement manuel, abandon, reprise, effacement, force brute, générosité', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  const app = creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non', LIMITES_FACTEUR: '50' }, urlPublique: base, journal: { log() {}, error() {} } });
+  s.on('request', app);
+  let cookie = '';
+  const appel = async (m, chemin, corps, session = true) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && session ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length && session) cookie = sc.map(x => x.split(';')[0]).join('; '); let json = null; try { json = await r.json(); } catch { /* vide */ } return { statut: r.status, json }; };
+  try {
+    await appel('POST', '/api/auth/inscription', { email: 'fid2@exemple.fr', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'F2', pays: 'fr', secteur: 'maison', sections: [] }, entreprise: { raison: 'F SAS', adresse: '5 rue Neuve, 69001 Lyon', regime: 'normal' } }, produits: [{ nom: 'Vase', prix: 100, stock: 50, type: 'stock' }] });
+    const produit = (await appel('GET', '/api/admin/etat')).json.produits[0].id, slug = db.prepare('SELECT slug FROM boutiques').get().slug, bid = db.prepare('SELECT id FROM boutiques').get().id;
+    // Générosité plafonnée à 30 %.
+    assert.equal((await appel('PUT', '/api/admin/fidelite', { actif: true, pointsParUnite: 100, valeurPour100: 5000 })).statut, 400);
+    assert.equal((await appel('PUT', '/api/admin/fidelite', { actif: true })).statut, 200);
+    assert.equal((await appel('PUT', '/api/admin/fidelite', { actif: true, seuil: 50 })).json.reglages.pointsParUnite, 1, 'mise à jour partielle : le reste est gardé');
+    const client = { nom: 'Lou', email: 'lou@exemple.fr', adresse: '3 rue Haute', npa: '69002', ville: 'Lyon' };
+    const solde = () => { const K = Fid.creer(db, crypto.randomBytes(32)); void K; return db.prepare('SELECT COALESCE(SUM(points), 0) n FROM fidelite_comptes WHERE boutique_id = ?').get(bid).n; };
+    const code = async () => { await appel('POST', `/api/public/${slug}/fidelite/code`, { email: client.email }, false); return /: (\d{6})/.exec(db.prepare('SELECT corps FROM emails WHERE destinataire = ? AND sujet LIKE ? ORDER BY rowid DESC').get(client.email, '%code%').corps)[1]; };
+    const commander = corps => appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client, ...corps }, false);
+    // 3 commandes payées : 300 points.
+    for (let i = 0; i < 3; i++) { const c = await commander({}); await appel('POST', `/paiement-simule/${c.json.paiementUrl.split('/').pop()}/confirmer`, null, false); }
+    assert.equal(solde(), 300);
+    // Commande avec points : débités tout de suite ; une 2e commande ne peut pas les réutiliser.
+    let c1 = await commander({ fidelite: { code: await code() } });
+    assert.equal(c1.statut, 201); assert.equal(solde(), 0);
+    assert.equal((await commander({ fidelite: { code: await code().catch(() => '000000') } })).statut, 400);
+    // Payée à la main (virement) : rien de plus n'est débité, des points sont gagnés.
+    assert.equal((await appel('POST', `/api/admin/commandes/${c1.json.commandeId}/statut`, { statut: 'payee' })).statut, 200);
+    assert.equal(solde(), 85, 'points gagnés sur les 85 € payés (100 € − 15 € de points)');
+    // Abandon : points rendus tout de suite, puis reprise refusée s'ils ont été dépensés ailleurs.
+    for (let i = 0; i < 3; i++) { const c = await commander({}); await appel('POST', `/paiement-simule/${c.json.paiementUrl.split('/').pop()}/confirmer`, null, false); }
+    const avant = solde();
+    const c2 = await commander({ fidelite: { code: await code() } });
+    const pris = avant - solde(); assert.ok(pris > 0);
+    await appel('POST', `/api/public/${slug}/commandes/${c2.json.commandeId}/abandonner`, { jeton: c2.json.jeton }, false);
+    assert.equal(solde(), avant, 'points rendus à l’abandon');
+    const c3 = await commander({ fidelite: { code: await code() } }); assert.equal(c3.statut, 201);
+    assert.equal((await appel('POST', `/api/public/${slug}/commandes/${c2.json.commandeId}/reprendre`, { jeton: c2.json.jeton }, false)).statut, 409, 'points dépensés ailleurs : reprise refusée');
+    assert.equal((await appel('POST', `/api/admin/commandes/${c2.json.commandeId}/statut`, { statut: 'payee' })).statut, 409, 'ni marquée payée');
+    // Annulation d'une commande en attente : points rendus.
+    const s0 = solde();
+    assert.equal((await appel('POST', `/api/admin/commandes/${c3.json.commandeId}/statut`, { statut: 'annulee' })).statut, 200);
+    assert.ok(solde() > s0);
+    // Force brute : 10 échecs sur 24 h bloquent, même en redemandant des codes.
+    let bon = await code();
+    for (let i = 0; i < 4; i++) await appel('POST', `/api/public/${slug}/fidelite/solde`, { email: client.email, code: bon === '000000' ? '111111' : '000000' }, false);
+    bon = await code();
+    for (let i = 0; i < 5; i++) await appel('POST', `/api/public/${slug}/fidelite/solde`, { email: client.email, code: bon === '000000' ? '111111' : '000000' }, false);
+    bon = await code();
+    await appel('POST', `/api/public/${slug}/fidelite/solde`, { email: client.email, code: bon === '000000' ? '111111' : '000000' }, false);   // 10e échec
+    bon = await code();
+    assert.equal((await appel('POST', `/api/public/${slug}/fidelite/solde`, { email: client.email, code: bon }, false)).statut, 400, 'bloqué après 10 échecs, même avec le bon code');
+    // Effacement du client : ses points disparaissent.
+    await appel('POST', `/api/admin/commandes/${c2.json.commandeId}/statut`, { statut: 'annulee' });   // pas d'effacement avec une commande en cours
+    db.prepare("UPDATE commandes SET statut = 'livree' WHERE statut = 'payee'").run();   // commandes livrées : effacement permis
+    assert.equal((await appel('POST', '/api/admin/clients/effacer', { email: client.email })).statut, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM fidelite_comptes').get().n, 0); assert.equal(db.prepare('SELECT COUNT(*) n FROM fidelite_mouvements').get().n, 0);
+    assert.equal((await appel('GET', '/api/admin/fidelite')).json.registreCoherent, true);
+    void app;
   } finally { s.close(); }
 });
