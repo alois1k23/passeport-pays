@@ -2,6 +2,67 @@
 
 Demande : jusqu'à 7 h 00 (heure de Lausanne), pousser le code, renforcer la sécurité et ajouter des fonctions technologiques qui démarquent Comptoir. Chaque chantier est implémenté avec ses tests, vérifié par les simulations, relu par une relecture indépendante, puis commité et poussé.
 
+## Synthèse de la nuit (à lire en premier)
+
+Nuit du 11 au 12 novembre 2026, de 23 h 30 à 06 h 50 (heure de Lausanne). Tout est poussé sur la branche `claude/nice-mccarthy-59mfb5`. Le détail de chacun des cycles suit cette synthèse.
+
+### Ce qui a été ajouté
+
+**Vendre**
+- Boutique en quatre langues (français, allemand, italien, anglais) : pages, messages, e-mails de commande, d'inscription, de bienvenue, de relance et « Mes commandes », pages de désinscription.
+- Variantes (tailles, couleurs), aussi en dropshipping avec une référence fournisseur par variante.
+- Recherche instantanée, lien de panier (WhatsApp, e-mail, QR code), « Commander à nouveau », « Prévenez-moi » au retour en stock, demandes de retour, « Mes commandes ».
+- QR-facture suisse avec import du relevé bancaire (camt.053 et camt.054).
+- Caisse hors ligne : les ventes continuent sans réseau et partent au retour de la connexion, sans doublon ni perte.
+
+**Piloter**
+- Tableau de bord en direct, application installable, notifications sur le téléphone chiffrées de bout en bout.
+- Rapport du lundi, prévision de rupture, bon de réassort, décompte de TVA, journal des ventes pour le comptable (format FEC en France).
+- Équipe (rôles « Commandes » et « Gestion complète »), API et webhooks signés.
+- Export complet des données de la boutique : le marchand peut partir avec tout.
+
+**Conformité**
+- Facture électronique au format européen EN 16931 (XML de Factur-X), valide selon le schéma officiel.
+- Journal inaltérable des ventes : factures, tickets et avoirs scellés dans une chaîne signée par le serveur, clôture quotidienne avec grand total perpétuel, vérification chaque nuit avec alerte, empreintes envoyées au marchand (e-mail du lundi, webhook quotidien).
+
+### Ce qui a été sécurisé
+
+- **Comptes** :
+  - double authentification et clés d'accès ;
+  - option « Exiger la clé d'accès », avec récupération par e-mail différée de 72 heures et annulable ;
+  - mots de passe parus dans des fuites refusés ;
+  - bilan de sécurité du compte et alertes par e-mail.
+- **Plateforme** :
+  - en-têtes stricts (CSP, CORP, Permissions-Policy) et cookie de session `__Host-` ;
+  - signalement des violations CSP, sans donnée personnelle ;
+  - sauvegardes chiffrées et score de risque des commandes.
+- **Relectures** : seize relectures indépendantes ciblées, deux audits de sécurité et un audit global final de toute la nuit. Chaque constat a été corrigé et testé, ou noté ci-dessous.
+
+### Ce qui a été testé
+
+- Tests automatiques : 118 sur 118.
+- Parcours de bout en bout dans un vrai navigateur : 51 contrôles.
+- Simulation de 100 marchands sur 60 jours (8 502 commandes) : 0 anomalie, journal des ventes vérifié chez chaque marchand.
+- Facture électronique validée par le schéma XSD officiel ; journal des ventes vérifié sur 100 000 pièces (vérification sans bloquer le serveur).
+- Accessibilité (titres, étiquettes, focus au clavier) et contraste (espace marchand clair et sombre, 5 thèmes de boutique) : aucun défaut restant. Boutique chargée en 0,8 s en 4G lente.
+
+### Ce qui reste à faire avant d'ouvrir
+
+- **À tester avec du réel** :
+  - QR-facture avec une vraie application bancaire ;
+  - notifications sur un vrai téléphone.
+- **Facture électronique** :
+  - passer un fichier au validateur public (règles schematron) ;
+  - le PDF Factur-X n'est pas encore produit ;
+  - rien n'est transmis à une plateforme agréée.
+- **Journal des ventes (FEC)** :
+  - passer un fichier dans l'outil de la DGFiP (Test Compta Demat) ;
+  - il ne contient pas les encaissements ;
+  - l'encodage admis reste à confirmer.
+- **Journal inaltérable** : c'est une aide à la traçabilité, non certifiée NF 525.
+- **Avant d'ouvrir** : définir `SECRET_CHIFFREMENT` et ne plus le changer.
+- **À revoir** : une commande « payer sur facture » passée sans compte émet tout de suite une facture numérotée et scellée.
+
 ## Chantiers prévus
 
 1. **Sécurité des comptes marchands** : double authentification (TOTP, codes de secours), appareils connectés révocables, journal d'activité, alerte de nouvelle connexion.
@@ -796,3 +857,9 @@ Relecture de la récupération différée, sous l'angle de l'attaquant qui contr
 - **Aucun indice pour l'attaquant** : plus d'e-mail ni de limite propre quand le bon mot de passe est essayé depuis un appareil inconnu (la réponse est celle d'un mauvais mot de passe). La tentative est notée au journal du compte et comptée dans le bilan de sécurité. Le message d'erreur rappelle à tous de se connecter avec sa clé d'accès si le compte en utilise une.
 - Une nouvelle demande ne repousse plus l'échéance ; les textes d'aide et les e-mails mentionnent le délai.
 - Tests ajoutés : annulation par changement de mot de passe, non-application si la situation a changé. 118 tests sur 118, bout en bout 51 sur 51.
+
+### Cycle 64 (05 h 05) : régression finale et démo
+
+- Tests automatiques : 118 sur 118. Parcours de bout en bout dans un vrai navigateur : 51 contrôles réussis.
+- Simulation de 100 marchands sur 60 jours (8 502 commandes) : 0 anomalie, aucune erreur serveur, p95 de 7 ms, journal des ventes vérifié chez chaque marchand.
+- Démo (artefact) republiée, version 21, chargée sans erreur sur sept écrans.
