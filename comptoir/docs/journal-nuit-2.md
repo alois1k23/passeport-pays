@@ -40,7 +40,7 @@ Nuit du 11 au 12 novembre 2026, de 23 h 30 à 06 h 50 (heure de Lausanne). Tout 
 
 ### Ce qui a été testé
 
-- Tests automatiques : 118 sur 118.
+- Tests automatiques : 119 sur 119.
 - Parcours de bout en bout dans un vrai navigateur : 51 contrôles.
 - Simulation de 100 marchands sur 60 jours (8 502 commandes) : 0 anomalie, journal des ventes vérifié chez chaque marchand.
 - Facture électronique validée par le schéma XSD officiel ; journal des ventes vérifié sur 100 000 pièces (vérification sans bloquer le serveur).
@@ -860,7 +860,7 @@ Relecture de la récupération différée, sous l'angle de l'attaquant qui contr
 
 ### Cycle 64 (05 h 05) : régression finale et démo
 
-- Tests automatiques : 118 sur 118. Parcours de bout en bout dans un vrai navigateur : 51 contrôles réussis.
+- Tests automatiques : 119 sur 119. Parcours de bout en bout dans un vrai navigateur : 51 contrôles réussis.
 - Simulation de 100 marchands sur 60 jours (8 502 commandes) : 0 anomalie, aucune erreur serveur, p95 de 7 ms, journal des ventes vérifié chez chaque marchand.
 - Démo (artefact) republiée, version 22 (05 h 15), chargée sans erreur JavaScript sur sept écrans.
 
@@ -875,3 +875,7 @@ Relecture de la récupération différée, sous l'angle de l'attaquant qui contr
 - Sécurité, Zone sensible, Conformité, Analyse et éditeur de variantes, contrôlés sur un iPhone 13 émulé : aucune page plus large que l'écran (les onglets défilent, comme prévu).
 - Éditeur de variantes : la colonne Prix était coupée sur téléphone ; les champs se resserrent maintenant sous 480 px et le tableau tient en entier.
 - Bilan de sécurité : libellé « Aucune tentative avec votre mot de passe » (il compte aussi les connexions refusées par l'option « Exiger la clé d'accès »).
+
+### Cycle 67 (06 h 10) : test de la reprise du journal
+
+- Nouveau test : scellement interrompu après une pièce, puis reprise. Seules les deux pièces manquantes sont scellées, un second passage ne fait rien, et un avoir émis plus tard est repris à sa propre date. Le journal est ensuite vérifié intact. 119 tests sur 119.

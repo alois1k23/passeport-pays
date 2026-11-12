@@ -175,3 +175,24 @@ test('chaque clôture part vers les webhooks abonnés à journal.cloture', async
     assert.equal(d.empreinte, (await c('GET', '/api/admin/journal-inalterable')).j.derniereCloture.empreinte);
   } finally { s.close(); }
 });
+
+test('reprise après interruption : seules les pièces manquantes sont scellées, sans doublon', async () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(':memory:');
+  db.exec('CREATE TABLE commandes (id TEXT PRIMARY KEY, boutique_id TEXT, numero INTEGER, date INTEGER, statut TEXT, donnees TEXT)');
+  const J = JI.creer(db, Buffer.alloc(32, 9)), t0 = Date.now() - 5 * 86400000;
+  const lire = row => ({ ...JSON.parse(row.donnees), id: row.id, numero: row.numero, date: row.date, statut: row.statut });
+  const ajouter = (i, extra = {}) => db.prepare('INSERT INTO commandes VALUES (?, ?, ?, ?, ?, ?)').run(`c${i}`, 'b', i, t0 + i * 1000, 'livree', JSON.stringify({ facture: `FA-2026-${i}`, dateFacture: t0 + i * 1000, total: 10, lignes: [], ...extra }));
+  for (let i = 1; i <= 3; i++) ajouter(i);
+  J.sceller('b', lire(db.prepare("SELECT * FROM commandes WHERE id = 'c1'").get()), t0);   // scellement interrompu après la première pièce
+  assert.equal(J.nonScellees('b').length, 2);
+  assert.equal(J.reprendre(lire), 2, 'les deux pièces manquantes');
+  assert.equal(J.reprendre(lire), 0, 'rien de plus au second passage');
+  // Un avoir émis plus tard sur une commande déjà scellée : seul l'avoir est repris, daté de sa propre date.
+  db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(JSON.stringify({ facture: 'FA-2026-2', dateFacture: t0 + 2000, total: 10, lignes: [], avoir: { numero: 'AV-2026-4', date: t0 + 86400000, montant: 10 } }), 'c2');
+  assert.equal(J.reprendre(lire), 1);
+  assert.equal(db.prepare("SELECT le FROM journal_inalterable WHERE ref = 'AV-2026-4'").get().le, t0 + 86400000, 'avoir daté de sa date');
+  J.cloturer('b');   // sans clôture, la vérification signale à juste titre des pièces de plus de deux jours hors clôture
+  const r = await J.verifier('b', { lireCommandes: ids => new Map(ids.map(id => [id, lire(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id))])), compteurFactures: 4 });
+  assert.equal(r.ok, true, JSON.stringify(r.anomalies));
+});
