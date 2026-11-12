@@ -2178,7 +2178,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
 
   /* ---------- Boutique publique : page rendue par le serveur pour les moteurs de recherche et le partage ---------- */
   const produitVisible = (b, id) => abo.etat(b.marchand_id).actif && listerProduits(b.id).some(x => x.id === id && vendable(x));
-  function pageBoutique(b, { racine, produitId = null }) {
+  function pageBoutique(b, { racine, produitId = null, langue = null }) {
     const config = configVente(b);
     const ouverte = abo.etat(b.marchand_id).actif;
     const produits = ouverte ? listerProduits(b.id).filter(vendable) : [];
@@ -2192,7 +2192,9 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const titre = p ? `${p.nom} · ${nom}` : config.boutique.slogan ? `${nom} · ${config.boutique.slogan}` : nom;
     const description = court(p ? (p.description || `${p.nom}, ${formatMontant(p.prix, config)}`) : (config.boutique.slogan || (hero && hero.props && (hero.props.sousTitre || hero.props.texte)) || `Boutique en ligne ${nom} : ${produits.slice(0, 4).map(x => x.nom).join(', ')}`));
     const image = p && p.image ? `${urlPublique}/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : null;
-    const canonique = p ? urlProduit(p) : base + '/';
+    const langueOk = ['de', 'it', 'en'].includes(langue) && (config.boutique.langues || []).includes(langue) ? langue : null;
+    const sansLangue = p ? urlProduit(p) : base + '/';
+    const canonique = langueOk ? `${sansLangue}?lang=${langueOk}` : sansLangue;   // chaque version linguistique est sa propre page
     const ld = p ? { '@context': 'https://schema.org', '@type': 'Product', name: p.nom, description: court(p.description), ...(image ? { image } : {}), url: canonique, brand: { '@type': 'Brand', name: nom },
       offers: { '@type': 'Offer', price: Number(p.prix).toFixed(2), priceCurrency: devise, availability: p.type === 'drop' || p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique } }
       : { '@context': 'https://schema.org', '@type': 'OnlineStore', name: nom, url: canonique, description, ...(config.entreprise && config.entreprise.email ? { email: config.entreprise.email } : {}) };
@@ -2201,6 +2203,8 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       ...(p ? [`<meta name="comptoir-produit" content="${escHtml(p.id)}">`] : []),
       `<title>${escHtml(titre)}</title>`, `<meta name="description" content="${escHtml(description)}">`, `<link rel="canonical" href="${escHtml(canonique)}">`, `<link rel="sitemap" type="application/xml" href="${escHtml(base)}/sitemap.xml">`,
       ...(ouverte && !(produitId && !p) ? [] : ['<meta name="robots" content="noindex">']),
+      // Boutique en plusieurs langues : chaque version annoncée aux moteurs de recherche (hreflang), le français par défaut.
+      ...((config.boutique.langues || []).filter(l => ['de', 'it', 'en'].includes(l)).length ? ['fr', ...(config.boutique.langues || []).filter(l => ['de', 'it', 'en'].includes(l))].map(l => `<link rel="alternate" hreflang="${l}" href="${escHtml(l === 'fr' ? sansLangue : `${sansLangue}?lang=${l}`)}">`).concat([`<link rel="alternate" hreflang="x-default" href="${escHtml(sansLangue)}">`]) : []),
       `<meta property="og:type" content="${p ? 'product' : 'website'}">`, `<meta property="og:site_name" content="${escHtml(nom)}">`, `<meta property="og:title" content="${escHtml(p ? p.nom : nom)}">`,
       `<meta property="og:description" content="${escHtml(description)}">`, `<meta property="og:url" content="${escHtml(canonique)}">`, `<meta property="og:locale" content="fr_${config.boutique.pays === 'ch' ? 'CH' : config.boutique.pays === 'be' ? 'BE' : 'FR'}">`,
       ...(image ? [`<meta property="og:image" content="${escHtml(image)}">`, '<meta name="twitter:card" content="summary_large_image">'] : ['<meta name="twitter:card" content="summary">']),
@@ -2415,7 +2419,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
           if (chemin === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, racine)); }
           if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(`User-agent: *\nAllow: /\nAllow: /api/public/*/image/\nDisallow: /api/\nSitemap: ${racine}sitemap.xml\n`); }
           const pid = chemin.startsWith('/p/') ? decodeURIComponent(chemin.slice(3)) : null;
-          return envoyerHtml(res, pid && !produitVisible(b, pid) ? 404 : 200, pageBoutique(b, { racine, produitId: pid }));
+          return envoyerHtml(res, pid && !produitVisible(b, pid) ? 404 : 200, pageBoutique(b, { racine, produitId: pid, langue: url.searchParams.get('lang') }));
         }
       }
       const route = r.trouver(req.method, chemin);
@@ -2427,7 +2431,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
           if (mBoutique) {
             const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mBoutique[1]);
             // Produit absent, masqué ou retiré : vrai 404 (la page reste utilisable : elle montre la boutique).
-            if (b) return envoyerHtml(res, mBoutique[2] && !produitVisible(b, mBoutique[2]) ? 404 : 200, pageBoutique(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, produitId: mBoutique[2] || null }));
+            if (b) return envoyerHtml(res, mBoutique[2] && !produitVisible(b, mBoutique[2]) ? 404 : 200, pageBoutique(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, produitId: mBoutique[2] || null, langue: url.searchParams.get('lang') }));
           }
           const mPlan = /^\/s\/([\w-]+)\/sitemap\.xml$/.exec(chemin);
           if (mPlan) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mPlan[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, `${urlPublique}/s/${b.slug}/`)); } }
