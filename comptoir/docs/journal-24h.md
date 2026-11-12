@@ -195,7 +195,7 @@ Relecture indépendante des devis : 5000 devis aléatoires contrôlés par les r
 - **Restent ouverts** : un instantané de la page acceptée (preuve plus complète), et les mentions B2B françaises (pénalités de retard, indemnité de 40 €) sur la facture.
 - Tests renforcés : la facture électronique d'une commande issue d'un devis est vérifiée. Grande quantité, client d'un autre pays : 139 tests sur 139. Vérifié dans un vrai navigateur.
 
-### Cycle 12 (00 h 45) : corrections de la relecture de la fidélité
+### Cycle 12 (00 h 30) : corrections de la relecture de la fidélité
 
 Relecture indépendante du programme de fidélité : 200 000 paniers aléatoires, scénarios rejoués. Points corrigés :
 - **Grave, double utilisation des points** :
@@ -212,3 +212,20 @@ Relecture indépendante du programme de fidélité : 200 000 paniers aléatoires
 - Les commandes issues d'un devis (clients professionnels) ne rapportent plus de points.
 - **Restent ouverts** : l'expiration des points se calcule à la lecture du compte (statistiques un peu hautes pour les comptes inactifs jamais relus), et l'e-mail du code n'existe qu'en français.
 - 1 nouveau test de régression (réservation, paiement manuel, abandon, reprise refusée, annulation, force brute, effacement, générosité) : 140 tests sur 140. Bout en bout 51 sur 51, vérifié dans un vrai navigateur.
+
+### Cycle 13 (01 h 05) : test de charge sur 1000 boutiques, optimisations
+
+- Nouvel outil, `outils/simulation/charge.js`. Il fait tourner le vrai serveur dans son propre processus :
+  - 1000 boutiques créées par l'API (en 11 secondes) ;
+  - 200 000 commandes d'historique sur 13 mois (base de 111 Mo) ;
+  - 60 secondes de trafic mêlé avec 50 clients simultanés : vitrines, pages de boutique, commandes et paiements, espace marchand, devis, cartes cadeaux.
+- **Premier résultat** : 705 requêtes par seconde, aucune erreur, 136 Mo de mémoire. Mesuré requête par requête, sans concurrence : vitrine 1,5 ms, espace marchand complet 4,6 ms, commande payée de bout en bout 6 ms. Les latences sous charge (63 ms médianes partout) venaient donc de la file d'attente devant un seul processeur.
+- **Profilage du serveur sous charge** (profil CPU de Node, analysé fonction par fonction) : la compression gzip synchrone des réponses prenait environ 11 % du temps du fil principal, et le formatage des montants environ 5 % (un formateur `Intl` recréé à chaque appel).
+- **Optimisations** :
+  - les grandes réponses sont compressées hors du fil principal (pool de threads de Node) ;
+  - le formateur de montants est gardé par devise.
+
+  Résultat : **859 requêtes par seconde (+22 %)**, et la médiane des petites requêtes passe de 63 à 30 ms. Toujours aucune erreur.
+- **Essayé puis retiré** : un cache des réponses compressées. Avec 1000 boutiques visitées au hasard, il ne servait presque jamais et ne gagnait rien.
+- **Limite honnête** : un seul processus Node, dont les compteurs anti-abus et les flux en direct sont en mémoire. Au-delà d'environ 800 requêtes par seconde soutenues, il faudrait plusieurs processus, avec ces états partagés (base ou Redis). C'est une étape d'architecture, pas un réglage.
+- Simulation de 60 jours (100 marchands) relancée après les chantiers des cartes cadeaux, des devis et de la fidélité : 68 335 requêtes, médiane 2 ms, **0 anomalie**. 140 tests sur 140, bout en bout 51 sur 51.

@@ -66,18 +66,18 @@ function lireCookies(req) {
   return out;
 }
 
-/* Compression gzip des réponses texte de plus de 1 Ko quand le navigateur l'accepte (≈ 10 fois moins de données). */
-function compresser(res, corps, entetes) {
-  const accepte = res.req && /\bgzip\b/.test(res.req.headers['accept-encoding'] || '');
-  const tampon = Buffer.isBuffer(corps) ? corps : Buffer.from(corps);
-  if (!accepte || tampon.length < 1024) return { corps: tampon, entetes };
-  return { corps: zlib.gzipSync(tampon, { level: 6 }), entetes: { ...entetes, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } };
-}
-
+/* Compression gzip des réponses JSON de plus de 1 Ko quand le navigateur l'accepte (≈ 10 fois moins de données). */
 function envoyerJson(res, statut, donnees, entetes = {}) {
-  const z = compresser(res, JSON.stringify(donnees), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...entetes });
-  res.writeHead(statut, z.entetes);
-  res.end(z.corps);
+  const corps = Buffer.from(JSON.stringify(donnees)), base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...entetes };
+  const accepte = res.req && /\bgzip\b/.test(res.req.headers['accept-encoding'] || '');
+  if (!accepte || corps.length < 1024) { res.writeHead(statut, base); res.end(corps); return; }
+  // Grande réponse : compressée hors du fil principal (pool de threads de Node), qui continue de servir les autres requêtes.
+  zlib.gzip(corps, { level: 5 }, (err, z) => {
+    if (res.destroyed) return;
+    if (err) { res.writeHead(statut, base); res.end(corps); return; }
+    res.writeHead(statut, { ...base, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+    res.end(z);
+  });
 }
 
 function envoyerHtml(res, statut, html, entetes = {}) {

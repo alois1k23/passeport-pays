@@ -442,8 +442,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
     if (env.LOG_EMAILS) journal.log(`[e-mail] à ${destinataire} : ${sujet}`);
   };
+  const formateurs = new Map();   // Intl.NumberFormat est coûteux à créer : un par devise, gardé
   const formatMontant = (n, config) => {
-    if ((config.boutique.devise || 'EUR') !== 'CHF') return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: config.boutique.devise || 'EUR' });
+    const devise = config.boutique.devise || 'EUR';
+    if (devise !== 'CHF') { let f = formateurs.get(devise); if (!f) { f = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: devise }); formateurs.set(devise, f); } return f.format(Number(n)); }
     const [e, c] = (Math.round(Math.abs(n) * 100) / 100).toFixed(2).split('.');
     return `${n < 0 ? '−' : ''}CHF ${e.replace(/\B(?=(\d{3})+(?!\d))/g, '’')}.${c}`;
   };
