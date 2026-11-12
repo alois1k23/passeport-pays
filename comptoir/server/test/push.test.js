@@ -60,7 +60,15 @@ test('commande payée : notification push chiffrée vers l’appareil du marchan
     assert.equal(JSON.parse(Buffer.from(p, 'base64url')).aud, 'https://fcm.googleapis.com');
     // Le « téléphone » déchiffre le message
     const msg = dechiffrer(Buffer.from(o.body), ua, auth);
-    assert.equal(msg.titre, `Nouvelle commande n° ${cmd.numero}`); assert.match(msg.texte, /CHF 47\.00 · Lausanne/);
+    assert.equal(msg.titre, `Nouvelle commande n° ${cmd.numero}`); assert.match(msg.texte, /^CHF 47\.00$/, 'pas de donnée du client sur l’écran verrouillé');
+    // Déconnexion de l'appareil : plus de notification
+    await c('POST', '/api/auth/deconnexion');
+    db.prepare("UPDATE commandes SET statut = 'attente' WHERE numero = ?").run(cmd.numero);
+    const cmd2 = await fetch(`${base}/api/public/${ins.j.slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C D', email: 'cd@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } }) }).then(r => r.json());
+    await fetch(cmd2.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    await new Promise(r => setTimeout(r, 300));
+    assert.equal(recus.length, 1, 'aucune notification vers un appareil déconnecté');
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM abonnements_push').get().n, 0);
     // Abonnement expiré (410) : supprimé
     const fetch410 = async () => new Response(null, { status: 410 });
     assert.equal(await W.envoyer({ endpoint: 'https://fcm.googleapis.com/x', p256dh: W.b64u(ua.getPublicKey()), auth: W.b64u(auth) }, { t: 1 }, { ...JSON.parse(db.prepare("SELECT valeur FROM cles WHERE nom = 'vapid'").get().valeur), sujet: 'mailto:a@b.ch' }, { fetchImpl: fetch410 }), 410);

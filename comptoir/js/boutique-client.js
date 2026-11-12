@@ -446,11 +446,17 @@ document.addEventListener('keydown', e => {
 });
 
 /* Recherche instantanée de la vitrine : le champ garde le focus et le curseur à chaque nouvel affichage. */
-document.addEventListener('input', e => {
-  const champ = e.target.closest('[data-sf-recherche]'); if (!champ) return;
+// Pas de nouvel affichage pendant une saisie composée (clavier japonais, chinois, Gboard) ; 120 ms d'attente entre deux frappes.
+let minuterieRecherche = null;
+function rechercher(champ) {
   const id = champ.dataset.sfRecherche, pos = champ.selectionStart;
   vueVitrine.q = champ.value.slice(0, 60);
   rendre();
   const n = document.querySelector(`[data-sf-recherche="${CSS.escape(id)}"]`);
   if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch { /* ignoré */ } }
+}
+document.addEventListener('input', e => {
+  const champ = e.target.closest('[data-sf-recherche]'); if (!champ || e.isComposing) return;
+  clearTimeout(minuterieRecherche); minuterieRecherche = setTimeout(() => rechercher(champ), 120);
 });
+document.addEventListener('compositionend', e => { const champ = e.target.closest('[data-sf-recherche]'); if (champ) rechercher(champ); });

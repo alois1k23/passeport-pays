@@ -85,18 +85,8 @@ setInterval(() => { try { gerer.actualiserVentesTendances(); } catch (e) { conso
   const fs = require('node:fs');
   const dossier = env.SAUVEGARDE_DOSSIER || path.join(path.dirname(env.BASE_DE_DONNEES || path.join(__dirname, 'donnees', 'comptoir.db')), 'sauvegardes');
   const sauvegarder = async () => {
-    try {
-      fs.mkdirSync(dossier, { recursive: true });
-      const nom = path.join(dossier, `comptoir-${new Date().toISOString().slice(0, 10)}.db`);
-      const chiffree = Sauvegarde.cleValide(env.SAUVEGARDE_CLE);
-      if (!fs.existsSync(nom) && !fs.existsSync(nom + '.enc')) {
-        db.exec(`VACUUM INTO '${nom.replace(/'/g, "''")}'`);
-        // Clé fournie : la copie est chiffrée, puis la version en clair est effacée.
-        if (chiffree) await Sauvegarde.chiffrer(nom, nom + '.enc', env.SAUVEGARDE_CLE).then(() => fs.rmSync(nom));
-      }
-      const fichiers = fs.readdirSync(dossier).filter(f => /^comptoir-\d{4}-\d{2}-\d{2}\.db(\.enc)?$/.test(f)).sort();
-      for (const f of fichiers.slice(0, -14)) fs.rmSync(path.join(dossier, f));
-    } catch (e) { console.error('[sauvegarde] ÉCHEC', e.message); }
+    try { await Sauvegarde.sauvegarderBase(db, dossier, { cle: env.SAUVEGARDE_CLE }); }
+    catch (e) { console.error('[sauvegarde] ÉCHEC', e.message); }
   };
   if (env.SAUVEGARDE !== 'non') { setTimeout(sauvegarder, 60000).unref(); setInterval(sauvegarder, 6 * 3600000).unref(); }
 }

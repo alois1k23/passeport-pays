@@ -334,3 +334,26 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - données protégées.
 - Formulations vérifiées pour ne rien promettre de plus. Seuls les e-mails de commande sont traduits, pas les newsletters. Les sauvegardes chiffrées supposent que `SAUVEGARDE_CLE` soit réglée à la mise en ligne.
 - Mise en page vérifiée sur ordinateur et sur téléphone, sans débordement.
+
+## Cycle 21 (01 h 50) : réservation de stock, corrections de la quatrième revue
+
+- **Réservation de stock** : une commande en attente de paiement garde ses articles pendant 30 minutes, ou jusqu'à l'échéance pour une facture QR. Plusieurs clients ne peuvent plus payer le même dernier exemplaire. Un client qui réessaie son propre paiement n'est pas bloqué par son essai précédent. Testé (second client refusé, puis accepté une fois la réservation échue).
+- **Sauvegardes**, fiabilisées (revue : une copie en clair pouvait rester sur le disque après un échec, et un disque plein pouvait laisser des sauvegardes vides prendre la place des bonnes) :
+  - fichier temporaire caché créé en 0600 (lisible par le seul propriétaire) ;
+  - copie vérifiée (`PRAGMA quick_check`), chiffrée, puis renommée ;
+  - en cas d'échec, rien ne reste ;
+  - les restes d'un essai interrompu sont effacés ;
+  - d'anciennes copies en clair sont chiffrées dès qu'une clé est fournie ;
+  - la rétention ne compte que les sauvegardes valides et garde toujours la plus récente.
+  - Testé.
+- **Notifications push** :
+  - liées à la session : un appareil déconnecté (déconnexion, appareil révoqué, session échue) ne reçoit plus rien, et un second compte sur le même navigateur n'est plus trompé par l'abonnement du premier ;
+  - seuls les codes 404 et 410 suppriment un abonnement (un 400 passager ne les efface plus tous) ;
+  - plus de ville du client sur l'écran verrouillé.
+- **Recherche** :
+  - une faute de frappe dans un mot à moitié tapé est tolérée (« chamise » trouve « Chemises ») ;
+  - « coeur » trouve « cœur », et « strasse » trouve « Straße » ;
+  - les mots sont calculés une fois par produit ;
+  - pas de nouvel affichage pendant une saisie composée (claviers asiatiques, Gboard), et 120 ms d'attente entre deux frappes.
+- **E-mails traduits** : le pied de page (contact, désinscription) est aussi dans la langue du client.
+- Tests : 94 sur 94. Recherche revérifiée dans un vrai navigateur.

@@ -63,7 +63,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
         const lien = EmailsClients.avecLangue(`${base}?reprendre=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`, c);
         const derniere = i === a.paiement.etapes.length - 1;
         const offre = derniere && a.paiement.remise && a.paiement.code ? `\n\nPour vous aider à vous décider : -${a.paiement.remise} % avec le code ${a.paiement.code}.` : '';
-        if (EmailsClients.langueDe(c)) { const m = EmailsClients.relance(c, { nomBoutique: nom, i, lien, formatMontant: x => formatMontant(x, config), remise: derniere && a.paiement.remise && a.paiement.code ? a.paiement.remise : 0, code: a.paiement.code }); envoyerEmail(boutique.id, c.client.email, m.sujet, m.corps, { marketing: true, motif: 'commande' }); }
+        if (EmailsClients.langueDe(c)) { const m = EmailsClients.relance(c, { nomBoutique: nom, i, lien, formatMontant: x => formatMontant(x, config), remise: derniere && a.paiement.remise && a.paiement.code ? a.paiement.remise : 0, code: a.paiement.code }); envoyerEmail(boutique.id, c.client.email, m.sujet, m.corps, { marketing: true, motif: 'commande', langue: c.langue }); }
         else envoyerEmail(boutique.id, c.client.email, i === 0 ? `Votre commande chez ${nom} vous attend` : `Votre panier chez ${nom} vous attend toujours`,
           `Bonjour ${c.client.nom},\n\nVotre commande n° ${c.numero} (${formatMontant(c.total, config)}) n’a pas été finalisée. Un souci au moment de payer ? Vous pouvez la reprendre ici :\n${lien}${offre}\n\nL’équipe ${nom}`, { marketing: true, motif: 'commande' });   // relance commerciale : lien de désinscription, désinscrits respectés
         c.relances = i + 1;
@@ -83,7 +83,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
       if (maintenant - depuis < a.avis.jours * JOUR || maintenant - depuis > 60 * JOUR) continue;
       if (!reserver(db, boutique.id, `avis:${c.id}`, maintenant)) continue;
       const lienAvis = EmailsClients.avecLangue(`${base}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`, c);
-      if (EmailsClients.langueDe(c)) { const m = EmailsClients.avis(c, { nomBoutique: nom, lien: lienAvis }); envoyerEmail(boutique.id, c.client.email, m.sujet, m.corps, { marketing: true, motif: 'commande' }); }
+      if (EmailsClients.langueDe(c)) { const m = EmailsClients.avis(c, { nomBoutique: nom, lien: lienAvis }); envoyerEmail(boutique.id, c.client.email, m.sujet, m.corps, { marketing: true, motif: 'commande', langue: c.langue }); }
       else envoyerEmail(boutique.id, c.client.email, `Votre avis sur votre commande ${nom}`,
         `Bonjour ${c.client.nom},\n\nVous avez reçu ${c.lignes.map(l => l.nom).join(', ')}. Qu’en pensez-vous ? Votre avis aide d’autres clients à choisir, et nous à nous améliorer. Il prend 30 secondes :\n${base}?avis=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}\n\nMerci,\nL’équipe ${nom}`, { marketing: true, motif: 'commande' });
       c.avisDemande = maintenant;

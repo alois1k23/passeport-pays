@@ -359,20 +359,21 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const optionsEmail = (b, c, config) => ({ nomBoutique: config.boutique.nom, formatMontant: m => formatMontant(m, config), nomLivraison: (prix.modesLivraison(config)[c.livraison] || { nom: c.livraison }).nom, lienCommande: lienCommande(b, c.id), contact: config.entreprise && config.entreprise.email });
   const emailExpedition = (b, c, config) => {
     const lien = lienTransporteur(c.transporteur || (prix.modesLivraison(config)[c.livraison] || {}).transporteur, c.suivi, config.boutique.pays);
-    if (EmailsClients.langueDe(c)) { const m = EmailsClients.expedition(c, { ...optionsEmail(b, c, config), lienSuivi: lien }); return envoyerEmail(b.id, c.client.email, m.sujet, m.corps); }
+    if (EmailsClients.langueDe(c)) { const m = EmailsClients.expedition(c, { ...optionsEmail(b, c, config), lienSuivi: lien }); return envoyerEmail(b.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
     envoyerEmail(b.id, c.client.email, `Votre commande n° ${c.numero} est en route`,
       `Bonjour ${c.client.nom},\n\nVotre colis est parti${c.transporteur ? ` avec ${c.transporteur}` : ''}.${c.suivi ? `\nNuméro de suivi : ${c.suivi}` : ''}${c.suivi && lien ? `\nSuivre le colis : ${lien}` : ''}\n\nVotre commande : ${lienCommande(b, c.id)}\n\nMerci et à bientôt,\n${config.boutique.nom}`);
   };
-  const envoyerEmail = (boutiqueId, destinataire, sujet, corps, { marketing = false, motif = 'nouvelles' } = {}) => {
+  const envoyerEmail = (boutiqueId, destinataire, sujet, corps, { marketing = false, motif = 'nouvelles', langue = null } = {}) => {
     if (!destinataire) return;
     if (marketing && boutiqueId && estDesinscrit(boutiqueId, destinataire)) return;
     let pied = '', lien = null;
     const b = boutiqueId ? db.prepare('SELECT config FROM boutiques WHERE id = ?').get(boutiqueId) : null;
     if (b) {
       const conf = JSON.parse(b.config), e = conf.entreprise || {};
-      const identite = [e.raison || conf.boutique.nom, e.adresse, e.email ? `Contact : ${e.email}` : ''].filter(Boolean).join(' · ');
+      const tp = EmailsClients.textesPied(langue);   // pied dans la langue du client (e-mails traduits)
+      const identite = [e.raison || conf.boutique.nom, e.adresse, e.email ? `${tp ? tp.contact : 'Contact'} : ${e.email}` : ''].filter(Boolean).join(' · ');
       if (marketing) lien = `${urlPublique}/desinscription?j=${jetonDesinscription(boutiqueId, destinataire)}`;
-      pied = `\n\n—\n${identite}${lien ? `\n${motif === 'commande' ? `Vous recevez cet e-mail à la suite de votre commande chez ${conf.boutique.nom}. Pour ne plus recevoir ce type de message` : `Vous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir`} : ${lien}` : ''}`;
+      pied = `\n\n—\n${identite}${lien ? `\n${tp ? (motif === 'commande' ? tp.commande : tp.nouvelles)(conf.boutique.nom) : motif === 'commande' ? `Vous recevez cet e-mail à la suite de votre commande chez ${conf.boutique.nom}. Pour ne plus recevoir ce type de message` : `Vous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir`} : ${lien}` : ''}`;
     }
     db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
     if (env.LOG_EMAILS) journal.log(`[e-mail] à ${destinataire} : ${sujet}`);
@@ -562,7 +563,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* Après un paiement (en ligne ou relevé bancaire) : e-mails au client et au marchand, transmission au fournisseur. */
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
-    if (EmailsClients.langueDe(res.c)) { const m = EmailsClients.confirmation(res.c, { ...optionsEmail(res.boutique, res.c, config), legal: infoRetractation(res.boutique, res.c, config) }); envoyerEmail(res.boutique.id, res.c.client.email, m.sujet, m.corps); }
+    if (EmailsClients.langueDe(res.c)) { const m = EmailsClients.confirmation(res.c, { ...optionsEmail(res.boutique, res.c, config), legal: infoRetractation(res.boutique, res.c, config) }); envoyerEmail(res.boutique.id, res.c.client.email, m.sujet, m.corps, { langue: res.c.langue }); }
     else envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
       `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.${infoRetractation(res.boutique, res.c, config)}`);
     // Le marchand est prévenu de chaque commande payée (sans e-mail, une commande à expédier pourrait rester oubliée).
@@ -576,7 +577,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const vendus = {}; for (const l of res.c.lignes) if (l.type !== 'drop') vendus[l.produitId] = (vendus[l.produitId] || 0) + l.qte;
       const epuises = res.c.alerteStock ? [] : listerProduits(res.boutique.id).filter(p => vendus[p.id] && p.type !== 'drop' && p.stock <= 0 && p.stock + vendus[p.id] > 0);   // en rupture, l'e-mail de commande le dit déjà
       if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
-      notifierPush(res.boutique.marchand_id, { titre: `${res.c.parent ? 'Complément' : 'Nouvelle commande'} n° ${res.c.numero}`, texte: `${formatMontant(res.c.total, config)}${res.c.client && res.c.client.ville ? ` · ${res.c.client.ville}` : ''}${res.c.risque && res.c.risque.niveau === 'eleve' ? ' · risque de fraude élevé, à vérifier' : ''}`, url: '/app#commandes' }).catch(() => {});
+      notifierPush(res.boutique.marchand_id, { titre: `${res.c.parent ? 'Complément' : 'Nouvelle commande'} n° ${res.c.numero}`, texte: `${formatMontant(res.c.total, config)}${res.c.risque && res.c.risque.niveau === 'eleve' ? ' · risque de fraude élevé, à vérifier' : ''}`, url: '/app#commandes' }).catch(() => {});
       if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
         `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
     }
@@ -910,22 +911,26 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   /* ---------- Notifications push (Web Push) : une alerte sur le téléphone ou l'ordinateur du marchand à chaque
      commande payée, même application fermée. Le message est chiffré pour l'appareil (le service push ne le lit pas). ---------- */
   db.exec('CREATE TABLE IF NOT EXISTS abonnements_push (endpoint TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, appareil TEXT, cree_le INTEGER NOT NULL)');
+  try { db.exec('ALTER TABLE abonnements_push ADD COLUMN session TEXT'); } catch { /* déjà là */ }
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'vapid'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('vapid', ?)").run(JSON.stringify(WebPush.genererClesVapid()));
   const vapid = { ...JSON.parse(db.prepare("SELECT valeur FROM cles WHERE nom = 'vapid'").get().valeur), sujet: env.EXPLOITANT_EMAIL ? `mailto:${env.EXPLOITANT_EMAIL}` : urlPublique };
   async function notifierPush(marchandId, message) {
+    // Appareil déconnecté (déconnexion, appareil révoqué, session expirée) : plus de notification, l'abonnement est retiré.
+    db.prepare('DELETE FROM abonnements_push WHERE marchand_id = ? AND (session IS NULL OR session NOT IN (SELECT jeton_hash FROM sessions WHERE expire_le > ?))').run(marchandId, Date.now());
     for (const a of db.prepare('SELECT * FROM abonnements_push WHERE marchand_id = ?').all(marchandId)) {
       try {
         const code = await WebPush.envoyer(a, message, vapid, { fetchImpl });
-        if (code === 404 || code === 410 || code === 400) db.prepare('DELETE FROM abonnements_push WHERE endpoint = ?').run(a.endpoint);   // appareil désabonné
+        if (code === 404 || code === 410 || code === 'invalide') db.prepare('DELETE FROM abonnements_push WHERE endpoint = ?').run(a.endpoint);   // appareil désabonné
+        else if (code >= 400) journal.error('[push]', new URL(a.endpoint).host, code);   // erreur passagère ou de format : gardé
       } catch (e) { journal.error('[push]', e.message); }
     }
   }
-  r.get('/api/admin/push', exigerCompte, ctx => ({ cle: vapid.publique, appareils: db.prepare('SELECT appareil, cree_le FROM abonnements_push WHERE marchand_id = ?').all(ctx.marchand.id) }));
+  r.get('/api/admin/push', exigerCompte, ctx => ({ cle: vapid.publique, endpoints: db.prepare('SELECT endpoint FROM abonnements_push WHERE marchand_id = ? AND session = ?').all(ctx.marchand.id, auth.sha256(String(ctx.cookies[auth.COOKIE] || ''))).map(x => x.endpoint) }));
   r.post('/api/admin/push/abonner', exigerCompte, ctx => {
     const a = ctx.corps.abonnement || {}, k = a.keys || {};
     if (!WebPush.endpointValide(a.endpoint) || !/^[\w-]{80,100}$/.test(String(k.p256dh || '')) || !/^[\w-]{16,32}$/.test(String(k.auth || ''))) throw erreur(400, 'Abonnement aux notifications invalide.', 'push_invalide');
     if (db.prepare('SELECT COUNT(*) n FROM abonnements_push WHERE marchand_id = ?').get(ctx.marchand.id).n >= 10) db.prepare('DELETE FROM abonnements_push WHERE endpoint = (SELECT endpoint FROM abonnements_push WHERE marchand_id = ? ORDER BY cree_le LIMIT 1)').run(ctx.marchand.id);
-    db.prepare('INSERT OR REPLACE INTO abonnements_push (endpoint, marchand_id, p256dh, auth, appareil, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(a.endpoint, ctx.marchand.id, k.p256dh, k.auth, decrireAppareil(ctx.req.headers['user-agent']), Date.now());
+    db.prepare('INSERT OR REPLACE INTO abonnements_push (endpoint, marchand_id, p256dh, auth, appareil, cree_le, session) VALUES (?, ?, ?, ?, ?, ?, ?)').run(a.endpoint, ctx.marchand.id, k.p256dh, k.auth, decrireAppareil(ctx.req.headers['user-agent']), Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')));
     return { ok: true };
   });
   r.post('/api/admin/push/desabonner', exigerCompte, ctx => { db.prepare('DELETE FROM abonnements_push WHERE endpoint = ? AND marchand_id = ?').run(String(ctx.corps.endpoint || ''), ctx.marchand.id); return { ok: true }; });
@@ -1244,7 +1249,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     historique(c, textes[cible] + (cible === 'expediee' ? (c.suivi ? `, suivi ${c.suivi}` : ', sans numéro de suivi') : ''));
     enregistrerCommande(c);
     if (cible === 'expediee') emailExpedition(ctx.boutique, c, config);
-    if (cible === 'prete' && EmailsClients.langueDe(c)) { const m = EmailsClients.pret(c, { ...optionsEmail(ctx.boutique, c, config), adresse: config.magasin.adresse || '', horaires: config.magasin.horaires }); envoyerEmail(ctx.boutique.id, c.client.email, m.sujet, m.corps); }
+    if (cible === 'prete' && EmailsClients.langueDe(c)) { const m = EmailsClients.pret(c, { ...optionsEmail(ctx.boutique, c, config), adresse: config.magasin.adresse || '', horaires: config.magasin.horaires }); envoyerEmail(ctx.boutique.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
     else if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\nVotre commande vous attend en boutique : ${config.magasin.adresse || ''}${config.magasin.horaires ? `\nHoraires : ${config.magasin.horaires}` : ''}.\nPrésentez ce numéro de commande : ${c.numero}.\n\nVotre commande : ${lienCommande(ctx.boutique, c.id)}\n\n${config.boutique.nom}`);
     return { commande: c };
   });
@@ -1513,7 +1518,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     });
     if (parFacture) {
       const factureUrl = `${urlPublique}/facture/${encodeURIComponent(b.slug)}/${commande.id}?jeton=${commande.jeton}`;
-      if (EmailsClients.langueDe(commande)) { const m = EmailsClients.factureQr(commande, { ...optionsEmail(b, commande, config), factureUrl }); envoyerEmail(b.id, client.email, m.sujet, m.corps); }
+      if (EmailsClients.langueDe(commande)) { const m = EmailsClients.factureQr(commande, { ...optionsEmail(b, commande, config), factureUrl }); envoyerEmail(b.id, client.email, m.sujet, m.corps, { langue: commande.langue }); }
       else envoyerEmail(b.id, client.email, `Commande n° ${commande.numero} : votre facture QR`, `Bonjour ${client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(commande, config)}\n\nVotre facture QR (à payer avec l’application de votre banque, en scannant le QR code) :\n${factureUrl}\n\nMontant : ${formatMontant(total, config)} · à payer jusqu’au ${new Date(commande.echeance).toLocaleDateString('fr-CH')}.\nVotre commande est préparée dès réception du paiement.\n\n${config.boutique.nom}`);
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
       if (mch) envoyerEmail(null, mch.email, `Nouvelle commande n° ${commande.numero} sur facture QR : ${formatMontant(total, config)}`, `Bonjour,\n\nNouvelle commande sur ${config.boutique.nom}, payable sur facture QR (référence ${commande.referenceQr}). Elle passe en « payée » quand vous importez votre relevé bancaire (Paramètres > Paiements) ou que vous la marquez payée.\n\n${recapitulatif(commande, config)}\n\nComptoir`);
@@ -2085,7 +2090,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       enregistrerCommande(c);
       const bq = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id), conf = lireConfig(bq);
       const parties = c.lignes.filter(l => l.type === 'drop').map(l => `- ${l.qte} × ${l.nom}`).join('\n');
-      if (EmailsClients.langueDe(c)) { const m = EmailsClients.partiel(c, { ...optionsEmail(bq, c, conf), lignes: parties }); envoyerEmail(bq.id, c.client.email, m.sujet, m.corps); }
+      if (EmailsClients.langueDe(c)) { const m = EmailsClients.partiel(c, { ...optionsEmail(bq, c, conf), lignes: parties }); envoyerEmail(bq.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
       else envoyerEmail(bq.id, c.client.email, `Une partie de votre commande n° ${c.numero} est en route`, `Bonjour ${c.client.nom},\n\nCes articles sont partis${c.transporteurFournisseur ? ` avec ${c.transporteurFournisseur}` : ''} :\n${parties}\nNuméro de suivi : ${c.suiviFournisseur}\n\nLe reste de votre commande suit séparément ; nous vous écrirons à son expédition.\n\nVotre commande : ${lienCommande(bq, c.id)}\n\n${conf.boutique.nom}`);
     }
     return { recu: true };

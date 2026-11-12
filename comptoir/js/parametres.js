@@ -356,7 +356,8 @@ const PUSH = { abonne: false, verifie: false };
 async function etatPush() {
   if (PUSH.verifie || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
   PUSH.verifie = true;
-  try { const reg = await navigator.serviceWorker.getRegistration('/app'); PUSH.abonne = !!(reg && await reg.pushManager.getSubscription()); if (PUSH.abonne) rendre(); } catch { /* ignoré */ }
+  // Abonné seulement si CET appareil est enregistré pour CE compte et cette session (navigateur partagé, autre compte).
+  try { const reg = await navigator.serviceWorker.getRegistration('/app'); const sub = reg && await reg.pushManager.getSubscription(); if (sub) { const { endpoints } = await api('GET', '/api/admin/push'); PUSH.abonne = endpoints.includes(sub.endpoint); } if (PUSH.abonne) rendre(); } catch { /* ignoré */ }
 }
 async function abonnerPush() {
   const reg = await navigator.serviceWorker.getRegistration('/app') || await navigator.serviceWorker.register('/sw.js', { scope: '/app' });

@@ -55,7 +55,7 @@ function endpointValide(endpoint) {
 
 /* Envoi : renvoie le code HTTP (201 = accepté ; 404/410 = abonnement expiré, à supprimer). */
 async function envoyer(abonnement, message, vapid, { fetchImpl = fetch, ttl = 86400, urgence = 'high' } = {}) {
-  if (!endpointValide(abonnement.endpoint)) return 400;
+  if (!endpointValide(abonnement.endpoint)) return 'invalide';
   const corps = chiffrer(JSON.stringify(message), abonnement);
   const r = await fetchImpl(abonnement.endpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(10000),
     headers: { 'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: String(ttl), Urgency: urgence, Authorization: enteteVapid(abonnement.endpoint, vapid) }, body: corps });

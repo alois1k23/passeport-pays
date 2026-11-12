@@ -90,7 +90,7 @@ function prixBarreAffiche(p, etat) {
 const vueVitrine = { tout: null, cat: '', q: '' };
 /* Recherche instantanée : sans accents ni majuscules, chaque mot cherché doit commencer un mot du produit
    (nom, catégorie, description), avec une faute de frappe tolérée pour les mots de 4 lettres et plus. */
-const sansAccents = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const sansAccents = t => String(t || '').replace(/œ/g, 'oe').replace(/Œ/g, 'OE').replace(/æ/g, 'ae').replace(/Æ/g, 'AE').replace(/ß/g, 'ss').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 function procheDe(a, b) {   // distance d'édition ≤ 1 (une lettre en trop, en moins ou différente)
   if (Math.abs(a.length - b.length) > 1) return false;
   let i = 0, j = 0, ecarts = 0;
@@ -101,9 +101,12 @@ function procheDe(a, b) {   // distance d'édition ≤ 1 (une lettre en trop, en
   }
   return ecarts + (a.length - i) + (b.length - j) <= 1;
 }
+const motsProduit = new WeakMap();   // mots normalisés, calculés une fois par produit (500 produits : frappe fluide)
 function correspondRecherche(x, q) {
-  const mots = sansAccents(`${x.nom} ${x.categorie || ''} ${x.description || ''}`).split(/[^a-z0-9]+/).filter(Boolean);
-  return sansAccents(q).split(/[^a-z0-9]+/).filter(Boolean).every(m => mots.some(w => w.startsWith(m) || (m.length >= 4 && procheDe(m, w.slice(0, m.length + 1)) || (m.length >= 4 && procheDe(m, w)))));
+  let mots = motsProduit.get(x);
+  if (!mots) { mots = sansAccents(`${x.nom} ${x.categorie || ''} ${x.description || ''}`).split(/[^a-z0-9]+/).filter(Boolean); motsProduit.set(x, mots); }
+  // Début de mot, ou une faute de frappe (lettre en trop, en moins ou différente) dans le début ou le mot entier
+  return sansAccents(q).split(/[^a-z0-9]+/).filter(Boolean).every(m => mots.some(w => w.startsWith(m) || (m.length >= 4 && (procheDe(m, w.slice(0, m.length)) || procheDe(m, w.slice(0, m.length + 1)) || procheDe(m, w)))));
 }
 function renduSection(s, etat, mode) {
   const p = s.props;

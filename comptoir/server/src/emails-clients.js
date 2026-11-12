@@ -13,6 +13,7 @@ const T = {
     partiel: n => `Ein Teil Ihrer Bestellung Nr. ${n} ist unterwegs`, partielCorps: (t, lignes, suivi) => `Diese Artikel wurden${t ? ` mit ${t}` : ''} versandt:\n${lignes}\nSendungsnummer: ${suivi}\n\nDer Rest Ihrer Bestellung folgt separat; wir melden uns beim Versand.`,
     relance: (s, i) => i === 0 ? `Ihre Bestellung bei ${s} wartet auf Sie` : `Ihr Warenkorb bei ${s} wartet noch auf Sie`, relanceCorps: (n, mt, lien) => `Ihre Bestellung Nr. ${n} (${mt}) wurde nicht abgeschlossen. Ein Problem beim Bezahlen? Hier können Sie sie fortsetzen:\n${lien}`, relanceCode: (r, c) => `\n\nEine kleine Entscheidungshilfe: -${r} % mit dem Code ${c}.`, equipe: s => `Ihr Team von ${s}`,
     avis: s => `Ihre Meinung zu Ihrer Bestellung bei ${s}`, avisCorps: (p, lien) => `Sie haben ${p} erhalten. Wie gefällt es Ihnen? Ihre Bewertung hilft anderen bei der Wahl und uns beim Besserwerden. Sie dauert 30 Sekunden:\n${lien}`, merciFin: 'Vielen Dank',
+    piedContact: 'Kontakt', piedCommande: s => `Sie erhalten diese E-Mail aufgrund Ihrer Bestellung bei ${s}. Um solche Nachrichten nicht mehr zu erhalten`, piedNouvelles: s => `Sie erhalten diese E-Mail, weil Sie Neuigkeiten von ${s} abonniert haben. Zum Abbestellen`,
     legal: 'Rechtliche Hinweise (auf Französisch, massgebende Fassung):', dateLocale: 'de-CH' },
   it: { bonjour: n => `Buongiorno ${n}`, merci: s => `Grazie per il tuo ordine presso ${s}.`, sujetConfirmation: n => `Ordine n. ${n} confermato`,
     retrait: 'Ti scriviamo appena l’ordine è pronto per il ritiro.', expedition: 'Ti scriviamo alla spedizione, con il numero di tracciamento.', suivre: 'Segui il tuo ordine',
@@ -24,6 +25,7 @@ const T = {
     partiel: n => `Una parte del tuo ordine n. ${n} è in viaggio`, partielCorps: (t, lignes, suivi) => `Questi articoli sono partiti${t ? ` con ${t}` : ''}:\n${lignes}\nNumero di tracciamento: ${suivi}\n\nIl resto dell’ordine segue separatamente; ti scriveremo alla spedizione.`,
     relance: (s, i) => i === 0 ? `Il tuo ordine presso ${s} ti aspetta` : `Il tuo carrello presso ${s} ti aspetta ancora`, relanceCorps: (n, mt, lien) => `Il tuo ordine n. ${n} (${mt}) non è stato completato. Un problema al momento di pagare? Puoi riprenderlo qui:\n${lien}`, relanceCode: (r, c) => `\n\nPer aiutarti a decidere: -${r} % con il codice ${c}.`, equipe: s => `Il team di ${s}`,
     avis: s => `La tua opinione sul tuo ordine presso ${s}`, avisCorps: (p, lien) => `Hai ricevuto ${p}. Cosa ne pensi? La tua recensione aiuta altri clienti a scegliere, e noi a migliorare. Bastano 30 secondi:\n${lien}`, merciFin: 'Grazie',
+    piedContact: 'Contatto', piedCommande: s => `Ricevi questa e-mail in seguito al tuo ordine presso ${s}. Per non ricevere più questo tipo di messaggi`, piedNouvelles: s => `Ricevi questa e-mail perché hai accettato le novità di ${s}. Per non riceverle più`,
     legal: 'Informazioni legali (in francese, versione che fa fede):', dateLocale: 'it-CH' },
   en: { bonjour: n => `Hello ${n}`, merci: s => `Thank you for your order at ${s}.`, sujetConfirmation: n => `Order no. ${n} confirmed`,
     retrait: 'We will email you as soon as your order is ready for pickup.', expedition: 'We will email you when it ships, with the tracking number.', suivre: 'Track your order',
@@ -35,6 +37,7 @@ const T = {
     partiel: n => `Part of your order no. ${n} is on its way`, partielCorps: (t, lignes, suivi) => `These items have shipped${t ? ` with ${t}` : ''}:\n${lignes}\nTracking number: ${suivi}\n\nThe rest of your order will follow separately; we will email you when it ships.`,
     relance: (s, i) => i === 0 ? `Your order at ${s} is waiting` : `Your cart at ${s} is still waiting`, relanceCorps: (n, mt, lien) => `Your order no. ${n} (${mt}) was not completed. A problem at checkout? You can pick it up here:\n${lien}`, relanceCode: (r, c) => `\n\nTo help you decide: ${r}% off with the code ${c}.`, equipe: s => `The ${s} team`,
     avis: s => `Your opinion on your ${s} order`, avisCorps: (p, lien) => `You received ${p}. What do you think? Your review helps other customers choose, and helps us improve. It takes 30 seconds:\n${lien}`, merciFin: 'Thank you',
+    piedContact: 'Contact', piedCommande: s => `You are receiving this email following your order at ${s}. To stop receiving this kind of message`, piedNouvelles: s => `You are receiving this email because you signed up for news from ${s}. To unsubscribe`,
     legal: 'Legal information (in French, the prevailing version):', dateLocale: 'en-GB' }
 };
 const langueDe = c => (c && T[c.langue]) ? c.langue : null;
@@ -65,4 +68,5 @@ function relance(c, o) { const t = T[langueDe(c)]; return { sujet: t.relance(o.n
 function avis(c, o) { const t = T[langueDe(c)]; return { sujet: t.avis(o.nomBoutique), corps: `${t.bonjour(c.client.nom)},\n\n${t.avisCorps(c.lignes.map(l => l.nom).join(', '), o.lien)}\n\n${t.merciFin},\n${t.equipe(o.nomBoutique)}` }; }
 // Lien vers la boutique dans la langue de la commande (la page s'ouvre dans la même langue que l'e-mail).
 const avecLangue = (url, c) => langueDe(c) ? `${url}${url.includes('?') ? '&' : '?'}lang=${c.langue}` : url;
-module.exports = { langueDe, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };
+const textesPied = langue => T[langue] ? { contact: T[langue].piedContact, commande: T[langue].piedCommande, nouvelles: T[langue].piedNouvelles } : null;
+module.exports = { textesPied, langueDe, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };
