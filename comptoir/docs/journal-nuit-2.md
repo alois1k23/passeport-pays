@@ -684,3 +684,12 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - **Session** : le cookie de session renouvelé est aussi envoyé avec les pages HTML et les réponses d'erreur (déconnexions inattendues évitées).
 - **Console de l'exploitant** : état des journaux des ventes (intacts, avec anomalie), alerte si la clé de signature a changé ou si elle est gardée dans la base.
 - 114 tests sur 114, bout en bout 51 sur 51.
+
+## Cycle 53 (04 h 10) : « Exiger la clé d'accès »
+
+- Un marchand qui a au moins une clé d'accès peut **refuser la connexion par mot de passe** : seule la clé ouvre son compte. C'est la meilleure protection contre l'hameçonnage, car un mot de passe volé ne suffit plus.
+- Si quelqu'un se présente avec le bon mot de passe, la connexion est refusée et le marchand reçoit un e-mail (une fois par heure au plus) : son mot de passe est connu d'un tiers.
+- Activation et désactivation : mot de passe, plus le code si la double authentification est active, puis un e-mail de confirmation. Si la dernière clé est supprimée, l'option se désactive d'elle-même : le compte ne peut pas devenir inaccessible.
+- **Récupération** : « Mot de passe oublié » (lien par e-mail) supprime les clés et rétablit la connexion par mot de passe.
+- Le bilan de sécurité et l'incitation du tableau de bord comptent cette option comme une protection complète.
+- Test ajouté (`cle-seule.test.js`) : activation refusée sans clé ou avec un mauvais mot de passe ; bon mot de passe refusé ; une seule alerte ; aucune session ouverte ; récupération par e-mail. Vérifié dans un vrai navigateur. 115 tests sur 115.

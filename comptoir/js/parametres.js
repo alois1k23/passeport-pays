@@ -286,6 +286,9 @@ function vueSecurite() {
     <p class="sous">Connectez-vous sans mot de passe, avec le visage, l’empreinte ou le code de votre téléphone ou ordinateur (Face ID, Touch ID, Windows Hello, Android). Une clé d’accès ne peut pas être volée par un faux site : elle ne fonctionne que sur Comptoir.</p>
     ${cles.length ? `<ul class="journal-compte">${cles.map(c => `<li><b>${esc(c.nom)}</b> <span class="sous">ajoutée le ${date(c.creeLe)} · dernière utilisation : ${c.utiliseeLe ? date(c.utiliseeLe) : 'jamais'}</span>
       <details class="en-ligne"><summary>Supprimer</summary><form data-form="cle-supprimer" data-id="${esc(c.id)}" class="rangee"><input type="password" name="motDePasse" required placeholder="Mot de passe" autocomplete="current-password"><button class="btn petit fantome danger">Supprimer</button></form></details></li>`).join('')}</ul>` : ''}
+    ${cles.length ? `<div class="encart ${d.cleSeule ? '' : 'info-encart'}"><b>${d.cleSeule ? 'Connexion par mot de passe désactivée' : 'Exiger la clé d’accès'}</b>
+      <p class="sous">${d.cleSeule ? 'Seule une clé d’accès ouvre votre compte : un mot de passe volé ne suffit pas, et vous êtes prévenu si quelqu’un l’essaie. Si vous perdez toutes vos clés, « Mot de passe oublié » rétablit l’accès par e-mail.' : 'Refusez la connexion par mot de passe : seule une clé d’accès ouvrira votre compte. C’est la meilleure protection contre l’hameçonnage. Conseillé avec deux clés, sur deux appareils.'}</p>
+      <form data-form="cle-seule" class="rangee"><input type="hidden" name="actif" value="${d.cleSeule ? '' : '1'}"><input type="password" name="motDePasse" required placeholder="Mot de passe" autocomplete="current-password" aria-label="Mot de passe">${d.deuxFacteurs ? '<input name="code" required placeholder="Code" autocomplete="one-time-code" maxlength="12" aria-label="Code de l’application ou code de secours">' : ''}<button class="btn ${d.cleSeule ? 'fantome' : ''} petit">${d.cleSeule ? 'Réactiver le mot de passe' : 'Exiger la clé d’accès'}</button></form></div>` : ''}
     ${ClesAcces.disponible() ? `<details${cles.length ? '' : ' open'}><summary>Ajouter une clé d’accès sur cet appareil</summary><form data-form="cle-ajouter" class="grille-form">
       <label class="champ"><span>Nom (pour la reconnaître)</span><input name="nom" maxlength="60" placeholder="iPhone de Marie, MacBook…"></label>
       <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" required autocomplete="current-password"></label>
@@ -341,11 +344,12 @@ document.addEventListener('submit', async e => {
   rendre();
 });
 document.addEventListener('submit', async e => {
-  const f = e.target.closest('[data-form="2fa-activer"], [data-form="2fa-desactiver"], [data-form="2fa-codes"]'); if (!f) return;
+  const f = e.target.closest('[data-form="2fa-activer"], [data-form="2fa-desactiver"], [data-form="2fa-codes"], [data-form="cle-seule"]'); if (!f) return;
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f)); SECURITE.erreur = '';
   try {
-    if (f.dataset.form === '2fa-activer') { const r = await api('POST', '/api/admin/compte/2fa/activer', d); SECURITE.mise = null; SECURITE.codes = r.codesSecours; SERVEUR.compteProtege = true; toast('Double authentification activée.'); }
+    if (f.dataset.form === 'cle-seule') { const r = await api('POST', '/api/admin/compte/cle-seule', { actif: !!d.actif, motDePasse: d.motDePasse, code: d.code }); SERVEUR.compteProtege = r.cleSeule || !!(SECURITE.donnees && SECURITE.donnees.deuxFacteurs); toast(r.cleSeule ? 'Votre compte n’accepte plus que la clé d’accès.' : 'Connexion par mot de passe réactivée.'); SECURITE.donnees = null; }
+    else if (f.dataset.form === '2fa-activer') { const r = await api('POST', '/api/admin/compte/2fa/activer', d); SECURITE.mise = null; SECURITE.codes = r.codesSecours; SERVEUR.compteProtege = true; toast('Double authentification activée.'); }
     else if (f.dataset.form === '2fa-codes') { const r = await api('POST', '/api/admin/compte/2fa/codes', d); SECURITE.codes = r.codesSecours; toast('Nouveaux codes de secours : les anciens ne fonctionnent plus.'); }
     else { await api('POST', '/api/admin/compte/2fa/desactiver', d); toast('Double authentification désactivée.'); SECURITE.donnees = null; }
   } catch (err) { SECURITE.erreur = err.message; }
