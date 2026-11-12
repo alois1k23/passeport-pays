@@ -563,7 +563,7 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
   - le PDF/A-3 avec le XML intégré (Factur-X complet) n'est pas encore produit ;
   - Comptoir ne transmet rien à une plateforme agréée (PA).
 
-## Cycle 40 (03 h 05) : en-têtes de sécurité renforcés
+## Cycle 40 (03 h 00) : en-têtes de sécurité renforcés
 
 - `Cross-Origin-Resource-Policy: same-origin` : les photos et les données de Comptoir ne peuvent pas être intégrées dans la page d'un autre site.
 - `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies: none`.
