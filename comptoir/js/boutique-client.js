@@ -42,6 +42,8 @@ async function demarrer() {
     $('#app').innerHTML = `<div class="page-erreur"><h1>Boutique introuvable</h1><p>${esc(e.message)}</p></div>`;
     return;
   }
+  // Langue de la boutique (cochée par le marchand) : l'interface suit ; noms de la boutique et des produits jamais traduits.
+  if (typeof Traductions !== 'undefined') Traductions.demarrer(donnees.boutique.langues, [donnees.boutique.nom, ...(donnees.produits || []).map(p => p.nom)]);
   etat = { boutique: donnees.boutique, produits: donnees.produits, entreprise: donnees.entreprise, magasin: donnees.magasin, avisRecents: donnees.avisRecents || [], newsletter: donnees.newsletter || null };   // newsletter : remise de bienvenue réellement envoyée
   if (!vue.fiche) document.title = titreAccueil();
   document.body.style.background = donnees.boutique.theme.bg;
@@ -174,7 +176,7 @@ function rendreBrut() {
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
     </div>
-    ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal">${texteLegal(vue.legal)}</article></div></div>` : ''}`;
+    ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal" data-legal>${texteLegal(vue.legal)}</article></div></div>` : ''}`;
 }
 
 function texteLegal(type) {

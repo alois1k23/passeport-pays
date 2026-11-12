@@ -770,6 +770,7 @@ function vueEditeur() {
       <label class="champ"><span>Slogan</span><input id="in-slogan" value="${esc(b.slogan)}" data-boutique="slogan"></label>
       <label class="champ"><span>Secteur</span><select id="in-secteur" data-boutique="secteur">${Object.entries(SECTEURS).map(([k, v]) => `<option value="${k}" ${b.secteur === k ? 'selected' : ''}>${v.nom}</option>`).join('')}</select></label>
       <fieldset class="champ"><legend>Langues de la boutique</legend><div class="rangee">${[['fr', 'Français'], ['de', 'Deutsch'], ['it', 'Italiano'], ['en', 'English']].map(([k, n]) => `<label class="case"><input type="checkbox" data-langue="${k}" ${b.langues.includes(k) ? 'checked' : ''} ${k === 'fr' ? 'disabled' : ''}> ${n}</label>`).join('')}</div>
+      <p class="sous">Vos clients voient la boutique dans leur langue (selon leur navigateur, avec un choix de langue en haut de page) : boutons, panier, commande, paiement et suivi. Vos textes, noms et descriptions de produits restent tels que vous les écrivez ; les conditions générales restent en français, version qui fait foi.</p>
         <span class="sous">Traduction automatique des pages et fiches produits (simulée), relisible avant publication.</span></fieldset>
       <div class="bloc"><h3>Adresse</h3><p class="mono">${esc(adresseBoutique())}</p><a href="#domaines" class="lien">Changer de domaine</a></div>`;
   }

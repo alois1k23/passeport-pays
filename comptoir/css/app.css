@@ -1390,3 +1390,5 @@ html, body { overflow-x: clip; }
 .plein-largeur { width: 100%; justify-content: center; }
 details.en-ligne { display: inline-block; margin-left: 8px; }
 details.en-ligne form { margin-top: 6px; }
+.choix-langue { margin-left: 8px; padding: 4px 6px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: .85rem; }
+.note-langue { font-style: italic; opacity: .8; margin: 0 0 12px; }
