@@ -64,7 +64,7 @@ function tauxTva(config) {
 }
 
 /* Construit les lignes d'une commande à partir des produits en base. */
-function construireLignes(produits, demandes, { qteMax = 20 } = {}) {
+function construireLignes(produits, demandes, { qteMax = 20, verifierStock = true } = {}) {
   if (!Array.isArray(demandes) || !demandes.length || demandes.length > 50) throw erreur(400, 'Le panier est vide ou invalide.', 'panier_invalide');
   const lignes = [];
   for (const d of demandes) {
@@ -76,7 +76,7 @@ function construireLignes(produits, demandes, { qteMax = 20 } = {}) {
     // Produit à variantes : la variante est obligatoire ; stock et prix sont les siens.
     const v = Array.isArray(p.variantes) && p.variantes.length ? p.variantes.find(x => x.id === d.varianteId) : null;
     if (Array.isArray(p.variantes) && p.variantes.length && !v) throw erreur(400, `Choisissez une variante pour « ${p.nom} ».`, 'variante_requise');
-    if (p.type !== 'drop' && (v ? v.stock : p.stock) < qte) throw erreur(409, `Stock insuffisant pour « ${v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom} ».`, 'stock_insuffisant');
+    if (verifierStock && p.type !== 'drop' && (v ? v.stock : p.stock) < qte) throw erreur(409, `Stock insuffisant pour « ${v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom} ».`, 'stock_insuffisant');
     const offre = typeof d.offre === 'string' ? d.offre.slice(0, 20) : undefined;
     const ex = !offre && lignes.find(l => l.produitId === p.id && !l.offre && (l.varianteId || null) === (v ? v.id : null));
     const prixLigne = v && typeof v.prix === 'number' ? v.prix : p.prix;
@@ -88,7 +88,7 @@ function construireLignes(produits, demandes, { qteMax = 20 } = {}) {
   for (const [cle, qte] of Object.entries(parVariante)) {
     const [pid, vid] = [cle.slice(0, cle.indexOf(':')), cle.slice(cle.indexOf(':') + 1)];
     const v = produits.find(x => x.id === pid).variantes.find(x => x.id === vid);
-    if (v.stock < qte) throw erreur(409, `Stock insuffisant pour « ${produits.find(x => x.id === pid).nom} (${v.valeurs.join(' / ')}) ».`, 'stock_insuffisant');
+    if (verifierStock && v.stock < qte) throw erreur(409, `Stock insuffisant pour « ${produits.find(x => x.id === pid).nom} (${v.valeurs.join(' / ')}) ».`, 'stock_insuffisant');
   }
   // Contrôle sur la quantité totale par produit (plusieurs lignes du même produit, offres comprises).
   const totaux = {};
@@ -96,7 +96,7 @@ function construireLignes(produits, demandes, { qteMax = 20 } = {}) {
   for (const [id, qte] of Object.entries(totaux)) {
     const p = produits.find(x => x.id === id);
     if (qte > qteMax) throw erreur(400, `Quantité invalide (${qteMax} au maximum par article).`, 'quantite_invalide');
-    if (p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');
+    if (verifierStock && p.type !== 'drop' && p.stock < qte) throw erreur(409, `Stock insuffisant pour « ${p.nom} ».`, 'stock_insuffisant');
   }
   return lignes;
 }

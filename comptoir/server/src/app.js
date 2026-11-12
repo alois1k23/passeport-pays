@@ -1478,7 +1478,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   });
   function encaisserCaisse(ctx) {
     const produits = listerProduits(ctx.boutique.id);
-    const lignes = prix.construireLignes(produits, ctx.corps.lignes, { qteMax: 999 });   // vente en magasin : quantités de marché ou de gros
+    // Vente faite hors ligne (déjà encaissée) : jamais refusée pour le stock ; une rupture est signalée dans l'historique.
+    const horsLigne = Number(ctx.corps.horsLigneLe) > Date.now() - 7 * 86400000 && Number(ctx.corps.horsLigneLe) <= Date.now() + 60000 ? Number(ctx.corps.horsLigneLe) : null;
+    const lignes = prix.construireLignes(produits, ctx.corps.lignes, { qteMax: 999, verifierStock: !horsLigne });   // vente en magasin : quantités de marché ou de gros
     if (lignes.some(l => l.type === 'drop')) throw erreur(400, 'La caisse n’accepte que les produits en stock.', 'caisse_drop');
     const total = prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
     const moyen = ctx.corps.moyen === 'especes' ? 'espèces' : ctx.corps.moyen === 'twint' ? 'TWINT' : 'carte';
@@ -1493,6 +1495,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (ctx.corps.moyen === 'especes' && config.boutique.pays === 'ch') { const enc = Math.round(total * 20) / 20; donnees.encaisse = prix.arrondi(enc); donnees.arrondi = prix.arrondi(enc - total); }
       db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, ctx.boutique.id, numero, now, 'retiree', auth.nouvelId(), JSON.stringify(donnees));
       ajusterStock(ctx.boutique.id, lignes, -1);
+      if (horsLigne) {
+        const manque = lignes.filter(l => typeof l.retireStock === 'number' && l.retireStock < l.qte);
+        const c2 = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id));
+        historique(c2, `Vente encaissée hors ligne à ${new Date(horsLigne).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' })}, envoyée au retour du réseau${manque.length ? ` ; stock insuffisant pour ${manque.map(l => l.nom).join(', ')} (à vérifier)` : ''}`);
+        c2.lignes = lignes; enregistrerCommande(c2);
+      }
       integ.emettre(ctx.boutique.id, 'commande.retiree', commandeApi({ id, numero, date: now, statut: 'retiree', ...donnees, canal: donnees.canal || 'caisse' }, config.boutique.devise || 'CHF'));
       return { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config) } };
     });

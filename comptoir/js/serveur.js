@@ -419,7 +419,17 @@ function installerModeConnecte() {
         bloquer();
         // Clé unique du ticket : le serveur n'enregistre jamais deux fois la même vente.
         ui.cleTicket = ui.cleTicket || `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-        const r = await api('POST', '/api/admin/caisse', { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}) })), moyen: el.dataset.moyen, cle: ui.cleTicket });
+        const ticket = { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}) })), moyen: el.dataset.moyen, cle: ui.cleTicket };
+        let r;
+        try { r = await api('POST', '/api/admin/caisse', ticket); }
+        catch (err) {
+          // Pas de réseau (marché, sous-sol) ou serveur indisponible : la vente est gardée sur l'appareil et envoyée plus tard.
+          // La clé du ticket empêche tout doublon quand elle repart.
+          if (err.statut && err.statut < 500) throw err;
+          CaisseHorsLigne.ajouter({ ...ticket, resume: ui.caisse.map(l => `${l.qte} × ${l.nom}`).join(', '), total: ui.caisse.reduce((a, l) => a + l.prix * l.qte, 0), le: Date.now() });
+          ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null;
+          toast('Pas de connexion : la vente est gardée sur cet appareil et sera envoyée dès le retour du réseau.'); rendre(); return;
+        }
         ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; await rafraichir(`Vente de ${r.total} encaissée. Facture ${r.facture}.`);
       } else if (action === 'as-creer') {
         bloquer();
@@ -563,3 +573,38 @@ async function demarrer() {
 // Retour du réseau : on renvoie tout de suite ce qui attend ; quitter la page avec une modification non enregistrée est signalé.
 addEventListener('online', () => { if (ENREGISTREMENT.echecs || ENREGISTREMENT.minuterie) envoyerConfig(); });
 addEventListener('beforeunload', e => { if (SERVEUR.connecte && (ENREGISTREMENT.echecs || ENREGISTREMENT.minuterie || ENREGISTREMENT.enCours)) { e.preventDefault(); e.returnValue = ''; } });
+
+/* Caisse hors ligne : ventes en attente gardées dans ce navigateur, envoyées au retour du réseau (avec leur clé unique). */
+const CaisseHorsLigne = (() => {
+  const cle = () => `comptoir-caisse-attente-${SERVEUR.slug || ''}`;
+  const lire = () => { try { return JSON.parse(localStorage.getItem(cle()) || '[]'); } catch { return []; } };
+  const ecrire = l => { try { localStorage.setItem(cle(), JSON.stringify(l)); } catch { /* stockage plein : rare */ } };
+  let envoi = false;
+  async function envoyer() {
+    if (envoi || !SERVEUR.connecte || !navigator.onLine) return;
+    const attente = lire(); if (!attente.length) return;
+    envoi = true; let reussies = 0;
+    try {
+      for (const t of attente) {
+        try {
+          await api('POST', '/api/admin/caisse', { lignes: t.lignes, moyen: t.moyen, cle: t.cle, horsLigneLe: t.le });
+          ecrire(lire().filter(x => x.cle !== t.cle)); reussies++;
+        } catch (err) {
+          if (!err.statut || err.statut >= 500) break;   // toujours pas de réseau : on réessaiera
+          ecrire(lire().map(x => x.cle === t.cle ? { ...x, erreur: err.message } : x));   // refus (stock…) : gardée et signalée, jamais perdue
+        }
+      }
+    } finally { envoi = false; }
+    if (reussies) { toast(`${reussies} vente${reussies > 1 ? 's' : ''} hors ligne envoyée${reussies > 1 ? 's' : ''}.`); if (typeof rechargerEtat === 'function') { await rechargerEtat(); rendre(); } }
+  }
+  addEventListener('online', () => envoyer());
+  setInterval(envoyer, 30000);
+  setTimeout(envoyer, 3000);
+  return { ajouter: t => { ecrire([...lire(), t]); }, lire, envoyer, retirer: c => ecrire(lire().filter(x => x.cle !== c)) };
+})();
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action="caisse-attente-envoyer"], [data-action="caisse-attente-retirer"]'); if (!el) return;
+  if (el.dataset.action === 'caisse-attente-retirer') { if (!confirm('Retirer cette vente de la file ? Elle ne sera pas enregistrée (à saisir à la main si l’argent a été encaissé).')) return; CaisseHorsLigne.retirer(el.dataset.cle); }
+  else await CaisseHorsLigne.envoyer();
+  rendre();
+});

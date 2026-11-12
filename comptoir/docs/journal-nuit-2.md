@@ -511,3 +511,11 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Sur un produit épuisé, ou une variante épuisée, la fiche propose de laisser son e-mail. Au retour en stock (vente, caisse, saisie, API), le client reçoit **un seul e-mail** avec le lien du produit, dans sa langue. Son adresse est ensuite effacée ; sans retour en stock, elle l'est après 90 jours. Effacer un client (RGPD) supprime aussi ses demandes.
 - Le marchand voit « N en attente » dans la liste des produits. Le bon de réassort compte ces clients dans les quantités conseillées.
 - Testé : deux demandes, dont une en allemand. Rien n'est envoyé tant que le stock est vide ; au retour, un e-mail chacun dans sa langue, adresses effacées, aucun second envoi. 100 tests sur 100.
+
+## Cycle 35 (02 h 40) : caisse hors ligne
+
+- Au marché ou en sous-sol, la connexion tombe souvent. Une vente à la caisse sans réseau (ou serveur indisponible) n'échoue plus : elle est gardée sur l'appareil, avec sa clé unique, puis envoyée automatiquement au retour du réseau (événement `online`, puis toutes les 30 secondes). Le bouton « Envoyer maintenant » force l'envoi.
+- La clé du ticket empêche tout doublon. Une vente faite hors ligne n'est jamais refusée pour le stock, puisque l'argent est déjà encaissé : une éventuelle rupture est signalée dans l'historique (« Vente encaissée hors ligne à 14 h 32 … stock insuffisant pour … »). Une vente refusée pour une autre raison reste dans la file, signalée, et ne se perd jamais en silence.
+- La caisse affiche les ventes en attente (heure, articles, montant).
+- Vérifié dans un vrai navigateur : réseau coupé, vente gardée ; réseau rétabli, vente envoyée une seule fois, stock à jour, historique complet.
+- **Limite** : la caisse doit avoir été ouverte avec du réseau. Ouverte hors connexion, l'application affiche « Pas de connexion ».
