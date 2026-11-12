@@ -322,3 +322,15 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Le lien ne fixe aucun prix : prix, stock (quantité limitée au stock disponible), remises et score de risque sont ceux de la boutique au moment de l'ouverture.
 - Vérifié dans un vrai navigateur : lien créé dans l'espace marchand, ouvert par un client. Le panier est correct, et la lampe est limitée aux 2 en stock.
 - Essai de bout en bout « comme en production » relancé après tous les changements de la nuit : 51 contrôles sur 51.
+
+## Cycle 20 (01 h 35) : page d'accueil, section « Technologie et sécurité »
+
+- Nouvelle section sur la page d'accueil (lien « Sécurité » dans le menu). Six cartes, chacune décrivant uniquement ce qui a été construit et testé cette nuit :
+  - connexion sans mot de passe et double authentification ;
+  - QR-facture suisse ;
+  - tableau de bord en direct et notifications ;
+  - boutique en quatre langues ;
+  - fraude expliquée ;
+  - données protégées.
+- Formulations vérifiées pour ne rien promettre de plus. Seuls les e-mails de commande sont traduits, pas les newsletters. Les sauvegardes chiffrées supposent que `SAUVEGARDE_CLE` soit réglée à la mise en ligne.
+- Mise en page vérifiée sur ordinateur et sur téléphone, sans débordement.
