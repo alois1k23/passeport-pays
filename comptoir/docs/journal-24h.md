@@ -92,7 +92,7 @@ Une relecture indépendante a vérifié la structure du PDF octet par octet, le 
   - l'IBAN visible par le rôle « commandes » l'est déjà sur la facture QR.
 - Nouveau test de régression. 126 tests sur 126, bout en bout 51 sur 51.
 
-### Cycle 7 (23 h 45) : cartes cadeaux
+### Cycle 7 (23 h 40) : cartes cadeaux
 
 - Le marchand émet une carte depuis « Magasin et caisse » : montant, validité (sans limite, 1, 2 ou 3 ans) et destinataire. Il peut l'imprimer et la désactiver.
 - **Code secret** :
@@ -115,3 +115,14 @@ Une relecture indépendante a vérifié la structure du PDF octet par octet, le 
 - Vérifié dans un vrai navigateur : émission, code masqué après lecture, ticket de caisse entièrement payé par la carte, panier de la boutique avec carte et reste payé en ligne. Aucune erreur.
 - 4 nouveaux tests : 130 tests sur 130, bout en bout 51 sur 51. Une relecture indépendante est en cours.
 - Pas encore fait : la vente de cartes cadeaux en ligne par le client lui-même. Elle viendra dans un prochain cycle.
+
+### Cycle 8 (23 h 50) : devis pour les clients professionnels
+
+- Nouvel écran « Devis » (Ventes). Le marchand rédige un devis : client professionnel (raison sociale, contact, e-mail, adresse, numéro de TVA), articles du catalogue ou lignes libres en prix HT (prestation, article sur mesure), remise globale, livraison, validité, objet et conditions.
+- **Envoi par lien personnel** : jeton aléatoire de 256 bits, dont la base ne garde que l'empreinte. Le client reçoit le lien par e-mail. Modifier un devis envoyé le repasse en brouillon et coupe l'ancien lien ; l'annuler le coupe aussi.
+- **Page du devis**, sans compte ni script : détail HT/TTC par taux, conditions, validité. Le client l'accepte (« bon pour accord » et nom du signataire) ou la refuse. Le premier affichage est noté (« consulté par le client »).
+- **Acceptation unique et prouvée** : relue dans une transaction, si bien que deux clics simultanés ne créent qu'une seule commande (vérifié). Sont conservés la date, le signataire, l'empreinte HMAC du réseau (jamais l'adresse en clair) et l'empreinte SHA-256 du contenu accepté. Un devis accepté, refusé ou expiré ne change plus.
+- **Devis accepté, commande créée** : avec exactement les montants du devis (prix nets par ligne, taux de TVA figés). Elle se paie en ligne depuis la page du devis ou par virement (IBAN et référence affichés). Le marchand et le client sont prévenus. Facture et facture électronique reprennent les mêmes montants ; le numéro de TVA du client figure désormais dans le XML (BT-48).
+- Duplication d'un devis : nouvelle numérotation (DE-2026-0002…), prix du catalogue du jour.
+- Vérifié dans un vrai navigateur : rédaction, envoi, page publique, acceptation, paiement, suivi dans la liste. Aucune erreur.
+- 4 nouveaux tests (calcul, parcours complet, double acceptation simultanée, refus, expiration, modification après envoi, annulation, droits) : 134 tests sur 134.

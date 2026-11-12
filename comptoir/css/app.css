@@ -1433,3 +1433,11 @@ details.en-ligne form { margin-top: 6px; }
 
 /* Code d’une carte cadeau, montré une seule fois : lisible pour être recopié */
 .code-carte { display: block; margin: .4rem 0; font-size: 1.2rem; font-weight: 600; letter-spacing: .06em; user-select: all; }
+
+/* Devis */
+.groupe-champs { border: 0; padding: 0; margin: 0 0 12px; min-width: 0; }
+.groupe-champs legend { font-weight: 600; margin-bottom: 6px; }
+.champ-court { width: 7.5rem; text-align: right; }
+.code-lien { word-break: break-all; }
+.table td input[data-dv] { padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-petit, 8px); background: var(--surface); font-size: .8125rem; width: 100%; min-width: 0; }
+.table td input.champ-court { width: 7.5rem; }

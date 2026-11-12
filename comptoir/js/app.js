@@ -108,6 +108,7 @@ const ICONES = {
   lune: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/>',
   auto: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18" /><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor"/>',
   offre: '<path d="M20 12 12 20l-8-8V4h8Z"/><circle cx="8.5" cy="8.5" r="1.5"/>',
+  devis: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h4"/><path d="M4 7v14h3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>'
 };
 const icone = (nom, taille = 16) => `<svg viewBox="0 0 24 24" width="${taille}" height="${taille}" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[nom] || ''}</svg>`;
@@ -119,6 +120,7 @@ const NAV = [
   ['commandes', 'Commandes', 'Ventes'],
   ['clients', 'Clients', 'Ventes'],
   ['magasin', 'Magasin et caisse', 'Ventes'],
+  ['devis', 'Devis', 'Ventes'],
   ['produits', 'Produits', 'Catalogue'],
   ['stars', 'Produits stars', 'Catalogue'],
   ['sourcing', 'Trouver des produits', 'Catalogue'],
@@ -175,7 +177,7 @@ function rendre() {
   document.title = `${t || 'Comptoir'} · ${etat.boutique.nom}`;
   $('#nom-boutique').textContent = etat.boutique.nom;
   $('#domaine-actuel').textContent = adresseBoutique();
-  const vues = { stars: vueStars, tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, parametres: vueParametres, fournisseurs: vueFournisseurs, conversion: vueConversion, magasin: vueMagasin, conformite: vueConformite, offre: vueOffre };
+  const vues = { stars: vueStars, tableau: vueTableau, commandes: vueCommandes, produits: vueProduits, clients: vueClients, editeur: vueEditeur, domaines: vueDomaines, boutique: vueBoutique, creer: vueAssistant, copilote: vueCopilote, sourcing: vueSourcing, social: vueSocial, tests: vueTests, analyse: vueAnalyse, parametres: vueParametres, fournisseurs: vueFournisseurs, conversion: vueConversion, magasin: vueMagasin, devis: vueDevis, conformite: vueConformite, offre: vueOffre };
   // Le champ actif (par son id) retrouve le focus après le rendu : Tab après une modification ne renvoie plus au début de la page.
   // Si l'on quitte un champ avec Tab, son « change » redessine la vue avant que le focus n'arrive au champ suivant : on l'y amène.
   const actif = document.activeElement, surCorps = !actif || actif === document.body;
