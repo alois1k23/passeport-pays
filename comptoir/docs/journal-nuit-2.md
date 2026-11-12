@@ -769,3 +769,20 @@ Relecture indépendante de l'export : aucune fuite de secret, aucun contournemen
 - **Effacement d'un client (RGPD)** : le motif de retour qu'il avait écrit, et sa reprise dans l'historique, sont effacés aussi.
 - Limite notée : un compte qui n'utilise que sa clé d'accès doit connaître son mot de passe pour exporter.
 - 118 tests sur 118, bout en bout 51 sur 51 ; simulation de 60 jours juste avant : 0 anomalie.
+
+### Cycle 62 (04 h 50) : audit de sécurité global de la nuit
+
+Audit indépendant de toutes les modifications du serveur de la nuit (environ 60 commits), à la recherche de failles qui traverseraient plusieurs chantiers. **Aucun problème critique ni grave.** Ont été vérifiés sans défaut : accès entre boutiques, rôles d'équipe, abonnement terminé, injections (SQL, en-têtes, HTML, XML, CSV), plantages accessibles sans compte, courses sur l'argent (numéros de facture, stock), cookies.
+
+Corrigé :
+- **Boîte e-mail compromise** : un compte qui exige sa clé d'accès, sans double authentification, pouvait être repris par « Mot de passe oublié ». La récupération est maintenant **différée de 72 heures**, et le propriétaire est prévenu par e-mail. Il peut l'annuler depuis toute session ouverte avec sa clé (avertissement et bouton « Ce n'est pas moi : annuler » dans Sécurité). Passé le délai, le nouveau mot de passe s'applique, les clés sont supprimées et les appareils déconnectés. Test complet (demande, refus pendant le délai, annulation, application).
+- **Bon mot de passe révélé** : depuis un appareil inconnu, un compte qui exige sa clé répond comme à un mauvais mot de passe, et l'essai compte comme un échec. Le message explicite reste pour l'appareil habituel du propriétaire.
+- **Signalement CSP** : une adresse illisible est notée « invalide », au lieu de 40 caractères choisis par l'expéditeur.
+- **Démarrage en production sans `SECRET_CHIFFREMENT`** : avertissement explicite dans les journaux du serveur.
+
+Notés, sans changement cette nuit :
+- Une commande « payer sur facture » passée sans compte émet et scelle tout de suite une facture numérotée ; c'était déjà le cas avant la nuit, mais le journal la rend définitive. Les limites existantes s'appliquent (3 par adresse, 200 par boutique et par jour). À revoir : sceller au paiement, ou option activée par le marchand.
+- Le rôle « Commandes » peut lire l'IBAN du marchand sur une facture QR (comme avant).
+- Une vente de caisse hors ligne peut être datée jusqu'à 30 jours en arrière ; le sceau garde l'heure réelle d'enregistrement.
+
+118 tests sur 118, bout en bout 51 sur 51.

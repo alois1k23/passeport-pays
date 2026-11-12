@@ -238,6 +238,7 @@ function installerConnexion() {
         const r = await api('POST', '/api/auth/reinitialiser', { jeton: jetonReinit, motDePasse: d.motDePasse });
         history.replaceState(null, '', location.pathname);
         // Compte qui exigeait une clé d'accès : aucune session ouverte par le lien, il faut se reconnecter avec le nouveau mot de passe.
+        if (r && r.differe) { etatForm.onglet = 'connexion'; etatForm.envoi = false; etatForm.erreur = `Votre compte n’accepte que la clé d’accès : par sécurité, le nouveau mot de passe prendra effet le ${new Date(r.differe).toLocaleString('fr-CH', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}. Un e-mail vous l’explique.`; rendre(); return; }
         if (r && r.reconnexion) { etatForm.onglet = 'connexion'; etatForm.envoi = false; etatForm.erreur = 'Mot de passe changé, clés d’accès supprimées : connectez-vous avec votre nouveau mot de passe.'; rendre(); return; }
       } else if (etatForm.onglet === '2fa') {
         await api('POST', '/api/auth/connexion/2fa', { defi: etatForm.defi, code: d.code });

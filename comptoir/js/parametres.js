@@ -315,7 +315,10 @@ function vueSecurite() {
           <label class="champ"><span>Nouveau mot de passe (10 caractères minimum)</span><input type="password" name="nouveau" required minlength="10" autocomplete="new-password"></label>
           <div class="rangee"><button class="btn">Changer le mot de passe</button><span class="sous">Les autres appareils connectés sont déconnectés.</span></div></form>
         <div class="rangee"><button class="btn fantome petit" data-action="deconnecter-autres">Déconnecter les autres appareils</button></div></section>`;
-  return bilan + df + clesAcces + motDePasse + appareils + journal;
+  const recup = d.recuperationEnAttente ? `<section class="carte"><div class="encart alerte-encart" role="alert"><b>Récupération du compte en attente</b>
+    <p>Quelqu’un a demandé à réinitialiser votre mot de passe par e-mail. Si rien n’est fait, le nouveau mot de passe prendra effet le ${new Date(d.recuperationEnAttente).toLocaleString('fr-CH', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })} et vos clés d’accès seront supprimées.</p>
+    <div class="rangee"><button class="btn" data-action="recuperation-annuler">Ce n’est pas moi : annuler</button></div></div></section>` : '';
+  return recup + bilan + df + clesAcces + motDePasse + appareils + journal;
 }
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action]'); if (!el) return;
@@ -424,4 +427,10 @@ document.addEventListener('submit', async e => {
     f.reset(); toast('Export téléchargé. Un e-mail de confirmation vous a été envoyé.');
   } catch { toast('Pas de connexion : réessayez dans un instant.'); }
   finally { bouton.disabled = false; }
+});
+
+document.addEventListener('click', async e => {
+  if (!e.target.closest('[data-action="recuperation-annuler"]')) return;
+  try { await api('POST', '/api/admin/compte/recuperation/annuler', {}); toast('Récupération annulée. Sécurisez votre boîte e-mail.'); SECURITE.donnees = null; rendre(); }
+  catch (err) { toast(err.message); }
 });

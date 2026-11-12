@@ -797,14 +797,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const actuelCle = m && db.prepare('SELECT cle_seule FROM marchands WHERE id = ?').get(m.id);   // relu après le calcul (option activée entre-temps)
     if (!ok || !actuel || actuel.mot_de_passe !== m.mot_de_passe) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
     m.cle_seule = actuelCle ? actuelCle.cle_seule : m.cle_seule;
-    auth.oublierEchecs([`compte-ip:${e}|${reseau}`, `compte-ip-cours:${e}|${reseau}`]);
     if (m.cle_seule) {
       // Bon mot de passe, mais ce compte exige sa clé d'accès : refusé, et le marchand est prévenu (une fois par heure au plus) :
       // son mot de passe est peut-être connu d'un tiers.
       auth.limiter('cle-seule-essais:' + m.id, 10, 15 * 60000, 'Trop d’essais : réessayez plus tard.');   // pas d'inondation du journal
       try { auth.limiter('alerte-cle-seule:' + m.id, 1, 3600000, ''); noterActivite(m.id, 'mdp-refuse-cle-seule', null, ctx); envoyerEmail(null, m.email, 'Connexion par mot de passe refusée sur votre compte Comptoir', `Bonjour,\n\nQuelqu’un vient d’essayer de se connecter à votre compte avec votre mot de passe (réseau ${reseau}). La connexion a été refusée : votre compte n’accepte que votre clé d’accès.\n\nSi ce n’était pas vous, votre mot de passe est connu d’un tiers : changez-le.\n\nL’équipe Comptoir`); } catch { /* déjà prévenu cette heure */ }
+      // Depuis un appareil inconnu : réponse identique à un mauvais mot de passe (un tiers n'apprend pas qu'il a le bon),
+      // et l'essai compte comme un échec. Le vrai propriétaire, sur son appareil, voit le message utile.
+      if (!appareilConnu) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect.', 'identifiants'); }
       throw erreur(403, 'Ce compte se connecte uniquement avec sa clé d’accès : utilisez « Se connecter avec une clé d’accès ».', 'cle_requise');
     }
+    auth.oublierEchecs([`compte-ip:${e}|${reseau}`, `compte-ip-cours:${e}|${reseau}`]);
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) return { deuxFacteurs: true, defi: creerDefi(m.id) };   // second facteur demandé, aucune session encore
     ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
@@ -850,6 +853,20 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const ligne = db.prepare('SELECT * FROM reinitialisations WHERE jeton_hash = ?').get(auth.sha256(String(ctx.corps.jeton || '')));
     if (!ligne || ligne.expire_le < Date.now()) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau.', 'lien_expire');
     const avant = db.prepare('SELECT email, cle_seule, (SELECT COUNT(*) FROM cles_acces WHERE marchand_id = marchands.id) cles FROM marchands WHERE id = ?').get(ligne.marchand_id);
+    // Compte qui exige sa clé d'accès, sans double authentification : la boîte e-mail seule ne doit pas suffire.
+    // La récupération n'agit qu'après 72 heures ; d'ici là, le propriétaire peut l'annuler depuis une session ouverte avec sa clé.
+    const dfAvant = deuxFacteursDe(ligne.marchand_id);
+    if (avant && avant.cle_seule && !(dfAvant && dfAvant.actif)) {
+      const effectif = Date.now() + 72 * 3600000;
+      transaction(db, () => {
+        db.prepare('INSERT OR REPLACE INTO recuperations_differees (marchand_id, mot_de_passe, effectif_le, cree_le) VALUES (?, ?, ?, ?)').run(ligne.marchand_id, hashMdp, effectif, Date.now());
+        db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(ligne.marchand_id);
+      });
+      noterActivite(ligne.marchand_id, 'recuperation-demandee', 'par lien e-mail, effective dans 72 h', ctx);
+      const quand = new Date(effectif).toLocaleString('fr-CH', { timeZone: 'Europe/Zurich', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+      envoyerEmail(null, avant.email, 'Récupération de votre compte Comptoir dans 72 heures', `Bonjour,\n\nUne récupération de votre compte a été demandée par le lien envoyé à cette adresse. Votre compte n’accepte que votre clé d’accès : pour vous protéger, le nouveau mot de passe ne prendra effet que le ${quand}. Vos clés d’accès seront alors supprimées.\n\nCe n’est pas vous ? Connectez-vous avec votre clé d’accès et annulez la récupération (Paramètres, Sécurité). Puis sécurisez votre boîte e-mail.\n\nL’équipe Comptoir`);
+      return { ok: true, differe: effectif };
+    }
     transaction(db, () => {
       db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, ligne.marchand_id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
@@ -990,7 +1007,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
     const df = deuxFacteursDe(ctx.marchand.id);
     return {
-      cleSeule: cleSeule(ctx.marchand.id), deuxFacteurs: !!(df && df.actif), codesSecoursRestants: df && df.actif ? JSON.parse(df.secours).length : 0,
+      recuperationEnAttente: recuperationEnAttente(ctx.marchand.id), cleSeule: cleSeule(ctx.marchand.id), deuxFacteurs: !!(df && df.actif), codesSecoursRestants: df && df.actif ? JSON.parse(df.secours).length : 0,
       clesAcces: clesAccesDe(ctx.marchand.id).map(c => ({ id: c.id, nom: c.nom, creeLe: c.cree_le, utiliseeLe: c.utilisee_le })),
       sessions: db.prepare('SELECT jeton_hash, cree_le, vu_le, appareil, reseau FROM sessions WHERE marchand_id = ? AND expire_le > ? ORDER BY vu_le DESC').all(ctx.marchand.id, Date.now())
         .map(x => ({ id: x.jeton_hash.slice(0, 16), appareil: x.appareil || 'Appareil', reseau: x.reseau, creeLe: x.cree_le, vuLe: x.vu_le, actuelle: x.jeton_hash === actuelle })),
@@ -1178,8 +1195,8 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   const DIRECTIVES_CSP = new Set(['default-src', 'script-src', 'script-src-elem', 'script-src-attr', 'style-src', 'style-src-elem', 'style-src-attr', 'img-src', 'font-src', 'connect-src', 'media-src', 'object-src', 'frame-src', 'child-src', 'worker-src', 'manifest-src', 'form-action', 'frame-ancestors', 'base-uri', 'require-trusted-types-for', 'trusted-types']);
   const empreinteReseau = ip => crypto.createHmac('sha256', cleDesinscription).update('csp|' + ip).digest('hex').slice(0, 12);   // réseau compté, jamais gardé en clair
   // Page : origine et premier segment du chemin seulement (pas d'identifiant de commande ou de facture).
-  const sansRequete = u => { try { const x = new URL(String(u)); if (!/^https?:$/.test(x.protocol)) return x.protocol.replace(':', ''); const seg = x.pathname.split('/').filter(Boolean); return `${x.origin}/${seg[0] || ''}${seg.length > 1 ? '/…' : ''}`.slice(0, 120); } catch { return String(u || '').replace(/[?#].*$/, '').slice(0, 40); } };
-  const origineSeule = u => { try { const x = new URL(String(u)); return (/^https?:$/.test(x.protocol) ? x.origin : x.protocol.replace(':', '')).slice(0, 100); } catch { return String(u || '').slice(0, 40); } };
+  const sansRequete = u => { try { const x = new URL(String(u)); if (!/^https?:$/.test(x.protocol)) return x.protocol.replace(':', ''); const seg = x.pathname.split('/').filter(Boolean); return `${x.origin}/${seg[0] || ''}${seg.length > 1 ? '/…' : ''}`.slice(0, 120); } catch { return 'invalide'; } };
+  const origineSeule = u => { try { const x = new URL(String(u)); return (/^https?:$/.test(x.protocol) ? x.origin : x.protocol.replace(':', '')).slice(0, 100); } catch { return /^(inline|eval|wasm-eval|trusted-types-policy|trusted-types-sink)$/.test(String(u)) ? String(u) : 'invalide'; } };
   r.post('/csp-rapport', ctx => {
     try { auth.limiter('csp:' + reseauIp(ctx.ip), 30 * facteurLimites, 10 * 60000, ''); auth.limiter('csp-global', 2000 * facteurLimites, 3600000, ''); } catch { return { ok: true }; }   // au-delà (par réseau, ou 2000 par heure en tout) : ignorés
     let d; try { d = JSON.parse(ctx.corpsBrut || 'null'); } catch { return { ok: true }; }
@@ -1252,6 +1269,27 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return d;
   }
   const clesAccesDe = mid => db.prepare('SELECT id, nom, cree_le, utilisee_le FROM cles_acces WHERE marchand_id = ? ORDER BY cree_le').all(mid);
+  db.exec('CREATE TABLE IF NOT EXISTS recuperations_differees (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, mot_de_passe TEXT NOT NULL, effectif_le INTEGER NOT NULL, cree_le INTEGER NOT NULL)');
+  /* Récupérations différées arrivées à échéance : nouveau mot de passe, clés supprimées, option désactivée, sessions fermées. */
+  function appliquerRecuperations(maintenant = Date.now()) {
+    for (const r2 of db.prepare('SELECT * FROM recuperations_differees WHERE effectif_le <= ?').all(maintenant)) {
+      const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(r2.marchand_id);
+      transaction(db, () => {
+        db.prepare('UPDATE marchands SET mot_de_passe = ?, cle_seule = 0 WHERE id = ?').run(r2.mot_de_passe, r2.marchand_id);
+        db.prepare('DELETE FROM cles_acces WHERE marchand_id = ?').run(r2.marchand_id);
+        db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(r2.marchand_id);
+        db.prepare('DELETE FROM recuperations_differees WHERE marchand_id = ?').run(r2.marchand_id);
+      });
+      noterActivite(r2.marchand_id, 'recuperation-appliquee', null, null);
+      if (m) envoyerEmail(null, m.email, 'Votre compte Comptoir a été récupéré', 'Bonjour,\n\nLa récupération demandée il y a 72 heures est faite : votre nouveau mot de passe est actif, vos clés d’accès ont été supprimées et tous vos appareils déconnectés.\n\nCe n’est pas vous ? Écrivez-nous tout de suite.\n\nL’équipe Comptoir');
+    }
+  }
+  const recuperationEnAttente = mid => (db.prepare('SELECT effectif_le FROM recuperations_differees WHERE marchand_id = ?').get(mid) || {}).effectif_le || null;
+  r.post('/api/admin/compte/recuperation/annuler', exigerCompte, ctx => {
+    const n = db.prepare('DELETE FROM recuperations_differees WHERE marchand_id = ?').run(ctx.marchand.id).changes;
+    if (n) { noterActivite(ctx.marchand.id, 'recuperation-annulee', null, ctx); envoyerEmail(null, ctx.marchand.email, 'Récupération de votre compte annulée', 'Bonjour,\n\nVous avez annulé la récupération de votre compte : rien n’a changé. Quelqu’un a demandé à réinitialiser votre mot de passe depuis votre boîte e-mail : sécurisez-la.\n\nL’équipe Comptoir'); }
+    return { annulee: !!n };
+  });
   /* « Exiger la clé d'accès » : la connexion par mot de passe est refusée ; seule une clé d'accès ouvre une session
      (résiste à l'hameçonnage : un mot de passe volé ne suffit plus). Récupération : le lien de réinitialisation par e-mail. */
   try { db.exec('ALTER TABLE marchands ADD COLUMN cle_seule INTEGER NOT NULL DEFAULT 0'); } catch { /* déjà là */ }
@@ -1993,6 +2031,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   });
   /* Reprise : pièces émises avant le journal, ou dont le scellement a été interrompu : scellées une fois, dans l'ordre de leur date. */
   try { const n = JV().reprendre(lireCommande); if (n) journal.log(`[journal-inalterable] ${n} pièce(s) reprise(s)`); } catch (e) { journal.error('[journal-inalterable] reprise', e.message); }
+  if (env.NODE_ENV === 'production' && !/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '')) journal.error('[securite] ATTENTION : SECRET_CHIFFREMENT absent. La clé qui chiffre les secrets de double authentification et signe le journal des ventes est gardée dans la base : une copie de la base suffit à les lire et à recalculer le journal.');
   if (JV().etat('').cleChangee) journal.error('[journal-inalterable] ATTENTION : la clé de signature a changé (SECRET_CHIFFREMENT). Les journaux existants ne peuvent plus être vérifiés ; remettez l’ancienne clé.');
   const lireCommandesParIds = boutiqueId => ids => {
     const m = new Map();
@@ -2578,6 +2617,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     entretien(maintenant);
     try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
     try { alertesRetourStock(maintenant); } catch (e) { journal.error('[retour-stock]', e.message); }
+    try { appliquerRecuperations(maintenant); } catch (e) { journal.error('[recuperation]', e.message); }
     // Clôture journalière du journal inaltérable (jours terminés), pour chaque boutique qui a des pièces.
     // (boutiques supprimées : leur journal est gardé pour l'archivage, mais plus clôturé)
     for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT j.boutique_id FROM journal_inalterable j JOIN boutiques b ON b.id = j.boutique_id').all()) {
