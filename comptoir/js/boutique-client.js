@@ -198,11 +198,13 @@ function rendreBrut() {
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
     </div>
-    ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal" data-legal>${texteLegal(vue.legal)}</article></div></div>` : ''}`;
+    ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal" ${vue.legal === 'commandes' ? '' : 'data-legal'}>${texteLegal(vue.legal)}</article></div></div>` : ''}`;
 }
 
 function texteLegal(type) {
   const e = donnees.entreprise, b = donnees.boutique, ch = b.pays === 'ch';
+  if (type === 'commandes') return `<h2>Mes commandes</h2><p>Recevez par e-mail le lien de suivi de chacune de vos commandes chez ${esc(b.nom)}.</p>
+    <form data-mes-commandes><label class="champ"><span>E-mail utilisé pour commander</span><input type="email" name="email" required autocomplete="email"></label><button class="sf-btn">Recevoir mes liens</button></form>`;
   if (type === 'cgv') return `<h2>Conditions générales de vente</h2>
     <p><strong>Vendeur.</strong> ${esc(e.raison || b.nom)}${e.siret ? `, ${ch ? 'IDE' : esc(droitPays(b.pays).idCourt)} ${esc(e.siret)}` : ''}${e.adresse ? `, ${esc(e.adresse)}` : ''}${e.email ? `. Contact : ${esc(e.email)}` : ''}.</p>
     <p><strong>Prix.</strong> En ${esc(b.devise)}. ${esc(mentionTva(e.regime, b.pays))}.</p>
@@ -307,7 +309,7 @@ document.addEventListener('click', e => {
     return;
   }
   const doc = e.target.closest('[data-action="doc"]');
-  if (doc) { vue.legal = doc.dataset.id === 'cgv' ? 'cgv' : 'mentions'; rendre(); return; }
+  if (doc) { vue.legal = ['cgv', 'commandes'].includes(doc.dataset.id) ? doc.dataset.id : 'mentions'; rendre(); return; }
   const el = e.target.closest('[data-c]');
   if (!el) return;
   const c = el.dataset.c;
@@ -500,4 +502,14 @@ document.addEventListener('change', e => {
   const v = varianteChoisie(p), prixEl = document.querySelector('[data-sf-prix]'), bouton = document.querySelector('.sf-fiche-achat [data-sf="ajouter"]');
   if (prixEl) prixEl.textContent = euros(v && typeof v.prix === 'number' ? v.prix : p.prix);
   if (bouton) { const epuise = !v || v.stock <= 0; bouton.disabled = epuise; bouton.textContent = epuise ? 'Épuisé' : 'Ajouter au panier'; }
+});
+
+/* Mes commandes : lien de suivi de chaque commande envoyé à l'adresse saisie (même réponse que l'adresse soit connue ou non). */
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('[data-mes-commandes]'); if (!f) return;
+  e.preventDefault();
+  const email = new FormData(f).get('email');
+  f.querySelector('button').disabled = true;
+  try { await fetch(`/api/public/${encodeURIComponent(slug)}/mes-commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }); } catch { /* même message */ }
+  f.outerHTML = '<p class="encart" role="status">Si des commandes existent pour cette adresse, un e-mail avec leurs liens vient de partir. Pensez à regarder dans les indésirables.</p>';
 });

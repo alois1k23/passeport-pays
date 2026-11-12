@@ -44,3 +44,21 @@ test('demande de retour de bout en bout', async () => {
     assert.equal((await fetch(`${base}/api/public/${ch.slug}/commandes/${ch.cmd.commandeId}/retour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton: ch.cmd.jeton, lignes: [{ produitId: ch.pub.produits[0].id, qte: 1 }] }) })).status, 409);
   } finally { s.close(); }
 });
+
+test('mes commandes : liens envoyés à l’adresse, réponse identique sinon', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  try {
+    const ins = await fetch(base + '/api/auth/inscription', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'mc@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'MC', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'M', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 9, type: 'stock' }] }) }).then(r => r.json());
+    const pub = await fetch(`${base}/api/public/${ins.slug}`).then(r => r.json());
+    const cmd = await fetch(`${base}/api/public/${ins.slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Zoé', email: 'Zoe@Exemple.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } }) }).then(r => r.json());
+    await fetch(cmd.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    const demander = email => fetch(`${base}/api/public/${ins.slug}/mes-commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }).then(async r => ({ s: r.status, j: await r.json() }));
+    const inconnu = await demander('personne@exemple.ch'), connu = await demander('zoe@exemple.ch');
+    assert.deepEqual(inconnu, connu, 'même réponse');
+    const m = db.prepare("SELECT corps FROM emails WHERE destinataire = 'zoe@exemple.ch' AND sujet LIKE 'Vos commandes%'").get();
+    assert.match(m.corps, new RegExp(`n° ${cmd.numero} .*commande=${cmd.commandeId}&jeton=`));
+    assert.ok(!db.prepare("SELECT 1 FROM emails WHERE destinataire = 'personne@exemple.ch'").get());
+  } finally { s.close(); }
+});

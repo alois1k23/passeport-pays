@@ -2060,6 +2060,19 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const bv = ((configVente(b).automatisations || {}).bienvenue || {});
     return { code: c.code, remise: c.remise, ...(bv.code && String(bv.code).toUpperCase() === c.code ? { condition: 'Valable sur une première commande.' } : {}) };
   });
+  /* Mes commandes : les liens de suivi des commandes de cette adresse (12 derniers mois) envoyés à cette adresse seule.
+     Réponse identique que l'adresse soit connue ou non : le formulaire ne révèle pas qui est client. */
+  r.post('/api/public/:slug/mes-commandes', ctx => {
+    auth.limiter('mes-commandes:' + ctx.ip, 10 * facteurLimites, 3600000, 'Trop de demandes. Réessayez plus tard.');
+    const b = boutiqueParSlug(ctx.params.slug);
+    const email = valider.email(ctx.corps.email).toLowerCase();
+    try { auth.limiter(`mes-commandes-adresse:${b.id}|${email}`, 3, 86400000, ''); } catch { return { ok: true }; }
+    const rows = db.prepare("SELECT id, numero, date, statut, donnees FROM commandes WHERE boutique_id = ? AND date > ? AND statut NOT IN ('attente', 'annulee') AND lower(json_extract(donnees, '$.client.email')) = ? ORDER BY date DESC LIMIT 20").all(b.id, Date.now() - 365 * 86400000, email);
+    if (!rows.length) return { ok: true };
+    const config = lireConfig(b), libelles = { payee: 'payée', preparation: 'en préparation', fournisseur: 'en préparation', expediee: 'expédiée', livree: 'livrée', prete: 'prête à retirer', retiree: 'retirée', remboursee: 'remboursée' };
+    envoyerEmail(b.id, email, `Vos commandes chez ${config.boutique.nom}`, `Bonjour,\n\nVoici vos commandes chez ${config.boutique.nom} :\n\n${rows.map(r2 => `- n° ${r2.numero} du ${new Date(r2.date).toLocaleDateString('fr-CH')} (${libelles[r2.statut] || r2.statut}) : ${lienCommande(b, r2.id)}`).join('\n')}\n\nVous n'avez rien demandé ? Ignorez cet e-mail.\n\n${config.boutique.nom}`);
+    return { ok: true };
+  });
   r.post('/api/public/:slug/newsletter', ctx => {
     auth.limiter('newsletter:' + ctx.ip, 20 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);

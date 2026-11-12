@@ -195,7 +195,7 @@ function renduSection(s, etat, mode) {
       return `<section class="sf-faq"><h2>Questions fréquentes</h2>${[[p.q1, p.r1], [p.q2, p.r2]].filter(q => q[0]).map(([q, r]) => `<details><summary data-sans-traduction>${esc(q)}</summary><p data-sans-traduction>${esc(r)}</p></details>`).join('')}</section>`;
     case 'pied':
       return `<footer class="sf-pied" data-ancre="contact"><strong data-sans-traduction>${esc(etat.boutique.nom)}</strong><span data-sans-traduction>${esc(p.texte)}</span><span>${esc(p.contact && !/@exemple\./i.test(p.contact) ? p.contact : (etat.entreprise && etat.entreprise.email) || '')}</span>
-        <span class="sf-legal"><button type="button" data-action="doc" data-id="mentions">Mentions légales</button><button type="button" data-action="doc" data-id="cgv">CGV</button></span></footer>`;
+        <span class="sf-legal">${mode === 'edition' ? '' : '<button type="button" data-action="doc" data-id="commandes">Mes commandes</button>'}<button type="button" data-action="doc" data-id="mentions">Mentions légales</button><button type="button" data-action="doc" data-id="cgv">CGV</button></span></footer>`;
     default:
       return '';
   }

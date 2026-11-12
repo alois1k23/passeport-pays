@@ -459,7 +459,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Limites** : pas de variantes pour les produits en dropshipping (codes fournisseur par variante à prévoir). Les offres en un clic et le lien de panier ne proposent pas les produits à variantes, le client les choisit sur la fiche.
 - Testé : test serveur (variante obligatoire, inconnue, sans stock, prix, stock retiré puis rendu), puis parcours complet dans un vrai navigateur (éditeur, boutique, panier, paiement) et caisse de la démo. 98 tests sur 98.
 
-## Cycle 30 (02 h 30) : bon de réassort, variantes dans l'API
+## Cycle 30 (02 h 25) : bon de réassort, variantes dans l'API
 
 - **Bon de réassort** (Produits > « Réassort ») :
   - pour les produits en stock, et par variante, Comptoir conseille la quantité à recommander pour tenir 30 jours, au rythme des 28 derniers jours (même calcul que la prévision de rupture) ;
@@ -474,3 +474,9 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - documentation mise à jour, testé.
 - **Référencement** : un produit à variantes annonce sa fourchette de prix (`AggregateOffer`).
 - **Fiche des fonctionnalités** : `docs/FONCTIONNALITES.md`, limites connues comprises.
+
+## Cycle 31 (02 h 30) : « Mes commandes »
+
+- Nouveau lien « Mes commandes » au pied de chaque boutique. Le client saisit son e-mail et reçoit les liens de suivi de ses commandes des 12 derniers mois.
+- Pas de compte à créer. La réponse est identique que l'adresse soit connue ou non, donc personne ne peut savoir qui est client. Les liens ne partent qu'à l'adresse elle-même. Limite de 3 demandes par jour et par adresse, et de 10 par heure et par réseau.
+- Traduit (allemand, italien, anglais). Testé. 99 tests sur 99.
