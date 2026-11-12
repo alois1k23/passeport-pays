@@ -869,3 +869,9 @@ Relecture de la récupération différée, sous l'angle de l'attaquant qui contr
 - Audit indépendant de tout le JavaScript ajouté ou modifié cette nuit : chaque nouvel affichage a été rendu dans un vrai navigateur avec une charge piégée (`"'><img class=pwn src=x>`) dans chaque champ qu'un client, un membre de l'équipe ou un tiers peut contrôler (variantes, références fournisseur, journal des ventes, bilan de sécurité, file de la caisse hors ligne, nom de boutique, messages). **Aucune injection** : tout s'affiche comme du texte.
 - Durcissements appliqués quand même (valeurs aujourd'hui produites par le serveur) : numéros de facture et d'avoir échappés dans la fiche commande, classe du bilan limitée aux valeurs connues, compteurs du journal forcés en nombres, avertissement dans le code sur l'aide qui insère du HTML brut.
 - 118 tests sur 118, bout en bout 51 sur 51, script d'audit relancé : tout est vert.
+
+### Cycle 66 (05 h 15) : contrôle sur téléphone des nouveaux écrans
+
+- Sécurité, Zone sensible, Conformité, Analyse et éditeur de variantes, contrôlés sur un iPhone 13 émulé : aucune page plus large que l'écran (les onglets défilent, comme prévu).
+- Éditeur de variantes : la colonne Prix était coupée sur téléphone ; les champs se resserrent maintenant sous 480 px et le tableau tient en entier.
+- Bilan de sécurité : libellé « Aucune tentative avec votre mot de passe » (il compte aussi les connexions refusées par l'option « Exiger la clé d'accès »).

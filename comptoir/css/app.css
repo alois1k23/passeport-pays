@@ -1416,3 +1416,8 @@ details.en-ligne form { margin-top: 6px; }
 .sf-masque { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 /* Liste « À faire » : contour de focus au clavier, à l'intérieur (la liste coupe ce qui dépasse) */
 .todo li a:focus-visible, .todo-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--surface-2); }
+@media (max-width: 480px) {
+  .variantes-edit .table input[data-var-ref] { width: 92px; }
+  .variantes-edit .table input[data-var-stock], .variantes-edit .table input[data-var-prix] { width: 62px; }
+  .variantes-edit .table th, .variantes-edit .table td { padding-left: 4px; padding-right: 4px; }
+}
