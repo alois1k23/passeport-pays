@@ -44,7 +44,25 @@ function creer(db, cle) {
     CREATE TABLE IF NOT EXISTS journal_ancres (boutique_id TEXT NOT NULL, seq INTEGER NOT NULL, empreinte TEXT NOT NULL, envoye_le INTEGER NOT NULL, PRIMARY KEY (boutique_id, seq));
     CREATE TABLE IF NOT EXISTS journal_verifications (boutique_id TEXT PRIMARY KEY, le INTEGER NOT NULL, resultat TEXT NOT NULL);`);
   try { db.exec('ALTER TABLE journal_inalterable ADD COLUMN cloture_seq INTEGER'); } catch { /* déjà là */ }
+  db.exec('CREATE TABLE IF NOT EXISTS journal_meta (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)');
+  const meta = k => (db.prepare('SELECT valeur FROM journal_meta WHERE cle = ?').get(k) || {}).valeur;
   const signer = (prec, e) => crypto.createHmac('sha256', cle).update(`${prec}|${e.seq}|${e.type}|${e.ref}|${e.le}|${e.contenu}`).digest('hex');
+  // Version 1 (empreintes SHA-256 simples, quelques minutes de développement, jamais en production) : mise de côté
+  // telle quelle dans journal_inalterable_v1, puis les pièces sont rescellées en version 2 (reprise).
+  if (!meta('version')) {
+    if (db.prepare('SELECT 1 FROM journal_inalterable LIMIT 1').get()) {
+      db.exec('DROP TABLE IF EXISTS journal_inalterable_v1; ALTER TABLE journal_inalterable RENAME TO journal_inalterable_v1; DELETE FROM journal_verifications; DELETE FROM journal_ancres;');
+      db.exec(`CREATE TABLE journal_inalterable (boutique_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL, ref TEXT NOT NULL, commande_id TEXT, le INTEGER NOT NULL,
+        contenu TEXT NOT NULL, empreinte TEXT NOT NULL, cloture_seq INTEGER, PRIMARY KEY (boutique_id, seq), UNIQUE (boutique_id, type, ref));
+        DROP INDEX IF EXISTS journal_inalterable_commande; CREATE INDEX journal_inalterable_commande ON journal_inalterable (boutique_id, commande_id);`);
+    }
+    db.prepare("INSERT INTO journal_meta (cle, valeur) VALUES ('version', '2')").run();
+  }
+  // Empreinte de la clé de signature : une clé changée (SECRET_CHIFFREMENT modifié) est signalée comme telle,
+  // et non comme une falsification de chaque pièce.
+  const empreinteCle = crypto.createHmac('sha256', cle).update('comptoir:journal:cle').digest('hex').slice(0, 16);
+  if (!meta('cle')) db.prepare("INSERT INTO journal_meta (cle, valeur) VALUES ('cle', ?)").run(empreinteCle);
+  const cleChangee = () => meta('cle') !== empreinteCle;
 
   function ajouter(boutiqueId, type, ref, commandeId, contenu, le) {
     const dernier = db.prepare('SELECT seq, empreinte FROM journal_inalterable WHERE boutique_id = ? ORDER BY seq DESC LIMIT 1').get(boutiqueId);
@@ -56,7 +74,7 @@ function creer(db, cle) {
 
   /* Scelle la facture (ou le ticket) et l'avoir d'une commande s'ils ne le sont pas encore. Idempotent.
      Une commande a au plus une facture et un avoir : un second numéro pour la même commande est refusé (conflit signalé). */
-  function sceller(boutiqueId, c, le = Date.now()) {
+  function sceller(boutiqueId, c, le = Date.now(), leAvoir = le) {
     const faits = [], conflits = [];
     const existant = types => db.prepare(`SELECT ref FROM journal_inalterable WHERE boutique_id = ? AND commande_id = ? AND type IN (${types.map(() => '?').join(', ')})`).get(boutiqueId, c.id, ...types);
     if (c.facture) {
@@ -65,7 +83,7 @@ function creer(db, cle) {
     }
     if (c.avoir && c.avoir.numero) {
       const e = existant(['avoir']);
-      if (!e) { ajouter(boutiqueId, 'avoir', c.avoir.numero, c.id, contenuPiece('avoir', c), le); faits.push(c.avoir.numero); } else if (e.ref !== c.avoir.numero) conflits.push(`${c.avoir.numero} (déjà ${e.ref})`);
+      if (!e) { ajouter(boutiqueId, 'avoir', c.avoir.numero, c.id, contenuPiece('avoir', c), leAvoir); faits.push(c.avoir.numero); } else if (e.ref !== c.avoir.numero) conflits.push(`${c.avoir.numero} (déjà ${e.ref})`);
     }
     return { faits, conflits };
   }
@@ -87,7 +105,7 @@ function creer(db, cle) {
     for (const [bid, cmds] of parBoutique) {
       cmds.sort((a, b) => (a.dateFacture || a.date) - (b.dateFacture || b.date));
       db.exec('BEGIN');
-      try { for (const c of cmds) n += sceller(bid, c, c.dateFacture || c.date).faits.length; db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
+      try { for (const c of cmds) n += sceller(bid, c, c.dateFacture || c.date, (c.avoir && c.avoir.date) || c.dateFacture || c.date).faits.length; db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
     }
     return n;
   }
@@ -136,19 +154,22 @@ function creer(db, cle) {
     const der = db.prepare('SELECT empreinte FROM journal_inalterable WHERE boutique_id = ? ORDER BY seq DESC LIMIT 1').get(boutiqueId);
     const cl = db.prepare("SELECT ref, empreinte, contenu FROM journal_inalterable WHERE boutique_id = ? AND type = 'cloture' ORDER BY seq DESC LIMIT 1").get(boutiqueId);
     const v = db.prepare('SELECT le, resultat FROM journal_verifications WHERE boutique_id = ?').get(boutiqueId);
-    const { seqs, ...resume } = cl ? JSON.parse(cl.contenu) : {};
-    void seqs;
+    let resume = {}; try { const { seqs, ...r } = cl ? JSON.parse(cl.contenu) : {}; void seqs; resume = r; } catch { /* entrée illisible : signalée à la vérification */ }
     return { pieces: n.pieces || 0, clotures: n.clotures || 0, empreinte: der ? der.empreinte : null,
       derniereCloture: cl ? { jour: cl.ref, empreinte: cl.empreinte, ...resume } : null,
-      derniereVerification: v ? { le: v.le, ...JSON.parse(v.resultat) } : null };
+      derniereVerification: v ? { le: v.le, ...JSON.parse(v.resultat) } : null, cleChangee: cleChangee() };
   }
 
   /* Vérification complète, par lots (le serveur reste disponible). lireCommandes(ids) → Map id → commande.
      ancre : empreinte reçue par e-mail, à retrouver dans la chaîne. */
-  async function verifier(boutiqueId, { lireCommandes, compteurFactures, ancre = null, lot = 1000 } = {}) {
+  async function verifier(boutiqueId, { lireCommandes, compteurFactures, ancre = null, lot = 1000, maintenant = Date.now() } = {}) {
     const anomalies = [], noter = t => { if (anomalies.length < 200) anomalies.push(t); };
+    // Clé de signature changée : toutes les empreintes diffèrent ; c'est dit une fois, sans accuser chaque pièce.
+    const sansSignature = cleChangee();
+    if (sansSignature) noter('La clé de signature du serveur a changé (SECRET_CHIFFREMENT) : les empreintes ne peuvent plus être contrôlées. Remettez l’ancienne clé, ou contactez le support.');
+    const lire = (e) => { try { return JSON.parse(e.contenu); } catch { noter(`Entrée n° ${e.seq} (${e.ref}) illisible.`); return null; } };
     let prec = ORIGINE, attendu = 1, apres = 0, pieces = 0, clotures = 0, dernier = null, grandTotal = 0;
-    const empreintes = new Set(), numeros = new Set(), couverture = new Map(), totaux = new Map();
+    const empreintes = new Set(), numeros = new Set(), couverture = new Map(), totaux = new Map(), agees = new Map();
     for (;;) {
       const entrees = db.prepare('SELECT * FROM journal_inalterable WHERE boutique_id = ? AND seq > ? ORDER BY seq LIMIT ?').all(boutiqueId, apres, lot);
       if (!entrees.length) break;
@@ -156,11 +177,11 @@ function creer(db, cle) {
       for (const e of entrees) {
         if (e.seq !== attendu) noter(`Entrées n° ${attendu} à ${e.seq - 1} manquantes (suppression).`);
         attendu = e.seq + 1; apres = e.seq;
-        if (signer(prec, e) !== e.empreinte) noter(`Entrée n° ${e.seq} (${e.ref}) modifiée : son empreinte ne correspond plus.`);
+        if (!sansSignature && signer(prec, e) !== e.empreinte) noter(`Entrée n° ${e.seq} (${e.ref}) modifiée : son empreinte ne correspond plus.`);
         prec = e.empreinte; dernier = e; empreintes.add(e.empreinte);
         if (e.type === 'cloture') {
           clotures++;
-          const d = JSON.parse(e.contenu);
+          const d = lire(e); if (!d) continue;
           const somme = (d.seqs || []).reduce((a, s) => { if (couverture.get(s) !== undefined) noter(`Pièce n° ${s} comptée dans deux clôtures.`); couverture.set(s, e.seq); return a + (totaux.get(s) ?? (noter(`Clôture du ${e.ref} : pièce n° ${s} inconnue.`), 0)); }, 0);
           if (somme !== d.totalJour) noter(`Clôture du ${e.ref} : total du jour faux (${d.totalJour / 100} au lieu de ${somme / 100}).`);
           if (grandTotal + d.totalJour !== d.grandTotal) noter(`Clôture du ${e.ref} : grand total perpétuel faux.`);
@@ -168,7 +189,8 @@ function creer(db, cle) {
           continue;
         }
         pieces++;
-        const d = JSON.parse(e.contenu); totaux.set(e.seq, d.total);
+        const d = lire(e); if (!d) continue;
+        totaux.set(e.seq, d.total); if (!couverture.has(e.seq)) agees.set(e.seq, e);
         const num = numeroDe(e.ref); if (num !== null) { if (numeros.has(num)) noter(`Numéro ${num} utilisé deux fois.`); numeros.add(num); }
         const c = e.commande_id ? commandes.get(e.commande_id) : null;
         if (!c) { noter(`${e.ref} : la commande a été supprimée.`); continue; }
@@ -177,7 +199,10 @@ function creer(db, cle) {
       }
       await pause();
     }
-    // Pièces closes : chacune doit être dans une clôture (sauf celles du jour, pas encore clôturées).
+    // Chaque pièce de plus de deux jours doit figurer dans une clôture (la colonne cloture_seq n'est pas signée : on ne s'y fie pas).
+    const limite = jourDe(maintenant - 2 * 86400000);
+    const horsCloture = [...agees.values()].filter(e => !couverture.has(e.seq) && jourDe(e.le) < limite);
+    if (horsCloture.length) noter(`${horsCloture.length} pièce${horsCloture.length > 1 ? 's' : ''} absente${horsCloture.length > 1 ? 's' : ''} de toute clôture (${horsCloture.slice(0, 5).map(e => e.ref).join(', ')}) : grand total incomplet.`);
     // Continuité : tous les numéros de 1 au compteur de la boutique existent (factures, tickets et avoirs partagent la suite).
     const compteur = Number(compteurFactures) || 0;
     const manquants = []; for (let i = 1; i <= compteur && manquants.length < 10; i++) if (!numeros.has(i)) manquants.push(i);
@@ -188,9 +213,9 @@ function creer(db, cle) {
       if (!empreintes.has(a.empreinte)) noter(`L’empreinte envoyée le ${new Date(a.envoye_le).toLocaleDateString('fr-CH')} ne figure plus dans le journal : la chaîne a été réécrite.`);
     const ancreOk = ancre ? empreintes.has(String(ancre).trim().toLowerCase()) : null;
     // (une empreinte saisie introuvable n'est pas une anomalie du journal en soi : elle peut être mal recopiée ; réponse à part)
-    const resultat = { ok: !anomalies.length, nbAnomalies: anomalies.length, anomalies: anomalies.slice(0, 50), pieces, clotures, empreinte: dernier ? dernier.empreinte : null, ancreOk };
+    const resultat = { cleChangee: sansSignature, ok: !anomalies.length, nbAnomalies: anomalies.length, anomalies: anomalies.slice(0, 50), pieces, clotures, empreinte: dernier ? dernier.empreinte : null, ancreOk };
     const { ancreOk: _a, ...memo } = resultat; void _a;
-    db.prepare('INSERT OR REPLACE INTO journal_verifications (boutique_id, le, resultat) VALUES (?, ?, ?)').run(boutiqueId, Date.now(), JSON.stringify(memo));
+    db.prepare('INSERT OR REPLACE INTO journal_verifications (boutique_id, le, resultat) VALUES (?, ?, ?)').run(boutiqueId, maintenant, JSON.stringify(memo));
     return resultat;
   }
 
@@ -199,7 +224,7 @@ function creer(db, cle) {
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const out = ['﻿' + ['seq', 'type', 'reference', 'scelle_le', 'montant', 'grand_total', 'empreinte', 'contenu'].join(';')];
     for (const e of db.prepare('SELECT * FROM journal_inalterable WHERE boutique_id = ? ORDER BY seq').iterate(boutiqueId)) {
-      const d = JSON.parse(e.contenu);
+      let d; try { d = JSON.parse(e.contenu); } catch { d = { total: 0, totalJour: 0, grandTotal: 0 }; }
       out.push([e.seq, e.type, q(e.ref), new Date(e.le).toISOString(), e.type === 'cloture' ? (d.totalJour / 100).toFixed(2) : (d.total / 100).toFixed(2), e.type === 'cloture' ? (d.grandTotal / 100).toFixed(2) : '', e.empreinte, q(e.contenu)].join(';'));
     }
     return out.join('\n') + '\n';

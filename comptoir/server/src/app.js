@@ -1478,10 +1478,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       throw erreur(409, `La partie fournisseur est déjà commandée (réf. ${c.refFournisseur}) : annulez-la d’abord chez le fournisseur, sinon il expédiera et facturera quand même. Ensuite, confirmez le remboursement.`, 'fournisseur_a_annuler');
     }
     if (cible === 'remboursee') {
-      if (c.refFournisseur && ctx.corps.fournisseurAnnule) historique(c, `Remboursement après annulation déclarée chez le fournisseur (réf. ${c.refFournisseur})`);
       const p = db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'paye'").get(c.id);
       if (p && p.fournisseur === 'stripe') await paiement.rembourser({ paiement: p });
       if (p) db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(p.id);
+      // Pendant le remboursement, un webhook a pu modifier la commande (litige, préparation) : on repart de la version à jour.
+      const frais = commandeDeBoutique(ctx.boutique.id, c.id);
+      const retourDemande = c.retour && c.retour.statut === 'rembourse';
+      Object.assign(c, frais);
+      if (retourDemande && c.retour) c.retour.statut = 'rembourse';
+      if (c.refFournisseur && ctx.corps.fournisseurAnnule) historique(c, `Remboursement après annulation déclarée chez le fournisseur (réf. ${c.refFournisseur})`);
     }
     const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: 'Expédiée', livree: 'Livrée', prete: 'Prête à retirer, client prévenu', retiree: 'Remise au client', remboursee: `Remboursée (${formatMontant(c.total, config)})`, annulee: 'Annulée' };
     // Numéro de suivi : celui que le marchand a reçu du transporteur. Jamais inventé pour une vraie commande
@@ -1502,7 +1507,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (frais.statut !== 'attente') throw erreur(409, 'Cette commande vient d’être payée en ligne : rien n’a été modifié.', 'deja_payee');
       Object.assign(c, frais);
     }
-    // À partir d'ici, plus d'attente : numéros de pièces attribués et commande enregistrée d'un seul tenant.
+    // À partir d'ici, plus d'attente : numéros de pièces attribués et commande enregistrée d'un seul tenant (transaction :
+    // une erreur ne consomme pas de numéro sans pièce).
+    transaction(db, () => {
     if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
     if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
     // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
@@ -1512,6 +1519,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     c.statut = cible;
     historique(c, textes[cible] + (cible === 'expediee' ? (c.suivi ? `, suivi ${c.suivi}` : ', sans numéro de suivi') : ''));
     enregistrerCommande(c);
+    });
     if (cible === 'expediee') emailExpedition(ctx.boutique, c, config);
     if (cible === 'prete' && EmailsClients.langueDe(c)) { const m = EmailsClients.pret(c, { ...optionsEmail(ctx.boutique, c, config), adresse: config.magasin.adresse || '', horaires: config.magasin.horaires }); envoyerEmail(ctx.boutique.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
     else if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\nVotre commande vous attend en boutique : ${config.magasin.adresse || ''}${config.magasin.horaires ? `\nHoraires : ${config.magasin.horaires}` : ''}.\nPrésentez ce numéro de commande : ${c.numero}.\n\nVotre commande : ${lienCommande(ctx.boutique, c.id)}\n\n${config.boutique.nom}`);
@@ -1842,6 +1850,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
   });
   /* Reprise : pièces émises avant le journal, ou dont le scellement a été interrompu : scellées une fois, dans l'ordre de leur date. */
   try { const n = JV().reprendre(lireCommande); if (n) journal.log(`[journal-inalterable] ${n} pièce(s) reprise(s)`); } catch (e) { journal.error('[journal-inalterable] reprise', e.message); }
+  if (JV().etat('').cleChangee) journal.error('[journal-inalterable] ATTENTION : la clé de signature a changé (SECRET_CHIFFREMENT). Les journaux existants ne peuvent plus être vérifiés ; remettez l’ancienne clé.');
   const lireCommandesParIds = boutiqueId => ids => {
     const m = new Map();
     for (let i = 0; i < ids.length; i += 500) {
@@ -1851,10 +1860,10 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     return m;
   };
   const verificationsEnCours = new Set();
-  async function verifierJournal(b, ancre = null) {
+  async function verifierJournal(b, ancre = null, maintenant = Date.now()) {
     if (verificationsEnCours.has(b.id)) throw erreur(429, 'Une vérification est déjà en cours pour cette boutique.', 'en_cours');
     verificationsEnCours.add(b.id);
-    try { return await JV().verifier(b.id, { lireCommandes: lireCommandesParIds(b.id), compteurFactures: db.prepare('SELECT compteur_facture FROM boutiques WHERE id = ?').get(b.id).compteur_facture, ancre }); }
+    try { return await JV().verifier(b.id, { lireCommandes: lireCommandesParIds(b.id), compteurFactures: db.prepare('SELECT compteur_facture FROM boutiques WHERE id = ?').get(b.id).compteur_facture, ancre, maintenant }); }
     finally { verificationsEnCours.delete(b.id); }
   }
   /* Journal inaltérable : état (rapide), vérification complète à la demande (par lots), export pour l'archivage. */
@@ -2403,12 +2412,20 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       const dues = db.prepare('SELECT DISTINCT j.boutique_id id FROM journal_inalterable j JOIN boutiques b ON b.id = j.boutique_id LEFT JOIN journal_verifications v ON v.boutique_id = j.boutique_id WHERE v.le IS NULL OR v.le < ?').all(maintenant - 86400000);
       for (const { id } of dues) {
         const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(id); if (!b || verificationsEnCours.has(id)) continue;
-        const avant = db.prepare('SELECT resultat FROM journal_verifications WHERE boutique_id = ?').get(id);
-        const r2 = await verifierJournal(b);
-        if (!r2.ok && !(avant && JSON.parse(avant.resultat).ok === false)) {
-          const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
-          if (m) envoyerEmail(null, m.email, `Journal des ventes : ${r2.nbAnomalies} anomalie${r2.nbAnomalies > 1 ? 's' : ''} détectée${r2.nbAnomalies > 1 ? 's' : ''} (${lireConfig(b).boutique.nom})`,
-            `Bonjour,\n\nLa vérification automatique du journal inaltérable de vos ventes a trouvé ${r2.nbAnomalies} anomalie${r2.nbAnomalies > 1 ? 's' : ''} :\n\n${r2.anomalies.slice(0, 10).map(a => `- ${a}`).join('\n')}\n\nDétail dans Comptoir, Conformité. Si vous n'expliquez pas ces écarts, écrivez-nous.\n\nL’équipe Comptoir`);
+        try {
+          const avant = db.prepare('SELECT resultat FROM journal_verifications WHERE boutique_id = ?').get(id);
+          const empreinteAnomalies = r => crypto.createHash('sha256').update(JSON.stringify((r && r.anomalies) || [])).digest('hex');
+          const r2 = await verifierJournal(b, null, maintenant);
+          // E-mail seulement pour des anomalies nouvelles (pas chaque nuit pour les mêmes), jamais pour un simple changement de clé du serveur.
+          if (!r2.ok && !r2.cleChangee && (!avant || empreinteAnomalies(JSON.parse(avant.resultat)) !== empreinteAnomalies(r2))) {
+            const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+            if (m) envoyerEmail(null, m.email, `Journal des ventes : ${r2.nbAnomalies} anomalie${r2.nbAnomalies > 1 ? 's' : ''} détectée${r2.nbAnomalies > 1 ? 's' : ''} (${lireConfig(b).boutique.nom})`,
+              `Bonjour,\n\nLa vérification automatique du journal inaltérable de vos ventes a trouvé ${r2.nbAnomalies} anomalie${r2.nbAnomalies > 1 ? 's' : ''} :\n\n${r2.anomalies.slice(0, 10).map(a => `- ${a}`).join('\n')}\n\nDétail dans Comptoir, Conformité. Si vous n'expliquez pas ces écarts, écrivez-nous.\n\nL’équipe Comptoir`);
+          }
+        } catch (e) {
+          // Une boutique en erreur n'arrête pas les autres ; son échec est noté (elle sera réessayée demain, pas toutes les 5 minutes).
+          journal.error('[journal-inalterable] vérification', id, e.message);
+          db.prepare('INSERT OR REPLACE INTO journal_verifications (boutique_id, le, resultat) VALUES (?, ?, ?)').run(id, maintenant, JSON.stringify({ ok: false, nbAnomalies: 1, anomalies: [`Vérification impossible : ${e.message}`] }));
         }
       }
     } finally { verificationNocturne = false; }

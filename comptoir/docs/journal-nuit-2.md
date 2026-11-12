@@ -647,3 +647,18 @@ Relecture indépendante des cycles 41 et 43 : 11 constats, dont 4 graves sur le 
   - appareils connectés inactifs depuis 30 jours.
 - Pour le propriétaire, en plus : membres de l'équipe sans connexion protégée, clés d'API dormantes depuis 90 jours, webhooks en panne, journal des ventes intact. Chaque point à corriger mène à la bonne section.
 - Test ajouté (`bilan-securite.test.js`) ; vérifié dans un vrai navigateur, au bureau et sur mobile en mode sombre. 112 tests sur 112.
+
+## Cycle 49 (03 h 45) : corrections de la revue n° 10 (seconde relecture du journal)
+
+Seconde relecture du journal réécrit : clôtures transactionnelles, vérification par lots pendant de nouvelles ventes et cas de minuit confirmés. Dix nouveaux constats, tous traités :
+
+- **Migration** : un journal de la première version (quelques minutes de développement ce soir, jamais en production) aurait été signalé falsifié en entier, avec un e-mail d'alerte à chaque marchand. Il est mis de côté tel quel (`journal_inalterable_v1`) et les pièces sont rescellées dans la nouvelle version.
+- **Clé changée** : si `SECRET_CHIFFREMENT` change, la vérification le dit une fois (« la clé de signature a changé »), sans accuser chaque pièce ni envoyer d'alerte, et le serveur l'écrit au démarrage.
+- **Entrée illisible** : signalée comme anomalie, au lieu de faire échouer la vérification. Une boutique en erreur n'arrête plus la vérification des autres.
+- **Couverture des clôtures** : une pièce de plus de deux jours absente de toute clôture est signalée (la colonne de rattachement n'est pas signée, la vérification ne s'y fie donc pas).
+- **E-mails d'alerte** : envoyés quand les anomalies changent, et non une seule fois pour toujours.
+- **Interface** : plus de requêtes en boucle en cas d'erreur ; carte masquée pour le rôle « Commandes » (qui n'y a pas accès) ; formulation prudente sur ce que la vérification prouve.
+- **Route de statut** : numéros de pièces attribués dans une transaction (une erreur ne consomme plus de numéro) ; le remboursement repart de la commande relue après l'appel à Stripe (plus de mise à jour perdue).
+- **Reprise** : un avoir repris est daté de sa propre date.
+- Limite connue, écrite telle quelle : sans empreinte envoyée hors du serveur, une personne qui contrôle à la fois la base et la clé peut encore couper la fin du journal ; les empreintes du lundi servent à cela.
+- 114 tests sur 114, bout en bout 51 sur 51.

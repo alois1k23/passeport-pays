@@ -101,3 +101,54 @@ test('variantes du fournisseur : référence jamais publique, stock non modifiab
     assert.match(pub, /"variantes":\[\{"id":"S"/);
   } finally { s.close(); }
 });
+
+test('robustesse : migration v1, clé changée, entrée illisible, pièce sortie des clôtures', async () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(':memory:');
+  db.exec('CREATE TABLE commandes (id TEXT PRIMARY KEY, boutique_id TEXT, numero INTEGER, date INTEGER, statut TEXT, donnees TEXT)');
+  // Journal de la version 1 (SHA-256 simple, sans clôtures listées) : mis de côté, pièces rescellées.
+  db.exec("CREATE TABLE journal_inalterable (boutique_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL, ref TEXT NOT NULL, commande_id TEXT, le INTEGER NOT NULL, contenu TEXT NOT NULL, empreinte TEXT NOT NULL, PRIMARY KEY (boutique_id, seq), UNIQUE (boutique_id, type, ref))");
+  const t0 = Date.now() - 10 * 86400000;
+  for (let i = 1; i <= 3; i++) {
+    db.prepare('INSERT INTO commandes VALUES (?, ?, ?, ?, ?, ?)').run(`c${i}`, 'b', i, t0 + i * 3600000, 'livree', JSON.stringify({ facture: `FA-2026-${i}`, dateFacture: t0 + i * 3600000, total: 10 * i, lignes: [] }));
+    db.prepare("INSERT INTO journal_inalterable VALUES ('b', ?, 'facture', ?, ?, ?, '{}', 'ancienne')").run(i, `FA-2026-${i}`, `c${i}`, t0);
+  }
+  const lire = row => ({ ...JSON.parse(row.donnees), id: row.id, numero: row.numero, date: row.date, statut: row.statut });
+  const lireCommandes = ids => new Map(ids.map(id => [id, lire(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id))]));
+  let J = JI.creer(db, Buffer.alloc(32, 3));
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM journal_inalterable_v1').get().n, 3, 'version 1 gardée à part');
+  assert.equal(J.reprendre(lire), 3);
+  J.cloturer('b');
+  let r = await J.verifier('b', { lireCommandes, compteurFactures: 3 });
+  assert.equal(r.ok, true, JSON.stringify(r.anomalies));
+  // Entrée illisible : signalée, la vérification va au bout.
+  const sauve = db.prepare('SELECT contenu FROM journal_inalterable WHERE seq = 2').get().contenu;
+  db.prepare("UPDATE journal_inalterable SET contenu = 'pas du json' WHERE seq = 2").run();
+  r = await J.verifier('b', { lireCommandes, compteurFactures: 3 });
+  assert.match(r.anomalies.join(' '), /Entrée n° 2 .* illisible/);
+  assert.doesNotThrow(() => J.etat('b')); assert.doesNotThrow(() => J.exporterCsv('b'));
+  db.prepare('UPDATE journal_inalterable SET contenu = ? WHERE seq = 2').run(sauve);
+  // Clé changée : une seule anomalie claire, pas « chaque pièce modifiée ».
+  J = JI.creer(db, Buffer.alloc(32, 4));
+  r = await J.verifier('b', { lireCommandes, compteurFactures: 3 });
+  assert.equal(r.cleChangee, true); assert.equal(r.nbAnomalies, 1); assert.match(r.anomalies[0], /clé de signature du serveur a changé/);
+  assert.equal(J.etat('b').cleChangee, true);
+});
+
+test('une pièce ancienne absente de toute clôture est signalée', async () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(':memory:');
+  db.exec('CREATE TABLE commandes (id TEXT PRIMARY KEY, boutique_id TEXT, numero INTEGER, date INTEGER, statut TEXT, donnees TEXT)');
+  const J = JI.creer(db, Buffer.alloc(32, 5)), t0 = Date.now() - 10 * 86400000;
+  const lire = row => ({ ...JSON.parse(row.donnees), id: row.id, numero: row.numero, date: row.date, statut: row.statut });
+  for (let i = 1; i <= 2; i++) {
+    const c = { id: `c${i}`, numero: i, facture: `FA-2026-${i}`, dateFacture: t0, date: t0, total: 5, lignes: [] };
+    db.prepare('INSERT INTO commandes VALUES (?, ?, ?, ?, ?, ?)').run(c.id, 'b', i, t0, 'livree', JSON.stringify(c));
+    J.sceller('b', c, t0);
+  }
+  // Une pièce marquée « déjà clôturée » à tort : elle n'entre dans aucune clôture.
+  db.prepare('UPDATE journal_inalterable SET cloture_seq = 999 WHERE seq = 2').run();
+  J.cloturer('b');
+  const r = await J.verifier('b', { lireCommandes: ids => new Map(ids.map(id => [id, lire(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id))])), compteurFactures: 2 });
+  assert.match(r.anomalies.join(' '), /1 pièce absente de toute clôture \(FA-2026-2\)/);
+});

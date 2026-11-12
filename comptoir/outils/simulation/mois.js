@@ -331,9 +331,9 @@ const durees = [];
   }
   // Journal inaltérable : intact chez chaque marchand (aucune opération normale ne casse un sceau), et clôtures faites.
   for (const m of marchands.filter(x => !x.supprime && !x.resilieFini)) {
-    const j = await m.c('GET', '/api/admin/journal-inalterable');
-    if (j.s !== 200) { note(`marchand ${m.i}`, 'journal inaltérable illisible', j.s); continue; }
-    if (!j.j.ok) note(`marchand ${m.i}`, 'journal inaltérable : anomalie', j.j.anomalies.slice(0, 2).join(' | '));
+    const j = await m.c('POST', '/api/admin/journal-inalterable/verifier', {});
+    if (j.s !== 200) { note(`marchand ${m.i}`, 'journal inaltérable : vérification impossible', `${j.s} ${JSON.stringify(j.j)}`); continue; }
+    if (!j.j.ok) note(`marchand ${m.i}`, 'journal inaltérable : anomalie', (j.j.anomalies || []).slice(0, 2).join(' | '));
     if (j.j.pieces && !j.j.clotures) note(`marchand ${m.i}`, 'journal inaltérable : aucune clôture', `${j.j.pieces} pièces`);
   }
   // Isolation : un marchand ne lit jamais les commandes d'un autre

@@ -632,9 +632,9 @@ document.addEventListener('click', async e => {
 /* Journal inaltérable : état rapide, vérification complète (côté serveur, par lots) et export CSV pour l'archivage. */
 async function chargerEtatJournal() {
   ui.journalEtatEnCours = true;
-  try { const r = await fetch('/api/admin/journal-inalterable', { credentials: 'same-origin' }); if (r.ok) { ui.journalEtat = await r.json(); ui.journalEtatLe = Date.now(); } }
-  catch { /* hors ligne : rien de neuf à afficher */ }
-  finally { ui.journalEtatEnCours = false; }
+  try { const r = await fetch('/api/admin/journal-inalterable', { credentials: 'same-origin' }); if (r.ok) { ui.journalEtat = await r.json(); ui.journalEtatErreur = null; } else ui.journalEtatErreur = 'État du journal indisponible pour l’instant.'; }
+  catch { ui.journalEtatErreur = 'Pas de connexion : état du journal indisponible.'; }
+  finally { ui.journalEtatEnCours = false; ui.journalEtatLe = Date.now(); }   // succès ou échec : pas de nouvel essai avant 30 s
   if (location.hash.startsWith('#conformite')) rendre();
 }
 async function verifierJournal(ancre) {
