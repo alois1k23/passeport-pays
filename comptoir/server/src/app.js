@@ -1433,7 +1433,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     // Vendre à distance sans adresse du vendeur est interdit (CH : LCD art. 3 s ; FR : LCEN art. 6 ; BE : CDE art. VI.45).
     const adr = String((config.entreprise || {}).adresse || '').trim();
     if (!adr || /compléter/i.test(adr)) throw erreur(409, 'Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.', 'boutique_incomplete');
-    const produits = listerProduits(b.id).filter(vendable);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
+    // Stock réservé par les commandes en attente de paiement d'AUTRES clients : 30 minutes pour un paiement en ligne,
+    // jusqu'à l'échéance pour une facture QR. Sans cela, plusieurs clients pourraient payer le dernier exemplaire.
+    const emailClient = String((ctx.corps.client || {}).email || '').trim().toLowerCase();
+    const reserve = {};
+    for (const r2 of db.prepare("SELECT date, donnees FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ?").all(b.id, Date.now() - 90 * 86400000)) {
+      const d = JSON.parse(r2.donnees);
+      const active = d.moyen === 'facture' ? (d.echeance || 0) > Date.now() : r2.date > Date.now() - 30 * 60000;
+      if (!active || String((d.client || {}).email || '').toLowerCase() === emailClient) continue;   // son propre essai précédent ne bloque pas le client
+      for (const l of d.lignes || []) if (l.type !== 'drop') reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0);
+    }
+    const produits = listerProduits(b.id).filter(vendable).map(p => reserve[p.id] && p.type !== 'drop' ? { ...p, stock: Math.max(0, p.stock - reserve[p.id]) } : p);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
     const modes = prix.modesLivraison(config);
     const mode = typeof ctx.corps.livraison === 'string' && Object.hasOwn(modes, ctx.corps.livraison) ? modes[ctx.corps.livraison] : null;

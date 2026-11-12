@@ -361,6 +361,7 @@ test('avis vérifiés : lien personnel, une fois par produit, publiés avec la n
 });
 
 test('offre dans le panier et complément après l’achat (même colis)', async () => {
+  db.prepare("UPDATE commandes SET date = date - 3600000 WHERE statut = 'attente'").run();   // réservations de stock des tests précédents échues
   const e = await marchand('GET', '/api/admin/etat');
   const coffret = e.json.produits.find(p => p.type === 'stock');
   const c = config('Lacustre');
@@ -831,7 +832,13 @@ test('stock 1, deux commandes payées : une seule alerte « épuisé », la seco
   const ins = await m('POST', '/api/auth/inscription', { email: 'rupture@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Rupture', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Rupture', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Pièce unique', prix: 40, stock: 1, type: 'stock' }] });
   const pub = await a('GET', `/api/public/${ins.json.slug}`);
   const commander = n => a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C ' + n, email: `c${n}@exemple.ch`, adresse: 'Rue 2', npa: '1006', ville: 'Lausanne' } });
-  const c1 = await commander(1), c2 = await commander(2);
+  const c1 = await commander(1);
+  // Le dernier exemplaire est réservé 30 minutes pour le premier client : un second client ne peut pas le commander
+  const bloque = await commander(2);
+  assert.equal(bloque.statut, 409, 'stock réservé par la commande en attente');
+  // Réservation échue (le premier client n'a pas payé à temps) : le second commande ; puis les deux paient
+  db.prepare('UPDATE commandes SET date = date - 3600000 WHERE id = ?').run(c1.json.commandeId);
+  const c2 = await commander(2);
   await fetch(c1.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
   await fetch(c2.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
   const alertes = db.prepare("SELECT sujet FROM emails WHERE destinataire = 'rupture@exemple.ch' AND sujet LIKE 'Stock épuisé%'").all();
@@ -845,7 +852,9 @@ test('rupture puis remboursement : pas de stock fantôme', async () => {
   const ins = await m('POST', '/api/auth/inscription', { email: 'fantome@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Fantôme', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Fantôme', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Bougie B', prix: 20, stock: 1, type: 'stock' }] });
   const pub = await a('GET', `/api/public/${ins.json.slug}`);
   const commander = n => a('POST', `/api/public/${ins.json.slug}/commandes`, { lignes: [{ produitId: pub.json.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'C ' + n, email: `f${n}@exemple.ch`, adresse: 'Rue 2', npa: '1006', ville: 'Lausanne' } });
-  const c1 = await commander(1), c2 = await commander(2);
+  const c1 = await commander(1);
+  db.prepare('UPDATE commandes SET date = date - 3600000 WHERE id = ?').run(c1.json.commandeId);   // réservation échue
+  const c2 = await commander(2);
   await fetch(c1.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
   await fetch(c2.json.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
   assert.equal((await m('POST', `/api/admin/commandes/${c2.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 200);
