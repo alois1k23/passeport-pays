@@ -48,8 +48,11 @@ Renseignez ensuite `FOURNISSEUR_URL_API`, `FOURNISSEUR_CLE_API` et `FOURNISSEUR_
    - `URL_PUBLIQUE` en https ;
    - `NODE_ENV=production` ;
    - l'identité de l'exploitant : `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL`, `EXPLOITANT_IDE` ;
-   - `HEBERGEUR`.
-4. Les sauvegardes sont automatiques et quotidiennes, dans `/data/sauvegardes`. **Copiez ce dossier ailleurs** (stockage objet, autre serveur) et faites une fois l'essai de restauration.
+   - `HEBERGEUR` ;
+   - `SECRET_CHIFFREMENT` : générez-le avec `openssl rand -hex 32` et gardez-en une copie hors du serveur (gestionnaire de mots de passe). **À fixer avant d'ouvrir et à ne plus changer.** Il chiffre les secrets de double authentification des marchands : s'il change, leurs codes ne marchent plus ;
+   - `WEBAUTHN_RP_ID` : laissez vide pour utiliser le domaine de `URL_PUBLIQUE`. Ne le changez plus une fois que des marchands ont créé des clés d'accès.
+4. Lancez `node server/server.js --verifier` : chaque ligne marquée ✗ dit quoi corriger.
+5. Les sauvegardes sont automatiques et quotidiennes, dans `/data/sauvegardes`. **Copiez ce dossier ailleurs** (stockage objet, autre serveur) et faites une fois l'essai de restauration.
 
 ## 5. Documents à faire relire
 

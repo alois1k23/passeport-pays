@@ -27,6 +27,11 @@ if (process.argv.includes('--verifier')) {
     v(!!((env.BREVO_API_KEY || env.POSTMARK_TOKEN) && env.EMAIL_EXPEDITEUR), 'service d’envoi d’e-mails (Brevo ou Postmark) et EMAIL_EXPEDITEUR', 'sans cela, aucun e-mail ne part');
     v(!!env.FOURNISSEUR_URL_API, 'vrai fournisseur déclaré (FOURNISSEUR_*)', 'sans fournisseur réel, le dropshipping est impossible avec une clé Stripe réelle');
     v((env.TZ || '') === 'Europe/Zurich' || !env.TZ, 'heure de Lausanne', 'TZ doit valoir Europe/Zurich');
+    v(/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || ''), 'clé de chiffrement des secrets de double authentification (SECRET_CHIFFREMENT)', 'générez-la avec « openssl rand -hex 32 » et gardez-la hors de la base (sinon une copie volée de la base suffit à lire les secrets)');
+    v(env.VERIFIER_FUITES !== 'non', 'mots de passe parus dans des fuites refusés (VERIFIER_FUITES)', 'retirez VERIFIER_FUITES=non');
+    { let hote = ''; try { hote = new URL(url).hostname; } catch { /* vide */ }
+      v(!env.WEBAUTHN_RP_ID || hote === env.WEBAUTHN_RP_ID || hote.endsWith('.' + env.WEBAUTHN_RP_ID), `clés d’accès liées au domaine ${env.WEBAUTHN_RP_ID || hote || '(URL_PUBLIQUE)'}`, 'WEBAUTHN_RP_ID doit être le domaine de URL_PUBLIQUE ou un domaine parent'); }
+    v(!env.INTEGRATIONS_HTTP_LOCAL, 'webhooks marchands : adresses locales interdites', 'retirez INTEGRATIONS_HTTP_LOCAL (réservé aux essais)');
     if (env.STRIPE_SECRET_KEY && !env.STRIPE_API_URL) {
       try {
         const r = await fetch('https://api.stripe.com/v1/account', { headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'Stripe-Version': '2024-06-20' }, signal: AbortSignal.timeout(10000) });

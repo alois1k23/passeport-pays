@@ -251,7 +251,7 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - **E-mails aux clients** : la commande garde la langue dans laquelle elle a été passée. Les e-mails de confirmation, d'expédition (avec le lien de suivi) et de facture QR partent dans cette langue (`server/src/emails-clients.js`). Le droit de rétractation (France, Belgique) reste en français, annoncé dans la langue du client. Une langue que la boutique ne propose pas retombe sur le français. Testé.
 - **Limites** : la page sans JavaScript, les relances et les e-mails marketing restent en français.
 
-## Cycle 14 (01 h 15) : rapport du lundi
+## Cycle 14 (01 h 10) : rapport du lundi
 
 - Chaque lundi dès 7 h, heure de la boutique, le marchand reçoit un e-mail qui résume sa semaine :
   - chiffre d'affaires, comparé à la semaine d'avant ;
