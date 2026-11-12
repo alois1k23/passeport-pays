@@ -598,7 +598,8 @@ function vueProduits() {
       <label class="champ"><span>Nom</span><input id="pf-nom" name="nom" required value="${esc(p.nom)}"></label>
       <label class="champ"><span>Description <button type="button" class="lien bouton-lien" data-action="rediger">Rédiger pour moi</button></span><textarea id="pf-desc" name="description" rows="4">${esc(p.description)}</textarea></label>
       <div class="deux"><label class="champ"><span>Prix TTC (${devise()})</span><input id="pf-prix" name="prix" type="number" min="0" step="0.01" required value="${p.prix}"></label>
-      ${p.type === 'drop' ? '<input type="hidden" name="stock" value="999">' : `<label class="champ"><span>Stock</span><input id="pf-stock" name="stock" type="number" min="0" step="1" required value="${p.stock}"></label>`}</div>
+      ${p.type === 'drop' ? '<input type="hidden" name="stock" value="999">' : aVariantesEdit(p) ? `<label class="champ"><span>Stock (somme des variantes)</span><input id="pf-stock" name="stock" type="number" readonly value="${p.variantes.reduce((a, v) => a + (Number(v.stock) || 0), 0)}"></label>` : `<label class="champ"><span>Stock</span><input id="pf-stock" name="stock" type="number" min="0" step="1" required value="${p.stock}"></label>`}</div>
+      ${p.type === 'drop' ? '' : editeurVariantes(p)}
       ${p.type === 'drop' ? `<p class="sous">Fournisseur : ${esc(p.fournisseur || '—')} · entrepôt ${ENTREPOTS[p.entrepot] ? ENTREPOTS[p.entrepot].nom : '—'} · ${p.delai ? p.delai[0] + '–' + p.delai[1] + ' jours' : ''}</p>
       <label class="champ"><span>Coût fournisseur (${devise()})</span><input id="pf-cout" name="cout" type="number" min="0" step="0.01" value="${p.cout}"></label>`
       : `<label class="champ"><span>Coût d’achat unitaire (${devise()})</span><input id="pf-cout" name="cout" type="number" min="0" step="0.01" value="${p.cout ?? ''}" placeholder="Pour calculer votre marge"></label>`}
@@ -1089,11 +1090,16 @@ document.addEventListener('click', e => {
     const a = sf.dataset.sf;
     if (a === 'ajouter') {
       const p = etat.produits.find(x => x.id === sf.dataset.id);
-      const l = ui.panier.find(x => x.produitId === p.id);
-      if (l) l.qte = Math.min(p.stock, l.qte + 1); else ui.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1 });
+      // Variantes (aperçu) : la fiche s'ouvre pour choisir ; dans la fiche, la variante choisie est ajoutée.
+      const choix = [...document.querySelectorAll('[data-sf-option]')].map(x => x.value);
+      const v = Array.isArray(p.variantes) && p.variantes.length && ui.fiche === p.id && choix.length ? p.variantes.find(x => x.id === choix.join('/')) : null;
+      if (Array.isArray(p.variantes) && p.variantes.length && !v) { ui.fiche = p.id; rendre(); return; }
+      const stockMax = v ? v.stock : p.stock;
+      const l = ui.panier.find(x => x.produitId === p.id && (x.varianteId || null) === (v ? v.id : null));
+      if (l) l.qte = Math.min(stockMax, l.qte + 1); else ui.panier.push(v ? { produitId: p.id, varianteId: v.id, nom: `${p.nom} (${v.valeurs.join(' / ')})`, prix: typeof v.prix === 'number' ? v.prix : p.prix, qte: 1 } : { produitId: p.id, nom: p.nom, prix: p.prix, qte: 1 });
       const q = Math.max(1, Number(document.querySelector('[data-sf-qte]')?.value) || 1);
-      if (l) l.qte = Math.min(p.type === 'drop' ? 99 : p.stock, l.qte + q - 1);
-      else ui.panier[ui.panier.length - 1].qte = Math.min(p.type === 'drop' ? 99 : Math.max(1, p.stock), q);
+      if (l) l.qte = Math.min(p.type === 'drop' ? 99 : stockMax, l.qte + q - 1);
+      else ui.panier[ui.panier.length - 1].qte = Math.min(p.type === 'drop' ? 99 : Math.max(1, stockMax), q);
       ui.fiche = null; ui.confirmation = null; ui.panierOuvert = true; rendre();
     } else if (a === 'panier') { ui.panierOuvert = true; rendre(); }
     else if (a === 'fiche') { ui.fiche = sf.dataset.id; rendre(); }
@@ -1145,7 +1151,7 @@ document.addEventListener('click', e => {
     case 'transmettre-partie': { const c = etat.commandes.find(x => x.id === id); if (c) { transmettre(c, false); sauver(); rendre(); } break; }
     case 'nouveau-produit': ui.produitEdite = { id: nouvelId('p'), nom: '', description: '', prix: 20, stock: 10, categorie: SECTEURS[etat.boutique.secteur].categories[0], teinte: Math.floor(Math.random() * 360), actif: true }; rendre(); break;
     case 'editer-produit': ui.produitEdite = { ...etat.produits.find(x => x.id === id) }; rendre(); break;
-    case 'fermer-produit': ui.produitEdite = null; rendre(); break;
+    case 'fermer-produit': ui.produitEdite = null; ui.variantesOuvert = false; ui.brouillonOptions = null; rendre(); break;
     case 'supprimer-produit': if (!confirmerAction(el)) break; etat.produits = etat.produits.filter(x => x.id !== id); ui.produitEdite = null; sauver(); toast('Produit supprimé.'); rendre(); break;
     case 'choisir-section': ui.section = ui.section === id ? null : id; rendre(); break;
     case 'monter': if (idx > 0) { etat.boutique.sections.splice(idx - 1, 0, ...etat.boutique.sections.splice(idx, 1)); modifie(); rendre(); } break;
@@ -1299,3 +1305,55 @@ function surHash() {
 }
 window.addEventListener('hashchange', surHash);
 demarrer();
+
+/* ---------- Variantes d'un produit en stock (tailles, couleurs…) ----------
+   2 options au plus ; chaque combinaison a son stock et, si besoin, son propre prix (sinon le prix du produit). */
+const aVariantesEdit = p => !!(p && Array.isArray(p.variantes) && p.variantes.length);
+function combinaisons(options) {
+  const opts = (options || []).filter(o => o.nom && o.valeurs.length);
+  return opts.length ? opts.reduce((acc, o) => acc.flatMap(a => o.valeurs.map(v => [...a, v])), [[]]) : [];
+}
+function editeurVariantes(p) {
+  // Saisie en cours (une option sans valeur encore) gardée telle quelle d'un affichage à l'autre
+  const brouillon = ui.brouillonOptions && ui.brouillonOptions.id === p.id ? ui.brouillonOptions.o : null;
+  const o = [0, 1].map(i => brouillon ? brouillon[i] : ((p.options || [])[i] ? { nom: p.options[i].nom, valeurs: p.options[i].valeurs.join(', ') } : { nom: '', valeurs: '' }));
+  return `<details class="variantes-edit" ${aVariantesEdit(p) || ui.variantesOuvert ? 'open' : ''}><summary>Variantes (tailles, couleurs…)</summary>
+    <p class="sous">Une ou deux options, valeurs séparées par des virgules. Chaque combinaison a son stock, et un prix différent si besoin.</p>
+    ${o.map((x, i) => `<div class="deux"><label class="champ"><span>Option ${i + 1}</span><input data-opt-nom="${i}" value="${esc(x.nom)}" placeholder="${i ? 'ex. Couleur' : 'ex. Taille'}" maxlength="30"></label>
+      <label class="champ"><span>Valeurs</span><input data-opt-valeurs="${i}" value="${esc(x.valeurs)}" placeholder="${i ? 'Bleu, Sable' : 'S, M, L'}"></label></div>`).join('')}
+    ${aVariantesEdit(p) ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Variante</th><th class="num">Stock</th><th class="num">Prix (vide = ${euros(p.prix)})</th></tr></thead><tbody>
+      ${p.variantes.map(v => `<tr><td>${esc(v.valeurs.join(' / '))}</td><td class="num"><input type="number" min="0" step="1" value="${Number(v.stock) || 0}" data-var-stock="${esc(v.id)}" aria-label="Stock ${esc(v.valeurs.join(' / '))}" class="qte-lien"></td><td class="num"><input type="number" min="0" step="0.01" value="${v.prix ?? ''}" data-var-prix="${esc(v.id)}" aria-label="Prix ${esc(v.valeurs.join(' / '))}" class="qte-lien"></td></tr>`).join('')}
+    </tbody></table></div>` : ''}</details>`;
+}
+document.addEventListener('change', e => {
+  const n = e.target.closest('[data-opt-nom], [data-opt-valeurs]'); if (!n || !ui.produitEdite) return;
+  const p = ui.produitEdite;
+  ui.variantesOuvert = true;
+  ui.brouillonOptions = { id: p.id, o: [0, 1].map(i => ({ nom: document.querySelector(`[data-opt-nom="${i}"]`)?.value || '', valeurs: document.querySelector(`[data-opt-valeurs="${i}"]`)?.value || '' })) };
+
+  const options = [0, 1].map(i => ({ nom: (document.querySelector(`[data-opt-nom="${i}"]`)?.value || '').trim().slice(0, 30), valeurs: [...new Set((document.querySelector(`[data-opt-valeurs="${i}"]`)?.value || '').split(',').map(v => v.replace(/[\/|]/g, '-').trim()).filter(Boolean))].slice(0, 20) })).filter(o => o.nom && o.valeurs.length);
+  const combis = combinaisons(options);
+  if (combis.length > 60) { toast('60 variantes au plus par produit.'); return; }
+  const avant = p.variantes || [];
+  p.options = options;
+  p.variantes = combis.map(valeurs => { const id = valeurs.join('/'), v = avant.find(x => x.id === id); return { id, valeurs, stock: v ? v.stock : 0, ...(v && v.prix !== undefined && v.prix !== null && v.prix !== '' ? { prix: v.prix } : {}) }; });
+  if (!p.variantes.length) { delete p.options; delete p.variantes; }
+  else p.stock = p.variantes.reduce((a, v) => a + (Number(v.stock) || 0), 0);
+  // Ce qui est déjà saisi dans la fiche (nom, prix…) est gardé avant le nouvel affichage
+  const f = document.querySelector('[data-form="produit"]');
+  if (f) { const d = new FormData(f); for (const k of ['nom', 'description', 'categorie']) if (d.has(k)) p[k] = d.get(k); for (const k of ['prix', 'cout', 'prixReference']) if (d.has(k) && d.get(k) !== '') p[k] = Number(d.get(k)); p.actif = d.has('actif'); p.tauxReduit = d.has('tauxReduit'); }
+  // Nouvel affichage après le déplacement du curseur (tabulation, clic) : le marchand le retrouve dans le champ où il est allé
+  setTimeout(() => {
+    const actif = document.activeElement, suite = actif && actif.matches && actif.matches('[data-opt-nom], [data-opt-valeurs], [data-var-stock], [data-var-prix]') ? [...actif.attributes].find(a => a.name.startsWith('data-')) : null;
+    rendre();
+    if (suite) document.querySelector(`[${suite.name}="${CSS.escape(suite.value)}"]`)?.focus();
+  }, 0);
+});
+document.addEventListener('input', e => {
+  const s = e.target.closest('[data-var-stock]'), pr = e.target.closest('[data-var-prix]'); if ((!s && !pr) || !ui.produitEdite) return;
+  const p = ui.produitEdite, v = (p.variantes || []).find(x => x.id === (s ? s.dataset.varStock : pr.dataset.varPrix)); if (!v) return;
+  if (s) v.stock = Math.max(0, parseInt(s.value, 10) || 0);
+  else if (pr.value === '') delete v.prix; else v.prix = Math.max(0, Number(pr.value) || 0);
+  p.stock = p.variantes.reduce((a, x) => a + (Number(x.stock) || 0), 0);
+  const total = document.getElementById('pf-stock'); if (total) total.value = p.stock;
+});

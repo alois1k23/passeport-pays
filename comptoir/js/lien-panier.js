@@ -11,7 +11,7 @@ function lienPanierUrl() {
   return u.toString();
 }
 function vueLienPanier() {
-  const prods = etat.produits.filter(p => p.actif && !p.aVerifier);
+  const prods = etat.produits.filter(p => p.actif && !p.aVerifier && !(Array.isArray(p.variantes) && p.variantes.length));   // produits à variantes : le client choisit sur la fiche
   const codes = typeof Remises !== 'undefined' && Remises.codesValables ? Remises.codesValables(typeof etatVente === 'function' ? etatVente() : etat).map(c => c.code) : [];
   const url = lienPanierUrl();
   const total = prods.reduce((a, p) => a + (LIEN_PANIER.qte[p.id] || 0) * p.prix, 0);

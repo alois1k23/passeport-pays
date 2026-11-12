@@ -249,6 +249,17 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       const p = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ?').get(l.produitId, boutiqueId);
       if (!p) continue;
       const d = JSON.parse(p.donnees);
+      // Variante : son stock bouge, et le stock du produit reste la somme des variantes.
+      const v = l.varianteId && Array.isArray(d.variantes) ? d.variantes.find(x => x.id === l.varianteId) : null;
+      if (v) {
+        if (sens < 0) { const retire = Math.min(l.qte, Math.max(0, v.stock || 0)); l.retireStock = retire; v.stock = (v.stock || 0) - retire; }
+        else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; v.stock = (v.stock || 0) + remis; l.retireStock = 0; }
+        const avantTotal = d.stock || 0;
+        d.stock = d.variantes.reduce((a, x) => a + (x.stock || 0), 0);
+        if (sens < 0 && avantTotal > 0 && d.stock <= 0) integ.emettre(boutiqueId, 'produit.rupture', { id: l.produitId, nom: d.nom, stock: 0 });
+        db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(d), l.produitId);
+        continue;
+      }
       // Stock jamais négatif : on note sur la ligne ce qui a vraiment été retiré, et seul ce nombre revient en cas
       // d'annulation ou de remboursement (sinon une commande vendue en rupture recréerait du stock fantôme).
       if (sens < 0) {
@@ -463,6 +474,23 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (p.prixReference !== undefined && p.prixReference !== null && p.prixReference !== '' && Number(p.prixReference) > 0) propre.prixReference = valider.nombre(p.prixReference, 'Le prix barré', { min: 0, max: 100000 });
     // Historique des prix tenu par le serveur seul (sert à vérifier les prix barrés) : le navigateur ne peut pas le modifier.
     propre.historiquePrix = PrixBarres.noterPrix(historiqueAvant, propre.prix);
+    // Variantes (produits en stock) : 2 options au plus (ex. Taille × Couleur), 20 valeurs chacune, 60 combinaisons.
+    // L'identifiant d'une variante est sa combinaison (« M/Bleu ») ; le stock du produit est la somme des variantes.
+    if (type === 'stock' && Array.isArray(p.options) && p.options.length) {
+      const options = p.options.slice(0, 2).map(o => ({ nom: String(o && o.nom || '').trim().slice(0, 30), valeurs: [...new Set((Array.isArray(o && o.valeurs) ? o.valeurs : []).map(v => String(v).replace(/[\/|]/g, '-').trim().slice(0, 30)).filter(Boolean))].slice(0, 20) })).filter(o => o.nom && o.valeurs.length);
+      if (options.length) {
+        const combis = options.reduce((acc, o) => acc.flatMap(a => o.valeurs.map(v => [...a, v])), [[]]);
+        if (combis.length > 60) throw erreur(400, '60 variantes au plus par produit.', 'trop_de_variantes');
+        const avant = Array.isArray(p.variantes) ? p.variantes : [];
+        propre.options = options;
+        propre.variantes = combis.map(valeurs => {
+          const id = valeurs.join('/'), v = avant.find(x => x && x.id === id) || {};
+          const prixV = v.prix !== undefined && v.prix !== null && v.prix !== '' ? prix.arrondi(valider.nombre(v.prix, 'Le prix de la variante', { min: 0, max: 100000 })) : null;
+          return { id, valeurs, stock: valider.entier(v.stock ?? 0, 'Le stock de la variante', { min: 0, max: 1e6 }), ...(prixV !== null ? { prix: prixV } : {}) };
+        });
+        propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
+      }
+    }
     if (type === 'drop') Object.assign(propre, { portF: Number(p.portF) || 0, entrepot: ['CH', 'UE', 'CN'].includes(p.entrepot) ? p.entrepot : 'UE', delai: Array.isArray(p.delai) ? p.delai.slice(0, 2).map(Number) : [3, 7], fournisseur: String(p.fournisseur || '').slice(0, 80), source: String(p.source || '').slice(0, 40), codeFournisseur: p.codeFournisseur || 'demo' });
     return propre;
   }
@@ -1604,9 +1632,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       // 30 minutes pour un paiement en ligne, 48 heures pour une facture QR (une commande fictive sur facture ne bloque pas le stock un mois).
       const active = r2.date > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : 30 * 60000);
       if (!active || String((d.client || {}).email || '').toLowerCase() === emailClient) continue;   // son propre essai précédent ne bloque pas le client
-      for (const l of d.lignes || []) if (l.type !== 'drop') reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0);
+      for (const l of d.lignes || []) if (l.type !== 'drop') { reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0); if (l.varianteId) reserve[`${l.produitId}:${l.varianteId}`] = (reserve[`${l.produitId}:${l.varianteId}`] || 0) + (l.qte || 0); }
     }
-    const produits = listerProduits(b.id).filter(vendable).map(p => reserve[p.id] && p.type !== 'drop' ? { ...p, stock: Math.max(0, p.stock - reserve[p.id]) } : p);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
+    const produits = listerProduits(b.id).filter(vendable).map(p => !reserve[p.id] || p.type === 'drop' ? p : { ...p, stock: Math.max(0, p.stock - reserve[p.id]), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(v => ({ ...v, stock: Math.max(0, v.stock - (reserve[`${p.id}:${v.id}`] || 0)) })) } : {}) });   // produit masqué ou du fournisseur de démonstration : « plus disponible »
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
     const modes = prix.modesLivraison(config);
     const mode = typeof ctx.corps.livraison === 'string' && Object.hasOwn(modes, ctx.corps.livraison) ? modes[ctx.corps.livraison] : null;

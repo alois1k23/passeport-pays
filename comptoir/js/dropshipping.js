@@ -233,6 +233,11 @@ function boutiqueDemoLausanne() {
   // Démo : l’humidificateur était à 59 pendant 3 mois, réduit à 54 depuis 3 semaines (prix barré licite).
   produits[1].prixReference = 59;
   produits[1].historiquePrix = [{ date: Date.now() - 120 * 86400000, prix: 59 }, { date: Date.now() - 21 * 86400000, prix: 54 }];
+  // Produit à variantes (démonstration) : un plaid en deux tailles et deux couleurs, stock par variante.
+  produits.push({ id: 'p8', nom: 'Plaid en laine du Jura', categorie: 'Textiles', prix: 89, description: 'Laine de moutons du Jura, tissée en Suisse. Deux tailles, deux couleurs.', teinte: 30, actif: true, type: 'stock', cout: 38,
+    options: [{ nom: 'Taille', valeurs: ['130 × 170', '150 × 200'] }, { nom: 'Couleur', valeurs: ['Sable', 'Ardoise'] }],
+    variantes: [{ id: '130 × 170/Sable', valeurs: ['130 × 170', 'Sable'], stock: 4 }, { id: '130 × 170/Ardoise', valeurs: ['130 × 170', 'Ardoise'], stock: 2 }, { id: '150 × 200/Sable', valeurs: ['150 × 200', 'Sable'], stock: 3, prix: 109 }, { id: '150 × 200/Ardoise', valeurs: ['150 × 200', 'Ardoise'], stock: 0, prix: 109 }],
+    stock: 9 });
   produits.push({ id: 'p7', nom: 'Coffret Léman fait main', categorie: 'Coffrets cadeaux', prix: 59, description: 'Bougie, savon et carte postale du lac, assemblés à Lausanne.', stock: 4, teinte: 195, actif: true, type: 'stock', cout: 21 });
   const now = Date.now(), jour = 86400000;
   const commandes = [];

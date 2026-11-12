@@ -161,7 +161,7 @@ function renduSection(s, etat, mode) {
             <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>
             <div class="sf-carte-infos"><h3 data-sans-traduction><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${prixBarreAffiche(x, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(x, etat))}</s> ` : ''}${euros(x.prix)}</span></div>
             ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}<small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}</small>
-            <button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>
+            ${Array.isArray(x.variantes) && x.variantes.length ? `<button class="sf-btn sf-btn-ligne" data-sf="fiche" data-id="${esc(x.id)}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Choisir'}</button>` : `<button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>`}
           </article>`).join('') || (q ? `<p class="sf-vide">Aucun produit ne correspond à « ${esc(q)} ».</p>` : prods.length ? '<p class="sf-vide">Aucun produit dans cette catégorie.</p>' : '<p class="sf-vide">Nos produits arrivent très bientôt.</p>')}
         </div>${mode !== 'edition' && !q && dispo.length > (Number(p.nombre) || 4) ? `<p class="sf-tout"><button type="button" class="sf-btn" data-sf="tout-voir" data-id="${esc(s.id)}">${tout ? 'Voir moins' : `Voir tous les produits (${dispo.length})`}</button></p>` : ''}</section>`;
     }
@@ -218,7 +218,7 @@ function renduFiche(etat, p, qte = 1) {
     <div class="sf-fiche-infos">
       ${p.categorie ? `<small class="sf-fiche-cat">${esc(p.categorie)}</small>` : ''}
       <h2 data-sans-traduction>${esc(p.nom)}</h2>
-      <p class="sf-fiche-prix">${prixBarreAffiche(p, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(p, etat))}</s> ` : ''}<strong>${euros(p.prix)}</strong> <small>${esc(mentionTva((etat.entreprise || {}).regime, etat.boutique.pays))}</small></p>
+      <p class="sf-fiche-prix">${prixBarreAffiche(p, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(p, etat))}</s> ` : ''}<strong data-sf-prix>${euros(Array.isArray(p.variantes) && p.variantes.length ? ((p.variantes.find(v => v.stock > 0) || p.variantes[0]).prix ?? p.prix) : p.prix)}</strong> <small>${esc(mentionTva((etat.entreprise || {}).regime, etat.boutique.pays))}</small></p>
       ${prixBarreAffiche(p, etat) ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
       ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
       ${p.description ? `<p class="sf-fiche-desc" data-sans-traduction>${esc(p.description)}</p>` : ''}
@@ -230,6 +230,10 @@ function renduFiche(etat, p, qte = 1) {
         const etranger = ch ? p.entrepot !== 'CH' : p.entrepot !== 'UE';
         return `<p class="sf-fiche-note">Expédié depuis : ${esc(nom)}.${etranger ? (ch ? ' TVA d’importation et frais de dédouanement possibles à la livraison (au-delà de CHF 5 de TVA par envoi).' : ' Envoi de l’extérieur de l’UE : TVA d’importation et frais du transporteur possibles à la livraison.') : ''}</p>`;
       })()}
+      ${Array.isArray(p.options) && Array.isArray(p.variantes) && p.variantes.length ? `<div class="sf-options" data-sans-traduction>${p.options.map((o, i) => {
+        const premier = (p.variantes.find(v => v.stock > 0) || p.variantes[0]).valeurs[i];
+        return `<label class="sf-qte"><span>${esc(o.nom)}</span><select data-sf-option="${i}" aria-label="${esc(o.nom)}">${o.valeurs.map(v => `<option ${v === premier ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`;
+      }).join('')}</div>` : ''}
       <div class="sf-fiche-achat">
         <label class="sf-qte"><span>Quantité</span><select data-sf-qte aria-label="Quantité">${Array.from({ length: max }, (_, i) => `<option ${i + 1 === qte ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
         <button class="sf-btn" data-sf="ajouter" data-id="${esc(p.id)}" ${epuise ? 'disabled' : ''}>${epuise ? 'Épuisé' : 'Ajouter au panier'}</button>

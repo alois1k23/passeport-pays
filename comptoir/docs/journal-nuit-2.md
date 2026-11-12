@@ -419,7 +419,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Le tableau de bord rappelle de protéger le compte (clé d'accès ou double authentification) tant qu'aucune des deux n'est active. Le rappel disparaît dès l'activation.
 - Essai de bout en bout 51 sur 51, et simulation complète 0 anomalie, après l'ajout de l'équipe.
 
-## Cycle 28 (02 h 15) : console de l'exploitant, corrections de l'audit de l'équipe
+## Cycle 28 (02 h 05) : console de l'exploitant, corrections de l'audit de l'équipe
 
 - **Console de l'exploitant** (`/operateur`), pour la personne qui gère la plateforme :
   - comptes marchands, membres d'équipe, inscriptions de la semaine ;
@@ -440,3 +440,21 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   7. Les e-mails de compte d'un membre retiré ou supprimé sont effacés.
   8. L'attribut `lang` de la page suit la langue demandée.
 - Tests de non-régression ajoutés (IBAN inchangé, import bancaire refusé, « payée » refusé, pas d'IBAN pour le rôle « Commandes »). 97 tests sur 97.
+
+## Cycle 29 (02 h 45) : variantes de produits (tailles, couleurs)
+
+- Un produit en stock peut avoir **jusqu'à 2 options**, par exemple Taille × Couleur : 20 valeurs par option et 60 combinaisons au plus. Chaque combinaison a **son stock** et, si besoin, **son prix**. Le stock du produit est la somme des variantes.
+- **Éditeur de produit** : bloc « Variantes » avec les options, les valeurs séparées par des virgules, et un tableau des combinaisons (stock, prix). La saisie en cours est gardée d'un affichage à l'autre, et le curseur suit la tabulation.
+- **Boutique** :
+  - la carte du produit affiche « Choisir » ;
+  - la fiche propose une liste par option, et le prix comme la disponibilité suivent le choix ;
+  - le panier distingue les variantes (« T-shirt (M / Noir) »).
+- **Serveur** :
+  - variante obligatoire, stock et prix contrôlés par variante ;
+  - stock retiré puis rendu (remboursement) sur la variante ;
+  - réservation de stock par variante ;
+  - alerte « épuisé » quand le total tombe à zéro.
+- **Caisse** : un bouton par variante, avec son prix et son stock.
+- **Démo** : un « Plaid en laine du Jura » (2 tailles × 2 couleurs, prix selon la taille).
+- **Limites** : pas de variantes pour les produits en dropshipping (codes fournisseur par variante à prévoir). Les offres en un clic et le lien de panier ne proposent pas les produits à variantes, le client les choisit sur la fiche.
+- Testé : test serveur (variante obligatoire, inconnue, sans stock, prix, stock retiré puis rendu), puis parcours complet dans un vrai navigateur (éditeur, boutique, panier, paiement) et caisse de la démo. 98 tests sur 98.

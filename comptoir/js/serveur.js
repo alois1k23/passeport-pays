@@ -419,7 +419,7 @@ function installerModeConnecte() {
         bloquer();
         // Clé unique du ticket : le serveur n'enregistre jamais deux fois la même vente.
         ui.cleTicket = ui.cleTicket || `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-        const r = await api('POST', '/api/admin/caisse', { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte })), moyen: el.dataset.moyen, cle: ui.cleTicket });
+        const r = await api('POST', '/api/admin/caisse', { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}) })), moyen: el.dataset.moyen, cle: ui.cleTicket });
         ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; await rafraichir(`Vente de ${r.total} encaissée. Facture ${r.facture}.`);
       } else if (action === 'as-creer') {
         bloquer();

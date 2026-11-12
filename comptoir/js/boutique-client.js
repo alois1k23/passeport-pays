@@ -48,7 +48,11 @@ async function demarrer() {
   if (!vue.fiche) document.title = titreAccueil();
   document.body.style.background = donnees.boutique.theme.bg;
   // Le panier ne garde que les produits encore en vente, au prix actuel.
-  vue.panier = vue.panier.map(l => { const p = donnees.produits.find(x => x.id === l.produitId); return p && { produitId: p.id, nom: p.nom, prix: p.prix, qte: l.qte }; }).filter(Boolean);
+  vue.panier = vue.panier.map(l => {
+    const p = donnees.produits.find(x => x.id === l.produitId); if (!p) return null;
+    if (Array.isArray(p.variantes) && p.variantes.length) { const v = p.variantes.find(x => x.id === l.varianteId); return v ? ligneVariante(p, v, l.qte) : null; }
+    return { produitId: p.id, nom: p.nom, prix: p.prix, qte: l.qte };
+  }).filter(Boolean);
   vue.livraison = Object.keys(donnees.livraisons)[0];
   mesurer('vue');
   const q = new URLSearchParams(location.search);
@@ -58,7 +62,7 @@ async function demarrer() {
   // Lien de panier envoyé par le marchand (WhatsApp, Instagram, SMS) : ?panier=id:qte,id:qte[&code=…]
   // Le panier est rempli avec les produits encore en vente (quantité limitée au stock), puis le tiroir s'ouvre.
   if (q.get('panier')) {
-    const lignes = q.get('panier').split(',').slice(0, 20).map(x => x.split(':')).map(([id, n]) => ({ p: donnees.produits.find(y => y.id === id), n: Math.max(1, Math.min(20, parseInt(n, 10) || 1)) })).filter(x => x.p && (x.p.type === 'drop' || x.p.stock > 0));
+    const lignes = q.get('panier').split(',').slice(0, 20).map(x => x.split(':')).map(([id, n]) => ({ p: donnees.produits.find(y => y.id === id), n: Math.max(1, Math.min(20, parseInt(n, 10) || 1)) })).filter(x => x.p && !aVariantes(x.p) && (x.p.type === 'drop' || x.p.stock > 0));
     if (lignes.length) {
       vue.panier = lignes.map(({ p, n }) => ({ produitId: p.id, nom: p.nom, prix: p.prix, qte: p.type === 'drop' ? n : Math.min(n, p.stock) }));
       garderPanier(); vue.ouvert = true; mesurer('panier', { valeur: 'lien' });
@@ -87,6 +91,13 @@ function fraisPortClient(cle, sousTotal) {
 }
 
 /* Remises : même calcul que le serveur (js/remises.js), avec le code validé par l’API. */
+/* Variantes : ligne de panier d'une variante (nom « Produit (M / Bleu) », prix et stock de la variante). */
+const aVariantes = p => !!(p && Array.isArray(p.variantes) && p.variantes.length);
+const ligneVariante = (p, v, qte) => ({ produitId: p.id, varianteId: v.id, nom: `${p.nom} (${v.valeurs.join(' / ')})`, prix: typeof v.prix === 'number' ? v.prix : p.prix, qte });
+function varianteChoisie(p) {
+  const choix = [...document.querySelectorAll('[data-sf-option]')].map(s => s.value);
+  return choix.length === (p.options || []).length ? p.variantes.find(v => v.id === choix.join('/')) : null;
+}
 function calculPanier() {
   const config = { offres: { ...donnees.offres, codes: vue.code ? [vue.code] : [] } };
   return Remises.appliquer(vue.panier, config, vue.code ? vue.code.code : '');
@@ -137,7 +148,7 @@ function rendreBrut() {
   const port = total ? fraisPortClient(vue.livraison, total) : 0;
   const seuil = donnees.seuilPortOffert;
   const regle = vue.panier.length ? Remises.regleApplicable({ offres: donnees.offres }, vue.panier, 'panier') : null;
-  const produitOffre = regle ? donnees.produits.find(p => p.id === regle.alors && (p.type === 'drop' || p.stock > 0)) : null;
+  const produitOffre = regle ? donnees.produits.find(p => p.id === regle.alors && !aVariantes(p) && (p.type === 'drop' || p.stock > 0)) : null;   // offre en un clic : pas pour un produit à variantes
   if (produitOffre && vue.ouvert) mesurer('offre_vue', { valeur: regle.id });
   const suggestion = donnees.offres.suggestions && !produitOffre ? donnees.produits.find(p => !vue.panier.some(l => l.produitId === p.id) && (p.type === 'drop' || p.stock > 0)) : null;
   const drops = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.type === 'drop' && p.delai);
@@ -158,7 +169,7 @@ function rendreBrut() {
         ${vue.message ? vue.message : vue.panier.length ? `
           <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span data-sans-traduction>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
             <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span data-sans-traduction>${esc(l.nom)}</span>
-            <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId); return pr && l.qte >= (pr.type === 'drop' ? 20 : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
+            <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId); return pr && l.qte >= (pr.type === 'drop' ? 20 : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
             <span class="num">${euros(l.prixInitial * l.qte)}</span></li>`).join('')}</ul>
           ${donnees.offres.barrePort && seuil > 0 && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i style="width:${Math.min(100, total / seuil * 100)}%"></i></span></div>` : ''}
           ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
@@ -215,7 +226,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
@@ -277,11 +288,14 @@ document.addEventListener('click', e => {
   if (sf) {
     if (sf.dataset.sf === 'ajouter') {
       const p = donnees.produits.find(x => x.id === sf.dataset.id);
-      const l = vue.panier.find(x => x.produitId === p.id && !x.offre);
+      // Produit à variantes : la fiche s'ouvre pour choisir la taille, la couleur…
+      const v = aVariantes(p) && vue.fiche === p.id ? varianteChoisie(p) : null;
+      if (aVariantes(p) && !v) { vue.fiche = p.id; history.pushState({ fiche: p.id }, '', urlFiche(p.id)); vue.ouvert = false; rendre(); return; }
+      const l = vue.panier.find(x => x.produitId === p.id && !x.offre && (x.varianteId || null) === (v ? v.id : null));
       mesurer('panier', { produitId: p.id });
       const q = Math.max(1, Number(document.querySelector('[data-sf-qte]')?.value) || 1);
-      const max = p.type === 'drop' ? 20 : p.stock;
-      if (l) l.qte = Math.min(max, l.qte + q); else vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(max, q) });
+      const max = p.type === 'drop' ? 20 : v ? v.stock : p.stock;
+      if (l) l.qte = Math.min(max, l.qte + q); else vue.panier.push(v ? ligneVariante(p, v, Math.min(max, q)) : { produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(max, q) });
       garderPanier(); if (vue.fiche) fermerFiche({ rendu: false }); vue.message = null; vue.ouvert = true; rendre();
     } else if (sf.dataset.sf === 'panier') { vue.ouvert = true; rendre(); }
     else if (sf.dataset.sf === 'tout-voir') { vueVitrine.tout = vueVitrine.tout === sf.dataset.id ? null : sf.dataset.id; vueVitrine.cat = ''; rendre(); document.querySelector(`[data-sf="tout-voir"][data-id="${CSS.escape(sf.dataset.id)}"]`)?.closest('.sf-produits')?.scrollIntoView({ block: 'start' }); }
@@ -301,9 +315,9 @@ document.addEventListener('click', e => {
   else if (c === 'retirer-offre') { vue.panier = vue.panier.filter(x => !x.offre); garderPanier(); rendre(); }
   else if (c === 'retour-panier') { vue.message = null; rendre(); }
   else if (c === 'qte') {
-    const l = vue.panier.find(x => x.produitId === el.dataset.id && !x.offre);
-    const pr = donnees.produits.find(x => x.id === l.produitId);
-    const max = pr ? (pr.type === 'drop' ? 20 : pr.stock) : 20;
+    const l = vue.panier.find(x => x.produitId === el.dataset.id && !x.offre && (x.varianteId || '') === (el.dataset.v || ''));
+    const pr = donnees.produits.find(x => x.id === l.produitId), vr = pr && l.varianteId && aVariantes(pr) ? pr.variantes.find(x => x.id === l.varianteId) : null;
+    const max = pr ? (pr.type === 'drop' ? 20 : vr ? vr.stock : pr.stock) : 20;
     l.qte = Math.min(max, l.qte + Number(el.dataset.d));   // le serveur refuserait au paiement : on borne tout de suite
     if (l.qte <= 0) vue.panier = vue.panier.filter(x => x !== l);
     garderPanier(); rendre();
@@ -477,4 +491,13 @@ document.addEventListener('submit', async e => {
     if (!rep.ok) throw new Error(json.erreur);
     f.closest('details').outerHTML = '<p class="encart" role="status">Demande de retour envoyée. Vous recevez un e-mail avec l’adresse de retour.</p>';
   } catch (err) { bouton.disabled = false; alert(err.message || 'Envoi impossible. Réessayez dans un instant.'); }
+});
+
+/* Fiche d'un produit à variantes : le prix et la disponibilité suivent le choix. */
+document.addEventListener('change', e => {
+  if (!e.target.closest('[data-sf-option]') || !vue.fiche) return;
+  const p = donnees.produits.find(x => x.id === vue.fiche); if (!aVariantes(p)) return;
+  const v = varianteChoisie(p), prixEl = document.querySelector('[data-sf-prix]'), bouton = document.querySelector('.sf-fiche-achat [data-sf="ajouter"]');
+  if (prixEl) prixEl.textContent = euros(v && typeof v.prix === 'number' ? v.prix : p.prix);
+  if (bouton) { const epuise = !v || v.stock <= 0; bouton.disabled = epuise; bouton.textContent = epuise ? 'Épuisé' : 'Ajouter au panier'; }
 });

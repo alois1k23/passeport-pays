@@ -83,11 +83,11 @@ function vueMagasin() {
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Caisse</h2><span class="sous">Encaissez une vente au comptoir : le stock du site est mis à jour</span></div>
-      <div class="caisse-produits">${etat.produits.filter(p => p.actif && p.type !== 'drop').length ? '' : '<p class="sous">La caisse sert aux produits que vous avez en stock (marchés, pop-up, boutique). Ajoutez-en un dans Produits.</p>'}${etat.produits.filter(p => p.actif && p.type !== 'drop').map(p => `
-        <button class="caisse-btn" data-action="caisse-ajout" data-id="${p.id}" ${p.stock <= 0 ? 'disabled' : ''}>${visuelProduit(p)}<span>${esc(p.nom)}</span><b class="num">${euros(p.prix)}</b><small>${p.stock} en stock</small></button>`).join('')}</div>
+      <div class="caisse-produits">${etat.produits.filter(p => p.actif && p.type !== 'drop').length ? '' : '<p class="sous">La caisse sert aux produits que vous avez en stock (marchés, pop-up, boutique). Ajoutez-en un dans Produits.</p>'}${etat.produits.filter(p => p.actif && p.type !== 'drop').flatMap(p => Array.isArray(p.variantes) && p.variantes.length ? p.variantes.map(v => ({ p, v })) : [{ p, v: null }]).map(({ p, v }) => `
+        <button class="caisse-btn" data-action="caisse-ajout" data-id="${p.id}" data-variante="${esc(v ? v.id : '')}" ${(v ? v.stock : p.stock) <= 0 ? 'disabled' : ''}>${visuelProduit(p)}<span>${esc(p.nom)}${v ? ` <small>${esc(v.valeurs.join(' / '))}</small>` : ''}</span><b class="num">${euros(v && typeof v.prix === 'number' ? v.prix : p.prix)}</b><small>${v ? v.stock : p.stock} en stock</small></button>`).join('')}</div>
       <div class="ticket">
         <div class="ticket-tete"><strong>Ticket</strong><span class="sous">${ui.caisse.reduce((a, l) => a + l.qte, 0)} article${ui.caisse.reduce((a, l) => a + l.qte, 0) > 1 ? 's' : ''}</span></div>
-        ${ui.caisse.length ? `<table class="table compacte"><tbody>${ui.caisse.map(l => `<tr><td class="num">${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td><td class="num"><button class="icone" data-action="caisse-retire" data-id="${l.produitId}" aria-label="Retirer ${esc(l.nom)}">×</button></td></tr>`).join('')}</tbody></table>`
+        ${ui.caisse.length ? `<table class="table compacte"><tbody>${ui.caisse.map(l => `<tr><td class="num">${l.qte} ×</td><td>${esc(l.nom)}</td><td class="num">${euros(l.prix * l.qte)}</td><td class="num"><button class="icone" data-action="caisse-retire" data-id="${l.produitId}" data-variante="${esc(l.varianteId || '')}" aria-label="Retirer ${esc(l.nom)}">×</button></td></tr>`).join('')}</tbody></table>`
           : '<p class="sous ticket-vide">Touchez un produit pour l’ajouter au ticket.</p>'}
         <div class="ticket-total"><span>Total TTC</span><strong>${euros(totalCaisse)}</strong></div>
         ${estSuisse() && ui.caisse.length && Math.round(totalCaisse * 20) / 20 !== Math.round(totalCaisse * 100) / 100 ? `<p class="sous">En espèces : ${euros(Math.round(totalCaisse * 20) / 20)} (arrondi aux 5 centimes).</p>` : ''}
@@ -135,7 +135,7 @@ function encaisser(moyen) {
   for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); l.tauxTva = tauxTvaProduit(p); }
   if (moyen === 'especes' && estSuisse()) { c.encaisse = Math.round(c.total * 20) / 20; c.arrondi = Math.round((c.encaisse - c.total) * 100) / 100; }
   etat.commandes.push(c);
-  for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); l.type = p ? p.type : l.type; if (p) { l.retireStock = Math.min(l.qte, Math.max(0, p.stock)); p.stock -= l.retireStock; } }
+  for (const l of c.lignes) { const p = etat.produits.find(x => x.id === l.produitId); const v = p && l.varianteId && Array.isArray(p.variantes) ? p.variantes.find(x => x.id === l.varianteId) : null; if (v) { const r = Math.min(l.qte, Math.max(0, v.stock)); v.stock -= r; } l.type = p ? p.type : l.type; if (p) { l.retireStock = Math.min(l.qte, Math.max(0, p.stock)); p.stock -= l.retireStock; } }
   ui.caisse = []; ui.recuCaisse = '';
   sauver();
   toast(`Vente de ${euros(total)} encaissée. Ticket ${c.facture}, stock du site mis à jour.`);
@@ -454,12 +454,14 @@ document.addEventListener('click', e => {
     }
     case 'mois-domaine': ui.dom.mois = Number(el.dataset.mois); break;
     case 'caisse-ajout': {
-      const p = etat.produits.find(x => x.id === id);
-      const l = ui.caisse.find(x => x.produitId === id);
-      if (l) { if (l.qte < p.stock) l.qte++; } else ui.caisse.push({ produitId: id, nom: p.nom, prix: p.prix, qte: 1 });
+      const p = etat.produits.find(x => x.id === id), vid = el.dataset.variante || '';
+      const v = vid && Array.isArray(p.variantes) ? p.variantes.find(x => x.id === vid) : null;
+      const l = ui.caisse.find(x => x.produitId === id && (x.varianteId || '') === vid);
+      if (l) { if (l.qte < (v ? v.stock : p.stock)) l.qte++; }
+      else ui.caisse.push(v ? { produitId: id, varianteId: v.id, nom: `${p.nom} (${v.valeurs.join(' / ')})`, prix: typeof v.prix === 'number' ? v.prix : p.prix, qte: 1 } : { produitId: id, nom: p.nom, prix: p.prix, qte: 1 });
       rendre(); break;
     }
-    case 'caisse-retire': ui.caisse = ui.caisse.filter(x => x.produitId !== id); rendre(); break;
+    case 'caisse-retire': ui.caisse = ui.caisse.filter(x => !(x.produitId === id && (x.varianteId || '') === (el.dataset.variante || ''))); rendre(); break;
     case 'encaisser': encaisser(el.dataset.moyen); break;
     case 'facture': ui.modal = { type: 'facture', id }; rendreModal(); break;
     case 'avoir': ui.modal = { type: 'avoir', id }; rendreModal(); break;
