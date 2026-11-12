@@ -43,6 +43,7 @@ const Traductions = (() => {
       'Demander un retour': 'Rücksendung beantragen', 'Envoyer la demande de retour': 'Rücksendeantrag senden', 'Motif (facultatif)': 'Grund (freiwillig)', 'Demande de retour envoyée. Vous recevez un e-mail avec l’adresse de retour.': 'Rücksendeantrag gesendet. Sie erhalten eine E-Mail mit der Rücksendeadresse.',
       'Mes commandes': 'Meine Bestellungen', 'E-mail utilisé pour commander': 'Bei der Bestellung verwendete E-Mail', 'Recevoir mes liens': 'Links erhalten', 'Si des commandes existent pour cette adresse, un e-mail avec leurs liens vient de partir. Pensez à regarder dans les indésirables.': 'Falls Bestellungen zu dieser Adresse existieren, wurde soeben eine E-Mail mit den Links gesendet. Prüfen Sie auch den Spam-Ordner.',
       'Épuisé pour l’instant.': 'Momentan ausverkauft.', 'Laissez votre e-mail : nous vous écrivons une seule fois, dès le retour en stock.': 'Hinterlassen Sie Ihre E-Mail: Wir schreiben Ihnen ein einziges Mal, sobald der Artikel wieder an Lager ist.', 'Prévenez-moi': 'Benachrichtigen', 'C’est noté : vous recevrez un e-mail dès le retour en stock.': 'Notiert: Sie erhalten eine E-Mail, sobald der Artikel wieder an Lager ist.',
+      'Commander à nouveau': 'Erneut bestellen',
       '@Navigation de la boutique': 'Shop-Navigation', '@Ouvrir le panier': 'Warenkorb öffnen', '@Retirer un': 'Menge verringern', '@Ajouter un': 'Menge erhöhen', '@Code promo': 'Rabattcode', '@Cookies': 'Cookies', '@Langue': 'Sprache'
     },
     it: {
@@ -82,6 +83,7 @@ const Traductions = (() => {
       'Demander un retour': 'Richiedi un reso', 'Envoyer la demande de retour': 'Invia la richiesta di reso', 'Motif (facultatif)': 'Motivo (facoltativo)', 'Demande de retour envoyée. Vous recevez un e-mail avec l’adresse de retour.': 'Richiesta di reso inviata. Riceverai un’e-mail con l’indirizzo di reso.',
       'Mes commandes': 'I miei ordini', 'E-mail utilisé pour commander': 'E-mail usata per ordinare', 'Recevoir mes liens': 'Ricevi i link', 'Si des commandes existent pour cette adresse, un e-mail avec leurs liens vient de partir. Pensez à regarder dans les indésirables.': 'Se esistono ordini per questo indirizzo, ti abbiamo appena inviato un’e-mail con i link. Controlla anche lo spam.',
       'Épuisé pour l’instant.': 'Esaurito per ora.', 'Laissez votre e-mail : nous vous écrivons une seule fois, dès le retour en stock.': 'Lascia la tua e-mail: ti scriveremo una sola volta, appena torna disponibile.', 'Prévenez-moi': 'Avvisami', 'C’est noté : vous recevrez un e-mail dès le retour en stock.': 'Fatto: riceverai un’e-mail appena torna disponibile.',
+      'Commander à nouveau': 'Ordina di nuovo',
       '@Navigation de la boutique': 'Navigazione del negozio', '@Ouvrir le panier': 'Apri il carrello', '@Retirer un': 'Rimuovi uno', '@Ajouter un': 'Aggiungi uno', '@Code promo': 'Codice sconto', '@Cookies': 'Cookie', '@Langue': 'Lingua'
     },
     en: {
@@ -121,6 +123,7 @@ const Traductions = (() => {
       'Demander un retour': 'Request a return', 'Envoyer la demande de retour': 'Send the return request', 'Motif (facultatif)': 'Reason (optional)', 'Demande de retour envoyée. Vous recevez un e-mail avec l’adresse de retour.': 'Return request sent. You will receive an email with the return address.',
       'Mes commandes': 'My orders', 'E-mail utilisé pour commander': 'Email used to order', 'Recevoir mes liens': 'Send me my links', 'Si des commandes existent pour cette adresse, un e-mail avec leurs liens vient de partir. Pensez à regarder dans les indésirables.': 'If orders exist for this address, an email with their links has just been sent. Please check your spam folder.',
       'Épuisé pour l’instant.': 'Sold out for now.', 'Laissez votre e-mail : nous vous écrivons une seule fois, dès le retour en stock.': 'Leave your email: we will write to you once, as soon as it is back in stock.', 'Prévenez-moi': 'Notify me', 'C’est noté : vous recevrez un e-mail dès le retour en stock.': 'Done: you will receive an email as soon as it is back in stock.',
+      'Commander à nouveau': 'Order again',
       '@Navigation de la boutique': 'Shop navigation', '@Ouvrir le panier': 'Open cart', '@Retirer un': 'Remove one', '@Ajouter un': 'Add one', '@Code promo': 'Promo code', '@Cookies': 'Cookies', '@Langue': 'Language'
     }
   };

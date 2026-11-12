@@ -519,3 +519,8 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - La caisse affiche les ventes en attente (heure, articles, montant).
 - Vérifié dans un vrai navigateur : réseau coupé, vente gardée ; réseau rétabli, vente envoyée une seule fois, stock à jour, historique complet.
 - **Limite** : la caisse doit avoir été ouverte avec du réseau. Ouverte hors connexion, l'application affiche « Pas de connexion ».
+
+## Cycle 36 (02 h 45) : « Commander à nouveau »
+
+- Sur la page de suivi d'une commande expédiée, livrée ou retirée, le bouton « Commander à nouveau » remplit le panier avec les mêmes articles, variantes comprises. Il reprend le prix d'aujourd'hui, dans la limite du stock. Les articles qui ne sont plus disponibles sont signalés. Bouton traduit.
+- Vérifié dans un vrai navigateur : 2 thés et un pull taille M retrouvés dans le panier.

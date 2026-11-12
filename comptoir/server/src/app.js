@@ -2329,7 +2329,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);
     }
     const c = lireCommande(row);
-    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map(l => ({ produitId: l.produitId, nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c), retour: c.retour ? { statut: c.retour.statut, date: c.retour.date } : null, retourPossible: delaiRetour(b, c) > Date.now() && !c.retour };
+    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c), retour: c.retour ? { statut: c.retour.statut, date: c.retour.date } : null, retourPossible: delaiRetour(b, c) > Date.now() && !c.retour };
   });
 
   /* ---------- Webhooks ---------- */

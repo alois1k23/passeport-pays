@@ -272,6 +272,7 @@ async function suivreCommande(id, jeton, annule) {
           ${c.lignes.map((l, i) => `<label class="champ"><span data-sans-traduction>${esc(l.nom)}</span><select name="q-${i}" aria-label="Quantité à retourner : ${esc(l.nom)}">${Array.from({ length: l.qte + 1 }, (_, n) => `<option value="${n}">${n}</option>`).join('')}</select></label>`).join('')}
           <label class="champ"><span>Motif (facultatif)</span><textarea name="motif" maxlength="500" rows="2"></textarea></label>
           <button class="sf-btn">Envoyer la demande de retour</button></form></details>` : ''}
+        ${['livree', 'retiree', 'expediee'].includes(c.statut) ? `<button class="sf-btn sf-btn-ligne plein" data-c="recommander" data-lignes="${esc(JSON.stringify(c.lignes.map(l => [l.produitId, l.varianteId || '', l.qte])))}">Commander à nouveau</button>` : ''}
         <button class="sf-btn plein" data-c="fermer">Continuer mes achats</button></div>
         ${c.offreApres ? `<div class="offre-apres">${visuelProduit({ nom: c.offreApres.nom, teinte: c.offreApres.teinte, image: c.offreApres.image })}<div><small>Uniquement maintenant</small><strong>${esc(c.offreApres.nom)}</strong><span><s>${euros(c.offreApres.prix)}</s> <b>${euros(c.offreApres.prixOffre)}</b> (−${c.offreApres.remise} %), livré dans le même colis, sans frais de port.</span>
           <button class="sf-btn" data-c="complement" data-commande="${esc(id)}" data-jeton="${esc(jeton)}" data-regle="${esc(c.offreApres.regle)}">Ajouter à ma commande</button><button class="bouton-lien" data-c="refuser-offre">Non merci</button></div></div>` : ''}`;
@@ -314,6 +315,20 @@ document.addEventListener('click', e => {
   if (!el) return;
   const c = el.dataset.c;
   if (c === 'fermer') { vue.ouvert = false; if (vue.message && !vue.panier.length) vue.message = null; if (!vue.fiche) history.replaceState(null, '', racineBoutique); rendre(); }
+  else if (c === 'recommander') {
+    // Même panier qu'une commande passée : seuls les articles encore en vente, au prix d'aujourd'hui, dans la limite du stock.
+    let lignes = []; try { lignes = JSON.parse(el.dataset.lignes); } catch { /* ignoré */ }
+    let absents = 0;
+    vue.panier = [];
+    for (const [pid, vid, qte] of lignes) {
+      const p = donnees.produits.find(x => x.id === pid), v = p && vid && aVariantes(p) ? p.variantes.find(x => x.id === vid) : null;
+      const dispo = !p ? 0 : p.type === 'drop' ? 20 : v ? v.stock : aVariantes(p) ? 0 : p.stock;
+      if (!dispo) { absents++; continue; }
+      vue.panier.push(v ? ligneVariante(p, v, Math.min(qte, dispo)) : { produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(qte, dispo) });
+    }
+    garderPanier(); vue.message = null; vue.ouvert = true; history.replaceState(null, '', racineBoutique); rendre();
+    if (absents) setTimeout(() => alert(`${absents} article${absents > 1 ? 's ne sont' : ' n’est'} plus disponible${absents > 1 ? 's' : ''} : le panier contient le reste.`), 50);
+  }
   else if (c === 'retirer-offre') { vue.panier = vue.panier.filter(x => !x.offre); garderPanier(); rendre(); }
   else if (c === 'retour-panier') { vue.message = null; rendre(); }
   else if (c === 'qte') {
