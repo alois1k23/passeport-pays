@@ -1397,3 +1397,6 @@ details.en-ligne form { margin-top: 6px; }
 .sf-recherche .sf-nb { font-size: .85rem; opacity: .75; }
 .lien-panier .qte-lien { width: 70px; text-align: right; }
 .lien-panier .qr-lien { margin-top: 12px; }
+.sf-alerte { margin-top: 12px; }
+.sf-alerte-ligne { display: flex; gap: 8px; flex-wrap: wrap; }
+.sf-alerte-ligne input { flex: 1; min-width: 180px; padding: 10px 12px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; font: inherit; }

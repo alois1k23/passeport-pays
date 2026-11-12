@@ -14,8 +14,9 @@ function besoinsReassort(jours = REASSORT.jours) {
     const periode = Math.max(7, Math.min(28, (Date.now() - premiere) / 86400000));
     const lignes = Array.isArray(p.variantes) && p.variantes.length ? p.variantes.map(v => ({ cle: `${p.id}|${v.id}`, nom: `${p.nom} (${v.valeurs.join(' / ')})`, stock: v.stock, vendus: vendus[v.id] || 0 })) : [{ cle: `${p.id}|`, nom: p.nom, stock: p.stock, vendus: Object.values(vendus).reduce((a, x) => a + x, 0) }];
     for (const l of lignes) {
-      const parJour = l.vendus / periode, conseil = l.vendus >= 2 ? Math.max(0, Math.ceil(parJour * jours) - l.stock) : 0;
-      if (conseil > 0 || l.stock <= 2) out.push({ ...l, parJour, conseil, cout: p.cout });
+      const parJour = l.vendus / periode, conseil = Math.max(l.vendus >= 2 ? Math.max(0, Math.ceil(parJour * jours) - l.stock) : 0, ((etat.attentesStock || {})[l.cle] || 0) - Math.max(0, l.stock));
+      const attente = (etat.attentesStock || {})[l.cle] || 0;   // clients qui ont demandé à être prévenus
+      if (conseil > 0 || l.stock <= 2 || attente) out.push({ ...l, parJour, conseil, cout: p.cout });
     }
   }
   return out.sort((a, b) => b.conseil - a.conseil);
@@ -26,8 +27,8 @@ function vueReassort() {
   const total = lignes.reduce((a, l) => a + q(l) * (Number(l.cout) || 0), 0);
   return `<section class="carte"><div class="carte-tete"><h2>Bon de réassort</h2><button class="btn petit fantome" data-action="reassort-fermer">Fermer</button></div>
     <p class="sous">Quantités conseillées pour tenir ${REASSORT.jours} jours au rythme des 28 derniers jours (produits en stock, par variante). Ajustez, puis copiez le texte pour votre fournisseur ou exportez le tableau.</p>
-    ${lignes.length ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Produit</th><th class="num">Stock</th><th class="num">Vendus 28 j</th><th class="num">À commander</th></tr></thead><tbody>
-      ${lignes.map(l => `<tr><td>${esc(l.nom)}</td><td class="num">${l.stock}</td><td class="num">${l.vendus}</td><td class="num"><input type="number" min="0" step="1" value="${q(l)}" data-reassort="${esc(l.cle)}" aria-label="Quantité à commander : ${esc(l.nom)}" class="qte-lien"></td></tr>`).join('')}
+    ${lignes.length ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Produit</th><th class="num">Stock</th><th class="num">Vendus 28 j</th><th class="num">En attente</th><th class="num">À commander</th></tr></thead><tbody>
+      ${lignes.map(l => `<tr><td>${esc(l.nom)}</td><td class="num">${l.stock}</td><td class="num">${l.vendus}</td><td class="num">${(etat.attentesStock || {})[l.cle] || ''}</td><td class="num"><input type="number" min="0" step="1" value="${q(l)}" data-reassort="${esc(l.cle)}" aria-label="Quantité à commander : ${esc(l.nom)}" class="qte-lien"></td></tr>`).join('')}
     </tbody></table></div>
     ${total > 0 ? `<p class="sous">Coût d’achat estimé : <b>${euros(total)}</b> (d’après les coûts saisis dans vos fiches).</p>` : ''}
     <div class="rangee"><button class="btn" data-action="reassort-copier">Copier le texte pour le fournisseur</button><button class="btn fantome" data-action="reassort-csv">Exporter (CSV)</button></div>`

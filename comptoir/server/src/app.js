@@ -1322,6 +1322,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
     const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    etatComplet.attentesStock = Object.fromEntries(db.prepare("SELECT produit_id || '|' || variante_id AS k, COUNT(*) AS n FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id").all(ctx.boutique.id).map(x => [x.k, x.n]));   // « clients en attente » par produit et variante
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
     if (ctx.role === 'commandes') { const { iban, ...entreprise } = etatComplet.entreprise || {}; return { ...etatComplet, entreprise, desinscrits: [], abonnes: [], envois: [] }; }
     return etatComplet;
@@ -1580,6 +1581,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       db.prepare('DELETE FROM abonnes WHERE boutique_id = ? AND email = ?').run(ctx.boutique.id, email);
       db.prepare("DELETE FROM emails WHERE boutique_id = ? AND lower(destinataire) = ?").run(ctx.boutique.id, email);
       integ.effacerClient(ctx.boutique.id, email);   // envois de webhooks gardés
+      db.prepare('DELETE FROM alertes_stock WHERE boutique_id = ? AND email = ?').run(ctx.boutique.id, email);
       // Clés exactes (« bienvenue:<email> », « reconquete:<email>:<commande> ») : pas de LIKE, dont « _ » et « % » sont des jokers.
       for (const { cle } of db.prepare('SELECT cle FROM envois_auto WHERE boutique_id = ?').all(ctx.boutique.id)) {
         const parts = String(cle).split(':');
@@ -2096,6 +2098,47 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     envoyerEmail(b.id, email, `Vos commandes chez ${config.boutique.nom}`, `Bonjour,\n\nVoici vos commandes chez ${config.boutique.nom} :\n\n${rows.map(r2 => `- n° ${r2.numero} du ${new Date(r2.date).toLocaleDateString('fr-CH')} (${libelles[r2.statut] || r2.statut}) : ${lienCommande(b, r2.id)}`).join('\n')}\n\nVous n'avez rien demandé ? Ignorez cet e-mail.\n\n${config.boutique.nom}`);
     return { ok: true };
   });
+  /* « Prévenez-moi » : un client demande à être prévenu du retour en stock d'un produit (ou d'une variante) épuisé.
+     Un seul e-mail, puis l'adresse est effacée ; sans retour en stock, effacée après 90 jours. */
+  db.exec('CREATE TABLE IF NOT EXISTS alertes_stock (boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE, produit_id TEXT NOT NULL, variante_id TEXT NOT NULL DEFAULT \'\', email TEXT NOT NULL, langue TEXT, cree_le INTEGER NOT NULL, PRIMARY KEY (boutique_id, produit_id, variante_id, email))');
+  r.post('/api/public/:slug/produits/:id/alerte', ctx => {
+    auth.limiter('alerte-stock:' + ctx.ip, 20 * facteurLimites, 3600000, 'Trop de demandes. Réessayez plus tard.');
+    const b = boutiqueOuverte(ctx.params.slug);
+    const email = valider.email(ctx.corps.email).toLowerCase();
+    const p = listerProduits(b.id).find(x => x.id === ctx.params.id && vendable(x) && x.type !== 'drop');
+    if (!p) throw erreur(404, 'Produit introuvable.', 'introuvable');
+    const vid = Array.isArray(p.variantes) && p.variantes.length ? String(ctx.corps.varianteId || '') : '';
+    if (vid && !p.variantes.some(v => v.id === vid)) throw erreur(400, 'Variante inconnue.', 'variante');
+    if (db.prepare('SELECT COUNT(*) n FROM alertes_stock WHERE boutique_id = ?').get(b.id).n >= 5000) return { ok: true };
+    const langue = ['de', 'it', 'en'].includes(ctx.corps.langue) ? ctx.corps.langue : null;
+    db.prepare('INSERT OR IGNORE INTO alertes_stock (boutique_id, produit_id, variante_id, email, langue, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(b.id, p.id, vid, email, langue, Date.now());
+    return { ok: true };
+  });
+  const TEXTE_RETOUR = {
+    fr: (n, s2, u) => [`De retour en stock : ${n}`, `Bonjour,\n\nBonne nouvelle : ${n} est de nouveau disponible chez ${s2}.\n${u}\n\nVous recevez cet unique e-mail car vous l'avez demandé ; votre adresse est maintenant effacée.\n\n${s2}`],
+    de: (n, s2, u) => [`Wieder an Lager: ${n}`, `Guten Tag,\n\ngute Nachricht: ${n} ist bei ${s2} wieder erhältlich.\n${u}\n\nSie erhalten diese einmalige E-Mail auf Ihren Wunsch; Ihre Adresse ist nun gelöscht.\n\n${s2}`],
+    it: (n, s2, u) => [`Di nuovo disponibile: ${n}`, `Buongiorno,\n\nbuone notizie: ${n} è di nuovo disponibile presso ${s2}.\n${u}\n\nRicevi quest’unica e-mail su tua richiesta; il tuo indirizzo è ora cancellato.\n\n${s2}`],
+    en: (n, s2, u) => [`Back in stock: ${n}`, `Hello,\n\nGood news: ${n} is available again at ${s2}.\n${u}\n\nYou are receiving this one-time email because you asked for it; your address has now been erased.\n\n${s2}`]
+  };
+  function alertesRetourStock(maintenant = Date.now()) {
+    db.prepare('DELETE FROM alertes_stock WHERE cree_le < ?').run(maintenant - 90 * 86400000);
+    const parBoutique = new Map();
+    for (const a of db.prepare('SELECT * FROM alertes_stock LIMIT 2000').all()) { if (!parBoutique.has(a.boutique_id)) parBoutique.set(a.boutique_id, []); parBoutique.get(a.boutique_id).push(a); }
+    for (const [bid, alertes] of parBoutique) {
+      const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid); if (!b) continue;
+      const prods = listerProduits(bid), config = lireConfig(b);
+      for (const a of alertes) {
+        const p = prods.find(x => x.id === a.produit_id);
+        if (!p || !vendable(p)) continue;
+        const v = a.variante_id && Array.isArray(p.variantes) ? p.variantes.find(x => x.id === a.variante_id) : null;
+        if ((v ? v.stock : p.stock) <= 0) continue;
+        const nom = v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom;
+        const [sujet, corps] = (TEXTE_RETOUR[a.langue] || TEXTE_RETOUR.fr)(nom, config.boutique.nom, EmailsClients.avecLangue(`${urlBoutique(b)}${urlBoutique(b).endsWith('/') ? '' : '/'}p/${encodeURIComponent(p.id)}`, { langue: a.langue }));
+        envoyerEmail(b.id, a.email, sujet, corps, { langue: a.langue });
+        db.prepare('DELETE FROM alertes_stock WHERE boutique_id = ? AND produit_id = ? AND variante_id = ? AND email = ?').run(bid, a.produit_id, a.variante_id, a.email);
+      }
+    }
+  }
   r.post('/api/public/:slug/newsletter', ctx => {
     auth.limiter('newsletter:' + ctx.ip, 20 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
@@ -2218,6 +2261,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     let n = 0;
     entretien(maintenant);
     try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
+    try { alertesRetourStock(maintenant); } catch (e) { journal.error('[retour-stock]', e.message); }
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {
       if (!paiementsActifs(b) || !abo.etat(b.marchand_id).actif) continue;   // vérifié avant de lire les commandes (coût)
       const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));

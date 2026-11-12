@@ -505,3 +505,9 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Les photos produits étaient réduites à 480 pixels (640 dans la fiche) : floues sur la page produit d'un téléphone récent. Elles passent à 1000 pixels.
 - Format WebP quand le navigateur sait l'encoder (environ 30 % plus léger que le JPEG à qualité égale), sinon JPEG. La qualité baisse par paliers pour rester sous la limite de 300 Ko.
 - Vérifié : une photo très chargée de 3000 × 2000 pixels donne un WebP de 1000 × 667 pixels et 145 Ko. Le type est conservé quand l'image est servie.
+
+## Cycle 34 (02 h 45) : « Prévenez-moi » au retour en stock
+
+- Sur un produit épuisé, ou une variante épuisée, la fiche propose de laisser son e-mail. Au retour en stock (vente, caisse, saisie, API), le client reçoit **un seul e-mail** avec le lien du produit, dans sa langue. Son adresse est ensuite effacée ; sans retour en stock, elle l'est après 90 jours. Effacer un client (RGPD) supprime aussi ses demandes.
+- Le marchand voit « N en attente » dans la liste des produits. Le bon de réassort compte ces clients dans les quantités conseillées.
+- Testé : deux demandes, dont une en allemand. Rien n'est envoyé tant que le stock est vide ; au retour, un e-mail chacun dans sa langue, adresses effacées, aucun second envoi. 100 tests sur 100.

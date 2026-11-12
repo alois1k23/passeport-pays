@@ -502,6 +502,7 @@ document.addEventListener('change', e => {
   const v = varianteChoisie(p), prixEl = document.querySelector('[data-sf-prix]'), bouton = document.querySelector('.sf-fiche-achat [data-sf="ajouter"]');
   if (prixEl) prixEl.textContent = euros(v && typeof v.prix === 'number' ? v.prix : p.prix);
   if (bouton) { const epuise = !v || v.stock <= 0; bouton.disabled = epuise; bouton.textContent = epuise ? 'Épuisé' : 'Ajouter au panier'; }
+  const alerte = document.querySelector('[data-alerte-stock]'); if (alerte) alerte.hidden = !!(v && v.stock > 0);
 });
 
 /* Mes commandes : lien de suivi de chaque commande envoyé à l'adresse saisie (même réponse que l'adresse soit connue ou non). */
@@ -512,4 +513,17 @@ document.addEventListener('submit', async e => {
   f.querySelector('button').disabled = true;
   try { await fetch(`/api/public/${encodeURIComponent(slug)}/mes-commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }); } catch { /* même message */ }
   f.outerHTML = '<p class="encart" role="status">Si des commandes existent pour cette adresse, un e-mail avec leurs liens vient de partir. Pensez à regarder dans les indésirables.</p>';
+});
+
+/* « Prévenez-moi » : e-mail unique au retour en stock du produit ou de la variante choisie. */
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('[data-alerte-stock]'); if (!f) return;
+  e.preventDefault();
+  const p = donnees.produits.find(x => x.id === f.dataset.alerteStock), v = aVariantes(p) ? varianteChoisie(p) : null;
+  f.querySelector('button').disabled = true;
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/produits/${encodeURIComponent(p.id)}/alerte`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: new FormData(f).get('email'), varianteId: v ? v.id : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr' }) });
+    if (!rep.ok) throw new Error((await rep.json()).erreur);
+    f.innerHTML = '<p class="encart" role="status">C’est noté : vous recevrez un e-mail dès le retour en stock.</p>';
+  } catch (err) { f.querySelector('button').disabled = false; alert(err.message || 'Envoi impossible. Réessayez dans un instant.'); }
 });
