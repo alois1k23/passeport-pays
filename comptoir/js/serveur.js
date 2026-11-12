@@ -629,20 +629,32 @@ document.addEventListener('click', async e => {
   } catch { toast('Pas de connexion : réessayez dans un instant.'); }
 });
 
-/* Journal inaltérable : vérification complète (côté serveur) et export CSV pour l'archivage. */
-async function verifierJournalInalterable() {
-  ui.journalInalterableEnCours = true;
-  try {
-    const r = await fetch('/api/admin/journal-inalterable', { credentials: 'same-origin' });
-    const j = await r.json().catch(() => ({}));
-    ui.journalInalterable = r.ok ? j : { erreur: j.erreur || 'Vérification impossible pour l’instant.' };
-  } catch { ui.journalInalterable = { erreur: 'Pas de connexion : vérification impossible pour l’instant.' }; }
-  finally { ui.journalInalterableEnCours = false; }
+/* Journal inaltérable : état rapide, vérification complète (côté serveur, par lots) et export CSV pour l'archivage. */
+async function chargerEtatJournal() {
+  ui.journalEtatEnCours = true;
+  try { const r = await fetch('/api/admin/journal-inalterable', { credentials: 'same-origin' }); if (r.ok) { ui.journalEtat = await r.json(); ui.journalEtatLe = Date.now(); } }
+  catch { /* hors ligne : rien de neuf à afficher */ }
+  finally { ui.journalEtatEnCours = false; }
   if (location.hash.startsWith('#conformite')) rendre();
 }
+async function verifierJournal(ancre) {
+  ui.journalVerifEnCours = true; rendre();
+  try {
+    const r = await fetch('/api/admin/journal-inalterable/verifier', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ancre ? { ancre } : {}) });
+    const j = await r.json().catch(() => ({}));
+    ui.journalVerif = r.ok ? j : { erreur: j.erreur || 'Vérification impossible pour l’instant.' };
+  } catch { ui.journalVerif = { erreur: 'Pas de connexion : vérification impossible pour l’instant.' }; }
+  finally { ui.journalVerifEnCours = false; }
+  await chargerEtatJournal();
+  toast(ui.journalVerif.erreur ? ui.journalVerif.erreur : ui.journalVerif.ancreOk === false ? 'Empreinte introuvable dans le journal.' : ui.journalVerif.ok ? 'Journal vérifié : intact.' : `${ui.journalVerif.nbAnomalies} anomalie(s) détectée(s).`);
+}
+document.addEventListener('submit', e => {
+  const f = e.target.closest('[data-form="journal-ancre"]'); if (!f) return;
+  e.preventDefault(); verifierJournal(String(new FormData(f).get('ancre') || '').trim());
+});
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action="journal-verifier"], [data-action="journal-exporter"]'); if (!el) return;
-  if (el.dataset.action === 'journal-verifier') { ui.journalInalterable = null; rendre(); await verifierJournalInalterable(); toast(ui.journalInalterable && ui.journalInalterable.ok ? 'Journal vérifié : intact.' : 'Vérification terminée.'); return; }
+  if (el.dataset.action === 'journal-verifier') { await verifierJournal(); return; }
   try {
     const r = await fetch('/api/admin/journal-inalterable/export', { credentials: 'same-origin' });
     if (!r.ok) { toast('Export impossible pour l’instant.'); return; }

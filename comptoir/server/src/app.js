@@ -230,8 +230,13 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     client: !c.client ? null : client ? { nom: c.client.nom, email: c.client.email, adresse: c.client.adresse, npa: c.client.npa, ville: c.client.ville, pays: c.client.pays || null } : { pays: c.client.pays || null },
     lignes: (c.lignes || []).map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock' })) });
   /* Journal inaltérable : chaque facture, ticket ou avoir est scellé dès qu'il existe (une seule fois). */
-  JournalInalterable.creerTables(db);
-  const sceller = (boutiqueId, c) => { try { JournalInalterable.sceller(db, boutiqueId, c); } catch (e) { journal.error('[journal-inalterable]', c.id, e.message); } };
+  // Clé de signature dérivée de la clé de chiffrement du serveur (SECRET_CHIFFREMENT) : créé à la première utilisation.
+  let journalVentes = null;
+  const JV = () => journalVentes || (journalVentes = JournalInalterable.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir journal inalterable', 32))));
+  const sceller = (boutiqueId, c) => {
+    try { const r = JV().sceller(boutiqueId, c); if (r.conflits.length) journal.error('[journal-inalterable] second numéro refusé', c.id, r.conflits.join(', ')); }
+    catch (e) { journal.error('[journal-inalterable]', c.id, e.message); }   // une pièce non scellée est signalée à la vérification et reprise au démarrage
+  };
   const enregistrerCommande = c => {
     const { id, numero, date, statut, ...donnees } = c;
     const avant = db.prepare('SELECT statut, boutique_id FROM commandes WHERE id = ?').get(id);
@@ -718,7 +723,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
   // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
-  const LECTURE_SEULE = new Set(['GET /api/admin/journal-inalterable', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
+  const LECTURE_SEULE = new Set(['GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
     verifierRole(ctx);
@@ -1456,18 +1461,23 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       if (saisi) c.suivi = saisi;
       else if (paiement.nom === 'simulation') c.suivi = '99.00.' + Math.floor(100000 + Math.random() * 899999) + '.' + Math.floor(1e7 + Math.random() * 9e7);
     }
-    if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
-    if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
-    // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
-    if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
     if (c.statut === 'attente' && (cible === 'payee' || cible === 'annulee')) {
-      // Paiement reçu hors ligne (virement, espèces) ou commande annulée : les liens de paiement en ligne sont fermés.
+      // Paiement reçu hors ligne (virement, espèces) ou commande annulée : les liens de paiement en ligne sont fermés d'abord.
       for (const p of db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id)) {
         db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(p.id);
         if (p.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(p).catch(e => journal.error('[paiement] expiration', e.message));
       }
-      if (cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1);   // vendu : le stock baisse comme pour un paiement en ligne
+      // Pendant ces appels, le client a pu payer en ligne : on repart de la commande à jour (pas de seconde facture, pas de double vente).
+      const frais = commandeDeBoutique(ctx.boutique.id, c.id);
+      if (frais.statut !== 'attente') throw erreur(409, 'Cette commande vient d’être payée en ligne : rien n’a été modifié.', 'deja_payee');
+      Object.assign(c, frais);
     }
+    // À partir d'ici, plus d'attente : numéros de pièces attribués et commande enregistrée d'un seul tenant.
+    if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
+    if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
+    // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
+    if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
+    if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1);   // vendu : le stock baisse comme pour un paiement en ligne
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1);
     c.statut = cible;
     historique(c, textes[cible] + (cible === 'expediee' ? (c.suivi ? `, suivi ${c.suivi}` : ', sans numéro de suivi') : ''));
@@ -1629,7 +1639,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
     const produits = listerProduits(b.id).filter(vendable).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
       const pb = PrixBarres.verifier({ prix: p.prix, prixReference, historiquePrix }, regime);
-      return { ...p, ...(p.image === IMG ? { image: `/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` } : {}), avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };   // photo chargée à part (mise en cache par le navigateur)
+      return { ...p, ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(({ ref, ...v }) => v) } : {}), ...(p.image === IMG ? { image: `/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` } : {}), avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };   // photo chargée à part (mise en cache par le navigateur)
     });
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
     // Un code promo affiché dans la bannière doit exister au paiement ; un contact d'exemple est remplacé par l'e-mail de l'entreprise.
@@ -1800,18 +1810,35 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (c.moyen !== 'facture') throw erreur(404, 'Facture introuvable.', 'introuvable');
     return { html: pageFactureQr(b, c, lireConfig(b)) };
   });
-  /* Reprise : les pièces émises avant le journal sont scellées une fois, dans l'ordre de leur date. */
-  for (const { id: bid } of db.prepare('SELECT id FROM boutiques WHERE id NOT IN (SELECT DISTINCT boutique_id FROM journal_inalterable)').all()) {
-    const pieces = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND (json_extract(donnees, '$.facture') IS NOT NULL OR json_extract(donnees, '$.avoir') IS NOT NULL)").all(bid).map(lireCommande)
-      .sort((a, b2) => (a.dateFacture || a.date) - (b2.dateFacture || b2.date));
-    for (const c of pieces) sceller(bid, c);
+  /* Reprise : pièces émises avant le journal, ou dont le scellement a été interrompu : scellées une fois, dans l'ordre de leur date. */
+  try { const n = JV().reprendre(lireCommande); if (n) journal.log(`[journal-inalterable] ${n} pièce(s) reprise(s)`); } catch (e) { journal.error('[journal-inalterable] reprise', e.message); }
+  const lireCommandesParIds = boutiqueId => ids => {
+    const m = new Map();
+    for (let i = 0; i < ids.length; i += 500) {
+      const tranche = ids.slice(i, i + 500);
+      for (const row of db.prepare(`SELECT * FROM commandes WHERE boutique_id = ? AND id IN (${tranche.map(() => '?').join(', ')})`).all(boutiqueId, ...tranche)) m.set(row.id, lireCommande(row));
+    }
+    return m;
+  };
+  const verificationsEnCours = new Set();
+  async function verifierJournal(b, ancre = null) {
+    if (verificationsEnCours.has(b.id)) throw erreur(429, 'Une vérification est déjà en cours pour cette boutique.', 'en_cours');
+    verificationsEnCours.add(b.id);
+    try { return await JV().verifier(b.id, { lireCommandes: lireCommandesParIds(b.id), compteurFactures: db.prepare('SELECT compteur_facture FROM boutiques WHERE id = ?').get(b.id).compteur_facture, ancre }); }
+    finally { verificationsEnCours.delete(b.id); }
   }
-  /* Journal inaltérable : état, vérification complète, export pour l'archivage. */
-  r.get('/api/admin/journal-inalterable', exigerMarchand, ctx => JournalInalterable.verifier(db, ctx.boutique.id, id => { const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(id, ctx.boutique.id); return row ? lireCommande(row) : null; }));
+  /* Journal inaltérable : état (rapide), vérification complète à la demande (par lots), export pour l'archivage. */
+  r.get('/api/admin/journal-inalterable', exigerMarchand, ctx => JV().etat(ctx.boutique.id));
+  r.post('/api/admin/journal-inalterable/verifier', exigerMarchand, async ctx => {
+    auth.limiter('journal-verifier:' + ctx.boutique.id, 6 * facteurLimites, 3600000, 'Vérification déjà faite plusieurs fois cette heure : réessayez plus tard.');
+    const ancre = typeof ctx.corps.ancre === 'string' && /^[0-9a-f]{64}$/i.test(ctx.corps.ancre.trim()) ? ctx.corps.ancre.trim() : null;
+    if (ctx.corps.ancre && !ancre) throw erreur(400, 'Empreinte invalide : 64 caractères (chiffres et lettres a à f).', 'ancre');
+    return verifierJournal(ctx.boutique, ancre);
+  });
   r.get('/api/admin/journal-inalterable/export', exigerMarchand, ctx => {
     ctx.entetes['Cache-Control'] = 'private, no-store';
     ctx.entetes['Content-Disposition'] = `attachment; filename="journal-inalterable-${ctx.boutique.slug}.csv"`;
-    return { binaire: Buffer.from(JournalInalterable.exporterCsv(db, ctx.boutique.id), 'utf8'), type: 'text/csv; charset=utf-8' };
+    return { binaire: Buffer.from(JV().exporterCsv(ctx.boutique.id), 'utf8'), type: 'text/csv; charset=utf-8' };
   });
   /* Facture électronique (XML CII, norme EN 16931, format de Factur-X) : pour le logiciel comptable ou une plateforme agréée. */
   r.get('/api/admin/commandes/:id/facture-electronique', exigerMarchand, ctx => {
@@ -2008,6 +2035,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       if (!Array.isArray(c.variantes) || !Array.isArray(avant.variantes) || !avant.variantes.length) throw erreur(400, '« variantes » : ce produit n’a pas de variantes.', 'variantes');
       maj.variantes = avant.variantes.map(v => {
         const u = c.variantes.find(x => x && x.id === v.id); if (!u) return v;
+        if (u.stock !== undefined && avant.type === 'drop') throw erreur(400, 'Produit du fournisseur : le stock de ses variantes est celui du fournisseur.', 'stock_fournisseur');
         if (u.stock !== undefined && (!Number.isInteger(u.stock) || u.stock < 0 || u.stock > 1e6)) throw erreur(400, `Stock invalide pour la variante « ${v.id} ».`, 'stock');
         if (u.prix !== undefined && u.prix !== null && (typeof u.prix !== 'number' || !(u.prix > 0) || u.prix > 1e6)) throw erreur(400, `Prix invalide pour la variante « ${v.id} ».`, 'prix');
         return { ...v, ...(u.stock !== undefined ? { stock: u.stock } : {}), ...(u.prix === null ? { prix: undefined } : u.prix !== undefined ? { prix: u.prix } : {}) };
@@ -2327,7 +2355,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
         ...(echues.length ? [`- ${echues.length} facture${echues.length > 1 ? 's' : ''} QR échue${echues.length > 1 ? 's' : ''} non payée${echues.length > 1 ? 's' : ''} (n° ${echues.slice(0, 5).map(c => c.numero).join(', ')}) : importez votre relevé bancaire ou relancez le client`] : []),
         ...(risquees.length ? [`- ${risquees.length} commande${risquees.length > 1 ? 's' : ''} à risque de fraude à vérifier (n° ${risquees.slice(0, 5).map(c => c.numero).join(', ')})`] : []),
         ...ruptures.map(x => `- Rupture prévue dans ${x.jours} jour${x.jours > 1 ? 's' : ''} : ${x.p.nom} (stock ${x.p.stock})`),
-        ...(() => { const cl = db.prepare("SELECT ref, empreinte FROM journal_inalterable WHERE boutique_id = ? AND type = 'cloture' ORDER BY seq DESC LIMIT 1").get(b.id);
+        ...(() => { const cl = JV().ancrer(b.id, maintenant);   // empreinte gardée : elle doit rester dans la chaîne
           return cl ? ['', `Journal inaltérable des ventes : clôture du ${cl.ref}, empreinte ${cl.empreinte}`, 'Gardez cet e-mail : cette empreinte prouve que vos factures n’ont pas été modifiées depuis.'] : []; })(),
         '', `Votre tableau de bord : ${urlPublique}/app#tableau`, '', 'Ce rapport arrive chaque lundi. Pour ne plus le recevoir : Paramètres > E-mails.', '', 'L’équipe Comptoir'
       ];
@@ -2336,15 +2364,36 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     }
     return n;
   }
+  /* Vérification automatique du journal, une fois par jour et par boutique (une boutique à la fois, par lots) :
+     le marchand est prévenu par e-mail si une anomalie apparaît. */
+  let verificationNocturne = false;
+  async function verificationsNocturnes(maintenant = Date.now()) {
+    if (verificationNocturne) return; verificationNocturne = true;
+    try {
+      const dues = db.prepare('SELECT DISTINCT j.boutique_id id FROM journal_inalterable j JOIN boutiques b ON b.id = j.boutique_id LEFT JOIN journal_verifications v ON v.boutique_id = j.boutique_id WHERE v.le IS NULL OR v.le < ?').all(maintenant - 86400000);
+      for (const { id } of dues) {
+        const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(id); if (!b || verificationsEnCours.has(id)) continue;
+        const avant = db.prepare('SELECT resultat FROM journal_verifications WHERE boutique_id = ?').get(id);
+        const r2 = await verifierJournal(b);
+        if (!r2.ok && !(avant && JSON.parse(avant.resultat).ok === false)) {
+          const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+          if (m) envoyerEmail(null, m.email, `Journal des ventes : ${r2.nbAnomalies} anomalie${r2.nbAnomalies > 1 ? 's' : ''} détectée${r2.nbAnomalies > 1 ? 's' : ''} (${lireConfig(b).boutique.nom})`,
+            `Bonjour,\n\nLa vérification automatique du journal inaltérable de vos ventes a trouvé ${r2.nbAnomalies} anomalie${r2.nbAnomalies > 1 ? 's' : ''} :\n\n${r2.anomalies.slice(0, 10).map(a => `- ${a}`).join('\n')}\n\nDétail dans Comptoir, Conformité. Si vous n'expliquez pas ces écarts, écrivez-nous.\n\nL’équipe Comptoir`);
+        }
+      }
+    } finally { verificationNocturne = false; }
+  }
   function automatisationsEcheances(maintenant = Date.now()) {
     let n = 0;
     entretien(maintenant);
     try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
     try { alertesRetourStock(maintenant); } catch (e) { journal.error('[retour-stock]', e.message); }
     // Clôture journalière du journal inaltérable (jours terminés), pour chaque boutique qui a des pièces.
-    for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT boutique_id FROM journal_inalterable').all()) {
-      try { JournalInalterable.cloturer(db, bid, maintenant); } catch (e) { journal.error('[journal-inalterable] clôture', bid, e.message); }
+    // (boutiques supprimées : leur journal est gardé pour l'archivage, mais plus clôturé)
+    for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT j.boutique_id FROM journal_inalterable j JOIN boutiques b ON b.id = j.boutique_id').all()) {
+      try { JV().cloturer(bid, maintenant); } catch (e) { journal.error('[journal-inalterable] clôture', bid, e.message); }
     }
+    verificationsNocturnes(maintenant).catch(e => journal.error('[journal-inalterable] vérification', e.message));
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {
       if (!paiementsActifs(b) || !abo.etat(b.marchand_id).actif) continue;   // vérifié avant de lire les commandes (coût)
       const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));

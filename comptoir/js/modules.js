@@ -254,16 +254,24 @@ function vueConformite() {
   </section>`;
 }
 
-/* Journal inaltérable (serveur) : état chargé à l'affichage, vérifiable et exportable. */
+/* Journal inaltérable (serveur) : état rechargé à chaque affichage (rapide), vérification complète à la demande. */
 function carteJournalInalterable() {
-  const j = ui.journalInalterable;
-  if (!j && !ui.journalInalterableEnCours && typeof verifierJournalInalterable === 'function') setTimeout(verifierJournalInalterable, 0);
-  const etatTexte = !j ? '<p class="sous">Vérification en cours…</p>' : j.erreur ? `<p class="encart alerte-encart">${esc(j.erreur)}</p>`
-    : j.ok ? `<p><span class="pill good">Intact</span> ${j.pieces} pièce${j.pieces > 1 ? 's' : ''} scellée${j.pieces > 1 ? 's' : ''} (factures, tickets, avoirs), ${j.clotures ? `${j.clotures} clôture${j.clotures > 1 ? 's' : ''} journalière${j.clotures > 1 ? 's' : ''}` : 'première clôture demain'}.${j.derniereCloture ? ` Grand total perpétuel au ${esc(j.derniereCloture.jour)} : <b>${euros(j.derniereCloture.grandTotal / 100)}</b>.` : ''}</p>${j.empreinte ? `<p class="sous">Empreinte actuelle : <span class="mono">${esc(j.empreinte.slice(0, 16))}…</span></p>` : ''}`
-    : `<div class="encart alerte-encart"><b>${j.nbAnomalies} anomalie${j.nbAnomalies > 1 ? 's' : ''} : des pièces ont été modifiées ou supprimées après leur émission.</b><ul>${j.anomalies.slice(0, 5).map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>`;
-  return `<section class="carte"><div class="carte-tete"><h2>Journal inaltérable des ventes</h2><div class="rangee"><button class="btn petit fantome" data-action="journal-verifier">Vérifier maintenant</button><button class="btn petit fantome" data-action="journal-exporter">Exporter (archivage)</button></div></div>
-    ${etatTexte}
-    <p class="sous">Chaque facture, ticket et avoir est scellé dès son émission dans une chaîne d’empreintes (SHA-256) : toute modification ou suppression après coup se voit. Chaque jour est clôturé avec son total et le grand total perpétuel, et l’empreinte de la dernière clôture vous est envoyée chaque lundi. ${etat.boutique.pays === 'fr' ? 'Ce sont les conditions d’inaltérabilité, de sécurisation, de conservation et d’archivage demandées aux logiciels de caisse (art. 286 du CGI) ; la certification elle-même (NF 525 ou attestation de l’éditeur) reste à obtenir.' : 'Une preuve simple de l’intégrité de vos ventes en cas de contrôle.'}</p></section>`;
+  const e = ui.journalEtat;
+  if ((!e || Date.now() - (ui.journalEtatLe || 0) > 30000) && !ui.journalEtatEnCours && typeof chargerEtatJournal === 'function') setTimeout(chargerEtatJournal, 0);
+  const date = t => new Date(t).toLocaleString('fr-CH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const v = ui.journalVerif || (e && e.derniereVerification);
+  const ancre = ui.journalVerif && ui.journalVerif.ancreOk === false ? '<p class="encart alerte-encart" role="alert">L’empreinte saisie ne figure pas dans le journal : vérifiez qu’elle est recopiée en entier, sans espace. Si c’est bien celle de votre e-mail, l’historique a été réécrit depuis : écrivez-nous.</p>' : ui.journalVerif && ui.journalVerif.ancreOk ? '<p><span class="pill good">Empreinte retrouvée</span> Le journal n’a pas été réécrit depuis cet e-mail.</p>' : '';
+  const resultat = ui.journalVerifEnCours ? '<p class="sous" role="status">Vérification en cours…</p>' : !v ? '<p class="sous">Pas encore vérifié : la vérification automatique a lieu chaque nuit.</p>'
+    : v.erreur ? `<p class="encart alerte-encart">${esc(v.erreur)}</p>`
+    : v.ok ? `<p><span class="pill good">Intact</span> Vérifié${v.le ? ` le ${date(v.le)}` : ' à l’instant'} : chaîne, numéros continus, pièces conformes à leur sceau${v.ancreOk ? ', empreinte saisie retrouvée' : ''}.</p>`
+    : `<div class="encart alerte-encart" role="alert"><b>${v.nbAnomalies} anomalie${v.nbAnomalies > 1 ? 's' : ''}${v.le ? ` (vérification du ${date(v.le)})` : ''} :</b><ul>${(v.anomalies || []).slice(0, 8).map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>`;
+  const etatTexte = !e ? '<p class="sous">Chargement…</p>' : `<p>${e.pieces} pièce${e.pieces > 1 ? 's' : ''} scellée${e.pieces > 1 ? 's' : ''} (factures, tickets, avoirs), ${e.clotures ? `${e.clotures} clôture${e.clotures > 1 ? 's' : ''} journalière${e.clotures > 1 ? 's' : ''}` : 'première clôture demain'}.${e.derniereCloture ? ` Grand total perpétuel au ${esc(e.derniereCloture.jour)} : <b>${euros(e.derniereCloture.grandTotal / 100)}</b>.` : ''}</p>
+    ${e.derniereCloture ? `<p class="sous">Empreinte de la dernière clôture : <span class="mono empreinte">${esc(e.derniereCloture.empreinte)}</span></p>` : ''}`;
+  return `<section class="carte"><div class="carte-tete"><h2>Journal inaltérable des ventes</h2><div class="rangee"><button class="btn petit fantome" data-action="journal-verifier" ${ui.journalVerifEnCours ? 'disabled' : ''}>Vérifier maintenant</button><button class="btn petit fantome" data-action="journal-exporter">Exporter (archivage)</button></div></div>
+    ${etatTexte}${resultat}${ancre}
+    <details><summary>Vérifier une empreinte reçue par e-mail</summary><form data-form="journal-ancre" class="rangee"><input name="ancre" class="mono" maxlength="64" placeholder="64 caractères, copiés du rapport du lundi" aria-label="Empreinte reçue par e-mail" required><button class="btn petit">Vérifier</button></form>
+      <p class="sous">Si une empreinte que vous avez reçue n’est plus dans le journal, c’est que l’historique a été réécrit depuis.</p></details>
+    <p class="sous">Chaque facture, ticket et avoir est scellé dès son émission dans une chaîne signée par le serveur (HMAC-SHA-256). La vérification contrôle la chaîne, la continuité des numéros et la concordance de chaque pièce avec son sceau : une pièce modifiée ou supprimée après coup y apparaît. Chaque jour est clôturé avec son total et le grand total perpétuel ; l’empreinte de la dernière clôture figure dans le rapport du lundi (s’il est activé) : gardez ces e-mails. ${etat.boutique.pays === 'fr' ? 'Aide à la traçabilité, non certifiée : en France, un logiciel de caisse doit être certifié (NF 525 ou équivalent) ; ce journal n’en tient pas lieu.' : 'Une aide simple pour prouver l’intégrité de vos ventes en cas de contrôle.'}</p></section>`;
 }
 
 function texteMentions() {

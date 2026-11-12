@@ -1,53 +1,103 @@
-// Journal inaltérable : pièces scellées (ticket, facture, avoir), clôture journalière, falsifications détectées.
+// Journal inaltérable : pièces scellées (ticket, facture, avoir), clôtures, falsifications détectées.
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const crypto = require('node:crypto');
 const { ouvrir } = require('../src/db');
 const { creerApp } = require('../src/app');
+const JI = require('../src/journal-inalterable');
 
-test('journal inaltérable des ventes', async () => {
+async function demarrer() {
   const db = ouvrir(':memory:');
   const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
   const gerer = creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } });
   s.on('request', gerer);
   let cookie = '';
-  const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length) cookie = sc.map(x => x.split(';')[0]).join('; '); return { s: r.status, j: await r.json().catch(() => null), r }; };
+  const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length) cookie = sc.map(x => x.split(';')[0]).join('; '); return { s: r.status, j: await r.json().catch(() => null) }; };
+  await c('POST', '/api/auth/inscription', { email: 'ji@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Marché', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'M', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Miel', prix: 12, stock: 50, type: 'stock' }] });
+  return { db, s, base, gerer, c, cookie: () => cookie };
+}
+const verifier = (c, corps = {}) => c('POST', '/api/admin/journal-inalterable/verifier', corps).then(r => r.j);
+
+test('journal inaltérable : scellement, clôture, export, falsifications', async () => {
+  const { db, s, base, gerer, c, cookie } = await demarrer();
   try {
-    await c('POST', '/api/auth/inscription', { email: 'ji@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Marché', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'M', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Miel', prix: 12, stock: 50, type: 'stock' }] });
     const p = (await c('GET', '/api/admin/etat')).j.produits[0];
     const t1 = (await c('POST', '/api/admin/caisse', { lignes: [{ produitId: p.id, qte: 2 }], moyen: 'carte', cle: 'j1' })).j;
     const t2 = (await c('POST', '/api/admin/caisse', { lignes: [{ produitId: p.id, qte: 1 }], moyen: 'twint', cle: 'j2' })).j;
-    let etat = (await c('GET', '/api/admin/journal-inalterable')).j;
-    assert.equal(etat.ok, true); assert.equal(etat.pieces, 2); assert.match(etat.empreinte, /^[0-9a-f]{64}$/);
-    // Remboursement : un avoir scellé, négatif.
     assert.equal((await c('POST', `/api/admin/commandes/${t2.id}/statut`, { statut: 'remboursee' })).s, 200);
-    etat = (await c('GET', '/api/admin/journal-inalterable')).j;
-    assert.equal(etat.pieces, 3); assert.equal(etat.ok, true, JSON.stringify(etat.anomalies));
-    // Clôture des jours terminés : demain, la journée d'aujourd'hui est clôturée avec le grand total perpétuel.
-    gerer.automatisationsEcheances(Date.now() + 86400000);
-    gerer.automatisationsEcheances(Date.now() + 86400000);   // une seule clôture par jour
-    etat = (await c('GET', '/api/admin/journal-inalterable')).j;
+    let r = await verifier(c);
+    assert.equal(r.ok, true, JSON.stringify(r.anomalies)); assert.equal(r.pieces, 3);
+    // Clôture des jours terminés, une seule par jour.
+    gerer.automatisationsEcheances(Date.now() + 86400000); gerer.automatisationsEcheances(Date.now() + 86400000);
+    const etat = (await c('GET', '/api/admin/journal-inalterable')).j;
     assert.equal(etat.clotures, 1);
     assert.deepEqual([etat.derniereCloture.pieces, etat.derniereCloture.avoirs, etat.derniereCloture.totalJour, etat.derniereCloture.grandTotal], [3, 1, 2400, 2400], '24 + 12 − 12 = CHF 24.00');
-    // Export CSV pour l'archivage.
-    const csv = await (await fetch(base + '/api/admin/journal-inalterable/export', { headers: { Cookie: cookie } })).text();
-    assert.match(csv.replace(/^\uFEFF/, ''), /^seq;type;reference/); assert.equal(csv.trim().split('\n').length, 5);
-    // Falsification 1 : montant d'un ticket modifié directement en base.
+    assert.equal((await verifier(c)).ok, true);
+    const csv = await (await fetch(base + '/api/admin/journal-inalterable/export', { headers: { Cookie: cookie() } })).text();
+    assert.match(csv.replace(/^﻿/, ''), /^seq;type;reference/); assert.equal(csv.trim().split('\n').length, 5);
+
+    // 1. Montant d'un ticket modifié directement en base.
     const row = db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(t1.id), d = JSON.parse(row.donnees);
     db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(JSON.stringify({ ...d, total: 10 }), t1.id);
-    etat = (await c('GET', '/api/admin/journal-inalterable')).j;
-    assert.equal(etat.ok, false); assert.match(etat.anomalies.join(' '), new RegExp(`${t1.facture} : la pièce ne correspond plus`));
+    r = await verifier(c); assert.equal(r.ok, false); assert.match(r.anomalies.join(' '), new RegExp(`${t1.facture} : la pièce ne correspond plus`));
     db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(row.donnees, t1.id);
-    assert.equal((await c('GET', '/api/admin/journal-inalterable')).j.ok, true, 'rétabli');
-    // Falsification 2 : contenu scellé réécrit dans le journal.
-    const e2 = db.prepare('SELECT contenu FROM journal_inalterable WHERE seq = 2').get();
-    db.prepare('UPDATE journal_inalterable SET contenu = ? WHERE seq = 2').run(e2.contenu.replace('"total":1200', '"total":100'));
-    assert.match((await c('GET', '/api/admin/journal-inalterable')).j.anomalies.join(' '), /Entrée n° 2 .* modifiée/);
-    db.prepare('UPDATE journal_inalterable SET contenu = ? WHERE seq = 2').run(e2.contenu);
-    // Falsification 3 : une entrée supprimée.
-    db.prepare('DELETE FROM journal_inalterable WHERE seq = 1').run();
-    assert.match((await c('GET', '/api/admin/journal-inalterable')).j.anomalies.join(' '), /Entrée n° 1 manquante/);
-    // Effacement d'un client (RGPD) : le journal reste valide (aucune donnée personnelle scellée).
+    assert.equal((await verifier(c)).ok, true, 'rétabli');
+    // 2. Contenu réécrit et empreinte recalculée sans la clé du serveur (SHA-256 simple) : détecté.
+    const e2 = db.prepare('SELECT * FROM journal_inalterable WHERE seq = 2').get(), e1 = db.prepare('SELECT empreinte FROM journal_inalterable WHERE seq = 1').get();
+    const faux = e2.contenu.replace('"total":1200', '"total":100');
+    db.prepare('UPDATE journal_inalterable SET contenu = ?, empreinte = ? WHERE seq = 2').run(faux, crypto.createHash('sha256').update(`${e1.empreinte}|2|${e2.type}|${e2.ref}|${e2.le}|${faux}`).digest('hex'));
+    assert.match((await verifier(c)).anomalies.join(' '), /Entrée n° 2 .* modifiée/);
+    db.prepare('UPDATE journal_inalterable SET contenu = ?, empreinte = ? WHERE seq = 2').run(e2.contenu, e2.empreinte);
+    // 3. Fin de chaîne coupée (dernière clôture et dernier avoir supprimés, commande comprise) : numéros manquants.
+    const sauve = db.prepare('SELECT * FROM journal_inalterable WHERE seq >= 3 ORDER BY seq').all();
+    db.prepare('DELETE FROM journal_inalterable WHERE seq >= 3').run();
+    r = await verifier(c); assert.match(r.anomalies.join(' '), /Numéros de pièces manquants dans le journal : 3/); assert.match(r.anomalies.join(' '), /non scellée/);
+    for (const e of sauve) db.prepare('INSERT INTO journal_inalterable (boutique_id, seq, type, ref, commande_id, le, contenu, empreinte, cloture_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(e.boutique_id, e.seq, e.type, e.ref, e.commande_id, e.le, e.contenu, e.empreinte, e.cloture_seq);
+    assert.equal((await verifier(c)).ok, true);
+    // 4. Empreinte reçue par e-mail : retrouvée ; une empreinte inconnue est signalée.
+    r = await verifier(c, { ancre: etat.derniereCloture.empreinte }); assert.equal(r.ancreOk, true); assert.equal(r.ok, true);
+    r = await verifier(c, { ancre: 'a'.repeat(64) }); assert.equal(r.ancreOk, false); assert.equal(r.ok, true, 'une empreinte mal recopiée n’est pas une anomalie du journal');
+    assert.equal((await c('POST', '/api/admin/journal-inalterable/verifier', { ancre: 'xyz' })).s, 400);
+    // 5. Total de clôture falsifié (avec empreinte recalculée en SHA-256 simple) : détecté deux fois.
+    const cl = db.prepare("SELECT * FROM journal_inalterable WHERE type = 'cloture'").get();
+    db.prepare('UPDATE journal_inalterable SET contenu = ? WHERE seq = ?').run(cl.contenu.replace('"totalJour":2400', '"totalJour":2000'), cl.seq);
+    r = await verifier(c); assert.match(r.anomalies.join(' '), /total du jour faux/); assert.match(r.anomalies.join(' '), /modifiée/);
+    db.prepare('UPDATE journal_inalterable SET contenu = ? WHERE seq = ?').run(cl.contenu, cl.seq);
+  } finally { s.close(); }
+});
+
+test('clôtures : une vente juste après minuit est comptée une fois, le jour suivant', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(':memory:');
+  db.exec('CREATE TABLE commandes (id TEXT PRIMARY KEY, boutique_id TEXT, numero INTEGER, date INTEGER, statut TEXT, donnees TEXT)');
+  const J = JI.creer(db, Buffer.alloc(32, 7));
+  const minuitZurich = new Date('2026-11-13T00:00:00+01:00').getTime();
+  const piece = (id, n, total, le) => J.sceller('b', { id, numero: n, facture: `FA-2026-${n}`, date: le, total, lignes: [] }, le);
+  piece('c1', 1, 10, minuitZurich - 3600000);           // 12.11, 23 h
+  piece('c2', 2, 20, minuitZurich + 120000);            // 13.11, 00 h 02, scellée avant la clôture du 12
+  J.cloturer('b', minuitZurich + 300000);               // clôture du 12 (à 00 h 05)
+  piece('c3', 3, 40, minuitZurich + 3600000);           // 13.11, 01 h
+  J.cloturer('b', minuitZurich + 86400000 + 300000);    // clôture du 13
+  const cl = db.prepare("SELECT contenu FROM journal_inalterable WHERE type = 'cloture' ORDER BY seq").all().map(x => JSON.parse(x.contenu));
+  assert.deepEqual(cl.map(x => [x.jour, x.totalJour, x.grandTotal]), [['2026-11-12', 1000, 1000], ['2026-11-13', 6000, 7000]]);
+  // Pièce reprise avec une date ancienne (jour déjà clôturé) : comptée dans la clôture suivante, jamais perdue.
+  piece('c4', 4, 5, minuitZurich - 5 * 86400000);
+  J.cloturer('b', minuitZurich + 2 * 86400000 + 300000);
+  const der = JSON.parse(db.prepare("SELECT contenu FROM journal_inalterable WHERE type = 'cloture' ORDER BY seq DESC").get().contenu);
+  assert.deepEqual([der.jour, der.totalJour, der.grandTotal], ['2026-11-14', 500, 7500]);
+  // Second numéro de facture pour la même commande : refusé.
+  assert.deepEqual(J.sceller('b', { id: 'c1', numero: 1, facture: 'FA-2026-9', total: 10, lignes: [] }).conflits, ['FA-2026-9 (déjà FA-2026-1)']);
+});
+
+test('variantes du fournisseur : référence jamais publique, stock non modifiable par l’API', async () => {
+  const { s, c } = await demarrer();
+  try {
+    const ins = await c('POST', '/api/auth/inscription', { email: 'ref@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Mode', pays: 'ch', secteur: 'mode', sections: [] }, entreprise: { raison: 'M', adresse: 'Rue 1, 1003 Lausanne' } },
+      produits: [{ nom: 'T-shirt', prix: 30, type: 'drop', source: 'f01', codeFournisseur: 'demo', actif: true, options: [{ nom: 'Taille', valeurs: ['S'] }], variantes: [{ id: 'S', ref: 'ALI-123456-S' }] }] });
+    const pub = await (await fetch(`${s.address ? '' : ''}http://127.0.0.1:${s.address().port}/api/public/${ins.j.slug}`)).text();
+    assert.doesNotMatch(pub, /ALI-123456-S/, 'référence fournisseur absente de la boutique publique');
+    assert.match(pub, /"variantes":\[\{"id":"S"/);
   } finally { s.close(); }
 });

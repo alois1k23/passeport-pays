@@ -68,7 +68,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 ### Conformité
 
 - Mentions légales, CGV, factures et avoirs numérotés sans trou.
-- **Journal inaltérable des ventes** : factures, tickets et avoirs scellés dans une chaîne d'empreintes, clôture journalière avec grand total perpétuel, vérification et export. Base technique des exigences françaises pour les logiciels de caisse (pas une certification NF 525).
+- **Journal inaltérable des ventes** : factures, tickets et avoirs scellés dans une chaîne signée par le serveur, clôture journalière avec grand total perpétuel, vérification chaque nuit (alerte par e-mail), empreintes envoyées au marchand, export. Aide à la traçabilité, non certifiée NF 525.
 - **Facture électronique** : chaque facture et chaque avoir au format XML de la norme européenne EN 16931 (celui de Factur-X), valide selon le schéma officiel.
 - Droit de rétractation (France, Belgique), effacement des données d'un client sur demande.
 

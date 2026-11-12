@@ -617,3 +617,22 @@ Relecture indépendante des cycles 37 et 39 : 30 000 commandes aléatoires et 30
 - En production (HTTPS), le cookie de session s'appelle `__Host-comptoir_session` : le navigateur exige alors `Secure`, `Path=/` et l'absence de domaine. Ni un sous-domaine ni une page en HTTP ne peuvent poser ou remplacer la session d'un marchand (fixation de session). Un cookie de session sans préfixe est ignoré.
 - Effet à la mise en ligne : les sessions ouvertes avant ce changement devront se reconnecter une fois.
 - Test ajouté (`cookie-host.test.js`) : 109 tests sur 109.
+
+## Cycle 47 (03 h 30) : corrections de la revue n° 9 (journal inaltérable, variantes du fournisseur)
+
+Relecture indépendante des cycles 41 et 43 : 11 constats, dont 4 graves sur le journal. Tous traités.
+
+- **Clôtures exactes** : une vente scellée juste après minuit, avant la clôture de la veille, était perdue pour toujours (grand total faux). Chaque pièce est désormais rattachée à exactement une clôture (marquée), et la clôture liste ses pièces. Test : ventes de 10, 20 (à 00 h 02) et 40 → grand total 70.
+- **Falsifications détectées** (le journal disait « intact » dans ces cas) :
+  - la chaîne est signée par le serveur (HMAC-SHA-256, clé dérivée de `SECRET_CHIFFREMENT`) : une copie de la base ne suffit plus à la recalculer ;
+  - continuité des numéros jusqu'au compteur de la boutique : une fin de chaîne coupée se voit ;
+  - pièces émises mais non scellées signalées ;
+  - totaux de chaque clôture et grand total recalculés ;
+  - les empreintes envoyées dans le rapport du lundi sont gardées et doivent rester dans la chaîne ; le marchand peut aussi en saisir une reçue par e-mail.
+- **Performance** : vérification par lots (le serveur reste disponible) : sur 100 000 pièces, blocage maximal de 23 ms au lieu de 2,8 s. La page Conformité n'affiche plus que l'état (rapide) ; la vérification complète se lance à la demande (6 fois par heure au plus) et **chaque nuit automatiquement**, avec un e-mail au marchand si une anomalie apparaît.
+- **Reprise** : une transaction par boutique, reprise après interruption, pièces scellées à leur date d'origine (100 000 pièces en 4,5 s au lieu de 23 s).
+- **Course « marquer payée » / paiement en ligne** : les numéros sont attribués après les appels à Stripe, sur la commande relue ; un second numéro de facture pour une même commande est refusé.
+- **Référence fournisseur** des variantes retirée de la boutique publique (elle y était visible). Stock d'une variante du fournisseur refusé par l'API au lieu d'être ignoré.
+- **Sceau complété** : moyen de paiement et arrondi des espèces à la caisse, taux de TVA de la commande.
+- **Formulation** : « aide à la traçabilité, non certifiée » ; plus de mention de l'attestation de l'éditeur (supprimée par la loi de finances 2025) ; l'empreinte du lundi est mentionnée « si le rapport est activé ». Boutiques supprimées : journal gardé pour l'archivage, plus clôturé.
+- 111 tests sur 111, bout en bout 51 sur 51.

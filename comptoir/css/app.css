@@ -1404,3 +1404,4 @@ details.en-ligne form { margin-top: 6px; }
 /* Éditeur de variantes : champs étroits, le tableau tient dans la fiche */
 .variantes-edit .table input[data-var-stock], .variantes-edit .table input[data-var-prix] { width: 76px; min-width: 0; text-align: right; }
 .variantes-edit .table input[data-var-ref] { width: 120px; min-width: 0; }
+.empreinte { word-break: break-all; font-size: .8em; }
