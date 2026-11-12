@@ -301,7 +301,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Restent en français** : les messages d'erreur renvoyés par le serveur au moment de commander, et l'e-mail « vous nous manquez » (il n'est pas lié à une commande).
 - Vérifié dans un vrai navigateur. Tests : 91 sur 91.
 
-## Cycle 18 (01 h 35) : notifications push, même Comptoir fermé
+## Cycle 18 (01 h 25) : notifications push, même Comptoir fermé
 
 - **Web Push** (`server/src/webpush.js`, sans dépendance) : le marchand reçoit une notification sur son téléphone ou son ordinateur à chaque commande payée, même quand Comptoir est fermé. Exemple : « Nouvelle commande n° 1042 · CHF 89.90 · Lausanne », avec la mention « risque de fraude élevé » s'il y a lieu.
 - **Chiffrement de bout en bout** (RFC 8291 : ECDH P-256, HKDF, AES-128-GCM) : le service push (Google, Mozilla, Apple, Microsoft) ne lit pas le message. Le chiffrement reproduit **à l'octet près le vecteur de test officiel de la RFC 8291**.
@@ -314,3 +314,11 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - **Interface** : Paramètres > E-mails > « Notifications sur cet appareil ». Boutons : activer, « recevoir même Comptoir fermé », envoyer un test, arrêter sur cet appareil. Le service worker affiche la notification, et un clic ouvre les commandes.
 - Tests : vecteur RFC, abonnement refusé vers un service inconnu, commande payée → message chiffré envoyé, signature VAPID vérifiée, message déchiffré comme par le téléphone. 93 tests sur 93.
 - **Limite honnête** : l'envoi vers un vrai service push (Google ou Apple) n'a pas pu être essayé ici, faute d'accès réseau à ces services. À vérifier avec un vrai téléphone après la mise en ligne. Sur iPhone, Comptoir doit d'abord être ajouté à l'écran d'accueil.
+
+## Cycle 19 (01 h 35) : lien de panier (vente par WhatsApp, Instagram, SMS)
+
+- Nouveau bouton « Lien de panier » dans Produits. Le marchand choisit les produits, les quantités et éventuellement un code promo. Il obtient un lien à copier, à envoyer par WhatsApp ou par e-mail, ou à montrer en QR code (au marché, en vitrine).
+- Le client arrive sur la boutique avec ce panier prêt, le code appliqué et le tiroir ouvert, puis paie comme d'habitude. L'adresse est nettoyée après lecture.
+- Le lien ne fixe aucun prix : prix, stock (quantité limitée au stock disponible), remises et score de risque sont ceux de la boutique au moment de l'ouverture.
+- Vérifié dans un vrai navigateur : lien créé dans l'espace marchand, ouvert par un client. Le panier est correct, et la lampe est limitée aux 2 en stock.
+- Essai de bout en bout « comme en production » relancé après tous les changements de la nuit : 51 contrôles sur 51.

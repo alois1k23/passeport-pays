@@ -564,9 +564,10 @@ function vueProduits() {
   const cats = SECTEURS[etat.boutique.secteur].categories;
   return `
   <div class="tete"><div><h1>Produits</h1><p class="sous">${etat.produits.length} produits · ${etat.produits.filter(x => x.actif && !x.aVerifier && (typeof SERVEUR === 'undefined' || SERVEUR.fournisseurDemoVendable !== false || x.codeFournisseur !== 'demo')).length} en ligne</p></div>
-    <div class="rangee"><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
+    <div class="rangee"><button class="btn fantome" data-action="lien-panier">Lien de panier</button><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
     <input type="file" id="photo-input" accept="image/*" multiple hidden></div>
   <p class="astuce">Ajoutez des produits du <a class="lien" href="#sourcing">catalogue fournisseurs</a> (dropshipping) ou prenez vos propres produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
+  ${ui.lienPanier && typeof vueLienPanier === 'function' ? vueLienPanier() : ''}
   <div class="barre-filtres">
     <input id="recherche-produits" type="search" placeholder="Rechercher un produit…" value="${esc(ui.rechercheProduit || '')}" data-champ="recherche-produit" aria-label="Rechercher un produit">
     <div class="segment" role="group" aria-label="Filtrer les produits">${FILTRES_PRODUITS.map(([k, n]) => `<button class="${(ui.filtreProduit || 'tous') === k ? 'actif' : ''}" data-action="filtre-produit" data-v="${k}">${n} <span class="sous">${etat.produits.filter(FILTRES_FN[k]).length}</span></button>`).join('')}</div>

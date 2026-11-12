@@ -55,6 +55,17 @@ async function demarrer() {
   if (q.get('reprendre')) { reprendrePaiement(q.get('reprendre'), q.get('jeton')); return; }
   if (q.get('avis')) { formulaireAvis(q.get('avis'), q.get('jeton')); return; }
   if (q.get('commande')) suivreCommande(q.get('commande'), q.get('jeton'), q.get('annule'));
+  // Lien de panier envoyé par le marchand (WhatsApp, Instagram, SMS) : ?panier=id:qte,id:qte[&code=…]
+  // Le panier est rempli avec les produits encore en vente (quantité limitée au stock), puis le tiroir s'ouvre.
+  if (q.get('panier')) {
+    const lignes = q.get('panier').split(',').slice(0, 20).map(x => x.split(':')).map(([id, n]) => ({ p: donnees.produits.find(y => y.id === id), n: Math.max(1, Math.min(20, parseInt(n, 10) || 1)) })).filter(x => x.p && (x.p.type === 'drop' || x.p.stock > 0));
+    if (lignes.length) {
+      vue.panier = lignes.map(({ p, n }) => ({ produitId: p.id, nom: p.nom, prix: p.prix, qte: p.type === 'drop' ? n : Math.min(n, p.stock) }));
+      garderPanier(); vue.ouvert = true; mesurer('panier', { valeur: 'lien' });
+    }
+    history.replaceState(null, '', location.pathname + (q.get('lang') ? `?lang=${encodeURIComponent(q.get('lang'))}` : ''));
+    if (q.get('code')) { rendre(); appliquerCode(q.get('code').slice(0, 40)); return; }
+  }
   rendre();
 }
 
