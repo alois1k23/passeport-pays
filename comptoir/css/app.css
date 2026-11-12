@@ -1400,3 +1400,7 @@ details.en-ligne form { margin-top: 6px; }
 .sf-alerte { margin-top: 12px; }
 .sf-alerte-ligne { display: flex; gap: 8px; flex-wrap: wrap; }
 .sf-alerte-ligne input { flex: 1; min-width: 180px; padding: 10px 12px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; font: inherit; }
+
+/* Éditeur de variantes : champs étroits, le tableau tient dans la fiche */
+.variantes-edit .table input[data-var-stock], .variantes-edit .table input[data-var-prix] { width: 76px; min-width: 0; text-align: right; }
+.variantes-edit .table input[data-var-ref] { width: 120px; min-width: 0; }

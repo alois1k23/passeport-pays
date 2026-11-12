@@ -88,7 +88,7 @@ function construireLignes(produits, demandes, { qteMax = 20, verifierStock = tru
   for (const [cle, qte] of Object.entries(parVariante)) {
     const [pid, vid] = [cle.slice(0, cle.indexOf(':')), cle.slice(cle.indexOf(':') + 1)];
     const v = produits.find(x => x.id === pid).variantes.find(x => x.id === vid);
-    if (verifierStock && v.stock < qte) throw erreur(409, `Stock insuffisant pour « ${produits.find(x => x.id === pid).nom} (${v.valeurs.join(' / ')}) ».`, 'stock_insuffisant');
+    if (verifierStock && produits.find(x => x.id === pid).type !== 'drop' && v.stock < qte) throw erreur(409, `Stock insuffisant pour « ${produits.find(x => x.id === pid).nom} (${v.valeurs.join(' / ')}) ».`, 'stock_insuffisant');
   }
   // Contrôle sur la quantité totale par produit (plusieurs lignes du même produit, offres comprises).
   const totaux = {};

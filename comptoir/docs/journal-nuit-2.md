@@ -570,3 +570,11 @@ Relecture indépendante des cycles 32 à 36 : 11 constats, tous traités.
 - Permissions-Policy étendue : USB, port série, HID, Bluetooth, MIDI et `browsing-topics` désactivés.
 - CSP complétée : `worker-src 'self'`, `manifest-src 'self'`, et `upgrade-insecure-requests` en production (HTTPS).
 - 105 tests, bout en bout 51 sur 51.
+
+## Cycle 41 (03 h 15) : variantes pour les produits en dropshipping
+
+- Un produit du fournisseur peut maintenant avoir des tailles et des couleurs, comme un produit en stock. Pas de stock propre (c'est celui du fournisseur), mais une **référence fournisseur par variante** et un prix différent si besoin.
+- La variante choisie (identifiant, valeurs et référence) est transmise au fournisseur avec la commande. Le protocole fournisseur est documenté dans `fournisseurs.js`.
+- L'API expose les variantes d'un produit du fournisseur sans stock (`null`), avec leur référence.
+- Éditeur : colonne « Réf. fournisseur » à la place du stock, champs resserrés pour que le tableau tienne dans la fiche (vérifié dans un vrai navigateur).
+- Test ajouté : commande d'une variante, refus sans variante, transmission avec la référence au fournisseur de démonstration. 106 tests sur 106.

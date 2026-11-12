@@ -476,9 +476,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     if (p.prixReference !== undefined && p.prixReference !== null && p.prixReference !== '' && Number(p.prixReference) > 0) propre.prixReference = valider.nombre(p.prixReference, 'Le prix barré', { min: 0, max: 100000 });
     // Historique des prix tenu par le serveur seul (sert à vérifier les prix barrés) : le navigateur ne peut pas le modifier.
     propre.historiquePrix = PrixBarres.noterPrix(historiqueAvant, propre.prix);
-    // Variantes (produits en stock) : 2 options au plus (ex. Taille × Couleur), 20 valeurs chacune, 60 combinaisons.
+    // Variantes (produits en stock et en dropshipping) : 2 options au plus (ex. Taille × Couleur), 20 valeurs chacune, 60 combinaisons.
     // L'identifiant d'une variante est sa combinaison (« M/Bleu ») ; le stock du produit est la somme des variantes.
-    if (type === 'stock' && Array.isArray(p.options) && p.options.length) {
+    // Dropshipping : pas de stock propre (celui du fournisseur), mais une référence fournisseur par variante, transmise avec la commande.
+    if ((type === 'stock' || type === 'drop') && Array.isArray(p.options) && p.options.length) {
       const options = p.options.slice(0, 2).map(o => ({ nom: String(o && o.nom || '').trim().slice(0, 30), valeurs: [...new Set((Array.isArray(o && o.valeurs) ? o.valeurs : []).map(v => String(v).replace(/[\/|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 30)).filter(Boolean))].slice(0, 20) })).filter(o => o.nom && o.valeurs.length);
       if (options.length) {
         const combis = options.reduce((acc, o) => acc.flatMap(a => o.valeurs.map(v => [...a, v])), [[]]);
@@ -489,9 +490,10 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
           const id = valeurs.join('/'), memePosition = avant.length === combis.length ? avant[combis.indexOf(valeurs)] : null;
           const v = avant.find(x => x && x.id === id) || (memePosition && !combis.some(c2 => c2.join('/') === memePosition.id) ? memePosition : null) || {};   // valeur renommée : stock gardé
           const prixV = v.prix !== undefined && v.prix !== null && v.prix !== '' ? prix.arrondi(valider.nombre(v.prix, 'Le prix de la variante', { min: 0, max: 100000 })) : null;
-          return { id, valeurs, stock: valider.entier(v.stock ?? 0, 'Le stock de la variante', { min: 0, max: 1e6 }), ...(prixV !== null ? { prix: prixV } : {}) };
+          const ref = type === 'drop' && v.ref ? String(v.ref).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60) : '';
+          return { id, valeurs, stock: type === 'drop' ? 999 : valider.entier(v.stock ?? 0, 'Le stock de la variante', { min: 0, max: 1e6 }), ...(prixV !== null ? { prix: prixV } : {}), ...(ref ? { ref } : {}) };
         });
-        propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
+        if (type !== 'drop') propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
       }
     }
     if (type === 'drop') Object.assign(propre, { portF: Number(p.portF) || 0, entrepot: ['CH', 'UE', 'CN'].includes(p.entrepot) ? p.entrepot : 'UE', delai: Array.isArray(p.delai) ? p.delai.slice(0, 2).map(Number) : [3, 7], fournisseur: String(p.fournisseur || '').slice(0, 80), source: String(p.source || '').slice(0, 40), codeFournisseur: p.codeFournisseur || 'demo' });
@@ -570,7 +572,12 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     });
     const rep = await fournisseurs.client(f, fetchImpl).passerCommande({
       referenceMarchand: `${boutique.slug}-${c.numero}-${c.id.slice(-6)}`,   // unique même si un nom de boutique est réutilisé
-      lignes: lignesDrop.map((l, i) => ({ produitId: sources[i], qte: l.qte })),
+      // Variante : identifiant, valeurs (« M / Bleu ») et référence du fournisseur si le marchand l'a saisie.
+      lignes: lignesDrop.map((l, i) => {
+        if (!l.varianteId) return { produitId: sources[i], qte: l.qte };
+        const p = listerProduits(boutique.id).find(x => x.id === l.produitId), v = p && Array.isArray(p.variantes) ? p.variantes.find(x => x.id === l.varianteId) : null;
+        return { produitId: sources[i], qte: l.qte, variante: { id: l.varianteId, valeurs: v ? v.valeurs : String(l.varianteId).split('/'), ...(v && v.ref ? { ref: v.ref } : {}) } };
+      }),
       livraison: { nom: c.client.nom, adresse: c.client.adresse || '', npa: c.client.npa || '', ville: c.client.ville, pays: lireConfig(boutique).boutique.pays.toUpperCase() }
     });
     const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
@@ -1964,7 +1971,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     emailExpedition(ctx.boutique, c, lireConfig(ctx.boutique));
     return commandeApi(c, deviseDeBoutique(ctx.boutique), { client: avecClient(ctx) });
   });
-  const produitApi = (p, slug) => ({ id: p.id, nom: p.nom, prix: p.prix, stock: p.type === 'drop' ? null : p.stock, ...(Array.isArray(p.variantes) && p.variantes.length ? { options: p.options, variantes: p.variantes.map(v => ({ id: v.id, valeurs: v.valeurs, stock: v.stock, prix: typeof v.prix === 'number' ? v.prix : p.prix })) } : {}), type: p.type, actif: p.actif !== false, categorie: p.categorie || '', image: p.image ? `${urlPublique}/api/public/${encodeURIComponent(slug)}/image/${p.id}` : null });
+  const produitApi = (p, slug) => ({ id: p.id, nom: p.nom, prix: p.prix, stock: p.type === 'drop' ? null : p.stock, ...(Array.isArray(p.variantes) && p.variantes.length ? { options: p.options, variantes: p.variantes.map(v => ({ id: v.id, valeurs: v.valeurs, stock: p.type === 'drop' ? null : v.stock, prix: typeof v.prix === 'number' ? v.prix : p.prix, ...(p.type === 'drop' && v.ref ? { ref: v.ref } : {}) })) } : {}), type: p.type, actif: p.actif !== false, categorie: p.categorie || '', image: p.image ? `${urlPublique}/api/public/${encodeURIComponent(slug)}/image/${p.id}` : null });
   r.get('/api/v1/produits', exigerCle('produits:lecture'), ctx => ({ donnees: listerProduits(ctx.boutique.id).map(p => produitApi(p, ctx.boutique.slug)) }));
   r.patch('/api/v1/produits/:id', exigerCle('produits:ecriture'), ctx => {
     const ancien = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(ctx.params.id, ctx.boutique.id);

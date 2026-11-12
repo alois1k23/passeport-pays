@@ -603,7 +603,7 @@ function vueProduits() {
       <label class="champ"><span>Description <button type="button" class="lien bouton-lien" data-action="rediger">Rédiger pour moi</button></span><textarea id="pf-desc" name="description" rows="4">${esc(p.description)}</textarea></label>
       <div class="deux"><label class="champ"><span>Prix TTC (${devise()})</span><input id="pf-prix" name="prix" type="number" min="0" step="0.01" required value="${p.prix}"></label>
       ${p.type === 'drop' ? '<input type="hidden" name="stock" value="999">' : aVariantesEdit(p) ? `<label class="champ"><span>Stock (somme des variantes)</span><input id="pf-stock" name="stock" type="number" readonly value="${p.variantes.reduce((a, v) => a + (Number(v.stock) || 0), 0)}"></label>` : `<label class="champ"><span>Stock</span><input id="pf-stock" name="stock" type="number" min="0" step="1" required value="${p.stock}"></label>`}</div>
-      ${p.type === 'drop' ? '' : editeurVariantes(p)}
+      ${editeurVariantes(p)}
       ${p.type === 'drop' ? `<p class="sous">Fournisseur : ${esc(p.fournisseur || '—')} · entrepôt ${ENTREPOTS[p.entrepot] ? ENTREPOTS[p.entrepot].nom : '—'} · ${p.delai ? p.delai[0] + '–' + p.delai[1] + ' jours' : ''}</p>
       <label class="champ"><span>Coût fournisseur (${devise()})</span><input id="pf-cout" name="cout" type="number" min="0" step="0.01" value="${p.cout}"></label>`
       : `<label class="champ"><span>Coût d’achat unitaire (${devise()})</span><input id="pf-cout" name="cout" type="number" min="0" step="0.01" value="${p.cout ?? ''}" placeholder="Pour calculer votre marge"></label>`}
@@ -1322,11 +1322,11 @@ function editeurVariantes(p) {
   const brouillon = ui.brouillonOptions && ui.brouillonOptions.id === p.id ? ui.brouillonOptions.o : null;
   const o = [0, 1].map(i => brouillon ? brouillon[i] : ((p.options || [])[i] ? { nom: p.options[i].nom, valeurs: p.options[i].valeurs.join(', ') } : { nom: '', valeurs: '' }));
   return `<details class="variantes-edit" ${aVariantesEdit(p) || ui.variantesOuvert ? 'open' : ''}><summary>Variantes (tailles, couleurs…)</summary>
-    <p class="sous">Une ou deux options, valeurs séparées par des virgules. Chaque combinaison a son stock, et un prix différent si besoin.</p>
+    <p class="sous">Une ou deux options, valeurs séparées par des virgules. ${p.type === 'drop' ? 'Chaque combinaison peut avoir sa référence chez le fournisseur (transmise avec la commande) et un prix différent.' : 'Chaque combinaison a son stock, et un prix différent si besoin.'}</p>
     ${o.map((x, i) => `<div class="deux"><label class="champ"><span>Option ${i + 1}</span><input data-opt-nom="${i}" value="${esc(x.nom)}" placeholder="${i ? 'ex. Couleur' : 'ex. Taille'}" maxlength="30"></label>
       <label class="champ"><span>Valeurs</span><input data-opt-valeurs="${i}" value="${esc(x.valeurs)}" placeholder="${i ? 'Bleu, Sable' : 'S, M, L'}"></label></div>`).join('')}
-    ${aVariantesEdit(p) ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Variante</th><th class="num">Stock</th><th class="num">Prix (vide = ${euros(p.prix)})</th></tr></thead><tbody>
-      ${p.variantes.map(v => `<tr><td>${esc(v.valeurs.join(' / '))}</td><td class="num"><input type="number" min="0" step="1" value="${Number(v.stock) || 0}" data-var-stock="${esc(v.id)}" aria-label="Stock ${esc(v.valeurs.join(' / '))}" class="qte-lien"></td><td class="num"><input type="number" min="0" step="0.01" value="${v.prix ?? ''}" data-var-prix="${esc(v.id)}" aria-label="Prix ${esc(v.valeurs.join(' / '))}" class="qte-lien"></td></tr>`).join('')}
+    ${aVariantesEdit(p) ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Variante</th><th class="num">${p.type === 'drop' ? 'Réf. fournisseur' : 'Stock'}</th><th class="num" title="Vide : prix du produit (${euros(p.prix)})">Prix</th></tr></thead><tbody>
+      ${p.variantes.map(v => `<tr><td>${esc(v.valeurs.join(' / '))}</td><td class="num">${p.type === 'drop' ? `<input value="${esc(v.ref || '')}" maxlength="60" data-var-ref="${esc(v.id)}" aria-label="Référence fournisseur ${esc(v.valeurs.join(' / '))}" placeholder="facultatif">` : `<input type="number" min="0" step="1" value="${Number(v.stock) || 0}" data-var-stock="${esc(v.id)}" aria-label="Stock ${esc(v.valeurs.join(' / '))}" class="qte-lien">`}</td><td class="num"><input type="number" min="0" step="0.01" value="${v.prix ?? ''}" data-var-prix="${esc(v.id)}" aria-label="Prix ${esc(v.valeurs.join(' / '))}" placeholder="${esc(String(p.prix))}" class="qte-lien"></td></tr>`).join('')}
     </tbody></table></div>` : ''}</details>`;
 }
 document.addEventListener('change', e => {
@@ -1342,25 +1342,27 @@ document.addEventListener('change', e => {
   p.options = options;
   // Valeur renommée (même nombre de combinaisons) : stock et prix repris à la même position
   const ids = combis.map(c => c.join('/'));
-  p.variantes = combis.map((valeurs, i) => { const id = valeurs.join('/'); const v = avant.find(x => x.id === id) || (avant.length === combis.length && avant[i] && !ids.includes(avant[i].id) ? { ...avant[i], stockSaisi: true } : null); return { id, valeurs, stock: v ? v.stock : 0, ...(v && v.stockSaisi ? { stockSaisi: true } : {}), ...(v && v.prix !== undefined && v.prix !== null && v.prix !== '' ? { prix: v.prix } : {}) }; });
+  p.variantes = combis.map((valeurs, i) => { const id = valeurs.join('/'); const v = avant.find(x => x.id === id) || (avant.length === combis.length && avant[i] && !ids.includes(avant[i].id) ? { ...avant[i], stockSaisi: true } : null); return { id, valeurs, stock: p.type === 'drop' ? 999 : v ? v.stock : 0, ...(v && v.ref ? { ref: v.ref } : {}), ...(v && v.stockSaisi ? { stockSaisi: true } : {}), ...(v && v.prix !== undefined && v.prix !== null && v.prix !== '' ? { prix: v.prix } : {}) }; });
   if (!p.variantes.length) { delete p.options; delete p.variantes; }
-  else p.stock = p.variantes.reduce((a, v) => a + (Number(v.stock) || 0), 0);
+  else if (p.type !== 'drop') p.stock = p.variantes.reduce((a, v) => a + (Number(v.stock) || 0), 0);
   // Ce qui est déjà saisi dans la fiche (nom, prix…) est gardé avant le nouvel affichage
   const f = document.querySelector('[data-form="produit"]');
   if (f) { const d = new FormData(f); for (const k of ['nom', 'description', 'categorie']) if (d.has(k)) p[k] = d.get(k); for (const k of ['prix', 'cout', 'prixReference']) if (d.has(k) && d.get(k) !== '') p[k] = Number(d.get(k)); p.actif = d.has('actif'); p.tauxReduit = d.has('tauxReduit'); }
   // Nouvel affichage après le déplacement du curseur (tabulation, clic) : le marchand le retrouve dans le champ où il est allé
   setTimeout(() => {
-    const actif = document.activeElement, suite = actif && actif.matches && actif.matches('[data-opt-nom], [data-opt-valeurs], [data-var-stock], [data-var-prix]') ? [...actif.attributes].find(a => a.name.startsWith('data-')) : null;
+    const actif = document.activeElement, suite = actif && actif.matches && actif.matches('[data-opt-nom], [data-opt-valeurs], [data-var-stock], [data-var-prix], [data-var-ref]') ? [...actif.attributes].find(a => a.name.startsWith('data-')) : null;
     rendre();
     if (suite) document.querySelector(`[${suite.name}="${CSS.escape(suite.value)}"]`)?.focus();
   }, 0);
 });
 document.addEventListener('input', e => {
+  const rf = e.target.closest('[data-var-ref]');
+  if (rf && ui.produitEdite) { const v = (ui.produitEdite.variantes || []).find(x => x.id === rf.dataset.varRef); if (v) { if (rf.value.trim()) v.ref = rf.value.trim().slice(0, 60); else delete v.ref; } return; }
   const s = e.target.closest('[data-var-stock]'), pr = e.target.closest('[data-var-prix]'); if ((!s && !pr) || !ui.produitEdite) return;
   const p = ui.produitEdite, v = (p.variantes || []).find(x => x.id === (s ? s.dataset.varStock : pr.dataset.varPrix)); if (!v) return;
   if (s) { v.stock = Math.max(0, parseInt(s.value, 10) || 0); v.stockSaisi = true; }   // saisi par le marchand : remplace le stock en base
   else if (pr.value === '') delete v.prix; else v.prix = Math.max(0, Number(pr.value) || 0);
-  p.stock = p.variantes.reduce((a, x) => a + (Number(x.stock) || 0), 0);
+  if (p.type !== 'drop') p.stock = p.variantes.reduce((a, x) => a + (Number(x.stock) || 0), 0);
   const total = document.getElementById('pf-stock'); if (total) total.value = p.stock;
 });
 

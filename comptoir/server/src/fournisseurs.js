@@ -3,7 +3,7 @@
 // Contrat d'API (le même pour tous les fournisseurs ; un adaptateur traduit si besoin) :
 //   GET  {url}/catalogue                       → [{ id, nom, categorie, cout, portF, entrepot, delai, prix, fournisseur }]
 //   POST {url}/commandes                       → { ref, statut }
-//        corps : { referenceMarchand, lignes: [{ produitId, qte }], livraison: { nom, adresse, npa, ville, pays } }
+//        corps : { referenceMarchand, lignes: [{ produitId, qte, variante?: { id, valeurs, ref? } }], livraison: { nom, adresse, npa, ville, pays } }
 //   Webhook vers Comptoir quand le colis part :
 //   POST /api/webhooks/fournisseurs/{code}     en-tête X-Signature = HMAC-SHA256(corps, secret_webhook) en hex
 //        corps : { ref, statut: "expediee", suivi, transporteur }
