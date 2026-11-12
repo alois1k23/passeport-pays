@@ -326,7 +326,7 @@ document.addEventListener('submit', async e => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f));
   try {
-    if (f.dataset.form === 'cle-ajouter') { const r = await ClesAcces.enregistrer(d.motDePasse, d.nom, d.code); toast(`Clé d’accès « ${r.nom} » ajoutée.`); }
+    if (f.dataset.form === 'cle-ajouter') { const r = await ClesAcces.enregistrer(d.motDePasse, d.nom, d.code); SERVEUR.compteProtege = true; toast(`Clé d’accès « ${r.nom} » ajoutée.`); }
     else { await api('POST', `/api/admin/compte/cles-acces/${encodeURIComponent(f.dataset.id)}/supprimer`, { motDePasse: d.motDePasse }); toast('Clé d’accès supprimée.'); }
     SECURITE.donnees = null;
   } catch (err) { toast(ClesAcces.messageErreur(err)); }
@@ -337,7 +337,7 @@ document.addEventListener('submit', async e => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f)); SECURITE.erreur = '';
   try {
-    if (f.dataset.form === '2fa-activer') { const r = await api('POST', '/api/admin/compte/2fa/activer', d); SECURITE.mise = null; SECURITE.codes = r.codesSecours; toast('Double authentification activée.'); }
+    if (f.dataset.form === '2fa-activer') { const r = await api('POST', '/api/admin/compte/2fa/activer', d); SECURITE.mise = null; SECURITE.codes = r.codesSecours; SERVEUR.compteProtege = true; toast('Double authentification activée.'); }
     else if (f.dataset.form === '2fa-codes') { const r = await api('POST', '/api/admin/compte/2fa/codes', d); SECURITE.codes = r.codesSecours; toast('Nouveaux codes de secours : les anciens ne fonctionnent plus.'); }
     else { await api('POST', '/api/admin/compte/2fa/desactiver', d); toast('Double authentification désactivée.'); SECURITE.donnees = null; }
   } catch (err) { SECURITE.erreur = err.message; }

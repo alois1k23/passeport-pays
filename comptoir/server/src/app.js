@@ -695,7 +695,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     renouvelerCookie(ctx, m);
     const acces = m && accesDe(m.id), b = acces && acces.boutique;
-    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, role: acces ? acces.role : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
+    const df = m && deuxFacteursDe(m.id);
+    const protege = !!m && (!!(df && df.actif) || !!db.prepare('SELECT 1 FROM cles_acces WHERE marchand_id = ?').get(m.id));
+    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, role: acces ? acces.role : null, compteProtege: protege, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
   });
   r.post('/api/auth/inscription', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
