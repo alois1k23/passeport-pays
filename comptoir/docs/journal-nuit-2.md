@@ -710,3 +710,11 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - **Course** : l'option est relue après le calcul du mot de passe.
 - **Inondation** : 10 essais par quart d'heure au plus avec le bon mot de passe, et une seule ligne au journal du compte par heure.
 - Tests ajoutés pour chacun de ces cas : 116 tests sur 116, bout en bout 51 sur 51.
+
+## Cycle 56 (04 h 10) : signalement des violations de sécurité (CSP)
+
+- La politique de sécurité demande désormais aux navigateurs de signaler ce qu'ils bloquent (`report-uri /csp-rapport`) : un script injecté, un traceur ajouté par une extension. Un pic de rapports révèle une tentative d'injection.
+- **Aucune donnée personnelle gardée** : la page sans sa requête ni son ancre (pas d'e-mail ni de jeton d'une adresse), l'origine seule de ce qui a été bloqué, la règle. 30 jours, 5000 rapports au plus, 30 par réseau toutes les 10 minutes.
+- Console de l'exploitant : nombre de violations sur 7 jours et les trois plus fréquentes.
+- Vérifié dans un vrai navigateur : un script et une image externes injectés sont signalés, sans le `?x=secret` de l'adresse. Constat en passant : avec `report-to` en plus, Chromium n'envoie plus rien par `report-uri` (vérifié sur un serveur témoin). Seul `report-uri`, reconnu par Chrome, Firefox et Safari, est donc utilisé.
+- Test ajouté (`csp-rapports.test.js`) : 117 tests sur 117, bout en bout 51 sur 51.

@@ -64,7 +64,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 
 - Sauvegardes quotidiennes vérifiées et **chiffrées** (AES-256-GCM).
 - Aucune ressource tierce dans les boutiques : ni traceur, ni police Google.
-- En-têtes de sécurité stricts (CSP sans script externe).
+- En-têtes de sécurité stricts (CSP sans script externe), cookie de session `__Host-`. Les navigateurs signalent ce qu'ils bloquent (tentative d'injection), sans donnée personnelle.
 
 ### Conformité
 

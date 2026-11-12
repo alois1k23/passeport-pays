@@ -1156,10 +1156,36 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
         const etatJ = JV().etat('');
         return `${n("SELECT COUNT(DISTINCT boutique_id) n FROM journal_inalterable")} boutiques · ${v.filter(x => x.ok).length} intacts · ${v.filter(x => !x.ok).length} avec anomalie${etatJ.cleChangee ? ' · CLÉ DE SIGNATURE CHANGÉE : remettez l’ancienne SECRET_CHIFFREMENT' : ''}${/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? '' : ' · clé gardée dans la base (définissez SECRET_CHIFFREMENT)'}`;
       })()],
-      ['En marche depuis', `${Math.round((maintenant - demarreLe) / 3600000)} h · Node ${process.version}`]
+      ['Violations de sécurité signalées (7 j)', (() => {
+        const t = db.prepare('SELECT directive, bloque, COUNT(*) n FROM csp_rapports WHERE le > ? GROUP BY directive, bloque ORDER BY n DESC LIMIT 3').all(maintenant - 7 * j);
+        const total = n('SELECT COUNT(*) n FROM csp_rapports WHERE le > ?', maintenant - 7 * j);
+        return total ? `${total} · ${t.map(x => `${x.directive} ← ${x.bloque} (${x.n})`).join(' · ')}` : 'aucune';
+      })()],
+            ['En marche depuis', `${Math.round((maintenant - demarreLe) / 3600000)} h · Node ${process.version}`]
     ];
     noterActivite(m.id, 'console-operateur', null, ctx);
     return { html: pageSimple('Console de l’exploitant', 'Chiffres agrégés de la plateforme, sans donnée de client final.', `<table style="border-collapse:collapse;width:100%;margin-top:12px">${lignes.map(([k, v]) => `<tr><td style="padding:8px;border-bottom:1px solid #ddd;color:#555">${escHtml(k)}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:right"><b>${escHtml(String(v))}</b></td></tr>`).join('')}</table>`) };
+  });
+
+  /* ---------- Rapports de violation de la politique de sécurité (CSP) ----------
+     Le navigateur signale chaque script, style ou ressource qu'il a bloqué : un pic révèle une tentative d'injection
+     ou une extension qui modifie les pages. Rien de personnel n'est gardé : la page sans sa requête (« ?… »), l'origine
+     de ce qui a été bloqué, la règle. 30 jours, 5000 rapports au plus. */
+  db.exec('CREATE TABLE IF NOT EXISTS csp_rapports (le INTEGER NOT NULL, directive TEXT NOT NULL, bloque TEXT NOT NULL, page TEXT NOT NULL)');
+  const sansRequete = u => { try { const x = new URL(String(u)); return /^https?:$/.test(x.protocol) ? `${x.origin}${x.pathname}`.slice(0, 200) : x.protocol.replace(':', ''); } catch { return String(u || '').replace(/[?#].*$/, '').slice(0, 40); } };
+  const origineSeule = u => { try { const x = new URL(String(u)); return /^https?:$/.test(x.protocol) ? x.origin : x.protocol.replace(':', ''); } catch { return String(u || '').slice(0, 40); } };
+  r.post('/csp-rapport', ctx => {
+    try { auth.limiter('csp:' + reseauIp(ctx.ip), 30 * facteurLimites, 10 * 60000, ''); } catch { return { ok: true }; }   // au-delà : ignorés sans erreur
+    let d; try { d = JSON.parse(ctx.corpsBrut || 'null'); } catch { return { ok: true }; }
+    const rapports = Array.isArray(d) ? d.filter(x => x && x.type === 'csp-violation').map(x => x.body || {}) : d && d['csp-report'] ? [d['csp-report']] : [];
+    const ins = db.prepare('INSERT INTO csp_rapports (le, directive, bloque, page) VALUES (?, ?, ?, ?)');
+    for (const x of rapports.slice(0, 10)) {
+      const directive = String(x.effectiveDirective || x['effective-directive'] || x['violated-directive'] || '').split(' ')[0].slice(0, 40);
+      if (!directive) continue;
+      ins.run(Date.now(), directive, origineSeule(x.blockedURL || x['blocked-uri'] || 'inline'), sansRequete(x.documentURL || x['document-uri'] || ''));
+    }
+    if (Math.random() < 0.02) { db.prepare('DELETE FROM csp_rapports WHERE le < ?').run(Date.now() - 30 * 86400000); db.prepare('DELETE FROM csp_rapports WHERE rowid NOT IN (SELECT rowid FROM csp_rapports ORDER BY le DESC LIMIT 5000)').run(); }
+    return { ok: true };
   });
 
   /* ---------- Notifications push (Web Push) : une alerte sur le téléphone ou l'ordinateur du marchand à chaque
@@ -2953,7 +2979,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     let entetesRequete = {};
     // En-têtes de sécurité sur toutes les réponses : aucun script étranger (tout est servi par Comptoir),
     // pas d'affichage dans un cadre d'un autre site (clickjacking), pas de devinette du type de fichier.
-    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'; worker-src 'self'; manifest-src 'self'${securise ? '; upgrade-insecure-requests' : ''}`);
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'; worker-src 'self'; manifest-src 'self'${securise ? '; upgrade-insecure-requests' : ''}; report-uri /csp-rapport`);   // les navigateurs signalent ce qu'ils ont bloqué (tentative d'injection, extension) ; report-to non utilisé : avec lui, Chromium n'envoie plus rien par report-uri
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');   // une page ouverte depuis un autre site ne garde pas la main sur la nôtre
     res.setHeader('X-Frame-Options', 'DENY');
