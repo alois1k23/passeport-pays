@@ -213,7 +213,7 @@ Relecture indépendante du programme de fidélité : 200 000 paniers aléatoires
 - **Restent ouverts** : l'expiration des points se calcule à la lecture du compte (statistiques un peu hautes pour les comptes inactifs jamais relus), et l'e-mail du code n'existe qu'en français.
 - 1 nouveau test de régression (réservation, paiement manuel, abandon, reprise refusée, annulation, force brute, effacement, générosité) : 140 tests sur 140. Bout en bout 51 sur 51, vérifié dans un vrai navigateur.
 
-### Cycle 13 (01 h 05) : test de charge sur 1000 boutiques, optimisations
+### Cycle 13 (00 h 45) : test de charge sur 1000 boutiques, optimisations
 
 - Nouvel outil, `outils/simulation/charge.js`. Il fait tourner le vrai serveur dans son propre processus :
   - 1000 boutiques créées par l'API (en 11 secondes) ;
