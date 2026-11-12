@@ -52,3 +52,12 @@ La feuille de route peut évoluer selon les constats des relectures.
 - Les feuilles de style des pages produites par le serveur (factures, pages simples, paiement de test) et des pages statiques (accueil, boutique) sont autorisées une à une par leur empreinte SHA-256.
 - Vérifié dans un vrai navigateur : accueil, 13 écrans de l'espace marchand, boutique, pages légales et de désinscription. **Aucune violation**, aucune erreur ; barres, thème de la boutique et aperçus de thème s'affichent comme avant.
 - 120 tests sur 120, bout en bout 51 sur 51.
+
+### Cycle 4 (23 h 20) : corrections de la relecture du cycle 3
+
+Relecture indépendante de la politique sans styles en ligne. Elle a comparé les styles calculés d'environ 480 éléments avant et après la modification : tous identiques. Aucune violation sur l'ensemble des pages, démo comprise. Points corrigés :
+- **Liste fermée** : `data-vars` acceptait n'importe quelle propriété personnalisée, par exemple `--control-h`, qui règle la hauteur des boutons, ou un mot-clé comme `transparent`. Désormais, seules les couleurs et polices des thèmes et la teinte des visuels sont acceptées, chacune avec son type : couleur hexadécimale ou rgb/hsl, longueur en px, liste de polices, nombre.
+- **Valeurs périmées** : une valeur retirée ou devenue invalide est maintenant effacée. Avant, l'ancienne couleur ou largeur restait.
+- La lecture des blocs `<style>` des pages statiques accepte les attributs (`<style media=…>`).
+- **Nouveau test serveur** (`csp-styles.test.js`) : sur 8 pages, pas de `'unsafe-inline'`, aucun attribut `style`, et chaque bloc `<style>` est autorisé par son empreinte.
+- Vérifié dans un vrai navigateur : propriétés refusées, valeurs retirées, barres et thèmes intacts. 121 tests sur 121, bout en bout 51 sur 51.

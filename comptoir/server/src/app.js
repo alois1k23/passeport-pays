@@ -46,11 +46,11 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
      politique de sécurité (aucun style en ligne accepté sinon). */
   const empreintesStyles = new Set();
   const feuille = css => { empreintesStyles.add(`'sha256-${crypto.createHash('sha256').update(css).digest('base64')}'`); return `<style>${css}</style>`; };
-  feuille(require('./abonnements').STYLE_PAGE_ABONNEMENT);
+  feuille(require('./abonnements').STYLE_PAGE_ABONNEMENT);   // page de paiement simulé de l'abonnement (feuille constante)
   // Pages statiques (accueil, boutique) : leur bloc <style> est autorisé par son empreinte, lue au démarrage.
   for (const f of ['accueil.html', 'boutique.html', 'index.html']) {
-    try { for (const m of fs.readFileSync(path.join(RACINE_FRONT, f), 'utf8').matchAll(/<style>([\s\S]*?)<\/style>/g)) feuille(m[1]); } catch { /* fichier absent */ }
-  }   // page de paiement simulé de l'abonnement
+    try { for (const m of fs.readFileSync(path.join(RACINE_FRONT, f), 'utf8').matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)) feuille(m[1]); } catch { /* fichier absent */ }
+  }
   const FEUILLE_1 = feuille(`body{margin:0;background:#eee;font:10pt/1.45 Helvetica,Arial,sans-serif;color:#111}.page{background:#fff;width:210mm;min-height:297mm;margin:12px auto;box-sizing:border-box;position:relative;padding:18mm 18mm 112mm}
 h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;margin:6mm 0}td,th{padding:2mm 1mm;border-bottom:1px solid #ddd;text-align:left}.n{text-align:right;white-space:nowrap}.tot td{font-weight:700;border:0}
 .haut{display:flex;justify-content:space-between;gap:10mm}.bas{position:absolute;left:0;bottom:0}.imp{position:fixed;top:8px;right:12px;margin:0;background:#fff;padding:6px 10px;border-radius:6px;font-size:9pt}
@@ -58,7 +58,6 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const FEUILLE_2 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}*{box-sizing:border-box}body{font:16px/1.5 system-ui,sans-serif;background:#F3F4F7;color:#151821;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:12px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}h1{font-size:1.3rem;margin:0}.total{font-size:1.8rem;font-weight:700}button{font:inherit;font-weight:600;padding:12px;border-radius:8px;border:1px solid #151821;width:100%;cursor:pointer}.payer{background:#151821;color:#fff}.annuler{background:#fff}.note{color:#5B6372;font-size:.85rem}`);
   const FEUILLE_3 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}`);
   const FEUILLE_4 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#F4F5F7;color:#151821;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:24px;max-width:720px;margin:24px auto}h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 4px}a{color:#1D5C70}.alerte{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px}`);
-   // compteurs anti-abus rechargés : un redémarrage ne les remet pas à zéro
   const paiement = choisirPrestataire(env, urlPublique, fetchImpl);
   const simulationAutorisee = paiement.nom === 'simulation' && env.NODE_ENV !== 'production';
   // Le fournisseur de démonstration n'expédie rien : ses produits ne se vendent jamais contre de l'argent réel
