@@ -863,3 +863,9 @@ Relecture de la récupération différée, sous l'angle de l'attaquant qui contr
 - Tests automatiques : 118 sur 118. Parcours de bout en bout dans un vrai navigateur : 51 contrôles réussis.
 - Simulation de 100 marchands sur 60 jours (8 502 commandes) : 0 anomalie, aucune erreur serveur, p95 de 7 ms, journal des ventes vérifié chez chaque marchand.
 - Démo (artefact) republiée, version 21, chargée sans erreur sur sept écrans.
+
+### Cycle 65 (05 h 15) : audit des injections dans l'interface (XSS)
+
+- Audit indépendant de tout le JavaScript ajouté ou modifié cette nuit : chaque nouvel affichage a été rendu dans un vrai navigateur avec une charge piégée (`"'><img class=pwn src=x>`) dans chaque champ qu'un client, un membre de l'équipe ou un tiers peut contrôler (variantes, références fournisseur, journal des ventes, bilan de sécurité, file de la caisse hors ligne, nom de boutique, messages). **Aucune injection** : tout s'affiche comme du texte.
+- Durcissements appliqués quand même (valeurs aujourd'hui produites par le serveur) : numéros de facture et d'avoir échappés dans la fiche commande, classe du bilan limitée aux valeurs connues, compteurs du journal forcés en nombres, avertissement dans le code sur l'aide qui insère du HTML brut.
+- 118 tests sur 118, bout en bout 51 sur 51, script d'audit relancé : tout est vert.
