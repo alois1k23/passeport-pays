@@ -61,7 +61,7 @@ Nuit du 11 au 12 novembre 2026, de 23 h 30 à 06 h 50 (heure de Lausanne). Tout 
   - l'encodage admis reste à confirmer.
 - **Journal inaltérable** : c'est une aide à la traçabilité, non certifiée NF 525.
 - **Avant d'ouvrir** : définir `SECRET_CHIFFREMENT` et ne plus le changer.
-- **À revoir** : une commande « payer sur facture » passée sans compte émet tout de suite une facture numérotée et scellée.
+- **À revoir** : dans une boutique qui propose la facture QR (option du marchand), une commande « payer sur facture » émet tout de suite une facture numérotée et scellée, même si elle n'est jamais payée (un avoir l'annule).
 
 ## Chantiers prévus
 

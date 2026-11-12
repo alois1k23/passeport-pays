@@ -55,6 +55,13 @@ Renseignez ensuite `FOURNISSEUR_URL_API`, `FOURNISSEUR_CLE_API` et `FOURNISSEUR_
 4. Lancez `node server/server.js --verifier` : chaque ligne marquée ✗ dit quoi corriger.
 5. Les sauvegardes sont automatiques et quotidiennes, dans `/data/sauvegardes`. **Copiez ce dossier ailleurs** (stockage objet, autre serveur) et faites une fois l'essai de restauration.
 
+6. **À savoir avant d'ouvrir (ajouts de la nuit du 12 novembre)** :
+   - en HTTPS, la session utilise le cookie `__Host-comptoir_session` : les marchands déjà connectés en test devront se reconnecter une fois ;
+   - le journal inaltérable des ventes est signé avec une clé dérivée de `SECRET_CHIFFREMENT`. Si cette variable change, les journaux existants ne peuvent plus être vérifiés : Comptoir le signale au démarrage, dans la console `/operateur` et dans Conformité ;
+   - la console `/operateur` montre aussi l'état des journaux de toutes les boutiques et les violations de sécurité (CSP) signalées par les navigateurs ;
+   - le proxy (Caddy) doit transmettre aussi les requêtes `POST /csp-rapport` à Comptoir (c'est le cas avec la configuration ci-dessus, qui transmet tout) ;
+   - avant d'annoncer la facture électronique et le journal des ventes au format FEC, faites valider un fichier de chacun : validateur public Factur-X (règles schematron) et outil Test Compta Demat de la DGFiP.
+
 ## 5. Documents à faire relire
 
 Faites relire par un juriste, une fois, les pages générées par Comptoir :
