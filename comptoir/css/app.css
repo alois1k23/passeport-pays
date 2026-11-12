@@ -781,6 +781,8 @@ main { grid-template-columns: minmax(0, 1fr); } main > * { min-width: 0; }
 .code-promo { display: flex !important; gap: 8px; }
 .code-promo input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--sf-text) 22%, transparent); border-radius: max(var(--sf-radius), 4px); background: var(--sf-surface); color: var(--sf-text); text-transform: uppercase; }
 .code-promo .sf-btn { width: auto; padding: 9px 14px; }
+.code-promo input[type="email"] { text-transform: none; }
+.fidelite-sf summary { cursor: pointer; padding: 6px 0; font-size: .9em; }
 .totaux .remise { color: var(--sf-primary); }
 
 /* ---------- Conversion ---------- */
@@ -1441,3 +1443,5 @@ details.en-ligne form { margin-top: 6px; }
 .code-lien { word-break: break-all; }
 .table td input[data-dv] { padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-petit, 8px); background: var(--surface); font-size: .8125rem; width: 100%; min-width: 0; }
 .table td input.champ-court { width: 7.5rem; }
+.fidelite summary { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; cursor: pointer; flex-wrap: wrap; }
+.fidelite summary h2 { display: inline; }

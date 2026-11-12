@@ -152,3 +152,21 @@ Relecture indépendante des cartes cadeaux : scénarios rejoués sur une copie d
   - un crédit sur une carte expirée ou désactivée (après annulation) reste bloqué : le marchand émet une nouvelle carte ;
   - l'export CSV n'a pas encore de colonne « carte cadeau ».
 - 3 nouveaux tests ; vérifié dans un vrai navigateur (caisse : carte vérifiée, 50 € sur la carte, 30 € en espèces, 20 € rendus). 137 tests sur 137.
+
+### Cycle 10 (00 h 05) : programme de fidélité sans compte client
+
+- Le marchand active le programme dans la page Clients et règle cinq paramètres :
+  - les points gagnés par franc ou euro dépensé ;
+  - la valeur de 100 points ;
+  - le minimum de points pour les utiliser ;
+  - la part maximale d'une commande payée en points ;
+  - l'expiration après une période d'inactivité.
+  
+  Un exemple chiffré s'affiche, ainsi que les points en circulation et leur valeur.
+- **Sans compte client** : le client est reconnu par son e-mail, dont la base ne garde qu'une empreinte HMAC (sous-clé dédiée). Aucun fichier de clients supplémentaire n'est créé.
+- **Utiliser ses points demande un code à usage unique** envoyé par e-mail (6 chiffres, valable 15 minutes, 5 essais). Connaître l'adresse de quelqu'un ne suffit pas. La réponse est la même que l'adresse ait des points ou non, et aucun e-mail ne part vers une adresse sans points : ni énumération ni envoi de pourriel. Les demandes sont limitées par adresse et par réseau.
+- **Les points sont une remise, pas un moyen de paiement** : ils baissent les prix des articles du même facteur, si bien que factures, TVA et facture électronique restent justes (vérifié). La remise est plafonnée, le seuil de livraison offerte est calculé avant les points, et les points engagés par une autre commande en attente ne sont pas comptés deux fois.
+- **Gain au paiement**, sur le prix réellement payé (après remises). Le remboursement retire les points gagnés et rend les points utilisés, une seule fois. Registre des mouvements vérifiable.
+- **Boutique** : « Cette commande vous rapporte N points », puis « Utiliser mes points de fidélité » (e-mail, code, case à cocher). La remise s'affiche dans les totaux et l'e-mail est prérempli dans la commande.
+- Vérifié dans un vrai navigateur : activation, 1re commande (100 points), code reçu, 2e commande à 95 € au lieu de 100 €. Aucune erreur.
+- 2 nouveaux tests (module et parcours complet) : 139 tests sur 139.

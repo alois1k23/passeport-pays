@@ -671,6 +671,7 @@ function vueClients() {
   return `
   <div class="tete"><div><h1>Clients</h1><p class="sous">${tous.length.toLocaleString('fr-FR')} clients · ${fideles} ont commandé plusieurs fois · valeur moyenne ${euros(tous.length ? ca / tous.length : 0)}</p></div>
     <div class="rangee"><button class="btn fantome" data-action="export-clients" data-filtre="1">Exporter CSV</button></div></div>
+  ${typeof carteFidelite === 'function' ? carteFidelite() : ''}
   <div class="onglets onglets-defilants" role="tablist" aria-label="Segments">${SEGMENTS.map(([k, n]) => `<button role="tab" aria-selected="${seg === k}" class="${seg === k ? 'actif' : ''}" data-action="segment" data-v="${k}">${n} <span>${k === 'tous' ? tous.length : tous.filter(c => c.segments.includes(k)).length}</span></button>`).join('')}</div>
   <div class="barre-filtres"><input id="recherche-clients" type="search" placeholder="Rechercher un nom, un e-mail, une ville…" value="${esc(ui.rechercheClient || '')}" data-champ="recherche-client" aria-label="Rechercher un client"></div>
   <div class="maitre-detail ${ouvert ? 'ouvert' : ''}">

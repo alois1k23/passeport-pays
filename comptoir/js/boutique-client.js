@@ -24,7 +24,7 @@ function mesurer(type, extra = {}) {
 const CLE_PANIER = `comptoir-panier-${slug}`;
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
-const vue = { saisie: {}, fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '', carte: null, carteMessage: '' };
+const vue = { saisie: {}, fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '', carte: null, carteMessage: '', fid: null, fidMessage: '' };
 
 function lirePanier() { try { return JSON.parse(localStorage.getItem(CLE_PANIER)) || []; } catch { return []; } }
 function garderPanier() { try { localStorage.setItem(CLE_PANIER, JSON.stringify(vue.panier)); } catch { /* ignoré */ } }
@@ -147,11 +147,15 @@ function rendreBrut() {
   const total = calc.apresRemise;
   const port = total ? fraisPortClient(vue.livraison, total) : 0;
   // Carte cadeau : déduite du total (au plus son solde) ; le serveur refait le calcul et débite la carte.
+  // Points de fidélité (aperçu ; le serveur refait le calcul) : au plus la valeur des points et le plafond de la boutique.
+  const fidReg = donnees.fidelite, articlesC = Math.round(total * 100);
+  const remiseFid = fidReg && vue.fid && vue.fid.utiliser && vue.fid.points >= fidReg.seuil ? Math.min(Math.floor(vue.fid.points * fidReg.valeurPour100 / 100), Math.floor(articlesC * fidReg.plafondPct / 100)) / 100 : 0;
+  const pointsGagnes = fidReg ? Math.floor((total - remiseFid) * fidReg.pointsParUnite) : 0;
   // Comme le serveur : s'il resterait moins de 0,50 à payer en ligne (minimum du prestataire), la carte laisse 0,50.
-  const du = Math.round((total + port) * 100);
+  const du = Math.round((total - remiseFid + port) * 100);
   let centimesCarte = vue.carte ? Math.min(Math.round(vue.carte.solde * 100), du) : 0;
   if (du - centimesCarte > 0 && du - centimesCarte < 50) centimesCarte = Math.max(0, du - 50);
-  const partCarte = centimesCarte / 100, aPayer = Math.round((total + port - partCarte) * 100) / 100;
+  const partCarte = centimesCarte / 100, aPayer = Math.round((total - remiseFid + port - partCarte) * 100) / 100;
   const seuil = donnees.seuilPortOffert;
   const regle = vue.panier.length ? Remises.regleApplicable({ offres: donnees.offres }, vue.panier, 'panier') : null;
   const produitOffre = regle ? donnees.produits.find(p => p.id === regle.alors && !aVariantes(p) && (p.type === 'drop' || p.stock > 0)) : null;   // offre en un clic : pas pour un produit à variantes
@@ -185,10 +189,11 @@ function rendreBrut() {
           ${vue.codeMessage ? `<p class="mini">${esc(vue.codeMessage)}</p>` : ''}
           <form id="form-carte" class="code-promo"><input name="carte" placeholder="Carte cadeau" aria-label="Code de la carte cadeau" value="${esc(vue.carte ? vue.carte.code : '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"><button class="sf-btn sf-btn-ligne">${vue.carte ? 'Retirer' : 'Utiliser'}</button></form>
           ${vue.carteMessage ? `<p class="mini" role="status">${esc(vue.carteMessage)}</p>` : ''}
+          ${fidReg ? blocFidelite(fidReg, remiseFid, pointsGagnes) : ''}
           <fieldset class="modes-livraison"><legend>Livraison</legend>${Object.entries(donnees.livraisons).map(([k, m]) => `
             <label class="${vue.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${esc(k)}" data-c="livraison" ${vue.livraison === k ? 'checked' : ''}>
             <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : esc(fenetreLivraison(k === 'poste-prio' && !delai ? [1, 1] : delai || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
-          <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div><div class="total"><span>Total</span><span>${euros(total + port)}</span></div>${partCarte ? `<div class="remise"><span>Carte cadeau ····${esc(vue.carte.fin)}</span><span>−${euros(partCarte)}</span></div><div class="total"><span>À payer</span><span>${euros(aPayer)}</span></div>` : ''}</div>
+          <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div>${remiseFid ? `<div class="remise"><span>Points de fidélité</span><span>−${euros(remiseFid)}</span></div>` : ''}<div class="total"><span>Total</span><span>${euros(total - remiseFid + port)}</span></div>${partCarte ? `<div class="remise"><span>Carte cadeau ····${esc(vue.carte.fin)}</span><span>−${euros(partCarte)}</span></div><div class="total"><span>À payer</span><span>${euros(aPayer)}</span></div>` : ''}</div>
           <form id="commande">
             <label class="champ"><span>Nom et prénom</span><input name="nom" required autocomplete="name"></label>
             <label class="champ"><span>E-mail</span><input name="email" type="email" required autocomplete="email"></label>
@@ -231,12 +236,14 @@ function texteLegal(type) {
 
 async function envoyerCommande(form) {
   const d = new FormData(form);
+  // Les points appartiennent à l'adresse qui a reçu le code : la commande doit être passée avec la même adresse.
+  if (vue.fid && vue.fid.utiliser && String(d.get('email') || '').trim().toLowerCase() !== vue.fid.email) { const p = $('#erreur'); p.textContent = `Pour utiliser vos points, commandez avec l’adresse ${vue.fid.email}.`; p.hidden = false; return; }
   mesurer('paiement');
   vue.envoi = true; rendre();
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, carteCadeau: vue.carte ? vue.carte.code : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
@@ -355,6 +362,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   if (e.target.dataset.c === 'livraison') { vue.livraison = e.target.value; mesurer('livraison'); rendre(); }
+  else if (e.target.dataset.c === 'fid-utiliser') { vue.fid.utiliser = e.target.checked; rendre(); }
   else if (e.target.dataset.c === 'offre') {
     const p = donnees.produits.find(x => x.id === e.target.dataset.id);
     if (e.target.checked) vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1, offre: e.target.dataset.regle });
@@ -379,6 +387,8 @@ document.addEventListener('submit', e => {
   if (e.target.id === 'commande') envoyerCommande(e.target);
   else if (e.target.dataset.sf === 'newsletter') inscrireNewsletter(e.target);
   else if (e.target.id === 'form-code') appliquerCode(e.target.elements.code.value);
+  else if (e.target.id === 'form-fid-email') demanderCodeFidelite(e.target.elements.email.value);
+  else if (e.target.id === 'form-fid-code') validerCodeFidelite(e.target.elements.code.value);
   else if (e.target.id === 'form-carte') { if (vue.carte) { vue.carte = null; vue.carteMessage = ''; rendre(); } else utiliserCarte(e.target.elements.carte.value); }
   else if (e.target.id === 'form-avis') envoyerAvis(e.target);
 });
@@ -388,6 +398,35 @@ document.addEventListener('keydown', e => {
   if (vue.legal) { vue.legal = null; e.stopImmediatePropagation(); rendre(); }
   else if (vue.ouvert) { vue.ouvert = false; e.stopImmediatePropagation(); rendre(); }
 });
+
+/* Fidélité : le client reçoit un code par e-mail, puis voit ses points et choisit de les utiliser. */
+function blocFidelite(reg, remise, gagnes) {
+  const f = vue.fid;
+  const gain = gagnes > 0 ? `<p class="mini">Cette commande vous rapporte ${gagnes} point${gagnes > 1 ? 's' : ''} de fidélité.</p>` : '';
+  const msg = vue.fidMessage ? `<p class="mini" role="status">${esc(vue.fidMessage)}</p>` : '';
+  if (!f) return `<details class="fidelite-sf"><summary>Utiliser mes points de fidélité</summary><form id="form-fid-email" class="code-promo"><input name="email" type="email" required placeholder="Votre e-mail" aria-label="E-mail de vos points de fidélité" autocomplete="email"><button class="sf-btn sf-btn-ligne">Recevoir un code</button></form></details>${msg}${gain}`;
+  if (f.points === undefined) return `<form id="form-fid-code" class="code-promo"><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="Code à 6 chiffres" aria-label="Code reçu par e-mail" autocomplete="one-time-code"><button class="sf-btn sf-btn-ligne">Valider</button></form>${msg}${gain}`;
+  if (f.points < reg.seuil) return `<p class="mini">Vous avez ${f.points} points : utilisables dès ${reg.seuil} points.</p>${gain}`;
+  return `<label class="case-sf"><input type="checkbox" data-c="fid-utiliser" ${f.utiliser ? 'checked' : ''}> Utiliser mes ${f.points} points${remise ? ` (−${euros(remise)})` : ` (valeur ${euros(f.valeur)})`}</label>${gain}`;
+}
+async function demanderCodeFidelite(email) {
+  email = String(email || '').trim().toLowerCase(); if (!email) return;
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/fidelite/code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    const json = await rep.json(); if (!rep.ok) throw new Error(json.erreur);
+    vue.fid = { email }; vue.fidMessage = `Si cette adresse a des points, un code vient d’y être envoyé (valable 15 minutes).`;
+    const champ = document.querySelector('#commande input[name="email"]'); if (champ && !champ.value) champ.value = email;   // relu par rendre()
+  } catch (e) { vue.fidMessage = e.message || 'Envoi impossible pour l’instant.'; }
+  rendre();
+}
+async function validerCodeFidelite(code) {
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/fidelite/solde`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: vue.fid.email, code: String(code || '').trim() }) });
+    const json = await rep.json(); if (!rep.ok) throw new Error(json.erreur);
+    vue.fid = { ...vue.fid, code: String(code).trim(), points: json.points, valeur: json.valeur, utiliser: json.utilisable }; vue.fidMessage = '';
+  } catch (e) { vue.fidMessage = e.message || 'Code non reconnu.'; }
+  rendre();
+}
 
 /* Carte cadeau : le solde est vérifié par le serveur (essais limités) ; il est déduit du total, le reste se paie en ligne. */
 async function utiliserCarte(code) {
