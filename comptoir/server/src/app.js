@@ -996,6 +996,53 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
     return { statut: 201, corps: { ok: true } };
   });
 
+  /* ---------- Exploitant de la plateforme : santé (surveillance externe) et console privée ----------
+     /sante : réponse minimale pour un service de surveillance (UptimeRobot, Better Stack…), sans donnée sensible.
+     /operateur : réservé aux adresses de OPERATEUR_EMAILS, connectées ET protégées par double authentification ou
+     clé d'accès ; chiffres agrégés seulement (aucune donnée de client final). */
+  const demarreLe = Date.now();
+  r.get('/sante', () => {
+    let ok = true; try { db.prepare('SELECT 1').get(); } catch { ok = false; }
+    return { statut: ok ? 200 : 503, corps: { ok, depuis: Math.round((Date.now() - demarreLe) / 1000) } };
+  });
+  const operateurs = String(env.OPERATEUR_EMAILS || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+  r.get('/operateur', ctx => {
+    const m = auth.marchandDepuisRequete(db, ctx.cookies);
+    const df = m && deuxFacteursDe(m.id);
+    const fort = m && ((df && df.actif) || db.prepare('SELECT 1 FROM cles_acces WHERE marchand_id = ?').get(m.id));
+    if (!m || !operateurs.includes(String(m.email).toLowerCase())) throw erreur(404, 'Page introuvable.', 'introuvable');   // n'existe pas pour les autres
+    if (!fort) return { html: pageSimple('Console de l’exploitant', 'Activez d’abord la double authentification ou une clé d’accès sur ce compte (Paramètres > Sécurité) : la console donne une vue sur toute la plateforme.') };
+    const n = (sql, ...a) => db.prepare(sql).get(...a).n;
+    const j = 86400000, maintenant = Date.now();
+    const abos = db.prepare("SELECT formule, devise, COUNT(*) n FROM abonnements WHERE statut = 'actif' GROUP BY formule, devise").all();
+    const mrr = {}; for (const a of abos) mrr[a.devise] = (mrr[a.devise] || 0) + a.n * ((Formules.FORMULES[a.formule] || {}).prix || 0);
+    const ventes = d => db.prepare("SELECT COUNT(*) n, COALESCE(SUM(json_extract(donnees, '$.total')), 0) t FROM commandes WHERE date > ? AND statut NOT IN ('attente', 'annulee')").get(maintenant - d * j);
+    const v1 = ventes(1), v7 = ventes(7), v30 = ventes(30);
+    let sauvegarde = 'aucune';
+    try {
+      const dossier = env.SAUVEGARDE_DOSSIER || path.join(path.dirname(env.BASE_DE_DONNEES || path.join(__dirname, '..', 'donnees', 'comptoir.db')), 'sauvegardes');
+      const f = fs.readdirSync(dossier).filter(x => /^comptoir-\d{4}-\d{2}-\d{2}\.db(\.enc)?$/.test(x)).sort().pop();
+      if (f) { const st = fs.statSync(path.join(dossier, f)); sauvegarde = `${f} · ${Math.round(st.size / 1024)} Ko · il y a ${Math.round((maintenant - st.mtimeMs) / 3600000)} h${f.endsWith('.enc') ? ' · chiffrée' : ' · NON chiffrée'}`; }
+    } catch { /* dossier absent */ }
+    const lignes = [
+      ['Comptes marchands', n('SELECT COUNT(*) n FROM marchands WHERE id NOT IN (SELECT marchand_id FROM equipe)')],
+      ['Membres d’équipe', n('SELECT COUNT(*) n FROM equipe')],
+      ['Inscriptions (7 derniers jours)', n('SELECT COUNT(*) n FROM marchands WHERE cree_le > ?', maintenant - 7 * j)],
+      ['Abonnements actifs', abos.map(a => `${a.n} ${Formules.FORMULES[a.formule] ? Formules.FORMULES[a.formule].nom : a.formule} (${a.devise})`).join(' · ') || '0'],
+      ['Revenu mensuel récurrent', Object.entries(mrr).map(([dv, x]) => `${dv} ${x.toLocaleString('fr-CH')}`).join(' · ') || '0'],
+      ['Abonnements impayés', n("SELECT COUNT(*) n FROM abonnements WHERE statut = 'impaye'")],
+      ['Commandes 24 h / 7 j / 30 j', `${v1.n} / ${v7.n} / ${v30.n}`],
+      ['Volume vendu par les boutiques (30 j)', Math.round(v30.t).toLocaleString('fr-CH')],
+      ['E-mails en file / abandonnés', `${n('SELECT COUNT(*) n FROM emails WHERE envoye = 0 AND tentatives < 12')} / ${n('SELECT COUNT(*) n FROM emails WHERE envoye = 0 AND tentatives >= 12')}`],
+      ['Webhooks en attente / en pause', `${n("SELECT COUNT(*) n FROM webhook_envois WHERE statut = 'attente'")} / ${n('SELECT COUNT(*) n FROM webhooks WHERE actif = 0')}`],
+      ['Appareils avec notifications', n('SELECT COUNT(*) n FROM abonnements_push')],
+      ['Dernière sauvegarde', sauvegarde],
+      ['En marche depuis', `${Math.round((maintenant - demarreLe) / 3600000)} h · Node ${process.version}`]
+    ];
+    noterActivite(m.id, 'console-operateur', null, ctx);
+    return { html: pageSimple('Console de l’exploitant', 'Chiffres agrégés de la plateforme, sans donnée de client final.', `<table style="border-collapse:collapse;width:100%;margin-top:12px">${lignes.map(([k, v]) => `<tr><td style="padding:8px;border-bottom:1px solid #ddd;color:#555">${escHtml(k)}</td><td style="padding:8px;border-bottom:1px solid #ddd;text-align:right"><b>${escHtml(String(v))}</b></td></tr>`).join('')}</table>`) };
+  });
+
   /* ---------- Notifications push (Web Push) : une alerte sur le téléphone ou l'ordinateur du marchand à chaque
      commande payée, même application fermée. Le message est chiffré pour l'appareil (le service push ne le lit pas). ---------- */
   db.exec('CREATE TABLE IF NOT EXISTS abonnements_push (endpoint TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, appareil TEXT, cree_le INTEGER NOT NULL)');
