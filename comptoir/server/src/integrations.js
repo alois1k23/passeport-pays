@@ -14,7 +14,7 @@ const https = require('node:https');
 const { erreur } = require('./http');
 
 const PORTEES = ['commandes:lecture', 'commandes:ecriture', 'produits:lecture', 'produits:ecriture', 'clients:lecture'];
-const EVENEMENTS = ['commande.payee', 'commande.expediee', 'commande.livree', 'commande.remboursee', 'commande.annulee', 'commande.retiree', 'produit.rupture'];
+const EVENEMENTS = ['commande.payee', 'commande.expediee', 'commande.livree', 'commande.remboursee', 'commande.annulee', 'commande.retiree', 'produit.rupture', 'journal.cloture'];
 const ESSAIS_MAX = 15;
 const PAUSE_APRES_MS = 3 * 86400000;   // aucune réponse réussie depuis 3 jours : webhook mis en pause
 const FILE_MAX = 5000;                  // envois en attente par webhook (au-delà, les plus anciens sont abandonnés)

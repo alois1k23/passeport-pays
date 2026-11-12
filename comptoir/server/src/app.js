@@ -2479,7 +2479,10 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     // Clôture journalière du journal inaltérable (jours terminés), pour chaque boutique qui a des pièces.
     // (boutiques supprimées : leur journal est gardé pour l'archivage, mais plus clôturé)
     for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT j.boutique_id FROM journal_inalterable j JOIN boutiques b ON b.id = j.boutique_id').all()) {
-      try { JV().cloturer(bid, maintenant); } catch (e) { journal.error('[journal-inalterable] clôture', bid, e.message); }
+      try {
+        // Chaque clôture part aussi vers les webhooks du marchand qui l'ont demandée : une copie quotidienne de l'empreinte hors de Comptoir.
+        for (const cl of JV().cloturer(bid, maintenant)) integ.emettre(bid, 'journal.cloture', { jour: cl.jour, empreinte: cl.empreinte, pieces: cl.pieces, totalJour: cl.totalJour / 100, grandTotal: cl.grandTotal / 100 });
+      } catch (e) { journal.error('[journal-inalterable] clôture', bid, e.message); }
     }
     verificationsNocturnes(maintenant).catch(e => journal.error('[journal-inalterable] vérification', e.message));
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {

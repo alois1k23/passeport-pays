@@ -124,21 +124,21 @@ function creer(db, cle) {
       if (!parJour.has(j)) parJour.set(j, []);
       parJour.get(j).push({ seq: p.seq, ...JSON.parse(p.contenu) });
     }
-    let n = 0;
+    const faites = [];
     for (const [jour, liste] of [...parJour].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
       db.exec('BEGIN');
       try {
         const totalJour = liste.reduce((a, x) => a + x.total, 0);
         grandTotal += totalJour;
         const contenu = JSON.stringify({ jour, pieces: liste.length, factures: liste.filter(x => x.type !== 'avoir').length, avoirs: liste.filter(x => x.type === 'avoir').length, totalJour, grandTotal, seqs: liste.map(x => x.seq) });
-        const { seq } = ajouter(boutiqueId, 'cloture', jour, null, contenu, maintenant);
+        const { seq, empreinte } = ajouter(boutiqueId, 'cloture', jour, null, contenu, maintenant);
         const marquer = db.prepare('UPDATE journal_inalterable SET cloture_seq = ? WHERE boutique_id = ? AND seq = ?');
         for (const x of liste) marquer.run(seq, boutiqueId, x.seq);
         db.exec('COMMIT');
+        faites.push({ jour, empreinte, pieces: liste.length, totalJour: liste.reduce((a, x) => a + x.total, 0), grandTotal });
       } catch (e) { db.exec('ROLLBACK'); throw e; }
-      n++;
     }
-    return n;
+    return faites;   // clôtures créées (jour, empreinte, totaux en centimes)
   }
 
   /* Empreinte remise au marchand (rapport du lundi) : gardée pour vérifier plus tard qu'elle figure toujours dans la chaîne. */

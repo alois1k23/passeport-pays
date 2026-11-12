@@ -102,6 +102,7 @@ Ajoutez une adresse `https://` dans **Paramètres > Intégrations** et choisisse
 - `commande.annulee`
 - `commande.retiree` : retrait en magasin et ventes à la caisse
 - `produit.rupture` : stock tombé à zéro, quelle qu'en soit la cause (vente en ligne, caisse, API)
+- `journal.cloture` : clôture quotidienne du journal inaltérable des ventes. `donnees` contient `jour`, `empreinte`, `pieces`, `totalJour` et `grandTotal` (montants en unités de la devise). Gardez ces empreintes : elles prouvent que vos ventes n'ont pas été réécrites depuis.
 
 Pour chaque événement, Comptoir envoie une requête `POST` en JSON :
 

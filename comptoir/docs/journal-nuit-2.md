@@ -693,3 +693,8 @@ Seconde relecture du journal réécrit : clôtures transactionnelles, vérificat
 - **Récupération** : « Mot de passe oublié » (lien par e-mail) supprime les clés et rétablit la connexion par mot de passe.
 - Le bilan de sécurité et l'incitation du tableau de bord comptent cette option comme une protection complète.
 - Test ajouté (`cle-seule.test.js`) : activation refusée sans clé ou avec un mauvais mot de passe ; bon mot de passe refusé ; une seule alerte ; aucune session ouverte ; récupération par e-mail. Vérifié dans un vrai navigateur. 115 tests sur 115.
+
+## Cycle 54 (04 h 10) : empreinte quotidienne vers les outils du marchand
+
+- Nouvel événement de webhook `journal.cloture` : à chaque clôture journalière, l'empreinte, le nombre de pièces, le total du jour et le grand total partent vers les outils du marchand qui l'ont demandé (comptabilité, archivage, Zapier). Le journal est ainsi ancré hors de Comptoir **chaque jour**, et non plus seulement chaque lundi par e-mail. Cela réduit la limite connue (fin de journal coupée par quelqu'un qui contrôle la base et la clé).
+- Documenté dans `docs/API.md`, proposé dans Paramètres, Intégrations. Test ajouté : vente, clôture du lendemain, webhook en file avec la même empreinte que le journal. 116 tests sur 116.

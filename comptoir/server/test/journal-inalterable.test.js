@@ -152,3 +152,26 @@ test('une pièce ancienne absente de toute clôture est signalée', async () => 
   const r = await J.verifier('b', { lireCommandes: ids => new Map(ids.map(id => [id, lire(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id))])), compteurFactures: 2 });
   assert.match(r.anomalies.join(' '), /1 pièce absente de toute clôture \(FA-2026-2\)/);
 });
+
+test('chaque clôture part vers les webhooks abonnés à journal.cloture', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  const gerer = creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', INTEGRATIONS_HTTP_LOCAL: '1' }, urlPublique: base, journal: { log() {}, error() {} } });
+  s.on('request', gerer);
+  let cookie = '';
+  const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined, redirect: 'manual' }); const sc = r.headers.getSetCookie(); if (sc.length) cookie = sc.map(x => x.split(';')[0]).join('; '); return { s: r.status, j: await r.json().catch(() => null) }; };
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'wh@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Ancre', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'A', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Miel', prix: 12, stock: 50, type: 'stock' }] });
+    const { url } = (await c('POST', '/api/abonnement/commencer', { formule: 'lancement' })).j; await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
+    assert.equal((await c('POST', '/api/abonnement/changer', { formule: 'pro' })).s, 200);
+    const wh = await c('POST', '/api/admin/integrations/webhooks', { url: 'http://127.0.0.1:9/ancre', evenements: ['journal.cloture'] }); assert.equal(wh.s, 201, JSON.stringify(wh.j));
+    const p = (await c('GET', '/api/admin/etat')).j.produits[0];
+    assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: p.id, qte: 1 }], moyen: 'carte', cle: 'w1' })).s, 201);
+    gerer.automatisationsEcheances(Date.now() + 86400000);
+    const envoi = db.prepare("SELECT corps FROM webhook_envois WHERE evenement = 'journal.cloture'").get();
+    assert.ok(envoi, 'clôture envoyée au webhook');
+    const d = JSON.parse(envoi.corps).donnees;
+    assert.match(d.empreinte, /^[0-9a-f]{64}$/); assert.equal(d.pieces, 1); assert.equal(d.totalJour, 12); assert.equal(d.grandTotal, 12);
+    assert.equal(d.empreinte, (await c('GET', '/api/admin/journal-inalterable')).j.derniereCloture.empreinte);
+  } finally { s.close(); }
+});
