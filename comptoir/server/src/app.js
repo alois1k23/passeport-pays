@@ -409,7 +409,7 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       boutique: b,
       entreprise: config.entreprise || {},
       magasin: config.magasin || {},
-      reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8, factureQr: !!(config.reglages && config.reglages.factureQr), echeanceJours: Math.max(10, Math.min(60, Math.round(Number(config.reglages && config.reglages.echeanceJours) || 30))) },
+      reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8, factureQr: !!(config.reglages && config.reglages.factureQr), rapportHebdo: !(config.reglages && config.reglages.rapportHebdo === false), echeanceJours: Math.max(10, Math.min(60, Math.round(Number(config.reglages && config.reglages.echeanceJours) || 30))) },
       campagnes: config.campagnes || {},
       rdv: config.rdv || null,
       cookies: config.cookies || null,
@@ -1877,9 +1877,63 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     db.prepare('DELETE FROM journal_compte WHERE date < ?').run(maintenant - 365 * 86400000);   // activité du compte : 12 mois
     if (abo.obligatoire) conservation(maintenant).catch(e => journal.error('[conservation]', e.message));
   }
+  /* Rapport hebdomadaire au marchand, le lundi dès 7 h (heure de la boutique) : ventes de la semaine passée comparées à
+     la précédente, meilleurs produits, à expédier, factures QR échues, commandes à risque, ruptures prévues.
+     Rien n'est envoyé à une boutique sans aucune commande depuis deux semaines (pas d'e-mail vide). */
+  db.exec('CREATE TABLE IF NOT EXISTS rapports_hebdo (boutique_id TEXT NOT NULL, semaine TEXT NOT NULL, PRIMARY KEY (boutique_id, semaine))');
+  function rapportsHebdo(maintenant = Date.now()) {
+    const d = new Date(maintenant);
+    if (d.getDay() !== 1 || d.getHours() < 7) return 0;
+    const lundi = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), semaine = new Date(lundi).toLocaleDateString('sv-SE');
+    let n = 0;
+    for (const b of db.prepare('SELECT * FROM boutiques').all()) {
+      if (db.prepare('SELECT 1 FROM rapports_hebdo WHERE boutique_id = ? AND semaine = ?').get(b.id, semaine)) continue;
+      const config = lireConfig(b);
+      const e = abo.etat(b.marchand_id);
+      if (!e.actif || (config.reglages && config.reglages.rapportHebdo === false)) { db.prepare('INSERT OR IGNORE INTO rapports_hebdo VALUES (?, ?)').run(b.id, semaine); continue; }
+      const cmds = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date >= ?').all(b.id, lundi - 14 * 86400000).map(lireCommande);
+      db.prepare('INSERT OR IGNORE INTO rapports_hebdo VALUES (?, ?)').run(b.id, semaine);
+      if (!cmds.length) continue;
+      const vendue = c => !['attente', 'annulee', 'remboursee'].includes(c.statut);
+      const sem = cmds.filter(c => c.date >= lundi - 7 * 86400000 && c.date < lundi && vendue(c)), avant = cmds.filter(c => c.date < lundi - 7 * 86400000 && vendue(c));
+      const ca = l => l.reduce((a, c) => a + c.total, 0), f = m => formatMontant(m, config);
+      const evol = (x, y) => y ? `${x >= y ? '+' : '−'}${Math.abs(Math.round((x - y) / y * 100))} % par rapport à la semaine d’avant` : 'première semaine de ventes';
+      const parProduit = {};
+      for (const c of sem) for (const l of c.lignes || []) { const k = l.nom; parProduit[k] = parProduit[k] || { q: 0, m: 0 }; parProduit[k].q += l.qte; parProduit[k].m += l.prix * l.qte; }
+      const tops = Object.entries(parProduit).sort((a, b2) => b2[1].m - a[1].m).slice(0, 3);
+      const toutes = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND statut IN ('payee', 'preparation', 'attente')").all(b.id).map(lireCommande);
+      const aExpedier = toutes.filter(c => ['payee', 'preparation'].includes(c.statut) && c.livraison !== 'retrait' && !(c.lignes || []).every(l => l.type === 'drop'));
+      const echues = toutes.filter(c => c.statut === 'attente' && c.moyen === 'facture' && c.echeance && c.echeance < maintenant);
+      const risquees = toutes.filter(c => ['payee', 'preparation'].includes(c.statut) && c.risque && c.risque.niveau === 'eleve');
+      // Ruptures prévues (même calcul que le tableau de bord : rythme des 28 derniers jours)
+      const ventes28 = db.prepare("SELECT donnees FROM commandes WHERE boutique_id = ? AND date >= ? AND statut NOT IN ('attente', 'annulee', 'remboursee')").all(b.id, maintenant - 28 * 86400000).map(r2 => JSON.parse(r2.donnees));
+      const ruptures = listerProduits(b.id).filter(p => p.actif !== false && p.type !== 'drop' && p.stock > 0).map(p => {
+        const v = ventes28.reduce((a, c) => a + (c.lignes || []).filter(l => l.produitId === p.id).reduce((x, l) => x + l.qte, 0), 0);
+        return v >= 2 ? { p, jours: Math.floor(p.stock / (v / 28)) } : null;
+      }).filter(x => x && x.jours <= 14).sort((a, b2) => a.jours - b2.jours).slice(0, 5);
+      const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+      if (!mch) continue;
+      const lignes = [
+        `Bonjour,`, '', `Votre semaine sur ${config.boutique.nom} (du ${new Date(lundi - 7 * 86400000).toLocaleDateString('fr-CH')} au ${new Date(lundi - 86400000).toLocaleDateString('fr-CH')}) :`, '',
+        `- Chiffre d’affaires : ${f(ca(sem))} (${evol(ca(sem), ca(avant))})`,
+        `- Commandes : ${sem.length}${sem.length ? ` · panier moyen ${f(ca(sem) / sem.length)}` : ''}`,
+        ...(tops.length ? ['', 'Meilleurs produits :', ...tops.map(([nom, x]) => `- ${nom} : ${x.q} vendu${x.q > 1 ? 's' : ''}, ${f(x.m)}`)] : []),
+        '', 'À faire cette semaine :',
+        aExpedier.length ? `- ${aExpedier.length} commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier` : '- Aucune commande en retard d’expédition',
+        ...(echues.length ? [`- ${echues.length} facture${echues.length > 1 ? 's' : ''} QR échue${echues.length > 1 ? 's' : ''} non payée${echues.length > 1 ? 's' : ''} (n° ${echues.slice(0, 5).map(c => c.numero).join(', ')}) : importez votre relevé bancaire ou relancez le client`] : []),
+        ...(risquees.length ? [`- ${risquees.length} commande${risquees.length > 1 ? 's' : ''} à risque de fraude à vérifier (n° ${risquees.slice(0, 5).map(c => c.numero).join(', ')})`] : []),
+        ...ruptures.map(x => `- Rupture prévue dans ${x.jours} jour${x.jours > 1 ? 's' : ''} : ${x.p.nom} (stock ${x.p.stock})`),
+        '', `Votre tableau de bord : ${urlPublique}/app#tableau`, '', 'Ce rapport arrive chaque lundi. Pour ne plus le recevoir : Paramètres > E-mails.', '', 'L’équipe Comptoir'
+      ];
+      envoyerEmail(null, mch.email, `Votre semaine : ${f(ca(sem))}, ${sem.length} commande${sem.length > 1 ? 's' : ''} (${config.boutique.nom})`, lignes.join('\n'));
+      n++;
+    }
+    return n;
+  }
   function automatisationsEcheances(maintenant = Date.now()) {
     let n = 0;
     entretien(maintenant);
+    try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
     for (const b of db.prepare('SELECT * FROM boutiques').all()) {
       if (!paiementsActifs(b) || !abo.etat(b.marchand_id).actif) continue;   // vérifié avant de lire les commandes (coût)
       const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date > ?').all(b.id, maintenant - 400 * 86400000).map(row => ({ ...lireCommande(row), jeton: row.jeton_client }));

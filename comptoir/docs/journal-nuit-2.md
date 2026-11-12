@@ -250,3 +250,14 @@ Simulation complète (100 marchands, 60 jours) avec le score de risque : 0 anoma
 - Vérifié dans un vrai navigateur, en allemand (navigateur `de-CH`) puis en italien (sélecteur) : panier et commande entièrement traduits. Restent en français les noms de transporteurs « La Poste », ce qui est voulu.
 - **E-mails aux clients** : la commande garde la langue dans laquelle elle a été passée. Les e-mails de confirmation, d'expédition (avec le lien de suivi) et de facture QR partent dans cette langue (`server/src/emails-clients.js`). Le droit de rétractation (France, Belgique) reste en français, annoncé dans la langue du client. Une langue que la boutique ne propose pas retombe sur le français. Testé.
 - **Limites** : la page sans JavaScript, les relances et les e-mails marketing restent en français.
+
+## Cycle 14 (01 h 15) : rapport du lundi
+
+- Chaque lundi dès 7 h, heure de la boutique, le marchand reçoit un e-mail qui résume sa semaine :
+  - chiffre d'affaires, comparé à la semaine d'avant ;
+  - nombre de commandes et panier moyen ;
+  - trois meilleurs produits ;
+  - à faire : commandes à expédier, factures QR échues non payées (avec les numéros), commandes à risque de fraude à vérifier, ruptures prévues sous 14 jours.
+- Pas d'e-mail vide : rien ne part à une boutique sans commande depuis deux semaines.
+- Un seul envoi par semaine (table `rapports_hebdo`). Le rapport se désactive dans Paramètres > E-mails (« Rapport du lundi »).
+- Test : 3 commandes la semaine passée, rapport envoyé une seule fois avec les bons chiffres, sans « undefined » ni « NaN ». 90 tests sur 90.
