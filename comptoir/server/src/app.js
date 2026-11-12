@@ -15,6 +15,7 @@ const EmailsClients = require('./emails-clients');
 const FactureElectronique = require('./facture-electronique');
 const FacturxPdf = require('./facturx-pdf');
 const CartesCadeaux = require('./cartes-cadeaux');
+const Devis = require('./devis');
 const JournalInalterable = require('./journal-inalterable');
 const WebPush = require('./webpush');
 const { AsyncLocalStorage } = require('node:async_hooks');
@@ -323,7 +324,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'chiffrement'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('chiffrement', ?)").run(crypto.randomBytes(32).toString('hex'));
   // Clé de chiffrement des secrets (TOTP) : SECRET_CHIFFREMENT (64 caractères hexadécimaux) si l'exploitant la garde hors de la base.
   const cleChiffrement = Buffer.from(/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? env.SECRET_CHIFFREMENT : db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
-  const Cartes = CartesCadeaux.creer(db, cleChiffrement);   // codes des cartes cadeaux : empreinte HMAC, jamais en clair
+  const Cartes = CartesCadeaux.creer(db, cleChiffrement);
+  const DV = Devis.creer(db);   // codes des cartes cadeaux : empreinte HMAC, jamais en clair
   auth.persisterLimites(db, cleChiffrement);   // compteurs anti-abus rechargés (empreintes HMAC) : un redémarrage ne les remet pas à zéro
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
@@ -399,7 +401,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     ...c.lignes.map(l => `- ${l.qte} × ${l.nom} : ${formatMontant(l.prix * l.qte, config)}`),
     // Les prix des articles sont déjà remisés : la remise est indiquée pour information, pas soustraite une seconde fois.
     ...(c.remise ? [`  (prix après remise${c.motifRemise ? ` : ${c.motifRemise}` : ''}, soit ${formatMontant(c.remise, config)} d’économie)`] : []),
-    c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
+    c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
     `Total payé : ${formatMontant(c.total, config)}`
   ].join('\n');
   const lienTransporteur = (transporteur, suivi, pays) => {
@@ -412,7 +414,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (/bpost/i.test(transporteur || '')) return `https://track.bpost.cloud/btr/web/#/search?itemCode=${n}&lang=fr`;
     return null;
   };
-  const optionsEmail = (b, c, config) => ({ nomBoutique: config.boutique.nom, formatMontant: m => formatMontant(m, config), nomLivraison: (prix.modesLivraison(config)[c.livraison] || { nom: c.livraison }).nom, lienCommande: lienCommande(b, c.id), contact: config.entreprise && config.entreprise.email });
+  const optionsEmail = (b, c, config) => ({ nomBoutique: config.boutique.nom, formatMontant: m => formatMontant(m, config), nomLivraison: (prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison }).nom, lienCommande: lienCommande(b, c.id), contact: config.entreprise && config.entreprise.email });
   const emailExpedition = (b, c, config) => {
     const lien = lienTransporteur(c.transporteur || (prix.modesLivraison(config)[c.livraison] || {}).transporteur, c.suivi, config.boutique.pays);
     if (EmailsClients.langueDe(c)) { const m = EmailsClients.expedition(c, { ...optionsEmail(b, c, config), lienSuivi: lien }); return envoyerEmail(b.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
@@ -2175,6 +2177,176 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     ctx.entetes['Content-Disposition'] = `attachment; filename="${nom}.pdf"`;
     return { binaire: FacturxPdf.produire(c, config, { avoir, devise, xml }), type: 'application/pdf' };
   });
+  /* ---------- Devis pour les clients professionnels ---------- */
+  const FEUILLE_DEVIS = feuille(`*{box-sizing:border-box}body{margin:0;background:#F4F5F7;color:#151821;font:15px/1.5 system-ui,sans-serif}main{max-width:820px;margin:24px auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.haut{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap}.haut h1{margin:0;font-size:22px}.sous{color:#5B6170;font-size:14px}.num{text-align:right;white-space:nowrap}
+table{width:100%;border-collapse:collapse;margin:20px 0}th,td{padding:8px 6px;border-bottom:1px solid #E3E5EA;text-align:left;vertical-align:top}th{font-size:13px;color:#5B6170;font-weight:600}
+.totaux{margin-left:auto;max-width:340px}.totaux div{display:flex;justify-content:space-between;padding:3px 0}.totaux .total{font-weight:700;font-size:17px;border-top:2px solid #151821;margin-top:6px;padding-top:8px}
+.encart{background:#F4F5F7;border-radius:8px;padding:14px 16px;margin:18px 0}.ok{background:#E8F5EE}.alerte{background:#FDF0E6}
+form{margin:14px 0}label{display:block;margin:10px 0}input[type=text]{width:100%;max-width:420px;padding:10px;border:1px solid #C9CDD5;border-radius:8px;font:inherit}
+button{font:inherit;padding:11px 18px;border-radius:8px;border:0;background:#1F5F8B;color:#fff;cursor:pointer}button.second{background:#fff;color:#151821;border:1px solid #C9CDD5}
+button:focus-visible,input:focus-visible{outline:3px solid #1F5F8B;outline-offset:2px}.mono{font-family:ui-monospace,monospace}
+@media (max-width:600px){main{margin:0;border-radius:0;padding:20px 16px}th:nth-child(3),td:nth-child(3){display:none}}@media print{body{background:#fff}main{box-shadow:none;margin:0}form,.imp{display:none}}`);
+  const lienDevis = (b, d, jeton) => `${urlPublique}/devis/${encodeURIComponent(b.slug)}/${d.id}?jeton=${encodeURIComponent(jeton)}`;
+  const statutDevis = (d, maintenant = Date.now()) => DV.expire(d, maintenant) ? 'expire' : d.statut;
+  const resumeDevis = d => ({ id: d.id, numero: d.numero, statut: statutDevis(d), creeLe: d.creeLe, majLe: d.majLe, client: d.client, objet: d.objet, total: d.total, valableJusquau: d.valableJusquau || null, acceptation: d.acceptation || null, commande: d.commande ? { id: d.commande.id, numero: d.commande.numero } : null });
+  r.get('/api/admin/devis', exigerMarchand, ctx => ({ devis: DV.lister(ctx.boutique.id).map(resumeDevis) }));
+  r.get('/api/admin/devis/:id', exigerMarchand, ctx => { const d = DV.deBoutique(ctx.boutique.id, ctx.params.id); const { commande, ...reste } = d; return { devis: { ...reste, statut: statutDevis(d), commande: commande ? { id: commande.id, numero: commande.numero } : null, ventilation: Devis.ventiler(d, lireConfig(ctx.boutique)) } }; });
+  r.post('/api/admin/devis', exigerMarchand, ctx => {
+    auth.limiter(`devis:${ctx.boutique.id}`, 500 * facteurLimites, 86400000, 'Trop de devis créés aujourd’hui.');
+    const config = lireConfig(ctx.boutique);
+    const contenu = Devis.preparer(ctx.corps, listerProduits(ctx.boutique.id), config);
+    return { statut: 201, corps: { devis: resumeDevis(DV.nouveau(ctx.boutique.id, contenu)) } };
+  });
+  r.put('/api/admin/devis/:id', exigerMarchand, ctx => {
+    const d = DV.deBoutique(ctx.boutique.id, ctx.params.id);
+    // Un devis accepté, refusé ou annulé ne change plus. Modifier un devis envoyé le repasse en brouillon : l'ancien lien ne marche plus.
+    if (!['brouillon', 'envoye'].includes(d.statut)) throw erreur(409, 'Ce devis ne peut plus être modifié : dupliquez-le.', 'fige');
+    const contenu = Devis.preparer(ctx.corps, listerProduits(ctx.boutique.id), lireConfig(ctx.boutique));
+    const etaitEnvoye = d.statut === 'envoye';
+    Object.assign(d, contenu, { statut: 'brouillon', valableJusquau: null });
+    d.historique.push({ date: Date.now(), texte: etaitEnvoye ? 'Modifié après envoi : repassé en brouillon, ancien lien désactivé' : 'Modifié' });
+    transaction(db, () => { DV.ecrire(d); if (etaitEnvoye) db.prepare('UPDATE devis SET jeton_hash = NULL WHERE id = ?').run(d.id); });
+    return { devis: resumeDevis(d) };
+  });
+  r.post('/api/admin/devis/:id/envoyer', exigerMarchand, ctx => {
+    const d = DV.deBoutique(ctx.boutique.id, ctx.params.id);
+    if (!['brouillon', 'envoye'].includes(d.statut)) throw erreur(409, 'Ce devis n’est plus modifiable ni envoyable.', 'fige');
+    const config = lireConfig(ctx.boutique), maintenant = Date.now();
+    if (!String((config.entreprise || {}).adresse || '').trim() || !(config.entreprise || {}).raison) throw erreur(409, 'Renseignez d’abord votre raison sociale et votre adresse (Paramètres, Conformité) : elles figurent sur le devis.', 'entreprise_incomplete');
+    auth.limiter(`devis-envoi:${ctx.boutique.id}`, 200 * facteurLimites, 86400000, 'Trop de devis envoyés aujourd’hui.');
+    const jeton = DV.nouveauJeton(d.id);
+    // Validité : à compter du premier envoi (un renvoi ne la prolonge pas).
+    if (d.statut === 'brouillon' || !d.valableJusquau) d.valableJusquau = maintenant + d.validiteJours * 86400000;
+    d.statut = 'envoye'; d.envoyeLe = maintenant;
+    d.historique.push({ date: maintenant, texte: `Envoyé à ${d.client.email}` });
+    DV.ecrire(d);
+    const lien = lienDevis(ctx.boutique, d, jeton);
+    envoyerEmail(ctx.boutique.id, d.client.email, `Devis ${d.numero} de ${config.boutique.nom}${d.objet ? ` : ${d.objet}` : ''}`,
+      `Bonjour${d.client.contact ? ` ${d.client.contact}` : ''},\n\nVoici notre devis ${d.numero} pour ${d.client.raison} : ${formatMontant(d.total, config)} TTC, valable jusqu’au ${new Date(d.valableJusquau).toLocaleDateString('fr-FR')}.\n\nConsulter, accepter ou refuser le devis en ligne :\n${lien}\n\nUne fois accepté, il devient une commande, payable en ligne ou par virement.\n\n${(config.entreprise || {}).raison || config.boutique.nom}`);
+    return { devis: resumeDevis(d), lien };
+  });
+  r.post('/api/admin/devis/:id/annuler', exigerMarchand, ctx => {
+    const d = DV.deBoutique(ctx.boutique.id, ctx.params.id);
+    if (!['brouillon', 'envoye'].includes(d.statut)) throw erreur(409, 'Seul un devis en brouillon ou envoyé peut être annulé.', 'fige');
+    d.statut = 'annule'; d.historique.push({ date: Date.now(), texte: 'Annulé' });
+    transaction(db, () => { DV.ecrire(d); db.prepare('UPDATE devis SET jeton_hash = NULL WHERE id = ?').run(d.id); });
+    return { devis: resumeDevis(d) };
+  });
+  r.post('/api/admin/devis/:id/dupliquer', exigerMarchand, ctx => {
+    const d = DV.deBoutique(ctx.boutique.id, ctx.params.id);
+    // Recalcul à partir de la saisie : prix du catalogue d'aujourd'hui, remise et lignes libres reprises telles quelles.
+    const saisie = { client: d.client, objet: d.objet, conditions: d.conditions, remisePct: d.remisePct, port: d.port, validiteJours: d.validiteJours,
+      lignes: d.lignes.map(l => l.produitId ? { produitId: l.produitId, varianteId: l.varianteId, qte: l.qte } : { nom: l.nom, qte: l.qte, prixHt: Math.round(l.prixTtc / (1 + l.tauxTva) * 100) / 100, tauxReduit: l.tauxReduit }) };
+    const contenu = Devis.preparer(saisie, listerProduits(ctx.boutique.id), lireConfig(ctx.boutique));
+    const n = DV.nouveau(ctx.boutique.id, contenu);
+    n.historique.push({ date: Date.now(), texte: `Copie du devis ${d.numero}` }); DV.ecrire(n);
+    return { statut: 201, corps: { devis: resumeDevis(n) } };
+  });
+
+  /* Page publique du devis (lien secret) : consultation, acceptation (bon pour accord), refus, paiement. */
+  const lireFormulaire = ctx => Object.fromEntries(new URLSearchParams(String(ctx.corpsBrut || '').slice(0, 4000)));
+  const devisPublic = (ctx, jeton) => {
+    const b = boutiqueOuverte(ctx.params.slug);
+    const d = DV.parLien(b.id, ctx.params.id, jeton);
+    if (!d || d.statut === 'brouillon' || d.statut === 'annule') throw erreur(404, 'Devis introuvable ou lien expiré. Demandez un nouveau lien à l’entreprise.', 'introuvable');
+    return { b, d, config: lireConfig(b) };
+  };
+  function pageDevis(b, d, config, jeton, message = '') {
+    const e = config.entreprise || {}, m = n => escHtml(formatMontant(n, config)), pct = t => `${(Math.round(t * 1000) / 10).toString().replace('.', ',')} %`;
+    const vent = Devis.ventiler(d, config), sansTva = vent.every(v => !v.taux), st = statutDevis(d);
+    const cmd = d.commande ? db.prepare('SELECT statut FROM commandes WHERE id = ?').get(d.commande.id) : null;
+    const champJeton = `<input type="hidden" name="jeton" value="${escHtml(jeton)}">`;
+    const action = suffixe => `/devis/${encodeURIComponent(b.slug)}/${encodeURIComponent(d.id)}/${suffixe}`;
+    let bloc = '';
+    if (st === 'envoye') bloc = `<form method="post" action="${action('accepter')}">${champJeton}<h2>Accepter ce devis</h2>
+      <label>Nom et fonction du signataire<br><input type="text" name="nom" required maxlength="120" autocomplete="name"></label>
+      <label><input type="checkbox" name="accord" value="oui" required> Bon pour accord : j’accepte ce devis et ses conditions au nom de ${escHtml(d.client.raison)}.</label>
+      <button>Accepter le devis</button></form>
+      <form method="post" action="${action('refuser')}">${champJeton}<button class="second">Refuser le devis</button></form>`;
+    else if (st === 'expire') bloc = `<div class="encart alerte">Ce devis a expiré le ${new Date(d.valableJusquau).toLocaleDateString('fr-FR')}. Demandez un nouveau devis à ${escHtml(e.raison || config.boutique.nom)}.</div>`;
+    else if (st === 'refuse') bloc = '<div class="encart">Devis refusé. Merci de votre réponse.</div>';
+    else if (st === 'accepte') {
+      bloc = `<div class="encart ok">Devis accepté le ${new Date(d.acceptation.le).toLocaleDateString('fr-FR')} par ${escHtml(d.acceptation.nom)}. Commande n° ${d.commande.numero}.</div>`;
+      if (cmd && cmd.statut === 'attente') bloc += `<h2>Paiement</h2><form method="post" action="${action('payer')}">${champJeton}<button>Payer ${m(d.total)} en ligne</button></form>`
+        + (e.iban ? `<p>Ou par virement : IBAN <span class="mono">${escHtml(String(e.iban).replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim())}</span>, titulaire ${escHtml(e.raison || '')}, référence <b>Commande ${d.commande.numero}</b>. La commande est préparée dès réception du paiement.</p>` : '');
+      else if (cmd && cmd.statut !== 'annulee') bloc += '<p>Paiement reçu. Merci !</p>';
+    }
+    return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><title>Devis ${escHtml(d.numero)} · ${escHtml(config.boutique.nom)}</title>${FEUILLE_DEVIS}</head><body><main>
+<div class="haut"><div><b>${escHtml(e.raison || config.boutique.nom)}</b><div class="sous">${escHtml(e.adresse || '')}${e.email ? `<br>${escHtml(e.email)}` : ''}${e.siret ? `<br>${escHtml(e.siret)}` : ''}${e.tvaIntra ? `<br>N° TVA ${escHtml(e.tvaIntra)}` : ''}</div></div>
+<div class="num"><h1>Devis ${escHtml(d.numero)}</h1><div class="sous">du ${new Date(d.envoyeLe || d.creeLe).toLocaleDateString('fr-FR')}${d.valableJusquau ? `<br>valable jusqu’au ${new Date(d.valableJusquau).toLocaleDateString('fr-FR')}` : ''}</div></div></div>
+${message ? `<div class="encart ${/accept|reçu/.test(message) ? 'ok' : ''}" role="status">${escHtml(message)}</div>` : ''}
+<p><span class="sous">Pour</span><br><b>${escHtml(d.client.raison)}</b>${d.client.contact ? `<br>${escHtml(d.client.contact)}` : ''}${d.client.adresse ? `<br>${escHtml(d.client.adresse)}` : ''}${d.client.npa || d.client.ville ? `<br>${escHtml(`${d.client.npa} ${d.client.ville}`.trim())}` : ''}${d.client.tva ? `<br>N° TVA ${escHtml(d.client.tva)}` : ''}</p>
+${d.objet ? `<p><b>Objet :</b> ${escHtml(d.objet)}</p>` : ''}
+<table><thead><tr><th>Désignation</th><th class="num">Qté</th><th class="num">${sansTva ? 'Prix unitaire' : 'PU HT'}</th>${sansTva ? '' : '<th class="num">TVA</th>'}<th class="num">Total ${sansTva ? '' : 'TTC'}</th></tr></thead><tbody>
+${d.lignes.map(l => `<tr><td>${escHtml(l.nom)}</td><td class="num">${l.qte}</td><td class="num">${m(sansTva ? l.prixTtc : l.prixTtc / (1 + l.tauxTva))}</td>${sansTva ? '' : `<td class="num">${pct(l.tauxTva)}</td>`}<td class="num">${m(l.prixTtc * l.qte)}</td></tr>`).join('')}
+${d.remise ? `<tr><td>Remise ${String(d.remisePct).replace('.', ',')} %</td><td></td><td></td>${sansTva ? '' : '<td></td>'}<td class="num">−${m(d.remise)}</td></tr>` : ''}
+${d.port ? `<tr><td>Livraison</td><td class="num">1</td><td></td>${sansTva ? '' : '<td class="num">au prorata</td>'}<td class="num">${m(d.port)}</td></tr>` : ''}</tbody></table>
+<div class="totaux">${sansTva ? '' : vent.map(v => `<div><span>Base HT ${pct(v.taux)}</span><span>${m(v.ht)}</span></div><div><span>TVA ${pct(v.taux)}</span><span>${m(v.tva)}</span></div>`).join('')}<div class="total"><span>Total ${sansTva ? '' : 'TTC'}</span><span>${m(d.total)}</span></div></div>
+${sansTva ? `<p class="sous">${escHtml(config.boutique.pays === 'ch' ? 'Entreprise non assujettie à la TVA.' : config.boutique.pays === 'be' ? 'Régime particulier de franchise des petites entreprises.' : 'TVA non applicable, art. 293 B du CGI.')}</p>` : ''}
+${d.conditions ? `<h2>Conditions</h2><p>${escHtml(d.conditions).replace(/\n/g, '<br>')}</p>` : ''}
+${bloc}</main></body></html>`;
+  }
+  r.get('/devis/:slug/:id', ctx => {
+    const jeton = String(ctx.query.get('jeton') || '');
+    const { b, d, config } = devisPublic(ctx, jeton);
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    if (!d.consulteLe && d.statut === 'envoye') { d.consulteLe = Date.now(); d.historique.push({ date: d.consulteLe, texte: 'Consulté par le client' }); DV.ecrire(d); }
+    return { html: pageDevis(b, d, config, jeton, ctx.query.get('ok') === 'accepte' ? 'Devis accepté : votre commande est enregistrée.' : ctx.query.get('ok') === 'refuse' ? 'Votre refus est enregistré.' : '') };
+  });
+  r.post('/devis/:slug/:id/accepter', async ctx => {
+    const f = lireFormulaire(ctx);
+    auth.limiter(`devis-public:${ctx.ip}`, 30 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
+    const { b, d, config } = devisPublic(ctx, f.jeton);
+    const nom = String(f.nom || '').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 120);
+    if (!nom || f.accord !== 'oui') throw erreur(400, 'Indiquez le nom du signataire et cochez « bon pour accord ».', 'accord_requis');
+    const maintenant = Date.now();
+    const res = transaction(db, () => {
+      const frais = DV.deBoutique(b.id, d.id);   // relu dans la transaction : une seule acceptation, même avec deux clics
+      if (frais.statut !== 'envoye' || DV.expire(frais, maintenant)) throw erreur(409, DV.expire(frais, maintenant) ? 'Ce devis a expiré.' : 'Ce devis n’est plus en attente de réponse.', 'deja_traite');
+      const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
+      const c = { id: auth.nouvelId('c_'), numero, date: maintenant, statut: 'attente',
+        client: { nom: frais.client.raison, contact: frais.client.contact, email: frais.client.email, adresse: frais.client.adresse, npa: frais.client.npa, ville: frais.client.ville, pays: frais.client.pays, tva: frais.client.tva },
+        lignes: frais.lignes.map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, prix: l.prix, qte: l.qte, type: l.type, tauxTva: l.tauxTva, tauxReduit: l.tauxReduit, source: l.source || null, fournisseur: l.fournisseur || null })),
+        sousTotal: frais.sousTotal, remise: frais.remise, motifRemise: frais.remise ? `Remise du devis ${frais.numero} (${frais.remisePct} %)` : null, port: frais.port, total: frais.total, tauxTva: frais.tauxTva,
+        livraison: 'devis', canal: 'devis', devis: { id: frais.id, numero: frais.numero }, suivi: '', note: '',
+        historique: [{ date: maintenant, texte: `Commande issue du devis ${frais.numero}, accepté en ligne par ${nom}` }] };
+      const jetonCommande = auth.nouvelId();
+      const { id, numero: n, date, statut, ...donnees } = c;
+      db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, b.id, n, date, statut, jetonCommande, JSON.stringify(donnees));
+      frais.statut = 'accepte';
+      frais.acceptation = { le: maintenant, nom, reseau: crypto.createHmac('sha256', cleChiffrement).update(`devis:${ctx.ip}`).digest('hex').slice(0, 32), empreinte: Devis.empreinteContenu(frais.numero, frais) };
+      frais.commande = { id: c.id, numero };
+      frais.historique.push({ date: maintenant, texte: `Accepté en ligne par ${nom} : commande n° ${numero}` });
+      DV.ecrire(frais, maintenant);
+      return { c, frais };
+    });
+    const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+    if (mch) envoyerEmail(null, mch.email, `Devis ${res.frais.numero} accepté : ${formatMontant(res.frais.total, config)}`, `Bonjour,\n\n${res.frais.client.raison} a accepté le devis ${res.frais.numero} (signataire : ${nom}).\nCommande n° ${res.c.numero} créée, en attente de paiement (en ligne ou par virement). Marquez-la payée à réception d'un virement.\n\nVoir la commande : ${urlPublique}/app#commandes\n\nComptoir`);
+    envoyerEmail(b.id, res.frais.client.email, `Devis ${res.frais.numero} accepté : commande n° ${res.c.numero}`, `Bonjour,\n\nNous avons bien reçu votre accord pour le devis ${res.frais.numero} (${formatMontant(res.frais.total, config)}). Votre commande n° ${res.c.numero} est enregistrée.\n\nPaiement en ligne ou coordonnées de virement : ${urlPublique}/devis/${encodeURIComponent(b.slug)}/${res.frais.id}?jeton=${encodeURIComponent(f.jeton)}\n\n${(config.entreprise || {}).raison || config.boutique.nom}`);
+    return { redirection: `/devis/${encodeURIComponent(b.slug)}/${encodeURIComponent(d.id)}?jeton=${encodeURIComponent(f.jeton)}&ok=accepte` };
+  });
+  r.post('/devis/:slug/:id/refuser', ctx => {
+    const f = lireFormulaire(ctx);
+    auth.limiter(`devis-public:${ctx.ip}`, 30 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
+    const { b, d } = devisPublic(ctx, f.jeton);
+    transaction(db, () => {
+      const frais = DV.deBoutique(b.id, d.id);
+      if (frais.statut !== 'envoye') throw erreur(409, 'Ce devis n’est plus en attente de réponse.', 'deja_traite');
+      frais.statut = 'refuse'; frais.historique.push({ date: Date.now(), texte: 'Refusé par le client' }); DV.ecrire(frais);
+    });
+    const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+    if (mch) envoyerEmail(null, mch.email, `Devis ${d.numero} refusé`, `Bonjour,\n\n${d.client.raison} a refusé le devis ${d.numero}.\n\nComptoir`);
+    return { redirection: `/devis/${encodeURIComponent(b.slug)}/${encodeURIComponent(d.id)}?jeton=${encodeURIComponent(f.jeton)}&ok=refuse` };
+  });
+  r.post('/devis/:slug/:id/payer', async ctx => {
+    const f = lireFormulaire(ctx);
+    auth.limiter(`devis-public:${ctx.ip}`, 30 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
+    const { b, d } = devisPublic(ctx, f.jeton);
+    const row = d.commande && db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(d.commande.id, b.id);
+    if (!row || row.statut !== 'attente') return { redirection: `/devis/${encodeURIComponent(b.slug)}/${encodeURIComponent(d.id)}?jeton=${encodeURIComponent(f.jeton)}` };
+    return { redirection: (await ouvrirPaiement(b, row)).paiementUrl };
+  });
   /* ---------- Cartes cadeaux ---------- */
   r.get('/api/admin/cartes-cadeaux', exigerMarchand, ctx => ({ cartes: Cartes.lister(ctx.boutique.id), registreCoherent: !Cartes.verifier(ctx.boutique.id).length }));
   r.get('/api/admin/cartes-cadeaux/:id', exigerMarchand, ctx => Cartes.detail(ctx.boutique.id, ctx.params.id));
@@ -2611,6 +2783,11 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const jeton = String(ctx.corps.jeton || '');
     if (!row || !auth.egal(jeton, row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     if (row.statut !== 'attente') throw erreur(409, 'Cette commande est déjà payée ou annulée.', 'deja_traitee');
+    return ouvrirPaiement(b, row);
+  });
+  /* Nouveau lien de paiement en ligne pour une commande en attente (paiement repris, devis accepté) : les liens encore
+     ouverts sont fermés d'abord ; la carte cadeau éventuellement recréditée est débitée à nouveau. */
+  async function ouvrirPaiement(b, row) {
     const c = lireCommande(row);
     const devise = lireConfig(b).boutique.devise || 'EUR';
     const compte = compteVente(b);
@@ -2633,7 +2810,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const session = await paiement.creerSession({ pays: lireConfig(b).boutique.pays, paiement: pmt, commande: c, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1`, compte, moyens: moyensDe(b.id) });
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { paiementUrl: session.url };
-  });
+  }
 
   /* E-mails automatiques de toutes les boutiques (appelé régulièrement). */
   /* Entretien périodique : ce qui ne doit pas dépendre d'un minuteur en mémoire (perdu au redémarrage),

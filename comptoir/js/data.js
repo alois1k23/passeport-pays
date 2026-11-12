@@ -236,7 +236,8 @@ const LIVRAISONS_BE = {
   'relais-be': { nom: 'Mondial Relay en point relais', court: 'Point relais', prix: 4.2, delai: '3 à 5 jours', transporteur: 'Mondial Relay' },
   retrait: LIVRAISONS.retrait
 };
-const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH, ...LIVRAISONS_BE };
+// Commande née d'un devis : livraison et frais fixés dans le devis (pas un mode proposé dans la boutique).
+const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH, ...LIVRAISONS_BE, devis: { nom: 'Selon le devis', court: 'Devis', prix: 0, delai: '', transporteur: null } };
 function livraisonsPays(pays) { return pays === 'ch' ? LIVRAISONS_CH : pays === 'be' ? LIVRAISONS_BE : LIVRAISONS; }
 const SEUIL_PORT_DEFAUT = 60;
 /* Seuil de livraison offerte de la boutique (Paramètres > Livraison, ou Conversion ; 0 = jamais offerte). */
