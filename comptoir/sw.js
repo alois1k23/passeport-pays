@@ -12,7 +12,7 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET' || u.origin !== location.origin || u.pathname.startsWith('/api/')) return;
-  const statique = e.request.mode === 'navigate' || /^\/(css|js|img)\//.test(u.pathname);
+  const statique = e.request.mode === 'navigate' || /^\/(css|js|img|fonts)\//.test(u.pathname);
   if (!statique) return;
   e.respondWith(fetch(e.request).then(rep => {
     if (rep.ok && rep.type === 'basic') { const copie = rep.clone(); caches.open(CACHE).then(c => c.put(e.request.mode === 'navigate' ? '/app' : e.request, copie)); }

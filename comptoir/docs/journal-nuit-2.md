@@ -335,7 +335,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Formulations vérifiées pour ne rien promettre de plus. Seuls les e-mails de commande sont traduits, pas les newsletters. Les sauvegardes chiffrées supposent que `SAUVEGARDE_CLE` soit réglée à la mise en ligne.
 - Mise en page vérifiée sur ordinateur et sur téléphone, sans débordement.
 
-## Cycle 21 (01 h 50) : réservation de stock, corrections de la quatrième revue
+## Cycle 21 (01 h 40) : réservation de stock, corrections de la quatrième revue
 
 - **Réservation de stock** : une commande en attente de paiement garde ses articles pendant 30 minutes, ou jusqu'à l'échéance pour une facture QR. Plusieurs clients ne peuvent plus payer le même dernier exemplaire. Un client qui réessaie son propre paiement n'est pas bloqué par son essai précédent. Testé (second client refusé, puis accepté une fois la réservation échue).
 - **Sauvegardes**, fiabilisées (revue : une copie en clair pouvait rester sur le disque après un échec, et un disque plein pouvait laisser des sauvegardes vides prendre la place des bonnes) :
@@ -357,3 +357,11 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - pas de nouvel affichage pendant une saisie composée (claviers asiatiques, Gboard), et 120 ms d'attente entre deux frappes.
 - **E-mails traduits** : le pied de page (contact, désinscription) est aussi dans la langue du client.
 - Tests : 94 sur 94. Recherche revérifiée dans un vrai navigateur.
+
+## Cycle 22 (01 h 50) : plus aucune requête vers Google (polices hébergées)
+
+- Toutes les pages chargeaient les polices depuis Google Fonts : l'adresse IP de chaque visiteur, y compris les clients des boutiques, partait chez Google. Un tribunal allemand (LG München, janvier 2022) a jugé cette pratique contraire au RGPD.
+- Les 22 fichiers de police (woff2, sous-ensembles latin et latin étendu, environ 600 Ko, licence SIL Open Font License) sont maintenant servis par Comptoir (`fonts/`, `css/polices.css`), avec ETag et cache du service worker.
+- La politique de sécurité du contenu (CSP) se resserre : `style-src` et `font-src` n'autorisent plus que Comptoir.
+- Vérifié dans un vrai navigateur, sur l'accueil, l'espace marchand et une boutique : polices chargées, aucune requête externe, aucun refus CSP.
+- À la republication de l'artifact, il faut inclure `css/polices.css` et le dossier `fonts/`.
