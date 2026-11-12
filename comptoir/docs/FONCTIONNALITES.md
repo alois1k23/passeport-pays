@@ -91,4 +91,8 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Notifications push** : à vérifier sur un vrai téléphone. Sur iPhone, Comptoir doit d'abord être ajouté à l'écran d'accueil.
 - **Traductions** : les noms et descriptions des produits restent ceux saisis par le marchand. La page sans JavaScript reste en français.
 - **Facture électronique** : XML seul (pas encore le PDF Factur-X avec XML intégré), sans transmission à une plateforme agréée. Les règles détaillées de la norme (schematron) restent à vérifier avec le validateur public.
+- **Journal inaltérable** : aide à la traçabilité, **non certifié NF 525** (certification exigée en France pour un logiciel de caisse). Sa force dépend de `SECRET_CHIFFREMENT` gardé hors de la base et des empreintes conservées par le marchand.
+- **Journal des ventes (format FEC)** : ventes seulement, sans les encaissements ; comptes usuels à adapter par le comptable ; pas encore passé par l'outil de contrôle de la DGFiP (Test Compta Demat) ; encodage admis à confirmer.
+- **Signalement CSP** : seul `report-uri` est utilisé (la Reporting API n'a pas pu être vérifiée).
+- **Export complet** : un compte qui n'utilise que sa clé d'accès doit aussi connaître son mot de passe pour exporter.
 - **Publication sur les réseaux sociaux** : préparée par Comptoir, mais publiée par copier-coller, en attendant les connexions officielles des réseaux.
