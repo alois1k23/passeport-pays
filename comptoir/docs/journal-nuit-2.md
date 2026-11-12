@@ -525,7 +525,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
 - Sur la page de suivi d'une commande expédiée, livrée ou retirée, le bouton « Commander à nouveau » remplit le panier avec les mêmes articles, variantes comprises. Il reprend le prix d'aujourd'hui, dans la limite du stock. Les articles qui ne sont plus disponibles sont signalés. Bouton traduit.
 - Vérifié dans un vrai navigateur : 2 thés et un pull taille M retrouvés dans le panier.
 
-## Cycle 37 (02 h 55) : e-mails commerciaux traduits
+## Cycle 37 (02 h 40) : e-mails commerciaux traduits
 
 - L'inscription aux nouvelles retient la langue de la boutique au moment du clic (si la boutique la propose). L'e-mail de confirmation, la page de confirmation, puis l'e-mail de bienvenue et son code partent dans cette langue (allemand, italien, anglais). Le pied de désinscription suit.
 - La relance « Ça fait longtemps » (reconquête) part dans la langue de la dernière commande du client.
