@@ -1152,14 +1152,15 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       ['Appareils avec notifications', n('SELECT COUNT(*) n FROM abonnements_push')],
       ['Dernière sauvegarde', sauvegarde],
       ['Journaux des ventes', (() => {
-        const v = db.prepare('SELECT resultat FROM journal_verifications').all().map(x => JSON.parse(x.resultat));
+        // Boutiques existantes seulement (une boutique supprimée garde son journal archivé, sans compter ici).
+        const v = db.prepare("SELECT COUNT(*) n, COALESCE(SUM(json_extract(v.resultat, '$.ok')), 0) ok FROM journal_verifications v JOIN boutiques b ON b.id = v.boutique_id").get();
         const etatJ = JV().etat('');
-        return `${n("SELECT COUNT(DISTINCT boutique_id) n FROM journal_inalterable")} boutiques · ${v.filter(x => x.ok).length} intacts · ${v.filter(x => !x.ok).length} avec anomalie${etatJ.cleChangee ? ' · CLÉ DE SIGNATURE CHANGÉE : remettez l’ancienne SECRET_CHIFFREMENT' : ''}${/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? '' : ' · clé gardée dans la base (définissez SECRET_CHIFFREMENT)'}`;
+        return `${v.n} boutique${v.n > 1 ? 's' : ''} vérifiée${v.n > 1 ? 's' : ''} · ${v.ok} intacte${v.ok > 1 ? 's' : ''} · ${v.n - v.ok} avec anomalie${etatJ.cleChangee ? ' · CLÉ DE SIGNATURE CHANGÉE : remettez l’ancienne SECRET_CHIFFREMENT' : ''}${/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? '' : ' · clé gardée dans la base (définissez SECRET_CHIFFREMENT)'}`;
       })()],
       ['Violations de sécurité signalées (7 j)', (() => {
-        const t = db.prepare('SELECT directive, bloque, COUNT(*) n FROM csp_rapports WHERE le > ? GROUP BY directive, bloque ORDER BY n DESC LIMIT 3').all(maintenant - 7 * j);
+        const t = db.prepare('SELECT directive, bloque, COUNT(DISTINCT reseau) n FROM csp_rapports WHERE le > ? GROUP BY directive, bloque ORDER BY n DESC LIMIT 3').all(maintenant - 7 * j);
         const total = n('SELECT COUNT(*) n FROM csp_rapports WHERE le > ?', maintenant - 7 * j);
-        return total ? `${total} · ${t.map(x => `${x.directive} ← ${x.bloque} (${x.n})`).join(' · ')}` : 'aucune';
+        return total ? `${total} · ${t.map(x => `${x.directive} ← ${x.bloque} (${x.n} réseau${x.n > 1 ? 'x' : ''})`).join(' · ')}` : 'aucune';
       })()],
             ['En marche depuis', `${Math.round((maintenant - demarreLe) / 3600000)} h · Node ${process.version}`]
     ];
@@ -1172,17 +1173,26 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
      ou une extension qui modifie les pages. Rien de personnel n'est gardé : la page sans sa requête (« ?… »), l'origine
      de ce qui a été bloqué, la règle. 30 jours, 5000 rapports au plus. */
   db.exec('CREATE TABLE IF NOT EXISTS csp_rapports (le INTEGER NOT NULL, directive TEXT NOT NULL, bloque TEXT NOT NULL, page TEXT NOT NULL)');
-  const sansRequete = u => { try { const x = new URL(String(u)); return /^https?:$/.test(x.protocol) ? `${x.origin}${x.pathname}`.slice(0, 200) : x.protocol.replace(':', ''); } catch { return String(u || '').replace(/[?#].*$/, '').slice(0, 40); } };
-  const origineSeule = u => { try { const x = new URL(String(u)); return /^https?:$/.test(x.protocol) ? x.origin : x.protocol.replace(':', ''); } catch { return String(u || '').slice(0, 40); } };
+  try { db.exec('ALTER TABLE csp_rapports ADD COLUMN reseau TEXT'); } catch { /* déjà là */ }
+  // Règles connues seulement (un texte inventé n'entre pas dans la console de l'exploitant).
+  const DIRECTIVES_CSP = new Set(['default-src', 'script-src', 'script-src-elem', 'script-src-attr', 'style-src', 'style-src-elem', 'style-src-attr', 'img-src', 'font-src', 'connect-src', 'media-src', 'object-src', 'frame-src', 'child-src', 'worker-src', 'manifest-src', 'form-action', 'frame-ancestors', 'base-uri', 'require-trusted-types-for', 'trusted-types']);
+  const empreinteReseau = ip => crypto.createHmac('sha256', cleDesinscription).update('csp|' + ip).digest('hex').slice(0, 12);   // réseau compté, jamais gardé en clair
+  // Page : origine et premier segment du chemin seulement (pas d'identifiant de commande ou de facture).
+  const sansRequete = u => { try { const x = new URL(String(u)); if (!/^https?:$/.test(x.protocol)) return x.protocol.replace(':', ''); const seg = x.pathname.split('/').filter(Boolean); return `${x.origin}/${seg[0] || ''}${seg.length > 1 ? '/…' : ''}`.slice(0, 120); } catch { return String(u || '').replace(/[?#].*$/, '').slice(0, 40); } };
+  const origineSeule = u => { try { const x = new URL(String(u)); return (/^https?:$/.test(x.protocol) ? x.origin : x.protocol.replace(':', '')).slice(0, 100); } catch { return String(u || '').slice(0, 40); } };
   r.post('/csp-rapport', ctx => {
-    try { auth.limiter('csp:' + reseauIp(ctx.ip), 30 * facteurLimites, 10 * 60000, ''); } catch { return { ok: true }; }   // au-delà : ignorés sans erreur
+    try { auth.limiter('csp:' + reseauIp(ctx.ip), 30 * facteurLimites, 10 * 60000, ''); auth.limiter('csp-global', 2000 * facteurLimites, 3600000, ''); } catch { return { ok: true }; }   // au-delà (par réseau, ou 2000 par heure en tout) : ignorés
     let d; try { d = JSON.parse(ctx.corpsBrut || 'null'); } catch { return { ok: true }; }
     const rapports = Array.isArray(d) ? d.filter(x => x && x.type === 'csp-violation').map(x => x.body || {}) : d && d['csp-report'] ? [d['csp-report']] : [];
-    const ins = db.prepare('INSERT INTO csp_rapports (le, directive, bloque, page) VALUES (?, ?, ?, ?)');
+    const ins = db.prepare('INSERT INTO csp_rapports (le, directive, bloque, page, reseau) VALUES (?, ?, ?, ?, ?)');
+    const reseau = empreinteReseau(reseauIp(ctx.ip));
     for (const x of rapports.slice(0, 10)) {
       const directive = String(x.effectiveDirective || x['effective-directive'] || x['violated-directive'] || '').split(' ')[0].slice(0, 40);
-      if (!directive) continue;
-      ins.run(Date.now(), directive, origineSeule(x.blockedURL || x['blocked-uri'] || 'inline'), sansRequete(x.documentURL || x['document-uri'] || ''));
+      if (!DIRECTIVES_CSP.has(directive)) continue;
+      const bloque = origineSeule(x.blockedURL || x['blocked-uri'] || 'inline');
+      // Une même violation (règle, origine) depuis un même réseau : comptée une fois par jour (un réseau ne gonfle pas les chiffres).
+      if (db.prepare('SELECT 1 FROM csp_rapports WHERE reseau = ? AND directive = ? AND bloque = ? AND le > ?').get(reseau, directive, bloque, Date.now() - 86400000)) continue;
+      ins.run(Date.now(), directive, bloque, sansRequete(x.documentURL || x['document-uri'] || ''), reseau);
     }
     if (Math.random() < 0.02) { db.prepare('DELETE FROM csp_rapports WHERE le < ?').run(Date.now() - 30 * 86400000); db.prepare('DELETE FROM csp_rapports WHERE rowid NOT IN (SELECT rowid FROM csp_rapports ORDER BY le DESC LIMIT 5000)').run(); }
     return { ok: true };
@@ -2520,7 +2530,11 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT j.boutique_id FROM journal_inalterable j JOIN boutiques b ON b.id = j.boutique_id').all()) {
       try {
         // Chaque clôture part aussi vers les webhooks du marchand qui l'ont demandée : une copie quotidienne de l'empreinte hors de Comptoir.
-        for (const cl of JV().cloturer(bid, maintenant)) integ.emettre(bid, 'journal.cloture', { jour: cl.jour, empreinte: cl.empreinte, pieces: cl.pieces, totalJour: cl.totalJour / 100, grandTotal: cl.grandTotal / 100 });
+        const devise = (() => { const b = db.prepare('SELECT config FROM boutiques WHERE id = ?').get(bid); try { return JSON.parse(b.config).boutique.devise || 'EUR'; } catch { return 'EUR'; } })();
+        for (const cl of JV().cloturer(bid, maintenant)) {
+          try { integ.emettre(bid, 'journal.cloture', { jour: cl.jour, empreinte: cl.empreinte, pieces: cl.pieces, totalJour: cl.totalJour / 100, grandTotal: cl.grandTotal / 100, devise }); }
+          catch (e) { journal.error('[journal-inalterable] webhook de clôture', bid, cl.jour, e.message); }   // une erreur n'empêche pas les jours suivants
+        }
       } catch (e) { journal.error('[journal-inalterable] clôture', bid, e.message); }
     }
     verificationsNocturnes(maintenant).catch(e => journal.error('[journal-inalterable] vérification', e.message));
@@ -3029,7 +3043,7 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
       // HTTPS : seule la session « __Host- » compte ; un cookie de session sans préfixe (posé par un sous-domaine, en HTTP) est ignoré.
       if (securise) { const h = ctx.cookies[`__Host-${auth.COOKIE}`]; delete ctx.cookies[auth.COOKIE]; if (h) ctx.cookies[auth.COOKIE] = h; }
       if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
-        ctx.corpsBrut = (await lireCorps(req)).toString('utf8');
+        ctx.corpsBrut = (await lireCorps(req, chemin === '/csp-rapport' ? 16 * 1024 : undefined)).toString('utf8');   // rapports CSP : petits, sans compte
         const type = req.headers['content-type'] || '';
         if (chemin.startsWith('/api/') && !chemin.startsWith('/api/webhooks/')) {
           // JSON obligatoire : un formulaire d'un autre site ne peut pas envoyer ce type sans CORS (protection CSRF).

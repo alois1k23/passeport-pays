@@ -385,7 +385,7 @@ function ongletTva() {
   // Suisse : assujettissement obligatoire dès CHF 100 000 de chiffre d'affaires annuel (art. 10 LTVA)
   const an = new Date().getFullYear(), annee = decompteTva(new Date(an, 0, 1).getTime(), new Date(an + 1, 0, 1).getTime());
   const seuil = ch && !assujetti ? `<div class="encart ${annee.total.ttc >= 80000 ? 'alerte-encart' : ''}"><b>Seuil d’assujettissement</b> : CHF 100’000 de chiffre d’affaires par an. Cette année : <b>${euros(annee.total.ttc)}</b> (${Math.round(annee.total.ttc / 1000)} % du seuil).${annee.total.ttc >= 80000 ? ' Vous approchez du seuil : parlez-en à votre fiduciaire.' : ''}</div>` : '';
-  return `<section class="carte"><div class="carte-tete"><h2>Décompte de TVA</h2><div class="rangee"><select data-analyse="periodeTva" aria-label="Période du décompte">${periodes.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${x.nom}</option>`).join('')}</select><button class="btn fantome petit" data-action="export-tva">Exporter le détail (CSV)</button><button class="btn fantome petit" data-action="export-ecritures" title="Journal des ventes pour votre comptable : une écriture équilibrée par facture et par avoir">${etat.boutique.pays === 'fr' ? 'Écritures (FEC)' : 'Écritures comptables'}</button></div></div>
+  return `<section class="carte"><div class="carte-tete"><h2>Décompte de TVA</h2><div class="rangee"><select data-analyse="periodeTva" aria-label="Période du décompte">${periodes.map(x => `<option value="${x.id}" ${x.id === p.id ? 'selected' : ''}>${x.nom}</option>`).join('')}</select><button class="btn fantome petit" data-action="export-tva">Exporter le détail (CSV)</button><button class="btn fantome petit" data-action="export-ecritures" title="Journal des ventes pour votre comptable : une écriture équilibrée par facture et par avoir">${paysCompta() === 'fr' ? 'Journal des ventes (format FEC)' : 'Journal des ventes'}</button></div></div>
     ${assujetti ? '' : `<p class="encart">Votre entreprise n’est pas assujettie à la TVA (régime choisi dans Conformité) : rien à déclarer. Le tableau montre vos ventes facturées pour information.</p>`}${seuil}
     <div class="table-wrap"><table class="table"><thead><tr><th>Taux</th><th class="num">Ventes TTC</th><th class="num">Base HT</th><th class="num">TVA</th></tr></thead><tbody>
       ${d.taux.map(x => `<tr><td>${x.taux ? pctTva(x.taux) : 'Sans TVA'}</td><td class="num">${euros(x.ttc)}</td><td class="num">${euros(x.ht)}</td><td class="num">${euros(x.tva)}</td></tr>`).join('') || '<tr><td colspan="4" class="sous">Aucune facture ni avoir sur cette période.</td></tr>'}
@@ -410,32 +410,50 @@ function exporterTva() {
    Comptes usuels de chaque pays, à adapter par le comptable si son plan diffère. Journal des ventes seulement :
    les encaissements (banque) ne sont pas inclus. */
 const COMPTES_VENTES = {
-  fr: { client: ['411000', 'Clients'], vente: ['707000', 'Ventes de marchandises'], tva: ['445710', 'TVA collectée'] },
-  be: { client: ['400000', 'Clients'], vente: ['700000', 'Ventes de marchandises'], tva: ['451000', 'TVA à payer'] },
-  ch: { client: ['1100', 'Créances résultant de ventes'], vente: ['3200', 'Ventes de marchandises'], tva: ['2200', 'TVA due'] }
+  fr: { client: ['411000', 'Clients'], vente: ['707000', 'Ventes de marchandises'], tva: ['445710', 'TVA collectée'], arrondi: ['758000', 'Produits divers de gestion courante'] },
+  be: { client: ['400000', 'Clients'], vente: ['700000', 'Ventes de marchandises'], tva: ['451000', 'TVA à payer'], arrondi: ['743000', 'Produits d’exploitation divers'] },
+  ch: { client: ['1100', 'Créances résultant de ventes'], vente: ['3200', 'Ventes de marchandises'], tva: ['2200', 'TVA due'], arrondi: ['3805', 'Différences d’arrondi'] }
 };
+const paysCompta = () => ((typeof etat !== 'undefined' && etat.boutique && etat.boutique.pays) || 'fr');
+/* Numéro de compte auxiliaire stable par client (même client = même numéro d'un export à l'autre). */
+function compteClient(c) {
+  const cle = String((c.client && (c.client.email || c.client.nom)) || 'client').toLowerCase();
+  let h = 5381; for (let i = 0; i < cle.length; i++) h = ((h << 5) + h + cle.charCodeAt(i)) >>> 0;
+  return 'C' + h.toString(16).toUpperCase().padStart(8, '0');
+}
+/* Écritures de l'exercice (année civile) jusqu'à « fin », numérotées depuis le 1er janvier ; seules celles de la période sont gardées :
+   un même document garde le même numéro dans l'export trimestriel et dans l'export annuel. */
 function ecrituresVentes(debut, fin) {
-  const pays = (etat.boutique && etat.boutique.pays) || 'fr', cpt = COMPTES_VENTES[pays] || COMPTES_VENTES.fr;
-  const d = decompteTva(debut, fin), parPiece = new Map();
+  const pays = paysCompta(), cpt = COMPTES_VENTES[pays] || COMPTES_VENTES.fr;
+  const debutExercice = new Date(new Date(debut).getFullYear(), 0, 1).getTime();
+  const d = decompteTva(debutExercice, fin), parPiece = new Map();
   for (const x of d.lignes) { const k = `${x.doc}|${x.numero}`; if (!parPiece.has(k)) parPiece.set(k, []); parPiece.get(k).push(x); }
-  const r2 = n => Math.round(n * 100) / 100, lignes = [];
-  let num = 0;
+  const r2 = n => Math.round(n * 100) / 100, pct = t => (t * 100).toFixed(1).replace('.0', '').replace('.', ',');
+  const lignes = [];
+  let num = 0, pieces = 0;
   for (const [, l] of [...parPiece].sort((a, b) => a[1][0].date - b[1][0].date)) {
-    num++;
     const x0 = l[0], avoir = x0.doc === 'Avoir', c = etat.commandes.find(c2 => c2.numero === x0.commande) || { client: {} };
-    const lib = `${avoir ? 'Avoir' : 'Facture'} ${x0.numero} · commande ${x0.commande}`;
-    const ecr = (compte, debit, credit, aux) => lignes.push({ num, date: x0.date, compte, debit: r2(debit), credit: r2(credit), piece: x0.numero, lib, aux });
     const ttc = r2(Math.abs(l.reduce((a, x) => a + x.ttc, 0)));
-    ecr(cpt.client, avoir ? 0 : ttc, avoir ? ttc : 0, c.client.nom || 'Client');
+    if (!ttc) continue;   // commande à 0 : aucune écriture (des lignes à zéro sont refusées par les logiciels comptables)
+    num++;
+    if (x0.date < debut) continue;
+    pieces++;
+    const lib = avoir ? `Avoir ${x0.numero} sur facture ${c.facture || '?'} - commande ${x0.commande}` : `Facture ${x0.numero} - commande ${x0.commande}`;
+    const ecr = (compte, debit, credit, aux, detail = '') => { if (r2(debit) || r2(credit)) lignes.push({ num, date: x0.date, compte, debit: r2(debit), credit: r2(credit), piece: x0.numero, lib: lib + detail, aux }); };
+    // Espèces en francs : le client a payé le montant arrondi ; l'écart va au compte d'arrondis (le compte client est soldé exactement).
+    const arrondi = !avoir && typeof c.arrondi === 'number' && c.arrondi && typeof c.encaisse === 'number' ? r2(c.arrondi) : 0;
+    const client = { num: compteClient(c), nom: (c.client && c.client.nom) || 'Client' };
+    ecr(cpt.client, avoir ? 0 : ttc + arrondi, avoir ? ttc : 0, client);
+    if (arrondi) ecr(cpt.arrondi, arrondi < 0 ? -arrondi : 0, arrondi > 0 ? arrondi : 0, null, ' - arrondi espèces');
     for (const x of l) {
-      const ht = r2(Math.abs(x.ht)), tv = r2(Math.abs(x.tva));
-      ecr([cpt.vente[0], `${cpt.vente[1]}${x.taux ? ` (TVA ${(x.taux * 100).toFixed(1).replace('.0', '').replace('.', ',')} %)` : ''}`], avoir ? ht : 0, avoir ? 0 : ht);
-      if (tv) ecr([cpt.tva[0], `${cpt.tva[1]} ${(x.taux * 100).toFixed(1).replace('.0', '').replace('.', ',')} %`], avoir ? tv : 0, avoir ? 0 : tv);
+      const ht = r2(Math.abs(x.ht)), tv = r2(Math.abs(x.tva)), taux = x.taux ? ` - TVA ${pct(x.taux)} %` : ' - sans TVA';
+      ecr(cpt.vente, avoir ? ht : 0, avoir ? 0 : ht, null, taux);
+      if (tv) ecr(cpt.tva, avoir ? tv : 0, avoir ? 0 : tv, null, taux);
     }
   }
   // Contrôle : chaque écriture est équilibrée (débit = crédit), sinon rien n'est exporté.
   const desequilibre = [...new Set(lignes.map(x => x.num))].some(n => { const e = lignes.filter(x => x.num === n); return Math.abs(e.reduce((a, x) => a + x.debit - x.credit, 0)) > 0.005; });
-  return { lignes, pieces: num, desequilibre, pays };
+  return { lignes, pieces, desequilibre, pays };
 }
 function exporterEcritures() {
   const a = etatAnalyse(), p = periodesTva().find(x => x.id === a.periodeTva) || periodesTva()[0];
@@ -444,17 +462,26 @@ function exporterEcritures() {
   if (!e.pieces) { toast('Aucune facture ni avoir sur cette période.'); return; }
   const ymd = t => { const d = new Date(t); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; };
   const fr = e.pays === 'fr', virgule = n => n.toFixed(2).replace('.', ',');
-  const propre = t => String(t ?? '').replace(/[\t\r\n|;]/g, ' ').trim();
+  // Texte sans séparateur ni saut de ligne, en caractères latins simples (lus par tous les logiciels comptables).
+  const propre = t => String(t ?? '').replace(/[\t\r\n|;]/g, ' ').replace(/[·•]/g, '-').replace(/[’‘]/g, "'").replace(/[«»]/g, '"').replace(/[^\x20-\xFF€]/g, '').trim();
+  const devise = (etat.boutique && etat.boutique.devise) || (e.pays === 'ch' ? 'CHF' : 'EUR');
   let contenu, nom;
   if (fr) {
-    // FEC : 18 colonnes, tabulation, montants à virgule, dates AAAAMMJJ.
+    // Format FEC : 18 colonnes, tabulation, montants à virgule, dates AAAAMMJJ. Journal des ventes seulement.
     const tete = ['JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate', 'CompteNum', 'CompteLib', 'CompAuxNum', 'CompAuxLib', 'PieceRef', 'PieceDate', 'EcritureLib', 'Debit', 'Credit', 'EcritureLet', 'DateLet', 'ValidDate', 'Montantdevise', 'Idevise'];
-    contenu = tete.join('\t') + '\r\n' + e.lignes.map(x => ['VT', 'Ventes', `VT${String(x.num).padStart(6, '0')}`, ymd(x.date), x.compte[0], propre(x.compte[1]), x.aux ? 'CLIENTS' : '', x.aux ? propre(x.aux) : '', propre(x.piece), ymd(x.date), propre(x.lib), virgule(x.debit), virgule(x.credit), '', '', ymd(x.date), '', ''].join('\t')).join('\r\n') + '\r\n';
-    const siren = String((etat.entreprise || {}).siret || '').replace(/\D/g, '').slice(0, 9) || 'SIREN';
-    nom = `${siren}FEC${ymd(p.fin - 86400000)}.txt`;
+    const valide = ymd(Date.now());   // date de l'export, pas celle de la pièce
+    contenu = tete.join('\t') + '\r\n' + e.lignes.map(x => ['VT', 'Ventes', `VT${String(x.num).padStart(6, '0')}`, ymd(x.date), x.compte[0], propre(x.compte[1]), x.aux ? x.aux.num : '', x.aux ? propre(x.aux.nom) : '', propre(x.piece), ymd(x.date), propre(x.lib), virgule(x.debit), virgule(x.credit), '', '', valide, '', ''].join('\t')).join('\r\n') + '\r\n';
+    // Nom légal (SIREN + FEC + date de clôture) seulement pour l'année entière ; sinon un nom qui dit ce que c'est.
+    const siren = String((etat.entreprise || {}).siret || '').replace(/\D/g, '').slice(0, 9);
+    if (p.id.startsWith('A-')) {
+      if (siren.length !== 9) { toast('Renseignez votre SIRET dans Conformité : il donne son nom au fichier.'); return; }
+      nom = `${siren}FEC${ymd(p.fin - 86400000)}.txt`;
+    } else nom = `journal-ventes-format-FEC-${p.id}.txt`;
   } else {
-    contenu = '\ufeff' + ['journal', 'ecriture', 'date', 'compte', 'libelle_compte', 'client', 'piece', 'libelle', 'debit', 'credit'].join(';') + '\n' + e.lignes.map(x => ['VT', x.num, csvTexte(csvDate(x.date)), x.compte[0], csvTexte(x.compte[1]), csvTexte(x.aux || ''), csvTexte(x.piece), csvTexte(x.lib), x.debit.toFixed(2), x.credit.toFixed(2)].join(';')).join('\n');
-    nom = `comptoir-ecritures-${p.id}.csv`;
+    const csv = t => { const v = propre(t); return /^[=+\-@]/.test(v) ? `"'${v.replace(/"/g, '""')}"` : `"${v.replace(/"/g, '""')}"`; };
+    contenu = '﻿' + ['journal', 'ecriture', 'date', 'compte', 'libelle_compte', 'client', 'nom_client', 'piece', 'libelle', 'debit', 'credit', 'devise'].join(';') + '\n'
+      + e.lignes.map(x => ['VT', x.num, csv(csvDate(x.date)), x.compte[0], csv(x.compte[1]), x.aux ? x.aux.num : '', csv(x.aux ? x.aux.nom : ''), csv(x.piece), csv(x.lib), virgule(x.debit), virgule(x.credit), devise].join(';')).join('\n');
+    nom = `journal-ventes-${p.id}.csv`;
   }
   try {
     const url = URL.createObjectURL(new Blob([contenu], { type: fr ? 'text/plain;charset=utf-8' : 'text/csv;charset=utf-8' }));

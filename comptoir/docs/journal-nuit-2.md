@@ -731,3 +731,25 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 
 - Les messages en fenêtre du navigateur (confirmation « Commander à nouveau », articles indisponibles, erreurs d'envoi de « Prévenez-moi » et de la newsletter) restaient en français dans une boutique traduite : ils passent désormais par le dictionnaire de la boutique (allemand, italien, anglais). Vérifié dans un vrai navigateur.
 - Performance de la boutique mesurée : 0,8 s de chargement complet en 4G lente avec un processeur ralenti 4 fois, 9 à 11 requêtes, fichiers compressés (Brotli). Rien à corriger.
+
+## Cycle 59 (04 h 20) : corrections des revues n° 13 (signalement CSP, empreinte quotidienne) et n° 14 (journal des ventes)
+
+**Signalement CSP** (adresse ouverte, sans compte) :
+- Une origine géante (190 Ko) était gardée telle quelle : un seul réseau remplissait 57 Mo en 10 minutes, recopiés dans chaque sauvegarde. Désormais, le corps est limité à 16 Ko, l'origine à 100 caractères, et il y a un budget global de 2000 rapports par heure en plus de la limite par réseau.
+- Seules les règles CSP réelles sont acceptées : aucun texte inventé n'arrive dans la console de l'exploitant. Une même violation depuis un même réseau compte une fois par jour, et la console indique le nombre de réseaux distincts (une inondation ne fait plus illusion).
+- Page signalée réduite à son premier segment : aucun identifiant de commande ou de facture n'est gardé.
+
+**Console et webhook** :
+- Les boutiques supprimées ne comptent plus dans les journaux de la console, calculée en une seule requête.
+- `journal.cloture` porte la devise ; une erreur sur un jour n'empêche plus l'envoi des suivants ; l'absence de renvoi pendant une période sans API est documentée.
+
+**Journal des ventes (format FEC)** :
+- Le nom légal `SIRENFECAAAAMMJJ.txt` est réservé à l'année entière, et le SIRET est exigé pour ce nom. Les trimestres s'appellent `journal-ventes-format-FEC-T4-2026.txt`. Le bouton s'intitule « Journal des ventes (format FEC) ».
+- Numéro d'écriture continu depuis le 1er janvier : un même document garde son numéro dans l'export trimestriel et dans l'export annuel.
+- Compte auxiliaire stable par client (au lieu d'un « CLIENTS » commun à tous).
+- Arrondi des espèces en francs passé au compte d'arrondis : le compte client est soldé exactement.
+- Un libellé fixe par compte, le taux de TVA dans le libellé de l'écriture. Plus de lignes à zéro (commande gratuite ignorée). Date de validation = date de l'export. Un avoir cite sa facture d'origine.
+- Textes en caractères latins simples (sans séparateur ni saut de ligne). CSV belge et suisse : montants à virgule, colonne de devise, protection contre les formules.
+- Vérifié en France, en Belgique et en Suisse (trois taux avec port et remise, avoir sur une facture d'un trimestre précédent, espèces arrondies, nom de client piégé) : toutes les écritures sont équilibrées.
+- Reste à confirmer : l'encodage admis par l'administration (UTF-8 limité aux caractères latins, ou ISO 8859-15).
+- 117 tests sur 117, bout en bout 51 sur 51.
