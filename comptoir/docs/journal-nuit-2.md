@@ -409,3 +409,12 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   - Suisse sans politique de retour : aucune demande possible ;
   - mauvais jeton refusé, deuxième demande refusée.
 - 96 tests sur 96.
+
+## Cycle 27 (02 h 00) : démo mise à jour, rappel de sécurité
+
+- Démo en ligne (artifact) republiée, version 19 : tous les ajouts de la nuit visibles sans serveur. On y trouve notamment :
+  - une commande suspecte de démonstration, avec son score de risque et la transmission retenue ;
+  - la prévision de rupture, le décompte de TVA, le lien de panier et la recherche ;
+  - les polices locales (`css/polices.css`, `fonts/`), publiées avec la démo.
+- Le tableau de bord rappelle de protéger le compte (clé d'accès ou double authentification) tant qu'aucune des deux n'est active. Le rappel disparaît dès l'activation.
+- Essai de bout en bout 51 sur 51, et simulation complète 0 anomalie, après l'ajout de l'équipe.
