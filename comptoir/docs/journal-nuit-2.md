@@ -441,7 +441,7 @@ Une revue indépendante des cycles 11 à 14 a relevé 16 points. Corrigés :
   8. L'attribut `lang` de la page suit la langue demandée.
 - Tests de non-régression ajoutés (IBAN inchangé, import bancaire refusé, « payée » refusé, pas d'IBAN pour le rôle « Commandes »). 97 tests sur 97.
 
-## Cycle 29 (02 h 45) : variantes de produits (tailles, couleurs)
+## Cycle 29 (02 h 20) : variantes de produits (tailles, couleurs)
 
 - Un produit en stock peut avoir **jusqu'à 2 options**, par exemple Taille × Couleur : 20 valeurs par option et 60 combinaisons au plus. Chaque combinaison a **son stock** et, si besoin, **son prix**. Le stock du produit est la somme des variantes.
 - **Éditeur de produit** : bloc « Variantes » avec les options, les valeurs séparées par des virgules, et un tableau des combinaisons (stock, prix). La saisie en cours est gardée d'un affichage à l'autre, et le curseur suit la tabulation.
