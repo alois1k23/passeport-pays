@@ -53,7 +53,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 - Vérifié dans un vrai navigateur : accueil, 13 écrans de l'espace marchand, boutique, pages légales et de désinscription. **Aucune violation**, aucune erreur ; barres, thème de la boutique et aperçus de thème s'affichent comme avant.
 - 120 tests sur 120, bout en bout 51 sur 51.
 
-### Cycle 4 (23 h 20) : corrections de la relecture du cycle 3
+### Cycle 4 (23 h 00) : corrections de la relecture du cycle 3
 
 Relecture indépendante de la politique sans styles en ligne. Elle a comparé les styles calculés d'environ 480 éléments avant et après la modification : tous identiques. Aucune violation sur l'ensemble des pages, démo comprise. Points corrigés :
 - **Liste fermée** : `data-vars` acceptait n'importe quelle propriété personnalisée, par exemple `--control-h`, qui règle la hauteur des boutons, ou un mot-clé comme `transparent`. Désormais, seules les couleurs et polices des thèmes et la teinte des visuels sont acceptées, chacune avec son type : couleur hexadécimale ou rgb/hsl, longueur en px, liste de polices, nombre.
