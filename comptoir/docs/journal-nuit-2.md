@@ -727,7 +727,7 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - Vérifié dans un vrai navigateur : vente à deux taux (20 % et 5,5 %), vente remboursée (facture et avoir), 18 colonnes, chaque écriture équilibrée.
 - Limites, écrites telles quelles : journal des ventes seulement, sans les encaissements (banque) ; comptes usuels à adapter par le comptable si son plan diffère ; pas encore passé par l'outil de contrôle officiel de la DGFiP (Test Compta Demat).
 
-## Cycle 58 (04 h 25) : fenêtres de la boutique traduites, performance mesurée
+## Cycle 58 (04 h 20) : fenêtres de la boutique traduites, performance mesurée
 
 - Les messages en fenêtre du navigateur (confirmation « Commander à nouveau », articles indisponibles, erreurs d'envoi de « Prévenez-moi » et de la newsletter) restaient en français dans une boutique traduite : ils passent désormais par le dictionnaire de la boutique (allemand, italien, anglais). Vérifié dans un vrai navigateur.
 - Performance de la boutique mesurée : 0,8 s de chargement complet en 4G lente avec un processeur ralenti 4 fois, 9 à 11 requêtes, fichiers compressés (Brotli). Rien à corriger.
