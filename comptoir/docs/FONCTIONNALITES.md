@@ -48,6 +48,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 
 - **Clés d'accès** (Face ID, Touch ID, Windows Hello) et **double authentification**, avec codes de secours.
 - Alerte à chaque nouvel appareil, déconnexion à distance, journal d'activité.
+- **Bilan de sécurité** : ce qui protège le compte et ce qui reste à faire (tentatives suspectes, appareils oubliés, équipe sans protection, clés d'API dormantes).
 - Mots de passe courants ou parus dans des fuites de données refusés (anonymat k).
 
 ### Fraude

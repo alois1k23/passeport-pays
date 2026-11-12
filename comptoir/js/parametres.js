@@ -301,7 +301,13 @@ function vueSecurite() {
     </tbody></table></div></section>`;
   const journal = `<section class="carte"><div class="carte-tete"><h2>Activité du compte</h2><span class="sous">50 derniers événements</span></div>
     ${d.journal.length ? `<ul class="journal-compte">${d.journal.map(x => `<li><span class="sous">${date(x.date)}</span> <b>${esc(LIBELLES_ACTIVITE[x.type] || x.type)}</b>${x.detail ? ` · ${esc(x.detail)}` : ''}${x.reseau ? ` <span class="mono sous">${esc(x.reseau)}</span>` : ''}</li>`).join('')}</ul>` : '<p class="sous">Aucun événement pour l’instant.</p>'}</section>`;
-  return df + clesAcces + appareils + journal;
+  // Bilan : ce qui protège le compte, et ce qui reste à faire (liens vers la bonne section).
+  const b = d.bilan || [];
+  const aller = c => c === 'equipe' || c === 'integrations' ? `<button class="lien bouton-lien" data-action="section-param" data-v="${c}">Ouvrir</button>` : c === 'conformite' ? '<a class="lien" href="#conformite">Ouvrir</a>' : '';
+  const nbOk = b.filter(x => x.ok).length;
+  const bilan = b.length ? `<section class="carte bilan-securite"><div class="carte-tete"><h2>Bilan de sécurité</h2><span class="pill ${b.some(x => !x.ok && x.niveau === 'important') ? 'warn' : nbOk === b.length ? 'good' : 'info'}">${nbOk} sur ${b.length}</span></div>
+    <ul class="bilan-liste">${b.map(x => `<li class="${x.ok ? 'ok' : x.niveau}"><span class="bilan-icone" aria-hidden="true">${x.ok ? '✓' : '!'}</span><div><b>${esc(x.titre)}</b>${!x.ok && x.niveau === 'important' ? ' <span class="pill warn">Important</span>' : ''}<p class="sous">${esc(x.detail)} ${!x.ok ? aller(x.cible) : ''}</p></div></li>`).join('')}</ul></section>` : '';
+  return bilan + df + clesAcces + appareils + journal;
 }
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action]'); if (!el) return;

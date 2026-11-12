@@ -980,9 +980,39 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
       clesAcces: clesAccesDe(ctx.marchand.id).map(c => ({ id: c.id, nom: c.nom, creeLe: c.cree_le, utiliseeLe: c.utilisee_le })),
       sessions: db.prepare('SELECT jeton_hash, cree_le, vu_le, appareil, reseau FROM sessions WHERE marchand_id = ? AND expire_le > ? ORDER BY vu_le DESC').all(ctx.marchand.id, Date.now())
         .map(x => ({ id: x.jeton_hash.slice(0, 16), appareil: x.appareil || 'Appareil', reseau: x.reseau, creeLe: x.cree_le, vuLe: x.vu_le, actuelle: x.jeton_hash === actuelle })),
-      journal: db.prepare('SELECT date, type, detail, reseau FROM journal_compte WHERE marchand_id = ? ORDER BY date DESC LIMIT 50').all(ctx.marchand.id)
+      journal: db.prepare('SELECT date, type, detail, reseau FROM journal_compte WHERE marchand_id = ? ORDER BY date DESC LIMIT 50').all(ctx.marchand.id),
+      bilan: bilanSecurite(ctx)
     };
   });
+  /* Bilan de sécurité : ce qui protège le compte et la boutique, et ce qui reste à faire (du plus important au conseil). */
+  function bilanSecurite(ctx) {
+    const mid = ctx.marchand.id, maintenant = Date.now(), JOUR = 86400000, out = [];
+    const ajouter = (ok, niveau, titre, detail, cible = null) => out.push({ ok, niveau, titre, detail, cible });
+    const df = deuxFacteursDe(mid), cles = clesAccesDe(mid);
+    const fort = !!(df && df.actif) || cles.length > 0;
+    ajouter(fort, 'important', 'Connexion protégée au-delà du mot de passe', fort ? (cles.length ? 'Clé d’accès enregistrée.' : 'Double authentification active.') : 'Avec votre seul mot de passe, quiconque le connaît entre dans votre boutique. Ajoutez une clé d’accès ou la double authentification.', fort ? null : 'cles');
+    ajouter(cles.length > 0, 'conseil', 'Clé d’accès (résiste à l’hameçonnage)', cles.length ? `${cles.length} clé${cles.length > 1 ? 's' : ''} enregistrée${cles.length > 1 ? 's' : ''}.` : 'Une clé d’accès ne fonctionne que sur le vrai site de Comptoir : un faux site ne peut pas la voler.', cles.length ? null : 'cles');
+    if (df && df.actif) { const n = JSON.parse(df.secours).length; ajouter(n >= 3, 'conseil', 'Codes de secours', n >= 3 ? `${n} codes restants.` : `Plus que ${n} code${n > 1 ? 's' : ''} de secours : renouvelez-les pour ne pas rester bloqué si vous perdez votre téléphone.`, n >= 3 ? null : '2fa'); }
+    const echecs = db.prepare("SELECT COUNT(*) n FROM journal_compte WHERE marchand_id = ? AND type = 'echec-2fa' AND date > ?").get(mid, maintenant - 7 * JOUR).n;
+    ajouter(!echecs, 'important', 'Aucune tentative suspecte', echecs ? `${echecs} code${echecs > 1 ? 's' : ''} de double authentification faux cette semaine, après un mot de passe correct : quelqu’un connaît peut-être votre mot de passe. Changez-le.` : 'Aucun code de double authentification faux ces 7 derniers jours.', echecs ? 'mot-de-passe' : null);
+    const inactives = db.prepare('SELECT COUNT(*) n FROM sessions WHERE marchand_id = ? AND expire_le > ? AND COALESCE(vu_le, cree_le, 0) < ?').get(mid, maintenant, maintenant - 30 * JOUR).n;
+    ajouter(!inactives, 'conseil', 'Appareils inactifs déconnectés', inactives ? `${inactives} appareil${inactives > 1 ? 's' : ''} sans activité depuis plus de 30 jours ${inactives > 1 ? 'sont' : 'est'} encore connecté${inactives > 1 ? 's' : ''} : déconnectez ceux que vous n’utilisez plus.` : 'Aucun appareil connecté oublié.', inactives ? 'appareils' : null);
+    if (ctx.role === 'proprietaire') {
+      const b = ctx.boutique;
+      const membres = db.prepare('SELECT m.id, m.email FROM equipe e JOIN marchands m ON m.id = e.marchand_id WHERE e.boutique_id = ?').all(b.id);
+      const faibles = membres.filter(x => { const d = deuxFacteursDe(x.id); return !(d && d.actif) && !clesAccesDe(x.id).length; });
+      if (membres.length) ajouter(!faibles.length, 'important', 'Équipe protégée', faibles.length ? `${faibles.map(x => x.email).join(', ')} se connecte${faibles.length > 1 ? 'nt' : ''} avec un simple mot de passe : demandez-leur d’ajouter une clé d’accès ou la double authentification.` : `Les ${membres.length} membre${membres.length > 1 ? 's' : ''} de l’équipe ont une connexion protégée.`, faibles.length ? 'equipe' : null);
+      const dormantes = db.prepare('SELECT nom FROM cles_api WHERE boutique_id = ? AND revoquee = 0 AND COALESCE(utilisee_le, cree_le) < ?').all(b.id, maintenant - 90 * JOUR);
+      const actives = db.prepare('SELECT COUNT(*) n FROM cles_api WHERE boutique_id = ? AND revoquee = 0').get(b.id).n;
+      if (actives) ajouter(!dormantes.length, 'conseil', 'Clés d’API utilisées', dormantes.length ? `${dormantes.length} clé${dormantes.length > 1 ? 's' : ''} d’API inutilisée${dormantes.length > 1 ? 's' : ''} depuis 90 jours (${dormantes.map(x => x.nom).slice(0, 3).join(', ')}) : révoquez-les si elles ne servent plus.` : `${actives} clé${actives > 1 ? 's' : ''} d’API active${actives > 1 ? 's' : ''}, toutes utilisées récemment.`, dormantes.length ? 'integrations' : null);
+      const webhooks = db.prepare('SELECT url, actif, echecs_suite FROM webhooks WHERE boutique_id = ?').all(b.id), enPanne = webhooks.filter(w => !w.actif || w.echecs_suite > 0);
+      if (webhooks.length) ajouter(!enPanne.length, 'conseil', 'Webhooks en état de marche', enPanne.length ? `${enPanne.length} webhook${enPanne.length > 1 ? 's' : ''} en échec ou en pause : vos outils ne reçoivent plus les commandes.` : 'Tous vos webhooks reçoivent les événements.', enPanne.length ? 'integrations' : null);
+      const v = db.prepare('SELECT resultat FROM journal_verifications WHERE boutique_id = ?').get(b.id);
+      if (v) { const r2 = JSON.parse(v.resultat); ajouter(r2.ok, 'important', 'Journal des ventes intact', r2.ok ? 'Dernière vérification sans anomalie.' : `${r2.nbAnomalies} anomalie${r2.nbAnomalies > 1 ? 's' : ''} dans le journal inaltérable des ventes.`, r2.ok ? null : 'conformite'); }
+    }
+    const ordre = { important: 0, conseil: 1 };
+    return out.sort((a, b2) => (a.ok - b2.ok) || ordre[a.niveau] - ordre[b2.niveau]);
+  }
   r.post('/api/admin/compte/sessions/:id/revoquer', exigerCompte, ctx => {
     const id = String(ctx.params.id).replace(/[^0-9a-f]/g, '').slice(0, 16);
     if (id.length !== 16) throw erreur(400, 'Session inconnue.', 'session');

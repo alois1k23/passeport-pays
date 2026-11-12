@@ -636,3 +636,14 @@ Relecture indépendante des cycles 41 et 43 : 11 constats, dont 4 graves sur le 
 - **Sceau complété** : moyen de paiement et arrondi des espèces à la caisse, taux de TVA de la commande.
 - **Formulation** : « aide à la traçabilité, non certifiée » ; plus de mention de l'attestation de l'éditeur (supprimée par la loi de finances 2025) ; l'empreinte du lundi est mentionnée « si le rapport est activé ». Boutiques supprimées : journal gardé pour l'archivage, plus clôturé.
 - 111 tests sur 111, bout en bout 51 sur 51.
+
+## Cycle 48 (03 h 40) : bilan de sécurité du compte
+
+- En tête de Paramètres, Sécurité : un bilan qui dit ce qui protège le compte et ce qui reste à faire, du plus important au conseil :
+  - connexion protégée au-delà du mot de passe (clé d'accès ou double authentification) ;
+  - clé d'accès, qui résiste à l'hameçonnage ;
+  - codes de secours restants ;
+  - **tentatives suspectes** : un code de double authentification faux après le bon mot de passe signale qu'un tiers connaît peut-être le mot de passe ;
+  - appareils connectés inactifs depuis 30 jours.
+- Pour le propriétaire, en plus : membres de l'équipe sans connexion protégée, clés d'API dormantes depuis 90 jours, webhooks en panne, journal des ventes intact. Chaque point à corriger mène à la bonne section.
+- Test ajouté (`bilan-securite.test.js`) ; vérifié dans un vrai navigateur, au bureau et sur mobile en mode sombre. 112 tests sur 112.
