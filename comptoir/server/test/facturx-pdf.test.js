@@ -184,3 +184,33 @@ test('route : contrôles, PDF téléchargeable, avoir absent, droits', async () 
     assert.equal((await c('GET', '/api/admin/commandes/inexistante/facture-pdf')).status, 404);
   } finally { s.close(); }
 });
+
+test('relecture : texte géant en temps linéaire, métadonnées propres, noms longs, pas de page vide d’en-tête', () => {
+  // Un mot de 300 000 caractères dans l'adresse (champ de configuration) ne bloque pas le serveur.
+  const geant = { ...config, entreprise: { ...config.entreprise, adresse: 'x'.repeat(300000), raison: `Société\u0001 très\r\nlongue ${'Nom '.repeat(40)}￾\uD800`, forme: 'y'.repeat(50000) } };
+  const c = commande(2); c.client.nom = 'Z'.repeat(100); c.remise = 1; c.motifRemise = 'm'.repeat(100000);
+  const t0 = Date.now();
+  const pdf = FX.produire(c, geant, { xml: F.produire(c, config) });
+  assert.ok(Date.now() - t0 < 2000, `produit en ${Date.now() - t0} ms`);
+  const { objets, flux, ref, trailer } = analyser(pdf);
+  const meta = flux(ref(objets[ref(trailer, 'Root')].texte, 'Metadata')).toString('utf8');
+  const auteur = decoderUtf16(/\/Author <([0-9A-F]+)>/.exec(objets[ref(trailer, 'Info')].texte)[1]);
+  assert.doesNotMatch(auteur, /[\u0000-\u001F￾￿]|[\uD800-\uDFFF]/);
+  assert.ok(meta.includes(`<rdf:li>${auteur.replace(/&/g, '&amp;')}</rdf:li>`), 'Info = XMP');
+  let outils = true; try { execFileSync('pdftotext', ['-v'], { stdio: 'ignore' }); } catch { outils = false; }
+  if (!outils) return;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fx-'));
+  try {
+    // Totaux et mentions qui débordent : la page suivante n'a pas d'en-tête de tableau vide.
+    for (let n = 14; n <= 30; n++) {
+      const cn = commande(n); cn.statut = 'attente'; delete cn.payeLe; cn.echeance = Date.UTC(2026, 11, 1);
+      const f = path.join(dir, `${n}.pdf`); fs.writeFileSync(f, FX.produire(cn, { ...config, entreprise: { ...config.entreprise, iban: 'FR7630006000011234567890189' } }, { xml: F.produire(cn, config) }));
+      const pages = execFileSync('pdftotext', ['-layout', f, '-']).toString().split('\f').filter(p => p.trim());
+      pages.forEach((p, i) => { if (i && /Désignation/.test(p)) assert.match(p, /Article \d+|Livraison|Remise/, `${n} lignes, page ${i + 1} : en-tête sans ligne`); });
+      assert.equal(pages.findIndex(p => /Montant à payer/.test(p)), pages.findIndex(p => /IBAN/.test(p)), 'mentions ensemble');
+    }
+    const f = path.join(dir, 'g.pdf'); fs.writeFileSync(f, pdf);
+    const texte = execFileSync('pdftotext', ['-layout', f, '-']).toString();
+    assert.ok(texte.split('\n').every(l => l.length < 160), 'aucune ligne hors de la page');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

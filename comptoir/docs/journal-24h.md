@@ -61,3 +61,33 @@ Relecture indépendante de la politique sans styles en ligne. Elle a comparé le
 - La lecture des blocs `<style>` des pages statiques accepte les attributs (`<style media=…>`).
 - **Nouveau test serveur** (`csp-styles.test.js`) : sur 8 pages, pas de `'unsafe-inline'`, aucun attribut `style`, et chaque bloc `<style>` est autorisé par son empreinte.
 - Vérifié dans un vrai navigateur : propriétés refusées, valeurs retirées, barres et thèmes intacts. 121 tests sur 121, bout en bout 51 sur 51.
+
+### Cycle 5 (23 h 10) : Factur-X complet (PDF/A-3 avec le XML EN 16931 joint)
+
+- Chaque facture et chaque avoir se téléchargent en **PDF Factur-X** (bouton « PDF Factur-X » dans la fiche commande). Le client lit le PDF ; son logiciel comptable lit le fichier `factur-x.xml` joint, celui de la norme européenne EN 16931. C'est le format de la facture électronique en France.
+- Le PDF est écrit par Comptoir, sans bibliothèque externe :
+  - polices DejaVu intégrées en sous-ensemble (seuls les caractères utilisés), texte copiable et cherchable ;
+  - profil de couleur sRGB, métadonnées PDF/A-3B et schéma d'extension Factur-X ;
+  - fichier XML joint et déclaré comme données de la facture.
+- Mêmes contrôles que le XML seul : s'il manque une mention obligatoire, ou si les montants sont incohérents, rien n'est produit. Les montants sont ceux du XML et de la facture imprimée. Les longues commandes passent sur plusieurs pages.
+- Vérifié avec les outils poppler : le XML extrait du PDF est identique et valide selon le schéma officiel Factur-X, les polices sont intégrées avec leur table Unicode, et le texte s'extrait. Téléchargement vérifié dans un vrai navigateur.
+- **Limite** : la conformité PDF/A n'a pas été contrôlée par un validateur officiel (veraPDF, absent de l'environnement). Les caractères absents de la police (emoji, idéogrammes) s'affichent « ? ».
+
+### Cycle 6 (23 h 20) : corrections de la relecture du cycle 5
+
+Une relecture indépendante a vérifié la structure du PDF octet par octet, le sous-ensemble de police, l'échappement de chaque texte et les montants. Points corrigés :
+- **Blocage du serveur** : la coupure des lignes pouvait prendre beaucoup trop de temps avec un mot très long (41 secondes pour 8 000 caractères dans l'adresse du vendeur). Elle se fait désormais en temps linéaire, sur un texte borné : 300 000 caractères passent en quelques millisecondes.
+- **Métadonnées identiques** : un caractère de contrôle dans la raison sociale apparaissait dans les propriétés du PDF mais pas dans les métadonnées XMP, ce que PDF/A interdit. Le même texte nettoyé sert maintenant aux deux.
+- **Mise en page** :
+  - les noms très longs (vendeur, client) passent à la ligne au lieu de sortir de la page ;
+  - une page suivante n'a plus d'en-tête de tableau vide ;
+  - les mentions de paiement (montant, IBAN) restent ensemble sur une même page.
+- **Cohérence** :
+  - montants en francs au format habituel de Comptoir (CHF 1’234.50) ;
+  - arrondi des espèces affiché dans les mêmes conditions que dans le XML ;
+  - dates calculées dans le même fuseau horaire que le XML ;
+  - une devise invalide n'interrompt plus la production du PDF.
+- **Restent tels quels** :
+  - la relation du fichier joint (« Data ») est l'une des valeurs que permet la spécification Factur-X ;
+  - l'IBAN visible par le rôle « commandes » l'est déjà sur la facture QR.
+- Nouveau test de régression. 126 tests sur 126, bout en bout 51 sur 51.

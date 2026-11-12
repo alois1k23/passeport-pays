@@ -47,21 +47,27 @@ class Texte {
     let l = 0; for (const car of normaliser(t)) { const g = p.correspondance.get(car.codePointAt(0)) || p.correspondance.get(63); l += p.avance[g]; }
     return l * taille / p.unites;
   }
-  /* Coupe un texte en lignes d'au plus « max » points (mots entiers ; un mot trop long est coupé). */
+  /* Coupe un texte en lignes d'au plus « max » points (mots entiers ; un mot trop long est coupé entre deux caractères).
+     Temps linéaire : largeurs cumulées caractère par caractère, texte borné, arrêt dès que les lignes permises sont remplies. */
   couper(t, taille, max, s = 'r', lignesMax = 3) {
-    const mots = normaliser(t).split(/\s+/).filter(Boolean), lignes = [];
-    let cour = '';
-    for (let mot of mots) {
-      while (this.largeur(mot, taille, s) > max) {
-        let i = mot.length; while (i > 1 && this.largeur(mot.slice(0, i), taille, s) > max) i--;
-        if (cour) { lignes.push(cour); cour = ''; }
-        lignes.push(mot.slice(0, i)); mot = mot.slice(i);
+    const p = this.polices[s], k = taille / p.unites;
+    const larg = car => p.avance[p.correspondance.get(car.codePointAt(0)) || p.correspondance.get(63)] * k;
+    const cars = [...normaliser(t).slice(0, 2000)];
+    const lignes = []; let cour = [], lc = 0, coupe = false;
+    const pousser = () => { lignes.push(cour.join('').trim()); cour = []; lc = 0; return lignes.length >= lignesMax; };
+    for (let i = 0; i < cars.length; i++) {
+      const car = /\s/.test(cars[i]) ? ' ' : cars[i];
+      if (car === ' ' && !cour.length) continue;
+      if (car === ' ') {   // mot suivant : tient-il sur la ligne ?
+        let j = i + 1, lm = larg(' '); while (j < cars.length && !/\s/.test(cars[j])) lm += larg(cars[j++]);
+        if (lc + lm > max && lm - larg(' ') <= max) { if (pousser()) { coupe = j < cars.length || i + 1 < cars.length; break; } continue; }
       }
-      const essai = cour ? `${cour} ${mot}` : mot;
-      if (this.largeur(essai, taille, s) <= max) cour = essai; else { if (cour) lignes.push(cour); cour = mot; }
+      const l = larg(car);
+      if (lc + l > max && cour.length) { if (pousser()) { coupe = true; break; } if (car === ' ') continue; }
+      cour.push(car); lc += l;
     }
-    if (cour) lignes.push(cour);
-    if (lignes.length > lignesMax) { lignes.length = lignesMax; let d = lignes[lignesMax - 1]; while (d && this.largeur(`${d}…`, taille, s) > max) d = d.slice(0, -1); lignes[lignesMax - 1] = `${d}…`; }
+    if (!coupe && cour.length) lignes.push(cour.join('').trim());
+    if (coupe) { let d = [...lignes[lignes.length - 1]]; let ld = d.reduce((a, c) => a + larg(c), 0); while (d.length && ld + larg('…') > max) ld -= larg(d.pop()); lignes[lignes.length - 1] = `${d.join('')}…`; }
     return lignes.length ? lignes : [''];
   }
 }
@@ -82,8 +88,13 @@ class Page {
   rectangle(x, y, l, h, couleur) { this.ops.push(`${couleur.map(n => n.toFixed(3)).join(' ')} rg ${x.toFixed(2)} ${y.toFixed(2)} ${l.toFixed(2)} ${h.toFixed(2)} re f`); }
 }
 
+/* Texte des métadonnées : identique dans Info et dans XMP (PDF/A 6.6.2.3). Retire ce que XML 1.0 refuse ou normalise
+   (contrôles, retours chariot, U+FFFE/U+FFFF, demi-paires UTF-16 isolées), borné à 200 caractères. */
+const propre0 = t => normaliser(t).replace(/[\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').replace(/\s+/g, ' ').trim();
+const propre = t => [...propre0(t)].slice(0, 200).join('') || 'Facture';
+
 /* ---------- Mise en page de la facture ---------- */
-const dateFr = ms => new Date(ms).toLocaleDateString('fr-FR', { timeZone: 'Europe/Zurich' });
+const dateFr = ms => new Date(ms).toLocaleDateString('fr-FR');   // fuseau du processus, comme les dates du XML (TZ=Europe/Zurich en production)
 const pctTva = t => `${(Math.round(t * 1000) / 10).toString().replace('.', ',')} %`;
 
 function composer(c, config, { avoir, devise }) {
@@ -92,8 +103,11 @@ function composer(c, config, { avoir, devise }) {
   const parTaux = FactureElectronique.ventiler(c, defaut);
   const sansTva = parTaux.every(v => !v.taux);
   const signe = avoir ? -1 : 1;
-  const format = new Intl.NumberFormat(ch ? 'fr-CH' : 'fr-FR', { style: 'currency', currency: devise });
-  const argent = n => normaliser(format.format(signe * n + 0));
+  // Même format que le reste de Comptoir : « 1 234,50 € », « CHF 1’234.50 ».
+  if (!/^[A-Z]{3}$/.test(devise)) devise = 'EUR';
+  const brut = n => { n = Math.round(n * 100) / 100 + 0; if (devise !== 'CHF') return normaliser(n.toLocaleString('fr-FR', { style: 'currency', currency: devise })).replace('-', '−'); const [ent, dec] = Math.abs(n).toFixed(2).split('.'); return `${n < 0 ? '−' : ''}CHF ${ent.replace(/\B(?=(\d{3})+(?!\d))/g, '’')}.${dec}`; };
+  const format = { format: brut };
+  const argent = n => brut(signe * n);
   const tauxLigne = l => typeof l.tauxTva === 'number' ? l.tauxTva : typeof c.tauxTva === 'number' ? c.tauxTva : defaut;
   const client = c.client || {};
   const numero = avoir ? c.avoir.numero : c.facture;
@@ -108,8 +122,9 @@ function composer(c, config, { avoir, devise }) {
 
   // En-tête : vendeur à gauche, type et numéro à droite.
   const ei = !ch && /micro|^ei$|entrepreneur individuel/i.test(e.forme || '') ? ' EI' : '';
-  p.ecrire(MARGE, y - 4, `${e.raison || config.boutique.nom}${ei}`, { taille: 14, s: 'b' });
-  let yv = y - 22;
+  let yv = y - 4;
+  for (const morceau of t.couper(`${e.raison || config.boutique.nom}${ei}`, 14, 300, 'b', 2)) { p.ecrire(MARGE, yv, morceau, { taille: 14, s: 'b' }); yv -= 17; }
+  yv -= 1;
   const idLegal = ch ? 'IDE' : pays === 'be' ? 'N° d’entreprise' : 'SIRET';
   for (const ligne of [[e.forme, e.siret ? `${idLegal} ${e.siret}` : ''].filter(Boolean).join(' · '), e.tvaIntra ? `N° TVA ${e.tvaIntra}` : '', e.adresse, e.email].filter(Boolean)) {
     for (const morceau of t.couper(ligne, 8.5, 280)) { p.ecrire(MARGE, yv, morceau, { taille: 8.5, couleur: gris }); yv -= 12; }
@@ -121,13 +136,13 @@ function composer(c, config, { avoir, devise }) {
 
   if (avoir) {
     p.rectangle(MARGE, y - 8, L - 2 * MARGE, 22, [0.96, 0.96, 0.97]);
-    p.ecrire(MARGE + 8, y, `Avoir annulant la facture ${c.facture} du ${dateFr(c.dateFacture || c.date)} (commande ${c.statut === 'remboursee' ? 'remboursée' : 'annulée'}).`, { taille: 9 });
+    p.ecrire(MARGE + 8, y, t.couper(`Avoir annulant la facture ${c.facture} du ${dateFr(c.dateFacture || c.date)} (commande ${c.statut === 'remboursee' ? 'remboursée' : 'annulée'}).`, 9, L - 2 * MARGE - 16, 'r', 1)[0], { taille: 9 });
     y -= 30;
   }
 
   // Client
   p.ecrire(MARGE, y, avoir ? 'Client' : 'Facturé à', { taille: 8.5, couleur: gris }); y -= 14;
-  p.ecrire(MARGE, y, client.nom || 'Client', { taille: 10, s: 'b' }); y -= 13;
+  for (const morceau of t.couper(client.nom || 'Client', 10, 300, 'b', 2)) { p.ecrire(MARGE, y, morceau, { taille: 10, s: 'b' }); y -= 13; }
   for (const ligne of [client.adresse, [client.npa, client.ville].filter(Boolean).join(' '), client.email].filter(Boolean)) {
     for (const morceau of t.couper(ligne, 9, 300, 'r', 2)) { p.ecrire(MARGE, y, morceau, { taille: 9, couleur: gris }); y -= 12; }
   }
@@ -148,7 +163,8 @@ function composer(c, config, { avoir, devise }) {
     p.ecrire(col.total - 6, y, sansTva ? 'Total' : 'Total TTC', { taille: 8.5, s: 'b', aligne: 'd' });
     y -= 20;
   };
-  const place = h => { if (y - h < MARGE + 40) { nouvellePage(); enteteTableau(); } };
+  let dansTableau = true;   // l'en-tête du tableau n'est répété que pour des lignes d'articles
+  const place = h => { if (y - h < MARGE + 40) { nouvellePage(); if (dansTableau) enteteTableau(); } };
   enteteTableau();
   const rangee = (libelle, qte, pu, tva, total, { s = 'r', couleur } = {}) => {
     const morceaux = t.couper(libelle, 9, largeurNom, s);
@@ -166,14 +182,16 @@ function composer(c, config, { avoir, devise }) {
     const tl = tauxLigne(l);
     rangee(l.nom, l.qte, sansTva ? argent(l.prix) : argent(l.prix / (1 + tl)), pctTva(tl), argent(l.prix * l.qte));
   }
-  if (c.remise) rangee(`Remise${c.motifRemise ? ` (${c.motifRemise})` : ''}, déjà déduite des prix`, '', '', '', normaliser(format.format(c.remise)), { couleur: gris });
+  if (c.remise) rangee(`Remise${c.motifRemise ? ` (${String(c.motifRemise).slice(0, 60)})` : ''}, déjà déduite des prix`, '', '', '', normaliser(format.format(c.remise)), { couleur: gris });
   if (c.port) rangee('Livraison', 1, sansTva ? argent(c.port) : '—', sansTva ? '' : 'au prorata', argent(c.port));
 
   // Totaux
   const lignesTotaux = sansTva ? [] : parTaux.flatMap(v => [[`Base HT ${pctTva(v.taux)}`, argent(v.ht)], [`TVA ${pctTva(v.taux)}`, argent(v.tva)]]);
   const ht = parTaux.reduce((a, v) => a + v.ht, 0), tva = parTaux.reduce((a, v) => a + v.tva, 0), ttc = parTaux.reduce((a, v) => a + v.ttc, 0);
   if (!sansTva) lignesTotaux.push(['Total HT', argent(ht)], ['Total TVA', argent(tva)]);
-  place(lignesTotaux.length * 14 + 60);
+  dansTableau = false;
+  const arrondiEspeces = !avoir && FactureElectronique.estPayee(c) && typeof c.arrondi === 'number' && c.arrondi && typeof c.encaisse === 'number';   // même condition que le XML
+  place(lignesTotaux.length * 14 + 40 + (arrondiEspeces ? 28 : 0));
   y -= 6;
   const xLib = L - MARGE - 210;
   for (const [lib, val] of lignesTotaux) { p.ecrire(xLib, y, lib, { taille: 9, couleur: gris }); p.ecrire(L - MARGE - 6, y, val, { taille: 9, aligne: 'd' }); y -= 14; }
@@ -182,7 +200,7 @@ function composer(c, config, { avoir, devise }) {
   p.ecrire(xLib, y, sansTva ? 'Total' : 'Total TTC', { taille: 11, s: 'b' });
   p.ecrire(L - MARGE - 6, y, argent(ttc), { taille: 11, s: 'b', aligne: 'd' });
   y -= 16;
-  if (!avoir && c.arrondi && typeof c.encaisse === 'number') {
+  if (arrondiEspeces) {
     for (const [lib, val] of [['Arrondi espèces', normaliser(format.format(c.arrondi))], ['Encaissé', normaliser(format.format(c.encaisse))]]) { p.ecrire(xLib, y, lib, { taille: 9, couleur: gris }); p.ecrire(L - MARGE - 6, y, val, { taille: 9, aligne: 'd' }); y -= 14; }
   }
   y -= 18;
@@ -198,7 +216,9 @@ function composer(c, config, { avoir, devise }) {
     if (e.iban) mentions.push(`IBAN : ${String(e.iban).replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim()}${c.referenceQr ? ` · Référence : ${c.referenceQr}` : ''}`);
   }
   mentions.push('Ce PDF/A-3 contient la facture électronique structurée (fichier joint factur-x.xml, norme européenne EN 16931).');
-  for (const m of mentions) for (const morceau of t.couper(m, 8.5, L - 2 * MARGE, 'r', 4)) { place(14); p.ecrire(MARGE, y, morceau, { taille: 8.5, couleur: gris }); y -= 12; }
+  const morceauxMentions = mentions.map(m => t.couper(m, 8.5, L - 2 * MARGE, 'r', 4));
+  place(morceauxMentions.reduce((a, m) => a + m.length * 12, 0));   // les mentions restent ensemble
+  for (const morceaux of morceauxMentions) for (const morceau of morceaux) { p.ecrire(MARGE, y, morceau, { taille: 8.5, couleur: gris }); y -= 12; }
 
   // Pied de page : numéro et pagination.
   pages.forEach((pg, i) => {
@@ -206,7 +226,7 @@ function composer(c, config, { avoir, devise }) {
     pg.ecrire(MARGE, MARGE - 22, `${avoir ? 'Avoir' : 'Facture'} ${numero}`, { taille: 7.5, couleur: gris });
     pg.ecrire(L - MARGE, MARGE - 22, `Page ${i + 1} sur ${pages.length}`, { taille: 7.5, couleur: gris, aligne: 'd' });
   });
-  return { texte: t, pages, numero, titre: `${avoir ? 'Avoir' : 'Facture'} ${numero}`, auteur: e.raison || config.boutique.nom };
+  return { texte: t, pages, numero, titre: propre(`${avoir ? 'Avoir' : 'Facture'} ${numero}`), auteur: propre(e.raison || config.boutique.nom) };
 }
 
 /* ---------- Écriture du PDF ---------- */
