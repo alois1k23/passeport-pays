@@ -719,7 +719,7 @@ Relecture indépendante, sous l'angle de l'attaquant : six contournements, tous 
 - Vérifié dans un vrai navigateur : un script et une image externes injectés sont signalés, sans le `?x=secret` de l'adresse. Constat en passant : avec `report-to` en plus, Chromium n'envoie plus rien par `report-uri` (vérifié sur un serveur témoin). Seul `report-uri`, reconnu par Chrome, Firefox et Safari, est donc utilisé.
 - Test ajouté (`csp-rapports.test.js`) : 117 tests sur 117, bout en bout 51 sur 51.
 
-## Cycle 57 (04 h 20) : écritures de ventes pour le comptable (FEC)
+## Cycle 57 (04 h 15) : écritures de ventes pour le comptable (FEC)
 
 - Onglet TVA de l'analyse : bouton « Écritures (FEC) » pour une boutique française, « Écritures comptables » ailleurs. Il exporte une écriture équilibrée par facture et par avoir : client au débit ; ventes hors taxe et TVA collectée par taux au crédit ; l'inverse pour un avoir. Les montants sont exactement ceux des factures et du décompte de TVA.
 - France : format du fichier des écritures comptables (18 colonnes, tabulation, montants à virgule, dates AAAAMMJJ, nom `SIRENFECAAAAMMJJ.txt`). Belgique et Suisse : CSV avec les comptes usuels du pays (PCMN, plan comptable PME).

@@ -38,6 +38,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Prévision de rupture** : jours de stock restants et quantité à recommander.
 - **Marge réelle** : coût fournisseur, port, TVA d'importation, frais de paiement et publicité.
 - **Décompte de TVA** par trimestre, semestre ou année, avec export CSV pour la fiduciaire et suivi du seuil suisse.
+- **Écritures de ventes** pour le comptable : format FEC en France, CSV en Belgique et en Suisse, chaque écriture contrôlée équilibrée (journal des ventes, sans les encaissements).
 - Analyse : ventes, produits, clients, marketing, rentabilité.
 - **Équipe** : jusqu'à 5 collaborateurs, avec les rôles « Commandes » ou « Gestion complète ». Leurs actions sont tracées à leur nom.
 - **API et webhooks signés** (formule Croissance) : comptabilité, entrepôt, Zapier, Make.
