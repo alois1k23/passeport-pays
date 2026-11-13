@@ -81,3 +81,36 @@ test('serveur : emplacements, transfert, caisse au magasin, vente en ligne à l�
     assert.equal((await appel('GET', '/api/admin/emplacements', null, false)).statut, 401);
   } finally { s.close(); }
 });
+
+test('relecture : remboursement d’un ticket au bon endroit, variantes disparues, produit supprimé', async () => {
+  const http = require('node:http');
+  const { creerApp } = require('../src/app');
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const appel = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length) cookie = sc.map(x => x.split(';')[0]).join('; '); let json = null; try { json = await r.json(); } catch { /* vide */ } return { statut: r.status, json }; };
+  try {
+    await appel('POST', '/api/auth/inscription', { email: 'emp2@exemple.fr', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Emp2', pays: 'fr', secteur: 'maison', sections: [] }, entreprise: { raison: 'E SAS', adresse: '5 rue Neuve, 69001 Lyon', regime: 'normal' } }, produits: [{ nom: 'Vase', prix: 40, stock: 10, type: 'stock' }, { nom: 'Pull', prix: 50, stock: 0, type: 'stock', options: [{ nom: 'Taille', valeurs: ['M', 'L'] }], variantes: [{ id: 'M', valeurs: ['M'], stock: 4 }, { id: 'L', valeurs: ['L'], stock: 2 }] }] });
+    const produits = (await appel('GET', '/api/admin/etat')).json.produits, vase = produits.find(p => p.nom === 'Vase'), pull = produits.find(p => p.nom === 'Pull');
+    const ent = (await appel('POST', '/api/admin/emplacements', { nom: 'Entrepôt', type: 'entrepot' })).json.emplacement;
+    const mag = (await appel('POST', '/api/admin/emplacements', { nom: 'Boutique', type: 'magasin' })).json.emplacement;
+    await appel('POST', '/api/admin/emplacements/transferts', { produitId: vase.id, de: ent.id, vers: mag.id, quantite: 5 });
+    const rep = async () => (await appel('GET', '/api/admin/emplacements')).json;
+    // Ticket de caisse remboursé : les articles reviennent au magasin.
+    const t = await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: vase.id, qte: 2 }], moyen: 'carte', cle: 'r1' });
+    assert.deepEqual((await rep()).repartition[vase.id][''], { [ent.id]: 5, [mag.id]: 3 });
+    assert.equal((await appel('POST', `/api/admin/commandes/${t.json.id}/statut`, { statut: 'remboursee' })).statut, 200);
+    assert.deepEqual((await rep()).repartition[vase.id][''], { [ent.id]: 5, [mag.id]: 5 }, 'revenus au magasin');
+    // Variante renommée : plus de ligne orpheline, aucun écart.
+    const p2 = (await appel('GET', '/api/admin/etat')).json.produits.find(p => p.id === pull.id);
+    assert.equal((await appel('PUT', `/api/admin/produits/${pull.id}`, { produit: { ...p2, options: [{ nom: 'Taille', valeurs: ['Medium', 'L'] }] } })).statut, 200);
+    let r = await rep();
+    assert.deepEqual(r.ecarts, []); assert.equal(Object.keys(r.repartition[pull.id]).includes('M'), false, 'ancienne variante retirée'); assert.ok(r.repartition[pull.id].Medium, 'nouvelle variante répartie');
+    // Produit supprimé : ses articles ne bloquent plus l'emplacement.
+    await appel('POST', '/api/admin/emplacements/transferts', { produitId: pull.id, varianteId: 'L', de: ent.id, vers: mag.id, quantite: 2 });
+    assert.equal((await appel('DELETE', `/api/admin/produits/${pull.id}`)).statut, 200);
+    assert.equal((await appel('DELETE', `/api/admin/produits/${vase.id}`)).statut, 200);
+    assert.equal((await appel('DELETE', `/api/admin/emplacements/${mag.id}`)).statut, 200, 'emplacement vide après suppression des produits');
+  } finally { s.close(); }
+});

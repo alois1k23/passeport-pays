@@ -326,9 +326,28 @@ Relecture indépendante du chiffrement des données clients : changement de clé
 - Les devis et envois existants sont chiffrés une fois au démarrage.
 - Tests : rien de lisible en base pour le devis, le signataire et l'envoi de webhook. 144 tests sur 144, bout en bout 51 sur 51.
 
-### Cycle 20 (02 h 05) : e-mails des nouveautés dans la langue du client
+### Cycle 20 (02 h 00) : e-mails des nouveautés dans la langue du client
 
 - Le récapitulatif des e-mails de commande en allemand, en italien et en anglais indique maintenant la part payée par carte cadeau (avec le reste) et les points de fidélité gagnés, comme en français.
 - L'e-mail du code de fidélité part dans la langue où le client navigue dans la boutique, si la boutique propose cette langue.
 - Les devis restent en français (rédigés par le marchand pour des clients professionnels).
 - 1 nouveau test : 145 tests sur 145.
+
+### Cycle 21 (02 h 05) : corrections de la relecture des emplacements
+
+Relecture indépendante du stock sur plusieurs emplacements, six scénarios rejoués sur un vrai serveur. Points corrigés :
+- **Ticket de caisse remboursé** : la vente était enregistrée avant le prélèvement, donc la ligne ne gardait pas d'où venaient les articles. Un remboursement les remettait à l'entrepôt principal au lieu du magasin. Le prélèvement se fait maintenant avant l'enregistrement.
+- **Lignes orphelines** : une variante renommée ou retirée, ou des options ajoutées à un produit, laissaient d'anciennes lignes invisibles, ce qui comptait des articles en double. Elles sont retirées à chaque enregistrement de la fiche, avec une écriture au registre, et le contrôle les signale désormais.
+- **Produit supprimé ou boutique réinitialisée** : ses articles bloquaient la suppression de l'emplacement, sans aucun moyen de les déplacer. Ses lignes sont maintenant retirées à la suppression. Les restes des suppressions antérieures sont nettoyés à l'ouverture de l'écran.
+- **Retrait en boutique (click & collect)** : la commande prélevait d'abord à l'entrepôt. Elle prélève maintenant d'abord au magasin, où le client vient chercher l'article.
+- **Atomicité** : la fiche produit et sa répartition sont écrites dans la même transaction, et une erreur n'est plus avalée.
+- **Écran** :
+  - produits masqués compris ;
+  - recherche d'un article au-delà de 20 ;
+  - au-delà de 100 lignes, un message invite à préciser la recherche ;
+  - la section reste ouverte après une action ;
+  - « Supprimer » ne s'affiche que pour un emplacement vraiment vide d'après le serveur.
+- **Restent ouverts** :
+  - un retour partiel remet en stock toute la commande (comportement antérieur à ce chantier) ;
+  - l'export complet de la boutique ne contient pas encore la répartition.
+- 1 nouveau test de régression : 146 tests sur 146, bout en bout 51 sur 51, vérifié dans un vrai navigateur.

@@ -17,7 +17,7 @@ function creer(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS emplacements (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, nom TEXT NOT NULL, type TEXT NOT NULL, ordre INTEGER NOT NULL, cree_le INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS emplacements_boutique ON emplacements (boutique_id, ordre);
     CREATE TABLE IF NOT EXISTS stock_emplacements (boutique_id TEXT NOT NULL, produit_id TEXT NOT NULL, variante_id TEXT NOT NULL DEFAULT '', emplacement_id TEXT NOT NULL, quantite INTEGER NOT NULL CHECK (quantite >= 0), PRIMARY KEY (produit_id, variante_id, emplacement_id));
-    CREATE INDEX IF NOT EXISTS stock_emplacements_boutique ON stock_emplacements (boutique_id);
+    CREATE INDEX IF NOT EXISTS stock_emplacements_boutique ON stock_emplacements (boutique_id, emplacement_id);
     CREATE TABLE IF NOT EXISTS stock_mouvements (id INTEGER PRIMARY KEY AUTOINCREMENT, boutique_id TEXT NOT NULL, le INTEGER NOT NULL, produit_id TEXT NOT NULL, variante_id TEXT NOT NULL DEFAULT '', emplacement_id TEXT NOT NULL, quantite INTEGER NOT NULL, type TEXT NOT NULL, reference TEXT);
     CREATE INDEX IF NOT EXISTS stock_mouvements_boutique ON stock_mouvements (boutique_id, le);`);
   const lister = bid => db.prepare('SELECT id, nom, type, ordre FROM emplacements WHERE boutique_id = ? ORDER BY ordre, cree_le').all(bid);
@@ -52,7 +52,7 @@ function creer(db) {
     supprimer(bid, id) {
       const l = lister(bid), e = l.find(x => x.id === id);
       if (!e) throw erreur(404, 'Emplacement introuvable.', 'introuvable');
-      const reste = db.prepare('SELECT COALESCE(SUM(quantite), 0) n FROM stock_emplacements WHERE emplacement_id = ?').get(id).n;
+      const reste = db.prepare('SELECT COALESCE(SUM(quantite), 0) n FROM stock_emplacements WHERE boutique_id = ? AND emplacement_id = ?').get(bid, id).n;
       if (reste > 0) throw erreur(409, `Cet emplacement contient encore ${reste} article(s) : transférez-les d’abord.`, 'non_vide');
       if (l.length > 1 && l[0].id === id) throw erreur(409, 'L’emplacement principal ne se supprime qu’en dernier.', 'principal');
       db.prepare('DELETE FROM stock_emplacements WHERE emplacement_id = ?').run(id);
@@ -110,18 +110,39 @@ function creer(db) {
        est porté à l'emplacement principal (une baisse prend ensuite ailleurs). */
     reconcilier(bid, p, maintenant = Date.now()) {
       if (!p || p.type === 'drop' || !api.actif(bid)) return;
+      // Variantes disparues (renommées, retirées) ou produit passé à variantes : leurs lignes sont retirées (pas d'orphelin).
+      const valides = new Set(unites(p).map(([, vid]) => cleVariante(vid)));
+      for (const r of db.prepare('SELECT variante_id, emplacement_id, quantite FROM stock_emplacements WHERE boutique_id = ? AND produit_id = ?').all(bid, p.id)) {
+        if (valides.has(r.variante_id)) continue;
+        db.prepare('DELETE FROM stock_emplacements WHERE boutique_id = ? AND produit_id = ? AND variante_id = ? AND emplacement_id = ?').run(bid, p.id, r.variante_id, r.emplacement_id);
+        noter(bid, p.id, r.variante_id, r.emplacement_id, -r.quantite, 'correction', 'variante disparue', maintenant);
+      }
       for (const [pid, vid, q] of unites(p)) {
         const somme = db.prepare('SELECT COALESCE(SUM(quantite), 0) n FROM stock_emplacements WHERE produit_id = ? AND variante_id = ?').get(pid, cleVariante(vid)).n;
         if (somme !== q) api.ajusterTotal(bid, pid, vid, q - somme, { maintenant });
       }
     },
+    /* Produit supprimé : ses lignes sont retirées (rien ne reste bloqué dans un emplacement). */
+    purgerProduit(bid, pid, maintenant = Date.now()) {
+      for (const r of db.prepare('SELECT variante_id, emplacement_id, quantite FROM stock_emplacements WHERE boutique_id = ? AND produit_id = ?').all(bid, pid)) noter(bid, pid, r.variante_id, r.emplacement_id, -r.quantite, 'suppression', 'produit supprimé', maintenant);
+      db.prepare('DELETE FROM stock_emplacements WHERE boutique_id = ? AND produit_id = ?').run(bid, pid);
+    },
+    /* Lignes de produits qui n'existent plus (supprimés avant cette correction) : retirées. */
+    nettoyer(bid, idsValides, maintenant = Date.now()) {
+      const ok = new Set(idsValides);
+      for (const pid of db.prepare('SELECT DISTINCT produit_id FROM stock_emplacements WHERE boutique_id = ?').all(bid).map(r => r.produit_id)) if (!ok.has(pid)) api.purgerProduit(bid, pid, maintenant);
+    },
     /* Contrôle : pour chaque produit, somme des emplacements = stock de la fiche. Renvoie les écarts. */
     verifier(bid, produits) {
       if (!api.actif(bid)) return [];
       const rep = api.repartition(bid), ecarts = [];
-      for (const p of produits) if (p.type !== 'drop') for (const [pid, vid, q] of unites(p)) {
-        const somme = Object.values((rep[pid] || {})[vid] || {}).reduce((a, x) => a + x, 0);
-        if (somme !== q) ecarts.push({ produitId: pid, varianteId: vid || null, fiche: q, emplacements: somme });
+      for (const p of produits) if (p.type !== 'drop') {
+        const valides = new Set(unites(p).map(([, vid]) => cleVariante(vid)));
+        for (const [pid, vid, q] of unites(p)) {
+          const somme = Object.values((rep[pid] || {})[vid] || {}).reduce((a, x) => a + x, 0);
+          if (somme !== q) ecarts.push({ produitId: pid, varianteId: vid || null, fiche: q, emplacements: somme });
+        }
+        for (const [vid, parEmp] of Object.entries(rep[p.id] || {})) if (!valides.has(vid)) ecarts.push({ produitId: p.id, varianteId: vid || null, fiche: 0, emplacements: Object.values(parEmp).reduce((a, x) => a + x, 0), orpheline: true });
       }
       return ecarts;
     },
