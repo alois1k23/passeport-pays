@@ -1183,7 +1183,7 @@ Jusqu'ici, une session restait valable tant qu'elle servait, et un cookie copié
 
 Vérifié dans Chromium, sur bureau et sur mobile : la fenêtre s'ouvre, le focus est dans le mot de passe, et la clé d'API est créée après confirmation. 209 tests sur 209 ; parcours de bout en bout : 57 contrôles, 0 anomalie.
 
-### Cycle 62 (10 h 10) : sauvegardes restaurées à l'essai (chantier 55)
+### Cycle 62 (09 h 55) : sauvegardes restaurées à l'essai (chantier 55)
 
 Une sauvegarde chiffrée qu'on ne saurait pas restaurer ne vaut rien, et on ne le découvre que le jour où on en a besoin. Désormais :
 
@@ -1205,3 +1205,13 @@ Une sauvegarde chiffrée qu'on ne saurait pas restaurer ne vaut rien, et on ne l
 - deux tentatives simultanées pouvaient effacer les fichiers l'une de l'autre.
 
 Tests : une copie chiffrée altérée échoue à l'essai ; deux tentatives simultanées n'en font qu'une ; sans clé, la sauvegarde est dite non vérifiée par restauration ; la console affiche chaque état. 210 tests sur 210. Simulation de 60 jours (après le chantier 54) : 0 anomalie.
+
+### Cycle 63 (10 h 00) : démonstration publiée, version 26 (chantier 56)
+
+- Démonstration mise à jour (https://claude.ai/artifact/VVqm5yN2b2csXTiHAt6sM9), avec les nouveautés de la matinée qui vivent dans le navigateur :
+  - codes promo avec limites (formulaire et compteurs) ;
+  - zone d'annonce permanente pour les lecteurs d'écran ;
+  - focus après l'ajout et le retrait d'un code ;
+  - messages de la boutique annoncés.
+- Le mode sécurisé, le rappel de confirmation de l'adresse et les secrets de webhook demandent un serveur : ils n'apparaissent pas dans la démonstration.
+- Chargée dans Chromium avec les fichiers publiés : aucune erreur JavaScript.
