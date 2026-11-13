@@ -1451,3 +1451,4 @@ details.en-ligne form { margin-top: 6px; }
 .emplacements summary { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; cursor: pointer; flex-wrap: wrap; }
 .emplacements summary h2 { display: inline; }
 .tableau-defilant { overflow-x: auto; }
+.detail h2[tabindex="-1"]:focus { outline: 2px solid var(--accent, #2b59c3); outline-offset: 3px; border-radius: 4px; }

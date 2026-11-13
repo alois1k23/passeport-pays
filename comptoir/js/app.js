@@ -462,6 +462,12 @@ function csvDate(t) { if (!t) return ''; const d = new Date(t), z = n => String(
 function csvTexte(v) { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;   // un nom « =HYPERLINK(...) » ne devient pas une formule dans Excel
   return `"${t.replace(/"/g, '""')}"`; }
 /* Export pour la fiduciaire : une ligne par facture, et une ligne négative par avoir. */
+/* Fermeture de la fiche d'une commande : le focus revient sur sa ligne dans la liste (clavier, lecteur d'écran). */
+function fermerCommande() {
+  const id = ui.commande; ui.commande = null; rendre();
+  const ligne = id && document.querySelector(`tr[data-action="ouvrir-commande"][data-id="${CSS.escape(id)}"]`);
+  if (ligne) ligne.focus();
+}
 function exporterCommandesCsv(liste) {
   const champs = ['document', 'date_document', 'commande', 'date_commande', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total_ht', 'tva', 'total_ttc', 'detail_tva', 'moyen', 'suivi', 'carte_cadeau', 'points_fidelite', 'devis'];
   const lignes = [];
@@ -1131,9 +1137,13 @@ document.addEventListener('click', e => {
     case 'cocher-page': break;
     case 'ouvrir-commande': if (e.target.closest('.col-case')) break; ui.commande = id; if (ui.route !== 'commandes') location.hash = 'commandes'; else rendre();
       // Sur téléphone, la fiche s'affiche au-dessus de la liste : on la ramène à l'écran.
-      requestAnimationFrame(() => { const f = document.querySelector('[data-action="fermer-commande"]'); if (f && matchMedia('(max-width: 900px)').matches) f.closest('section, .carte, aside').scrollIntoView({ block: 'start', behavior: 'smooth' }); });
+      requestAnimationFrame(() => {
+        const f = document.querySelector('[data-action="fermer-commande"]'); if (f && matchMedia('(max-width: 900px)').matches) f.closest('section, .carte, aside').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        // Clavier et lecteur d'écran : le focus entre dans la fiche ouverte (Échap le rend à la ligne).
+        const h = document.querySelector('aside.detail h2'); if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
+      });
       break;
-    case 'fermer-commande': ui.commande = null; rendre(); break;
+    case 'fermer-commande': fermerCommande(); break;
     case 'filtre': ui.filtre = el.dataset.filtre; ui.pageCmd = 1; rendre(); break;
     case 'vue-ed-mobile': ui.vueEdMobile = el.dataset.id; rendre(); break;
     case 'page-facture': ui.pageFacture = Math.max(1, (ui.pageFacture || 1) + Number(el.dataset.d)); rendre(); break;
@@ -1207,7 +1217,7 @@ document.addEventListener('click', e => {
 
 document.addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('tr[data-action], [data-section], [data-action][tabindex="0"]:not(button):not(a)')) { e.preventDefault(); e.target.click(); }
-  if (e.key === 'Escape' && !ui.modal && !e.defaultPrevented) { if (ui.route === 'boutique' && ui.panierOuvert) { ui.panierOuvert = false; rendre(); } else if (ui.route === 'boutique' && ui.fiche) { ui.fiche = null; rendre(); } else if (ui.commande) { ui.commande = null; rendre(); } }
+  if (e.key === 'Escape' && !ui.modal && !e.defaultPrevented) { if (ui.route === 'boutique' && ui.panierOuvert) { ui.panierOuvert = false; rendre(); } else if (ui.route === 'boutique' && ui.fiche) { ui.fiche = null; rendre(); } else if (ui.commande) { fermerCommande(); } }
 });
 
 document.addEventListener('input', e => {

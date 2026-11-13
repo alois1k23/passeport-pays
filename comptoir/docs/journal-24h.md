@@ -382,3 +382,18 @@ Chantier 12 de la deuxième phase. Un relecteur indépendant a audité tout le s
 - **Bon à usages multiples** : pas de facture ni de numéro de facture (la TVA porte sur les articles achetés avec la carte), pas de points de fidélité, pas de relance de panier abandonné. Le code de la carte n'est gardé nulle part en clair : la copie de l'e-mail est masquée dès l'envoi. Le destinataire et le message sont chiffrés avec le client.
 - **Remboursement** : une carte non utilisée est désactivée. Une carte déjà utilisée ne se rembourse plus en entier (refus expliqué).
 - Vérifié dans un vrai navigateur (activation, achat, paiement, e-mail au destinataire). 1 nouveau test : 151 tests sur 151, bout en bout 51 sur 51, parcours au clavier sans problème.
+
+### Cycle 24 (02 h 40) : espace marchand au clavier
+
+- Chantier 14 de la deuxième phase. Nouvel outil, `outils/simulation/clavier-marchand.js` : dans un vrai navigateur et sans souris, il passe une vente en caisse, ouvre une commande, la referme avec Échap, puis commence un devis. Il vérifie que le focus est visible à chaque tabulation et qu'il va au bon endroit.
+- **Ce qui marchait déjà** :
+  - focus visible partout ;
+  - produits de la caisse et bouton d'encaissement utilisables au clavier ;
+  - message de confirmation annoncé ;
+  - lignes de commandes atteignables et ouvertes avec Entrée ;
+  - focus sur le premier champ d'un nouveau devis.
+- **Corrigé** :
+  - après un encaissement, le focus revenait sur la page entière. Il va maintenant sur le premier produit de la caisse, prêt pour la vente suivante ;
+  - à l'ouverture d'une commande, le focus restait sur la ligne. Il entre maintenant dans la fiche (son titre), ce que le lecteur d'écran annonce ;
+  - à la fermeture (bouton ou Échap), le focus revient sur la ligne de cette commande.
+- Résultat de l'outil : aucun problème, aucune erreur JavaScript. 151 tests sur 151, bout en bout 51 sur 51.
