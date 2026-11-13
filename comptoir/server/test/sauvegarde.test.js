@@ -69,5 +69,15 @@ test('sauvegarde chiffrée : restaurée à l’essai avant d’être gardée, é
     // La copie gardée se restaure et contient les commandes.
     await S.dechiffrer(path.join(dos, 'comptoir-2026-11-13.db.enc'), path.join(dir, 'r.db'), cle);
     assert.equal(ouvrir(path.join(dir, 'r.db')).prepare('SELECT COUNT(*) n FROM commandes').get().n, 3);
+    // L'essai de restauration se fait en mémoire : une copie altérée échoue, sans fichier en clair écrit.
+    const enc = path.join(dos, 'comptoir-2026-11-13.db.enc'), abime = Buffer.from(fs.readFileSync(enc)); abime[200] ^= 1; fs.writeFileSync(path.join(dir, 'abime.enc'), abime);
+    await assert.rejects(S.empreinteDechiffree(path.join(dir, 'abime.enc'), cle));
+    assert.ok(typeof await S.empreinteDechiffree(enc, cle) === 'string');
+    // Deux tentatives simultanées : la seconde attend son tour au lieu d'effacer les fichiers de la première.
+    const [a, b] = await Promise.all([S.sauvegarderBase(db, dos, { cle, date: new Date('2026-11-14') }), S.sauvegarderBase(db, dos, { cle, date: new Date('2026-11-14') })]);
+    assert.deepEqual([a.cree, !!b.enCours], [true, true]);
+    // Sans clé : seulement vérifiée par quick_check, et dite comme telle.
+    const sansCle = await S.sauvegarderBase(db, path.join(dir, 'clair'), { date: new Date('2026-11-13') });
+    assert.equal(sansCle.cree, true); assert.equal(sansCle.verifiee, false);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

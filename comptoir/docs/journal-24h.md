@@ -1182,3 +1182,26 @@ Jusqu'ici, une session restait valable tant qu'elle servait, et un cookie copié
 - Fenêtre : explication reliée (`aria-describedby`), focus sur le champ en cause après une erreur, lien « Se reconnecter avec ma clé d'accès ».
 
 Vérifié dans Chromium, sur bureau et sur mobile : la fenêtre s'ouvre, le focus est dans le mot de passe, et la clé d'API est créée après confirmation. 209 tests sur 209 ; parcours de bout en bout : 57 contrôles, 0 anomalie.
+
+### Cycle 62 (10 h 10) : sauvegardes restaurées à l'essai (chantier 55)
+
+Une sauvegarde chiffrée qu'on ne saurait pas restaurer ne vaut rien, et on ne le découvre que le jour où on en a besoin. Désormais :
+
+- **Avec `SAUVEGARDE_CLE`**, chaque sauvegarde est restaurée à l'essai avant d'être gardée :
+  - copie cohérente, contrôlée par `quick_check` ;
+  - chiffrée, puis la copie en clair effacée aussitôt ;
+  - déchiffrée en mémoire, en flux, sans rien écrire sur le disque, et comparée octet par octet (SHA-256) à la copie contrôlée ;
+  - en cas d'écart, rien n'est gardé sous le nom final.
+  Cela prouve que la clé actuelle la relit ; garder cette clé hors du serveur reste à la charge de l'exploitant. Les anciennes copies en clair chiffrées après l'ajout d'une clé passent le même contrôle avant d'être effacées.
+- **Sans clé** : seulement `quick_check`, et c'est dit comme tel.
+- **État de chaque tentative noté** (réussite, erreur, nombre de commandes, chiffrée ou non) et affiché dans la section Sécurité de la console de l'exploitant. Alerte en cas d'échec, de copies non chiffrées, de sauvegardes désactivées, ou après plus de 30 heures sans sauvegarde réussie (une par jour, essai toutes les 6 heures).
+- **Une seule tentative à la fois** : une sauvegarde lente n'est plus doublée par la suivante.
+
+**Relecture indépendante**, constats corrigés :
+- la première version écrivait sur le disque une copie complète en clair pour l'essai de restauration (et trois copies à la fois). L'essai se fait maintenant en mémoire ;
+- un disque plein pendant une restauration était annoncé comme « mauvaise clé » : l'erreur d'origine est maintenant transmise ;
+- l'affichage disait « restaurée à l'essai » même sans clé : il dit maintenant « vérifiée (quick_check seulement) » ;
+- les anciennes copies en clair étaient chiffrées puis effacées sans contrôle ;
+- deux tentatives simultanées pouvaient effacer les fichiers l'une de l'autre.
+
+Tests : une copie chiffrée altérée échoue à l'essai ; deux tentatives simultanées n'en font qu'une ; sans clé, la sauvegarde est dite non vérifiée par restauration ; la console affiche chaque état. 210 tests sur 210. Simulation de 60 jours (après le chantier 54) : 0 anomalie.

@@ -91,6 +91,7 @@ setInterval(() => { try { gerer.actualiserVentesTendances(); } catch (e) { conso
     const precedent = (() => { try { return JSON.parse((db.prepare("SELECT valeur FROM cles WHERE nom = 'sauvegarde-etat'").get() || {}).valeur || '{}'); } catch { return {}; } })();
     try {
       const r = await Sauvegarde.sauvegarderBase(db, dossier, { cle: env.SAUVEGARDE_CLE });
+      if (r.enCours) return;   // la précédente tourne encore
       noter({ ...precedent, tente: Date.now(), ok: true, erreur: null, ...(r.cree ? { reussie: Date.now(), fichier: path.basename(r.fichier), chiffree: r.chiffree, verifiee: r.verifiee, commandes: r.commandes, taille: r.taille } : {}) });
     } catch (e) { console.error('[sauvegarde] ÉCHEC', e.message); noter({ ...precedent, tente: Date.now(), ok: false, erreur: String(e.message).slice(0, 200) }); }
   };
