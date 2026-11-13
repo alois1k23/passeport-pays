@@ -101,3 +101,29 @@ test('codes promo : une commande remboursée rend son utilisation ; un code recr
     assert.equal((await appel('GET', '/api/admin/etat', null, cookie)).j.serveur.utilisationsCodes.UN, 1);
   } finally { s.close(); }
 });
+
+test('code modifié : garde ses utilisations (la date de création vient du serveur, jamais du navigateur)', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const appel = async (m, chemin, corps, cookie) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { ...(corps ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); return { s: r.status, j: await r.json().catch(() => null), cookie: r.headers.getSetCookie().map(x => x.split(';')[0]).join('; ') }; };
+  try {
+    const ins = await appel('POST', '/api/auth/inscription', { email: 'md@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Md', pays: 'ch', secteur: 'maison' }, entreprise: { raison: 'Md Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'md@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } }, produits: [{ nom: 'Vase', prix: 40, stock: 500, type: 'stock' }] });
+    const cookie = ins.cookie, conf = (await appel('GET', '/api/admin/etat', null, cookie)).j, slug = conf.serveur.slug, produit = conf.produits[0].id;
+    const poser = async codes => { conf.offres = { ...(conf.offres || {}), paliersActifs: false, codes }; assert.equal((await appel('PUT', '/api/admin/config', { config: conf }, cookie)).s, 200); };
+    // Le navigateur prétend une date de création future : ignorée, le serveur pose la sienne.
+    await poser([{ code: 'DEUX', remise: 10, max: 2, cree: Date.now() + 86400000 }]);
+    const cree = JSON.parse(db.prepare('SELECT config FROM boutiques').get().config).offres.codes[0].cree;
+    assert.ok(cree <= Date.now() && cree > Date.now() - 60000);
+    const commander = email => appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'poste-eco', code: 'DEUX', client: { nom: 'C', email, adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } });
+    for (const e of ['a@exemple.ch', 'b@exemple.ch']) { const o = await commander(e); await appel('POST', `/paiement-simule/${o.j.paiementUrl.split('/').pop()}/confirmer`); }
+    // Le marchand change la remise (même code, sans date envoyée) : les 2 utilisations comptent toujours.
+    await poser([{ code: 'DEUX', remise: 15, max: 2 }]);
+    assert.equal((await commander('c@exemple.ch')).j.code, 'code_epuise');
+    // Code d'avant la date de création (aucune) : modifié, il n'en reçoit pas une (ses utilisations passées comptent).
+    const c2 = JSON.parse(db.prepare('SELECT config FROM boutiques').get().config);
+    c2.offres.codes = [{ code: 'ANCIEN', remise: 5, max: 1 }]; db.prepare('UPDATE boutiques SET config = ?').run(JSON.stringify(c2));
+    conf.offres = c2.offres; await poser([{ code: 'ANCIEN', remise: 7, max: 1 }]);
+    assert.equal(JSON.parse(db.prepare('SELECT config FROM boutiques').get().config).offres.codes[0].cree, undefined);
+  } finally { s.close(); }
+});

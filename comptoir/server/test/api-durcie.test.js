@@ -119,5 +119,11 @@ test('webhook sans données personnelles : le client réduit à son pays ; avec 
     assert.equal(avec.client.email, 'lou@exemple.ch');
     assert.deepEqual(Object.keys(sans.client), ['pays']); assert.ok(!JSON.stringify(sans).includes('lou@') && !JSON.stringify(sans).includes('Martin'));
     assert.equal(sans.numero, avec.numero, 'le reste de la commande est identique');
+    // Choix changé sur un webhook existant, sans le supprimer (sa file est gardée).
+    const idAvec = liste.find(w => w.donneesClient).id;
+    assert.equal((await c('POST', `/api/admin/integrations/webhooks/${idAvec}/donnees`, { donneesClient: false })).s, 200);
+    assert.equal((await c('GET', '/api/admin/integrations')).j.webhooks.filter(w => w.donneesClient).length, 0);
+    db.prepare('UPDATE sessions SET cree_le = cree_le - 30 * 60000').run();
+    assert.equal((await c('POST', `/api/admin/integrations/webhooks/${idAvec}/donnees`, { donneesClient: true })).j.code, 'identite_a_confirmer', 'les ajouter demande une identité récente');
   } finally { s.close(); rec.close(); }
 });

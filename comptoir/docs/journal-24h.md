@@ -1260,3 +1260,28 @@ Chaque nouveauté de la matinée avait été relue seule. Un relecteur indépend
 - annuler la fenêtre de confirmation la fait revenir au prochain enregistrement automatique, tant que l'IBAN modifié reste dans le formulaire.
 
 213 tests sur 213 ; parcours de bout en bout : 57 contrôles, 0 anomalie ; audits au clavier : 0 problème ; simulation de 60 jours sur 100 marchands (après les premiers correctifs) : 0 anomalie.
+
+### Cycle 65 (10 h 45) : mode sécurisé et enregistrement automatique, webhooks sans données personnelles, comptage des codes (chantiers 58 à 60)
+
+- **Chantier 58, enregistrement automatique** :
+  - si le marchand annule la confirmation d'identité, l'IBAN, l'e-mail de contact et la facture QR reprennent leur valeur enregistrée sur le serveur, relue au moment même : un autre onglet a pu la changer ;
+  - le reste des réglages s'enregistre, et la fenêtre ne revient pas à chaque enregistrement ;
+  - un second refus arrête les essais et le dit (aucune boucle de fenêtres) ;
+  - l'envoi de dernière seconde (fermeture de la page) garde les valeurs sensibles enregistrées et n'en perd plus le reste.
+  Vérifié dans Chromium.
+- **Chantier 59, webhooks sans données personnelles par défaut** :
+  - un nouveau webhook ne reçoit du client que son pays ; le marchand coche « Inclure les données personnelles des clients » si son outil en a besoin ;
+  - le choix se change ensuite sans supprimer le webhook ni perdre sa file. Ajouter les données demande une identité récente, les retirer jamais ;
+  - les webhooks existants gardent leur comportement ;
+  - seuls les envois qui contiennent l'e-mail sont indexés pour l'effacement d'un client.
+- **Chantier 60, comptage des codes promo** :
+  - une commande entièrement remboursée rend son utilisation, code de bienvenue compris ;
+  - un code supprimé puis recréé repart de zéro, grâce à sa date de création, posée par le serveur.
+- **Relecture indépendante**, constats corrigés :
+  - **Grave** : modifier un code d'avant cette règle lui donnait une date de création neuve, donc un compteur remis à zéro (un code « 100 utilisations » en offrait 100 de plus). La date vient maintenant du serveur, seulement pour un code nouveau ; un code modifié garde la sienne, même absente (testé) ;
+  - **Grave** : la valeur « enregistrée » des champs sensibles n'était connue que de l'onglet. Un changement confirmé dans un autre onglet faisait revenir la fenêtre en boucle, ou risquait d'être écrasé. Elle est maintenant relue sur le serveur ;
+  - pour un indépendant, la raison sociale d'un devis est son nom : elle est retirée aussi sans opt-in ;
+  - un membre d'équipe ne fixe plus les valeurs « enregistrées » (le serveur garde celles du propriétaire) ;
+  - l'horloge du navigateur ne compte plus ;
+  - la documentation de l'API est alignée.
+- 216 tests sur 216.

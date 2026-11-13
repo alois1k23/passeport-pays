@@ -2055,7 +2055,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
        (adresse de réponse des e-mails aux clients). */
   const normIban = c => String(((c || {}).entreprise || {}).iban || '').replace(/\s/g, '').toUpperCase();
   const emailEntreprise = c => String(((c || {}).entreprise || {}).email || '').trim().toLowerCase();
+  /* Date de création des codes promo : posée par le serveur (horloge du serveur, jamais celle du navigateur) quand un code
+     apparaît ; un code déjà là garde la sienne (même absente : ses utilisations passées continuent de compter). */
+  function horodaterCodes(avant, config) {
+    const anciens = new Map((((avant || {}).offres || {}).codes || []).filter(x => x && x.code).map(x => [String(x.code).toUpperCase(), x]));
+    for (const c of ((config.offres || {}).codes || [])) {
+      if (!c || !c.code) continue;
+      const a = anciens.get(String(c.code).toUpperCase());
+      if (a) { if (a.cree) c.cree = a.cree; else delete c.cree; } else c.cree = Date.now();
+    }
+  }
   function gardesConfig(ctx, avant, config) {
+    horodaterCodes(avant, config);
     if (ctx.role !== 'proprietaire') {
       config.entreprise = { ...config.entreprise, ...Object.fromEntries(['iban', 'raison', 'adresse', 'siret', 'tvaIntra', 'regime', 'forme', 'email'].map(k => [k, (avant.entreprise || {})[k]])) };
       config.reglages = { ...config.reglages, factureQr: (avant.reglages || {}).factureQr, echeanceJours: (avant.reglages || {}).echeanceJours };
@@ -2749,7 +2760,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Commandes en attente comprises si leur paiement est encore possible (lien ouvert depuis moins de 35 minutes, ou
       // facture QR) : deux commandes ouvertes ensemble ne profitent pas toutes deux du code. Une commande dont le client a
       // annulé le paiement ne compte pas : il peut recommencer avec le code. Reprendre plus tard l'ancienne est alors refusé.
-      const deja = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND email_index = ? AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, PII.index(b.id, client.email) || '', Date.now() - 35 * 60000);
+      const deja = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND email_index = ? AND statut NOT IN ('annulee', 'remboursee') AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, PII.index(b.id, client.email) || '', Date.now() - 35 * 60000);
       if (deja) throw erreur(400, `Le code ${bienvenue.code} est réservé à une première commande.`, 'code_premiere_commande');
     }
     let lignes = calcul.lignes, remise = calcul.remise, apresRemise = calcul.apresRemise;
@@ -3455,6 +3466,15 @@ ${bloc}</main></body></html>`;
   r.post('/api/admin/integrations/cles/:id/revoquer', exigerMarchand, ctx => { if (!integ.revoquerCle(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Clé inconnue.', 'introuvable'); noterActivite(ctx.marchand.id, 'cle-api-revoquee', null, ctx); return { ok: true }; });
   r.post('/api/admin/integrations/webhooks', exigerFonction('api'), async ctx => (exigerIdentite(ctx), { statut: 201, corps: await integ.creerWebhook(ctx.boutique.id, ctx.corps) }));
   r.post('/api/admin/integrations/webhooks/:id/supprimer', exigerMarchand, ctx => { if (!integ.supprimerWebhook(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Webhook inconnu.', 'introuvable'); return { ok: true }; });
+  // Données des clients dans un webhook existant : les ajouter demande une identité récente (elles sortent de la boutique) ;
+  // les retirer, jamais.
+  r.post('/api/admin/integrations/webhooks/:id/donnees', exigerFonction('api'), ctx => {
+    const avec = ctx.corps.donneesClient === true;
+    if (avec) exigerIdentite(ctx);
+    if (!integ.changerDonneesClient(ctx.boutique.id, ctx.params.id, avec)) throw erreur(404, 'Webhook inconnu.', 'introuvable');
+    noterActivite(ctx.marchand.id, avec ? 'webhook-donnees-ajoutees' : 'webhook-donnees-retirees', ctx.params.id, ctx);
+    return { ok: true, donneesClient: avec };
+  });
   r.post('/api/admin/integrations/webhooks/:id/secret', exigerFonction('api'), ctx => {
     exigerIdentite(ctx);
     const r2 = integ.renouvelerSecret(ctx.boutique.id, ctx.params.id); if (!r2) throw erreur(404, 'Webhook inconnu.', 'introuvable');

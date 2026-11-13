@@ -120,14 +120,26 @@ function envoyerConfig() {
   clearTimeout(ENREGISTREMENT.minuterie); ENREGISTREMENT.minuterie = null;
   const config = configActuelle();
   const envoi = api('PUT', '/api/admin/config', { config })
-    .then(() => { SENSIBLES.valeurs = lireSensibles(config); if (ENREGISTREMENT.echecs) toast('Connexion rétablie : vos modifications sont enregistrées.'); ENREGISTREMENT.echecs = 0; })
-    .catch(e => {
-      if (e.code === 'identite_annulee' && SENSIBLES.valeurs) {
-        // Identité non confirmée : IBAN, e-mail et facture QR remis à leur valeur enregistrée, le reste repart tout de suite.
+    .then(() => {
+      // Propriétaire : ce qui a été envoyé est maintenant enregistré. Membre de l'équipe : le serveur garde les valeurs du
+      // propriétaire, relues au prochain chargement de l'état.
+      if (SERVEUR.role === 'proprietaire' || !SERVEUR.role) SENSIBLES.valeurs = lireSensibles(config);
+      ENREGISTREMENT.remiseEnCours = false;
+      if (ENREGISTREMENT.echecs) toast('Connexion rétablie : vos modifications sont enregistrées.'); ENREGISTREMENT.echecs = 0;
+    })
+    .catch(async e => {
+      if (e.code === 'identite_annulee') {
+        // Identité non confirmée : IBAN, e-mail et facture QR reprennent la valeur ENREGISTRÉE SUR LE SERVEUR (relue : un autre
+        // onglet a pu la changer), et le reste des réglages repart. Une seule fois : si cela redemande une confirmation
+        // (cas imprévu), on s'arrête et on le dit, sans boucle de fenêtres.
+        if (ENREGISTREMENT.remiseEnCours) { ENREGISTREMENT.remiseEnCours = false; toast('Réglages non enregistrés : rechargez la page.'); return; }
+        try { SENSIBLES.valeurs = lireSensibles(await api('GET', '/api/admin/etat')); } catch { /* valeurs connues gardées */ }
+        if (!SENSIBLES.valeurs) return;
         etat.entreprise = { ...(etat.entreprise || {}), iban: SENSIBLES.valeurs.iban, email: SENSIBLES.valeurs.email };
         etat.reglages = { ...(etat.reglages || {}), factureQr: SENSIBLES.valeurs.factureQr };
-        toast('IBAN, e-mail de contact et facture QR non modifiés : identité non confirmée. Vos autres réglages sont enregistrés.');
+        toast('IBAN, e-mail de contact et facture QR non modifiés : identité non confirmée. Vos autres réglages vont être enregistrés.');
         if (typeof rendre === 'function') rendre();
+        ENREGISTREMENT.remiseEnCours = true;
         ENREGISTREMENT.minuterie = setTimeout(envoyerConfig, 0);
         return;
       }

@@ -203,12 +203,14 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
   /* Émet un événement : un envoi par webhook abonné (file persistante, survit aux redémarrages).
      Un webhook en pause continue de recevoir ses événements dans la file : rien n'est perdu à la réactivation. */
   const dernieresRuptures = new Map();
-  /* Contenu sans données personnelles : le client réduit à son pays (ou à la raison sociale d'une entreprise, pour un
-     devis), comme une commande lue par une clé d'API sans « clients:lecture ». */
+  /* Contenu sans données personnelles : le client réduit à son pays, comme une commande lue par une clé d'API sans
+     « clients:lecture ». Même la raison sociale d'un devis est retirée (pour un indépendant, c'est son nom). */
   function sansDonneesClient(donnees) {
     if (!donnees || typeof donnees !== 'object' || !donnees.client || typeof donnees.client !== 'object') return donnees;
-    const c = donnees.client;
-    return { ...donnees, client: c.raison ? { raison: c.raison } : { pays: c.pays || null } };
+    return { ...donnees, client: { pays: donnees.client.pays || null } };
+  }
+  function changerDonneesClient(boutiqueId, id, avec) {
+    return db.prepare('UPDATE webhooks SET donnees_client = ? WHERE id = ? AND boutique_id = ?').run(avec ? 1 : 0, String(id), boutiqueId).changes === 1;
   }
   function emettre(boutiqueId, type, donnees) {
     if (!EVENEMENTS.includes(type)) return 0;
@@ -330,7 +332,7 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     return db.prepare("DELETE FROM webhook_envois WHERE webhook_id IN (SELECT id FROM webhooks WHERE boutique_id = ?) AND (email_index = ? OR instr(lower(corps), ?) > 0)").run(boutiqueId, ix, JSON.stringify(String(email).toLowerCase())).changes;
   }
 
-  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, renouvelerSecret, chiffrerSecrets, secretsIllisibles, signer, verifierUrl, poster };
+  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, renouvelerSecret, changerDonneesClient, chiffrerSecrets, secretsIllisibles, signer, verifierUrl, poster };
 }
 
 module.exports = { creerIntegrations, ipInterne, PORTEES, EVENEMENTS };
