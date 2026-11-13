@@ -1290,7 +1290,7 @@ Chaque nouveauté de la matinée avait été relue seule. Un relecteur indépend
   - la documentation de l'API est alignée.
 - 216 tests sur 216.
 
-### Cycle 66 (11 h 55) : minimisation des e-mails gardés (chantier 61)
+### Cycle 66 (11 h 35) : minimisation des e-mails gardés (chantier 61)
 
 Les données des clients dans les commandes sont chiffrées, mais le journal des e-mails envoyés gardait en clair, 180 jours, le contenu des confirmations (nom, adresse, commande). Une copie volée de la base livrait donc six mois de données par ce biais. Désormais :
 
