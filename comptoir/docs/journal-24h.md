@@ -819,3 +819,10 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
 - **Second point** : les compteurs du score de risque gardaient toutes les entrées d'un même réseau sur 24 h, que chaque commande filtrait. Ils sont plafonnés aux 200 plus récentes, bien au-delà des seuils du score (2 ou 3 valeurs distinctes).
 - **Résultat** : coût constant, 3,3 ms par commande de la première à la dix-millième. Ouverture de l'espace marchand à 10 000 commandes : médiane de 0,3 s.
 - **Vérificateur** : l'échec de l'étape de fuzzing venait du fuzzer lui-même, qui ne savait pas écrire dans l'adresse ses nouvelles valeurs piégées (`{ toString: 1 }`). Il est corrigé : 3 graines, 3 768 requêtes, 0 constat.
+
+### Cycle 48 (06 h 26) : test de charge à grande échelle (chantier 42)
+
+- **1 000 boutiques**, 200 000 commandes d'historique (base de 126 Mo), 50 clients simultanés pendant 60 secondes, trafic mêlé : vitrines, commandes payées de bout en bout, espace marchand, devis, cartes cadeaux.
+- **Constat** : le cache de l'état de l'espace marchand, ajouté au cycle 46, coûtait plus qu'il ne rapportait pour les boutiques de taille courante. Sur 200 commandes, calculer les empreintes revient plus cher que tout relire. Avec le cache : 589 requêtes par seconde et 288 Mo ; sans le cache : 623 et 197 Mo.
+- **Correctif** : le cache ne sert plus qu'aux boutiques d'au moins 1 000 commandes, là où il fait gagner (10 000 commandes : 0,7 s ramenées à 0,3 s). Sa taille se règle par `CACHE_ETAT_MAX` (0 le désactive).
+- **Résultat final** : 600 requêtes par seconde, 190 Mo, **aucune erreur** sur 35 000 actions, aucune erreur au journal du serveur. C'est le niveau mesuré avant les protections de la nuit (605), avec beaucoup plus de fonctions.
