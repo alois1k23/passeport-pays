@@ -225,7 +225,7 @@ test('vente en ligne : achat, paiement, carte émise et envoyée au destinataire
     const c = (await appel('GET', '/api/admin/etat')).json.commandes.find(x => x.id === a.json.commandeId);
     assert.equal(c.statut, 'payee'); assert.equal(c.facture, undefined, 'pas de facture pour un bon à usages multiples'); assert.ok(c.carteEmise);
     const mail = db.prepare("SELECT corps FROM emails WHERE destinataire = 'tom@exemple.fr'").get().corps;
-    assert.match(mail, /Léa Martin vous offre une carte cadeau/); assert.match(mail, /Joyeux anniversaire/);
+    assert.match(mail, /offerte par Léa Martin/); assert.match(mail, /Joyeux anniversaire/);
     const code = /Code : ([0-9A-Z-]{19})/.exec(mail)[1];
     assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 50);
     assert.ok(!JSON.stringify(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(a.json.commandeId)).includes('tom@exemple.fr'), 'destinataire chiffré avec le client');
@@ -235,7 +235,7 @@ test('vente en ligne : achat, paiement, carte émise et envoyée au destinataire
     // Une carte déjà utilisée ne se rembourse plus en entier.
     const b2 = await appel('POST', `/api/public/${slug}/cartes-cadeaux/achat`, { montant: 30, client: { nom: 'Léa', email: 'lea@exemple.fr' } }, false);
     await appel('POST', `/paiement-simule/${b2.json.paiementUrl.split('/').pop()}/confirmer`, null, false);
-    const code2 = /Code : ([0-9A-Z-]{19})/.exec(db.prepare("SELECT corps FROM emails WHERE destinataire = 'lea@exemple.fr' AND sujet LIKE 'Votre carte cadeau%'").get().corps)[1];
+    const code2 = /Code : ([0-9A-Z-]{19})/.exec(db.prepare("SELECT corps FROM emails WHERE destinataire = 'lea@exemple.fr' AND sujet LIKE 'Votre carte cadeau%' AND sujet NOT LIKE '%est partie' ORDER BY rowid DESC").get().corps)[1];
     const produit = (await appel('GET', '/api/admin/etat')).json.produits[0].id;
     assert.equal((await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 1 }], moyen: 'carte', carteCadeau: code2, cle: 'v1' })).statut, 201);
     assert.equal((await appel('POST', `/api/admin/commandes/${b2.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 409);
@@ -253,5 +253,29 @@ test('webhook « carte.emise » : envoyé sans le code de la carte', async () =>
     const corps = P.dechiffrer(e.corps, { boutique: e.boutique_id, commande: `webhook:${e.id}` }).corps, d = JSON.parse(corps).donnees;
     assert.equal(d.montant, 40); assert.equal(d.fin, code.slice(-4));
     assert.ok(!corps.includes(code) && !corps.includes(code.replace(/-/g, '')), 'jamais le code complet');
+  } finally { s.close(); }
+});
+
+test('relecture de la vente : pas d’argent rendu si la carte a servi, pas d’expédition, message sans lien, montants décimaux', async () => {
+  const { db, s, appel, slug } = await boutique();
+  try {
+    assert.deepEqual((await appel('PUT', '/api/admin/cartes-cadeaux/vente', { actif: true, montants: [19.99, 50] })).json.vente.montants, [19.99, 50], '19,99 accepté');
+    const achat = await appel('POST', `/api/public/${slug}/cartes-cadeaux/achat`, { montant: 50, client: { nom: 'Léa', email: 'lea@exemple.fr' }, destinataire: { email: 'tom@exemple.fr' }, message: 'Votre compte est suspendu, activez-le ici : https://evil.example/x ou evil.example' }, false);
+    const pid = achat.json.paiementUrl.split('/').pop();
+    // Une carte cadeau ne se marque pas payée à la main ; elle se paie en ligne.
+    assert.equal((await appel('POST', `/api/admin/commandes/${achat.json.commandeId}/statut`, { statut: 'payee' })).statut, 409);
+    await appel('POST', `/paiement-simule/${pid}/confirmer`, null, false);
+    const mail = db.prepare("SELECT corps FROM emails WHERE destinataire = 'tom@exemple.fr'").get().corps;
+    assert.doesNotMatch(mail, /evil\.example/, 'aucun lien de l’acheteur dans l’e-mail'); assert.match(mail, /\[lien retiré\]/);
+    assert.match(mail, /texte libre, non vérifié par la boutique/);
+    // Pas d'expédition possible ; pas d'offre complémentaire.
+    assert.equal((await appel('POST', `/api/admin/commandes/${achat.json.commandeId}/statut`, { statut: 'expediee' })).statut, 409);
+    // La carte sert, puis le remboursement est refusé AVANT tout mouvement d'argent.
+    const code = /Code : ([0-9A-Z-]{19})/.exec(db.prepare("SELECT corps FROM emails WHERE destinataire = 'tom@exemple.fr'").get().corps)[1];
+    const produit = (await appel('GET', '/api/admin/etat')).json.produits[0].id;
+    assert.equal((await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 1 }], moyen: 'carte', carteCadeau: code, cle: 'w1' })).statut, 201);
+    assert.equal((await appel('POST', `/api/admin/commandes/${achat.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 409);
+    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pid).statut, 'paye', 'argent non rendu');
+    assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 10, 'carte toujours active');
   } finally { s.close(); }
 });

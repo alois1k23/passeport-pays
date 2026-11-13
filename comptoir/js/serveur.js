@@ -696,7 +696,7 @@ document.addEventListener('submit', async e => {
   e.preventDefault();
   const d = new FormData(e.target);
   try {
-    const r = await api('PUT', '/api/admin/cartes-cadeaux/vente', { actif: d.get('actif') === 'on', montants: String(d.get('montants') || '').split(/[;,\s]+/).filter(Boolean).map(x => Number(x.replace(',', '.'))), validiteMois: Number(d.get('validiteMois')) });
+    const r = await api('PUT', '/api/admin/cartes-cadeaux/vente', { actif: d.get('actif') === 'on', montants: String(d.get('montants') || '').split(/[;\s]+|,(?=\s)/).filter(Boolean).map(x => Number(x.replace(',', '.'))), validiteMois: Number(d.get('validiteMois')) });   // montants : « 12,50 » = virgule décimale ; « 25, 50 » = liste
     ui.cartesCadeaux = { ...ui.cartesCadeaux, vente: r.vente }; toast(r.vente.actif ? 'Vente en ligne des cartes cadeaux activée.' : 'Vente en ligne des cartes cadeaux désactivée.'); rendre();
   } catch (err) { toast(err.message); }
 });
@@ -736,4 +736,12 @@ document.addEventListener('click', async e => {
   try { const r = await api('POST', '/api/admin/caisse/carte', { code }); ui.carteCaisseInfo = { code, solde: r.solde, fin: r.fin }; }
   catch (err) { ui.carteCaisseInfo = null; toast(err.message); }
   rendre();
+});
+
+/* Carte cadeau retenue (risque élevé) : libérée par le marchand après vérification. */
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action="liberer-carte"]'); if (!el) return;
+  if (!confirm('Libérer la carte cadeau ? Elle sera envoyée par e-mail et utilisable tout de suite.')) return;
+  el.disabled = true;
+  try { await api('POST', `/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/liberer-carte`, {}); await rafraichir('Carte cadeau libérée et envoyée.'); } catch (err) { toast(err.message); el.disabled = false; }
 });

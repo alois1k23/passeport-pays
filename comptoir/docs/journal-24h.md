@@ -424,3 +424,27 @@ Chantier 12 de la deuxième phase. Un relecteur indépendant a audité tout le s
   - `stock.transfert`.
 - **Chantier 17 (retours partiels), différé** : remettre en stock seulement les articles retournés n'a de sens qu'avec un remboursement partiel et un avoir partiel, cohérents avec le journal scellé. C'est un chantier comptable à part entière, traité plus tard avec sa propre relecture.
 - 2 nouveaux tests : 153 tests sur 153.
+
+### Cycle 27 (02 h 55) : corrections de la relecture de la vente de cartes
+
+Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejoués. Points corrigés :
+- **Grave, remboursement** : pour une carte déjà utilisée, l'argent était rendu au client, puis le remboursement refusé. Le client gardait la carte et l'argent. Le contrôle se fait maintenant **avant** tout mouvement d'argent, et la carte inutilisée est désactivée avant le remboursement.
+- **Grave, fraude** (carte bancaire volée, achat puis contestation) :
+  - l'achat d'une carte passe désormais par le score de risque ;
+  - en risque élevé, la carte est **retenue** : le marchand est prévenu, puis la libère depuis la commande ou rembourse ;
+  - un litige ouvert auprès de la banque **bloque** la carte ;
+  - 5 achats au plus par adresse et par jour.
+- **Paiement à la main** : une commande de carte cadeau marquée « payée » recevait une facture et jamais sa carte. Ce passage est refusé : une carte se paie en ligne.
+- **Pas d'expédition** pour une carte cadeau :
+  - plus d'étapes « préparation », « expédiée » ni « livrée » ;
+  - plus de droit de retour ni d'offre « avec votre commande » ;
+  - un e-mail au marchand propre aux cartes (« rien à expédier »), qui ne compte plus parmi les commandes à expédier.
+- **Chiffre d'affaires compté une seule fois** : la vente d'une carte n'entre plus dans les ventes et statistiques. Elle est comptée quand la carte sert.
+- **Hameçonnage** : le nom et le message de l'acheteur pouvaient faire passer un faux texte (« votre compte est suspendu », lien) au nom de la boutique. Le nom n'est plus dans le sujet. Le message est mis sur une ligne, sans liens ni caractères invisibles, et présenté comme « texte libre, non vérifié par la boutique », après le code. L'e-mail précise que la boutique ne demande jamais le code.
+- **Remise de la carte** :
+  - si l'e-mail ne peut pas partir (adresse refusée, panne), le marchand est prévenu et la copie est masquée ;
+  - l'acheteur qui offre une carte reçoit un avis d'envoi, qui ne contient pas le code ;
+  - l'historique dit « envoi en file » au lieu d'« envoyée ».
+- **Divers** : montants comme 19,99 acceptés, virgule décimale reconnue, adresse légale de la boutique exigée comme pour toute vente, devise fixée à l'achat, réglages consultables abonnement terminé, langue du client gardée.
+- **Restent ouverts** : traduction du formulaire d'achat et de l'e-mail de la carte (français seulement), et un export des cartes vendues pour le comptable (elles figurent déjà dans l'export complet).
+- 1 nouveau test : 154 tests sur 154, bout en bout 51 sur 51, simulation de 60 jours : 0 anomalie, vérifié dans un vrai navigateur.

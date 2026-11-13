@@ -503,8 +503,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (marketing) lien = `${urlPublique}/desinscription?j=${jetonDesinscription(boutiqueId, destinataire)}${tp ? `&lang=${langue}` : ''}`;
       pied = `\n\n—\n${identite}${lien ? `\n${tp ? (motif === 'commande' ? tp.commande : tp.nouvelles)(conf.boutique.nom) : motif === 'commande' ? `Vous recevez cet e-mail à la suite de votre commande chez ${conf.boutique.nom}. Pour ne plus recevoir ce type de message` : `Vous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir`} : ${lien}` : ''}`;
     }
-    db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
+    const insere = db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
     if (env.LOG_EMAILS) journal.log(`[e-mail] à ${destinataire} : ${sujet}`);
+    return Number(insere.lastInsertRowid);
   };
   const formateurs = new Map();   // Intl.NumberFormat est coûteux à créer : un par devise, gardé
   const formatMontant = (n, config) => {
@@ -638,6 +639,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   /* ---------- Flux des statuts (mêmes règles que l'interface) ---------- */
   const estDrop = c => c.lignes.length > 0 && c.lignes.every(l => l.type === 'drop');
   function transitionsPossibles(c) {
+    if (c.canal === 'carte') return c.statut === 'attente' ? ['annulee'] : c.statut === 'payee' ? ['remboursee'] : [];   // carte cadeau vendue : pas d'expédition
     if (estDrop(c) && c.canal !== 'magasin') {
       if (c.statut === 'payee') return ['fournisseur', 'remboursee'];
       if (c.statut === 'fournisseur') return ['expediee'];
@@ -724,18 +726,30 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   }
   /* Carte cadeau achetée en ligne et payée : émise, et son code envoyé au destinataire (ou à l'acheteur). Le code n'est
      gardé nulle part en clair (la copie de l'e-mail est masquée dès l'envoi). */
-  function emettreCarteVendue(bid, c) {
+  // Texte saisi par l'acheteur (nom, message) : une ligne, sans adresse web ni caractère invisible ou de direction,
+  // pour qu'un e-mail de carte cadeau ne puisse pas servir d'hameçonnage au nom de la boutique.
+  const texteSur = (t, max) => String(t || '').normalize('NFC').replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, ' ')
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, '[lien retiré]').replace(/\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b\S*/gi, '[lien retiré]')   /* tout ce qui ressemble à un nom de domaine */
+    .replace(/\s+/g, ' ').trim().slice(0, max);
+  function emettreCarteVendue(bid, c, { liberer = false } = {}) {
     if (c.carteEmise) return;
     const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid), config = lireConfig(b), reg = Cartes.reglagesVente(bid);
+    // Risque élevé (carte bancaire peut-être volée) : la carte n'est pas envoyée tout de suite, le marchand la libère.
+    if (!liberer && c.risque && c.risque.niveau === 'eleve') {
+      if (!c.carteRetenue) { c.carteRetenue = Date.now(); historique(c, 'Carte cadeau retenue : risque de fraude élevé. Vérifiez puis libérez-la depuis la commande (ou remboursez).'); const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id); if (m) envoyerEmail(null, m.email, `Carte cadeau retenue (commande n° ${c.numero})`, `Bonjour,\n\nLa carte cadeau de la commande n° ${c.numero} (${formatMontant(c.total, config)}) n'a pas été envoyée : risque de fraude élevé (${(c.risque.raisons || []).join(' ; ')}).\nVérifiez la commande, puis libérez la carte ou remboursez : ${urlPublique}/app#commandes\n\nComptoir`); }
+      return;
+    }
     const d = new Date(); d.setMonth(d.getMonth() + reg.validiteMois);
     const dest = (c.client && c.client.destinataire) || {};
-    const { carte, code } = Cartes.emettre(bid, { montant: c.total, devise: config.boutique.devise || 'EUR', expireLe: d.getTime(), destinataire: dest.nom ? String(dest.nom).slice(0, 100) : null, origine: 'vente', commandeId: c.id });
-    c.carteEmise = { id: carte.id, fin: carte.fin };
+    const { carte, code } = Cartes.emettre(bid, { montant: c.total, devise: c.devise || config.boutique.devise || 'EUR', expireLe: d.getTime(), destinataire: dest.nom ? texteSur(dest.nom, 100) : null, origine: 'vente', commandeId: c.id });
+    c.carteEmise = { id: carte.id, fin: carte.fin }; delete c.carteRetenue;
     integ.emettre(bid, 'carte.emise', { id: carte.id, fin: carte.fin, montant: carte.initial, devise: carte.devise, expireLe: carte.expireLe ? new Date(carte.expireLe).toISOString() : null, origine: 'vente', commande: { id: c.id, numero: c.numero } });   // jamais le code
     const a = dest.email || c.client.email, offerte = !!dest.email && dest.email !== c.client.email;
-    envoyerEmail(bid, a, `${offerte ? `${c.client.nom} vous offre une carte cadeau` : 'Votre carte cadeau'} ${config.boutique.nom}`,
-      `Bonjour${dest.nom ? ` ${dest.nom}` : ''},\n\n${offerte ? `${c.client.nom} vous offre une carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.` : `Voici votre carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.`}${c.client.message ? `\n\nSon message : « ${String(c.client.message).slice(0, 300)} »` : ''}\n\nCode : ${code}\nValable jusqu’au ${new Date(carte.expireLe).toLocaleDateString('fr-FR')}, en ligne (${urlBoutique(b)}) et en boutique.\n\nGardez ce code : il vaut de l’argent.\n\n${config.boutique.nom}`);
-    historique(c, `Carte cadeau ····${carte.fin} émise et envoyée${offerte ? ' au destinataire' : ''}`);
+    const acheteur = texteSur(c.client.nom, 60), message = c.client.message ? texteSur(c.client.message, 300) : '';
+    c.carteEmise.email = envoyerEmail(bid, a, offerte ? `Une carte cadeau ${config.boutique.nom} pour vous` : `Votre carte cadeau ${config.boutique.nom}`,
+      `Bonjour${dest.nom ? ` ${texteSur(dest.nom, 60)}` : ''},\n\n${offerte ? `Vous recevez une carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}, offerte par ${acheteur}.` : `Voici votre carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.`}\n\nCode : ${code}\nValable jusqu’au ${new Date(carte.expireLe).toLocaleDateString('fr-FR')}, en ligne (${urlBoutique(b)}) et en boutique.\nGardez ce code : il vaut de l’argent. ${config.boutique.nom} ne vous demandera jamais de le communiquer.${message ? `\n\n— Message de ${acheteur} (texte libre, non vérifié par la boutique) :\n${message}` : ''}\n\n${config.boutique.nom}`);
+    if (offerte) envoyerEmail(bid, c.client.email, `Votre carte cadeau ${config.boutique.nom} est partie`, `Bonjour ${acheteur},\n\nLa carte cadeau de ${formatMontant(c.total, config)} a été envoyée à ${dest.email}.\nSi cette adresse est erronée, contactez ${config.entreprise && config.entreprise.email ? config.entreprise.email : 'la boutique'} : la carte peut être annulée et renvoyée.\n\n${config.boutique.nom}`);
+    historique(c, `Carte cadeau ····${carte.fin} émise, envoi par e-mail en file${offerte ? ' (au destinataire)' : ''}`);
   }
   /* Appelé une seule fois quand le paiement est confirmé (idempotent). */
   /* Commande payée (dans une transaction) : facture, complément rattaché, alerte de rupture, stock. */
@@ -769,6 +783,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   /* Après un paiement (en ligne ou relevé bancaire) : e-mails au client et au marchand, transmission au fournisseur. */
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
+    // Carte cadeau vendue : le client a reçu sa carte (ou son avis d'envoi) ; le marchand est simplement informé.
+    if (res.c.canal === 'carte') {
+      const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
+      if (mch) envoyerEmail(null, mch.email, `Carte cadeau vendue : ${formatMontant(res.c.total, config)}`, `Bonjour,\n\nUne carte cadeau de ${formatMontant(res.c.total, config)} a été vendue en ligne sur ${config.boutique.nom} (commande n° ${res.c.numero}).${res.c.carteRetenue ? '\n\nAttention : risque de fraude élevé, la carte est retenue. Vérifiez puis libérez-la ou remboursez depuis Commandes.' : ' Elle a été envoyée par e-mail ; rien à expédier.'}\n\n${urlPublique}/app#commandes\n\nComptoir`);
+      return;
+    }
     if (EmailsClients.langueDe(res.c)) { const m = EmailsClients.confirmation(res.c, { ...optionsEmail(res.boutique, res.c, config), legal: infoRetractation(res.boutique, res.c, config) }); envoyerEmail(res.boutique.id, res.c.client.email, m.sujet, m.corps, { langue: res.c.langue }); }
     else envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
       `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.${infoRetractation(res.boutique, res.c, config)}`);
@@ -875,7 +895,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
   // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
-  const LECTURE_SEULE = new Set(['GET /api/admin/emplacements', 'GET /api/admin/fidelite', 'GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
+  const LECTURE_SEULE = new Set(['GET /api/admin/cartes-cadeaux/vente', 'GET /api/admin/emplacements', 'GET /api/admin/fidelite', 'GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
     verifierRole(ctx);
@@ -1764,10 +1784,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     const cible = ctx.corps.statut;
     if (cible === 'remboursee' && c.retour && c.retour.statut === 'demande') c.retour.statut = 'rembourse';
+    if (cible === 'payee' && c.canal === 'carte') throw erreur(409, 'Une carte cadeau se paie en ligne : elle est émise automatiquement au paiement.', 'carte_en_ligne');
     if (ctx.role === 'commandes' && cible === 'payee') throw erreur(403, 'Marquer une commande comme payée est réservé au propriétaire ou à la gestion complète.', 'role');
     if (ctx.role === 'commandes' && ['remboursee', 'annulee'].includes(cible)) throw erreur(403, 'Rembourser ou annuler une commande est réservé au propriétaire ou à la gestion complète.', 'role');
     if (!transitionsPossibles(c).includes(cible)) throw erreur(409, `Impossible de passer de « ${c.statut} » à « ${cible} ».`, 'transition_invalide');
     const config = lireConfig(ctx.boutique);
+    // Carte cadeau vendue déjà utilisée : refus AVANT tout remboursement (l'argent ne part pas si la carte reste valable).
+    if ((cible === 'remboursee' || cible === 'annulee') && c.carteEmise && !c.carteEmise.desactivee) {
+      const k = db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(c.carteEmise.id);
+      if (k && k.solde < k.initial) throw erreur(409, `La carte cadeau ····${c.carteEmise.fin} a déjà servi (solde ${formatMontant(k.solde / 100, config)}) : elle ne peut plus être remboursée en entier.`, 'carte_utilisee');
+      if (k && k.statut === 'active') Cartes.desactiver(ctx.boutique.id, k.id);   // désactivée tout de suite : plus utilisable pendant le remboursement
+    }
     if (cible === 'fournisseur') return { commande: await transmettreAuFournisseur(ctx.boutique, c, false) };
     if (cible === 'expediee' && c.statut === 'fournisseur') {
       // L'expédition d'une commande en dropshipping vient du fournisseur (webhook).
@@ -1829,10 +1856,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1, canalStock(c));
     // Carte cadeau vendue : remboursable seulement si elle n'a pas servi ; elle est alors désactivée.
     if ((cible === 'remboursee' || cible === 'annulee') && c.carteEmise && !c.carteEmise.desactivee) {
-      const k = db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(c.carteEmise.id);
-      if (k && k.solde < k.initial) throw erreur(409, `La carte cadeau ····${c.carteEmise.fin} a déjà servi (solde ${formatMontant(k.solde / 100, config)}) : elle ne peut plus être remboursée en entier.`, 'carte_utilisee');
-      if (k && k.statut === 'active') Cartes.desactiver(ctx.boutique.id, k.id);
-      c.carteEmise.desactivee = Date.now();
+      c.carteEmise.desactivee = Date.now();   // (vérifiée et désactivée avant le remboursement, plus haut)
     }
     // Fidélité : points gagnés retirés, points utilisés rendus (une seule fois). Des points gagnés déjà dépensés ne
     // peuvent pas être repris : l'écart est noté dans l'historique (à déduire du remboursement si le marchand le souhaite).
@@ -2670,18 +2694,22 @@ ${bloc}</main></body></html>`;
   r.post('/api/public/:slug/cartes-cadeaux/achat', async ctx => {
     const b = boutiqueOuverte(ctx.params.slug), reg = Cartes.reglagesVente(b.id), config = configVente(b);
     if (!reg.actif) throw erreur(404, 'Cette boutique ne vend pas de cartes cadeaux en ligne.', 'vente_inactive');
+    const adrV = String((config.entreprise || {}).adresse || '').trim();
+    if (!adrV || /compléter/i.test(adrV)) throw erreur(409, 'Cette boutique termine la saisie de ses informations légales : la vente ouvre très bientôt.', 'boutique_incomplete');
     auth.limiter(`achat-carte:${b.id}:${reseauIp(ctx.ip)}`, 10 * facteurLimites, 3600000, 'Trop d’achats de cartes en peu de temps. Réessayez plus tard.');
     const montant = Number(ctx.corps.montant);
     if (!reg.montants.includes(montant)) throw erreur(400, 'Montant de carte cadeau indisponible.', 'montant_invalide');
     const cl = ctx.corps.client || {}, de = ctx.corps.destinataire || {};
     const client = { nom: valider.texte(cl.nom, 'Votre nom', { max: 100 }), email: valider.email(cl.email), adresse: '', npa: '', ville: '' };
     if (de.email) client.destinataire = { nom: de.nom ? valider.texte(de.nom, 'Le nom du destinataire', { max: 100 }) : '', email: valider.email(de.email) };
-    if (ctx.corps.message) client.message = String(ctx.corps.message).replace(/[\u0000-\u0008\u000B-\u001F]/g, ' ').slice(0, 300);
+    if (ctx.corps.message) client.message = texteSur(ctx.corps.message, 300);
+    auth.limiter(`achat-carte-email:${b.id}:${client.email.toLowerCase()}`, 5 * facteurLimites, 86400000, 'Trop d’achats de cartes pour cette adresse aujourd’hui.');
     const devise = config.boutique.devise || 'EUR', compte = compteVente(b);
     const { commande, pmt } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
-      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes: [{ produitId: null, nom: `Carte cadeau ${formatMontant(montant, config)}`, prix: montant, qte: 1, type: 'carte-cadeau', tauxTva: 0 }], sousTotal: montant, remise: 0, port: 0, total: montant, tauxTva: 0, livraison: 'carte', canal: 'carte', suivi: '', note: '', historique: [{ date: now, texte: 'Carte cadeau achetée en ligne, paiement en attente' }] };
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', devise, ...(typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue) ? { langue: ctx.corps.langue } : {}), client, lignes: [{ produitId: null, nom: `Carte cadeau ${formatMontant(montant, config)}`, prix: montant, qte: 1, type: 'carte-cadeau', tauxTva: 0 }], sousTotal: montant, remise: 0, port: 0, total: montant, tauxTva: 0, livraison: 'carte', canal: 'carte', suivi: '', note: '', historique: [{ date: now, texte: 'Carte cadeau achetée en ligne, paiement en attente' }] };
+      try { c.risque = Risque.evaluer(c, { reseau: ctx.ip, compteurs: compteursRisque, panierMoyen: panierMoyen(b.id), clientConnu: false, boutique: b.id }); if (c.risque.niveau !== 'faible') c.historique.push({ date: now, texte: `Risque ${c.risque.niveau === 'eleve' ? 'élevé' : 'moyen'} (${c.risque.score}/100) : ${c.risque.raisons.join(' ; ')}` }); } catch (e) { journal.error('[risque]', e.message); }
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       insererCommande(id, b.id, n, date, statut, jeton, donnees);
@@ -2695,6 +2723,12 @@ ${bloc}</main></body></html>`;
     catch (e) { transaction(db, () => { db.prepare('DELETE FROM paiements WHERE commande_id = ?').run(commande.id); db.prepare('DELETE FROM commandes WHERE id = ?').run(commande.id); }); throw e; }
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { commandeId: commande.id, jeton: commande.jeton, paiementUrl: session.url } };
+  });
+  r.post('/api/admin/commandes/:id/liberer-carte', exigerMarchand, ctx => {
+    const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
+    if (c.canal !== 'carte' || c.statut !== 'payee' || c.carteEmise) throw erreur(409, 'Aucune carte cadeau retenue pour cette commande.', 'rien_a_liberer');
+    transaction(db, () => { emettreCarteVendue(ctx.boutique.id, c, { liberer: true }); historique(c, 'Carte cadeau libérée par le marchand'); enregistrerCommande(c); });
+    return { commande: c };
   });
   r.post('/api/admin/cartes-cadeaux/:id/desactiver', exigerMarchand, ctx => ({ carte: Cartes.desactiver(ctx.boutique.id, ctx.params.id) }));
   // Solde d'une carte, pour le client (boutique) : limité par adresse et par boutique contre l'essai de codes au hasard.
@@ -2953,6 +2987,7 @@ ${bloc}</main></body></html>`;
   /* Offre après l’achat : un complément à prix réduit, livré dans le même colis (2 heures après le paiement au plus). */
   const DELAI_COMPLEMENT = 2 * 3600 * 1000;
   function offreApres(b, c) {
+    if (c.canal === 'carte' || c.canal === 'devis') return null;   // ni carte cadeau ni devis : pas d'offre « avec votre commande »
     if (!['payee', 'fournisseur', 'preparation'].includes(c.statut) || c.parent || (c.complements || []).length) return null;
     const paye = (c.historique || []).find(h => /^Paiement/.test(h.texte));
     if (!paye || Date.now() - paye.date > DELAI_COMPLEMENT) return null;
@@ -2968,6 +3003,7 @@ ${bloc}</main></body></html>`;
     const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
     if (!verifierJeton(row, ctx.corps.jeton)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     const parent = lireCommande(row);
+    if (parent.canal === 'carte' || parent.canal === 'devis') throw erreur(409, 'Pas de complément pour cette commande.', 'complement_impossible');
     const dejaLa = db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut NOT IN ('annulee') AND json_extract(donnees, '$.parent') = ?").get(b.id, parent.id);
     if (dejaLa) throw erreur(409, 'Le complément a déjà été ajouté à cette commande.', 'complement_existant');
     const o = offreApres(b, parent);
@@ -3199,6 +3235,17 @@ ${bloc}</main></body></html>`;
     // Fournisseur de démonstration : expéditions en attente (redémarrage, webhook en échec)
     if (delaiExpeditionDemo >= 0) for (const r of db.prepare("SELECT ref FROM demo_fournisseur_commandes WHERE statut = 'recue' AND cree_le < ?").all(maintenant - delaiExpeditionDemo - 60000)) expedierDemo(r.ref).catch(e => journal.error('[demo-fournisseur]', e.message));
     libererCartes(maintenant);
+    // Carte cadeau vendue dont l'e-mail n'a pas pu partir (adresse refusée, service en panne) : l'acheteur a payé et
+    // n'a pas son code. Le marchand et l'acheteur sont prévenus ; la carte se réémet depuis la commande (annuler, rembourser).
+    for (const row of db.prepare("SELECT * FROM commandes WHERE statut = 'payee' AND json_extract(donnees, '$.canal') = 'carte' AND json_extract(donnees, '$.carteEmise.email') IS NOT NULL AND json_extract(donnees, '$.carteEmise.echecEnvoi') IS NULL LIMIT 100").all()) {
+      const c = lireCommande(row), e = db.prepare('SELECT envoye, tentatives FROM emails WHERE id = ?').get(c.carteEmise.email);
+      if (!e || e.envoye || e.tentatives < 12) continue;
+      db.prepare('UPDATE emails SET corps = ? WHERE id = ?').run(courriel.masquerSecrets(db.prepare('SELECT corps FROM emails WHERE id = ?').get(c.carteEmise.email).corps), c.carteEmise.email);
+      c.carteEmise.echecEnvoi = maintenant; historique(c, 'L’e-mail de la carte cadeau n’a pas pu être envoyé : remboursez la commande (la carte est désactivée) et invitez le client à en racheter une avec une adresse correcte.');
+      enregistrerCommande(c);
+      const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id), m = b && db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+      if (m) envoyerEmail(null, m.email, `Carte cadeau non remise (commande n° ${c.numero})`, `Bonjour,\n\nL'e-mail contenant la carte cadeau de la commande n° ${c.numero} n'a pas pu être envoyé (adresse refusée ou service indisponible). Le client a payé : remboursez la commande depuis Commandes (la carte, jamais utilisée, est désactivée).\n\n${urlPublique}/app#commandes\n\nComptoir`);
+    }
     if (maintenant - dernierePurge < 86400000) return;
     dernierePurge = maintenant;
     // Commande transmise, sans expédition depuis 7 jours : le marchand est prévenu (une fois), pour relancer le fournisseur
@@ -3234,7 +3281,7 @@ ${bloc}</main></body></html>`;
       const cmds = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date >= ?').all(b.id, lundi - 14 * 86400000).map(lireCommande);
       db.prepare('INSERT OR IGNORE INTO rapports_hebdo VALUES (?, ?)').run(b.id, semaine);
       if (!cmds.length) continue;
-      const vendue = c => !['attente', 'annulee', 'remboursee'].includes(c.statut);
+      const vendue = c => !['attente', 'annulee', 'remboursee'].includes(c.statut) && c.canal !== 'carte';   // carte cadeau vendue : pas du chiffre d'affaires (compté quand elle sert)
       const sem = cmds.filter(c => c.date >= lundi - 7 * 86400000 && c.date < lundi && vendue(c)), avant = cmds.filter(c => c.date < lundi - 7 * 86400000 && vendue(c));
       const ca = l => l.reduce((a, c) => a + c.total, 0), f = m => formatMontant(m, config);
       const evol = (x, y) => y ? `${x >= y ? '+' : '−'}${Math.abs(Math.round((x - y) / y * 100))} % par rapport à la semaine d’avant` : 'première semaine de ventes';
@@ -3242,7 +3289,7 @@ ${bloc}</main></body></html>`;
       for (const c of sem) for (const l of c.lignes || []) { const k = l.nom; parProduit[k] = parProduit[k] || { q: 0, m: 0 }; parProduit[k].q += l.qte; parProduit[k].m += l.prix * l.qte; }
       const tops = Object.entries(parProduit).sort((a, b2) => b2[1].m - a[1].m).slice(0, 3);
       const toutes = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND statut IN ('payee', 'preparation', 'attente')").all(b.id).map(lireCommande);
-      const aExpedier = toutes.filter(c => ['payee', 'preparation'].includes(c.statut) && c.livraison !== 'retrait' && !(c.lignes || []).every(l => l.type === 'drop'));
+      const aExpedier = toutes.filter(c => ['payee', 'preparation'].includes(c.statut) && c.livraison !== 'retrait' && c.canal !== 'carte' && !(c.lignes || []).every(l => l.type === 'drop'));
       const echues = toutes.filter(c => c.statut === 'attente' && c.moyen === 'facture' && c.echeance && c.echeance < maintenant);
       const risquees = toutes.filter(c => ['payee', 'preparation'].includes(c.statut) && c.risque && c.risque.niveau === 'eleve');
       // Ruptures prévues (même calcul que le tableau de bord : rythme des 28 derniers jours)
@@ -3334,7 +3381,7 @@ ${bloc}</main></body></html>`;
   /* Retours : France et Belgique, 14 jours après réception (droit de rétractation) ; Suisse, le délai choisi par le
      marchand (sinon aucun). Point de départ : la livraison ou le retrait (sinon l'expédition, puis la commande). */
   const delaiRetour = (b, c) => {
-    if (!['expediee', 'livree', 'retiree'].includes(c.statut) || c.canal === 'magasin' || c.canal === 'devis') return 0;
+    if (!['expediee', 'livree', 'retiree'].includes(c.statut) || c.canal === 'magasin' || c.canal === 'devis' || c.canal === 'carte') return 0;
     const config = lireConfig(b), jours = config.boutique.pays === 'ch' ? Number((config.entreprise || {}).retoursJours) || 0 : Math.max(14, Number((config.entreprise || {}).retoursJours) || 0);
     if (!jours) return 0;
     const recu = [...(c.historique || [])].reverse().find(h => /^(Livrée|Remise au client|Retirée|Expédiée)/.test(h.texte));
@@ -3419,6 +3466,11 @@ ${bloc}</main></body></html>`;
           const nouveau = !c.litige;
           c.litige = { statut: String(objet.status || ''), montant: (Number(objet.amount) || 0) / 100, raison: String(objet.reason || ''), echeance, maj: Date.now() };
           historique(c, ev.type === 'charge.dispute.closed' ? `Litige clos : ${objet.status === 'won' ? 'gagné, le montant reste acquis' : 'perdu, le montant a été repris par la banque du client'}` : nouveau ? `Litige ouvert par le client auprès de sa banque (${c.litige.raison || 'motif non précisé'})` : 'Litige mis à jour');
+          // Carte cadeau vendue contestée (carte bancaire volée ?) : la carte est bloquée tout de suite si elle n'a pas servi.
+          if (nouveau && c.carteEmise && !c.carteEmise.desactivee) {
+            const k = db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(c.carteEmise.id);
+            if (k && k.statut === 'active') { Cartes.desactiver(b.id, k.id); c.carteEmise.desactivee = Date.now(); historique(c, `Carte cadeau ····${c.carteEmise.fin} bloquée à cause du litige${k.solde < k.initial ? ` (déjà utilisée pour ${formatMontant((k.initial - k.solde) / 100, config)})` : ''}`); }
+          }
           enregistrerCommande(c);
           const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
           if (mch && nouveau) envoyerEmail(null, mch.email, `Litige sur la commande n° ${c.numero} : répondez avant l’échéance`,

@@ -647,7 +647,7 @@ document.addEventListener('submit', async e => {
   const f = e.target, d = new FormData(f), b = f.querySelector('button'), err = f.querySelector('.erreur-form');
   b.disabled = true; err.hidden = true;
   try {
-    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/cartes-cadeaux/achat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ montant: Number(d.get('montant')), client: { nom: d.get('nom'), email: d.get('email') }, ...(d.get('destEmail') ? { destinataire: { email: d.get('destEmail'), nom: d.get('destNom') || '' } } : {}), message: d.get('message') || undefined }) });
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/cartes-cadeaux/achat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', montant: Number(d.get('montant')), client: { nom: d.get('nom'), email: d.get('email') }, ...(d.get('destEmail') ? { destinataire: { email: d.get('destEmail'), nom: d.get('destNom') || '' } } : {}), message: d.get('message') || undefined }) });
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur || 'Achat impossible pour l’instant.');
     location.href = json.paiementUrl;
