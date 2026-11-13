@@ -36,14 +36,15 @@ function vueIntegrations() {
       <div class="rangee"><button class="btn">Créer la clé</button><span class="sous">N’accordez que le nécessaire.</span></div></form></details></section>`;
   const statutEnvoi = e => e.statut === 'envoye' ? '<span class="pill good">Reçu</span>' : e.statut === 'echec' ? '<span class="pill bad">Abandonné</span>' : `<span class="pill warn">Nouvel essai (${e.tentatives})</span>`;
   const webhooks = `<section class="carte"><div class="carte-tete"><h2 id="integ-webhooks-titre" tabindex="-1">Webhooks</h2>${d.webhooks.length ? '<button class="btn petit fantome" data-action="integ-tester">Envoyer un test</button>' : ''}</div>
-    ${d.webhooks.map(w => `<div class="webhook-integ"><p><span class="mono">${esc(w.url)}</span> ${w.actif ? (w.premier_echec ? `<span class="pill warn">Ne répond plus depuis le ${date(w.premier_echec)}</span>` : '<span class="pill good">Actif</span>') : `<span class="pill bad">En pause : aucune réponse depuis 3 jours</span> <button class="btn petit" data-action="integ-reactiver" data-id="${esc(w.id)}">Réactiver${w.enAttente ? ` et envoyer les ${w.enAttente} événements en attente` : ''}</button>`}</p>
+    ${d.webhooks.map(w => `<div class="webhook-integ"><p><span class="mono">${esc(w.url)}</span> <span class="pill muted">${w.donneesClient ? 'avec données clients' : 'sans données clients'}</span> ${w.actif ? (w.premier_echec ? `<span class="pill warn">Ne répond plus depuis le ${date(w.premier_echec)}</span>` : '<span class="pill good">Actif</span>') : `<span class="pill bad">En pause : aucune réponse depuis 3 jours</span> <button class="btn petit" data-action="integ-reactiver" data-id="${esc(w.id)}">Réactiver${w.enAttente ? ` et envoyer les ${w.enAttente} événements en attente` : ''}</button>`}</p>
       <p class="sous">${w.evenements.map(x => esc(LIBELLES_EVENEMENTS[x] || x)).join(' · ')}</p>
       ${w.derniers.length ? `<ul class="journal-compte">${w.derniers.map(e => `<li><span class="sous">${date(e.cree_le)}</span> ${esc(LIBELLES_EVENEMENTS[e.evenement] || e.evenement)} ${statutEnvoi(e)}${e.dernier_code ? ` <span class="mono sous">HTTP ${esc(String(e.dernier_code))}</span>` : ''}</li>`).join('')}</ul>` : '<p class="sous">Aucun envoi pour l’instant.</p>'}
       <div class="rangee"><button class="btn petit fantome" data-action="integ-secret" data-id="${esc(w.id)}" data-url="${esc(w.url)}" aria-label="Nouveau secret pour ${esc(w.url)}">Nouveau secret</button><button class="btn petit fantome danger" data-action="integ-supprimer" data-id="${esc(w.id)}">Supprimer</button></div></div>`).join('')}
     <details${d.webhooks.length ? '' : ' open'}><summary>Ajouter un webhook</summary><form data-form="integ-webhook" class="grille-form">
       <label class="champ"><span>Adresse (https://…)</span><input name="url" type="url" required placeholder="https://hooks.zapier.com/…" pattern="https://.*"></label>
       <fieldset class="champ"><legend>Événements</legend>${d.evenements.map(x => `<label class="case"><input type="checkbox" name="evenements" value="${esc(x)}"${x === 'commande.payee' ? ' checked' : ''}> ${esc(LIBELLES_EVENEMENTS[x] || x)}</label>`).join('')}</fieldset>
-      <div class="rangee"><button class="btn">Ajouter</button><span class="sous">Si votre outil ne répond pas, Comptoir réessaie pendant environ 40 heures ; rien n’est perdu.</span></div></form></details></section>`;
+      <label class="case"><input type="checkbox" name="donneesClient"> Inclure les données personnelles des clients (nom, e-mail, adresse)<span class="sous"> : sans cette case, chaque commande n’indique que le pays du client. Cochez-la seulement si votre outil en a besoin (expédition, comptabilité nominative).</span></label>
+      <div class="rangee"><button class="btn">Ajouter</button><span class="sous">Si votre outil ne répond pas, Comptoir réessaie pendant environ 38 heures ; rien n’est perdu.</span></div></form></details></section>`;
   return intro + nouvelle + cles + webhooks;
 }
 document.addEventListener('click', async e => {
@@ -85,7 +86,7 @@ document.addEventListener('submit', async e => {
   const fd = new FormData(f); INTEG.erreur = '';
   try {
     if (f.dataset.form === 'integ-cle') { const r = await api('POST', '/api/admin/integrations/cles', { nom: fd.get('nom'), portees: fd.getAll('portees') }); INTEG.nouvelle = { type: 'cle', valeur: r.cle }; }
-    else { const r = await api('POST', '/api/admin/integrations/webhooks', { url: fd.get('url'), evenements: fd.getAll('evenements') }); INTEG.nouvelle = { type: 'webhook', valeur: r.secret }; }
+    else { const r = await api('POST', '/api/admin/integrations/webhooks', { url: fd.get('url'), evenements: fd.getAll('evenements'), donneesClient: fd.get('donneesClient') === 'on' }); INTEG.nouvelle = { type: 'webhook', valeur: r.secret }; }
     INTEG.donnees = null;
   } catch (err) { INTEG.erreur = err.message; toast(err.message); }
   rendre();

@@ -67,7 +67,9 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     CREATE INDEX IF NOT EXISTS webhook_envois_file ON webhook_envois(statut, prochain_essai);
     CREATE INDEX IF NOT EXISTS webhook_envois_hook ON webhook_envois(webhook_id, statut, cree_le);
     CREATE INDEX IF NOT EXISTS webhook_envois_age ON webhook_envois(webhook_id, cree_le);`);
-  for (const col of ['secret_ancien TEXT', 'secret_ancien_jusqu INTEGER']) { try { db.exec(`ALTER TABLE webhooks ADD COLUMN ${col}`); } catch { /* déjà là */ } }
+  // donnees_client : 1 = le webhook reçoit nom, e-mail et adresse des clients ; 0 = seulement le pays (minimisation).
+  // Les webhooks d'avant ce réglage gardent leur comportement (1) ; un nouveau webhook ne les reçoit que si on le demande.
+  for (const col of ['secret_ancien TEXT', 'secret_ancien_jusqu INTEGER', 'donnees_client INTEGER NOT NULL DEFAULT 1']) { try { db.exec(`ALTER TABLE webhooks ADD COLUMN ${col}`); } catch { /* déjà là */ } }
   try { db.exec('ALTER TABLE webhook_envois ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
   for (const col of ['premier_echec INTEGER', 'dernier_succes INTEGER']) { try { db.exec(`ALTER TABLE webhooks ADD COLUMN ${col}`); } catch { /* déjà là */ } }
   const httpLocalPermis = env.INTEGRATIONS_HTTP_LOCAL === '1';   // essais uniquement : webhooks vers http://127.0.0.1
@@ -160,13 +162,13 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     return [w.secret_ancien && w.secret_ancien_jusqu > Date.now() ? ouvrirSecret(w.boutique_id, w.id, w.secret_ancien) : null, courant].filter(Boolean); };
   const entetesSignes = (secrets, id, type, corps) => { const t = Math.floor(Date.now() / 1000); return { 'Content-Type': 'application/json', 'User-Agent': 'Comptoir-Webhooks/1', 'Comptoir-Signature': `t=${t},${(Array.isArray(secrets) ? secrets : [secrets]).map(x => `v1=${signer(x, t, corps)}`).join(',')}`, 'Comptoir-Evenement': type, 'Comptoir-Id': id }; };
 
-  async function creerWebhook(boutiqueId, { url, evenements }) {
+  async function creerWebhook(boutiqueId, { url, evenements, donneesClient = false }) {
     const ev = (Array.isArray(evenements) ? evenements : []).filter(x => EVENEMENTS.includes(x));
     if (!ev.length) throw erreur(400, 'Choisissez au moins un événement.', 'evenements');
     if (db.prepare('SELECT COUNT(*) n FROM webhooks WHERE boutique_id = ?').get(boutiqueId).n >= 10) throw erreur(409, '10 webhooks au plus.', 'trop_de_webhooks');
     const propre = await verifierUrl(url);
     const id = 'wh_' + crypto.randomBytes(6).toString('hex'), secret = 'whsec_' + crypto.randomBytes(24).toString('base64url');
-    db.prepare('INSERT INTO webhooks (id, boutique_id, url, secret, evenements, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(id, boutiqueId, propre, fermerSecret(boutiqueId, id, secret), JSON.stringify([...new Set(ev)]), Date.now());
+    db.prepare('INSERT INTO webhooks (id, boutique_id, url, secret, evenements, cree_le, donnees_client) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, boutiqueId, propre, fermerSecret(boutiqueId, id, secret), JSON.stringify([...new Set(ev)]), Date.now(), donneesClient === true ? 1 : 0);
     return { id, secret };
   }
   /* Nouveau secret (fuite, départ d'un prestataire) sans perdre la file : l'ancien signe encore 24 heures. */
@@ -186,8 +188,8 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     for (const w of db.prepare("SELECT id, boutique_id, secret FROM webhooks WHERE secret NOT LIKE 'v_.%'").all()) { db.prepare('UPDATE webhooks SET secret = ? WHERE id = ?').run(fermerSecret(w.boutique_id, w.id, w.secret), w.id); n++; }
     return n;
   }
-  const listerWebhooks = boutiqueId => db.prepare('SELECT id, url, evenements, actif, cree_le, echecs_suite, premier_echec, dernier_succes FROM webhooks WHERE boutique_id = ? ORDER BY cree_le DESC').all(boutiqueId)
-    .map(w => ({ ...w, evenements: JSON.parse(w.evenements), actif: !!w.actif,
+  const listerWebhooks = boutiqueId => db.prepare('SELECT id, url, evenements, actif, cree_le, echecs_suite, premier_echec, dernier_succes, donnees_client FROM webhooks WHERE boutique_id = ? ORDER BY cree_le DESC').all(boutiqueId)
+    .map(({ donnees_client, ...w }) => ({ ...w, evenements: JSON.parse(w.evenements), actif: !!w.actif, donneesClient: !!donnees_client,
       enAttente: db.prepare("SELECT COUNT(*) n FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente'").get(w.id).n,
       derniers: db.prepare('SELECT evenement, statut, tentatives, dernier_code, cree_le FROM webhook_envois WHERE webhook_id = ? ORDER BY cree_le DESC LIMIT 5').all(w.id) }));
   const supprimerWebhook = (boutiqueId, id) => db.prepare('DELETE FROM webhooks WHERE id = ? AND boutique_id = ?').run(String(id), boutiqueId).changes > 0;
@@ -201,6 +203,13 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
   /* Émet un événement : un envoi par webhook abonné (file persistante, survit aux redémarrages).
      Un webhook en pause continue de recevoir ses événements dans la file : rien n'est perdu à la réactivation. */
   const dernieresRuptures = new Map();
+  /* Contenu sans données personnelles : le client réduit à son pays (ou à la raison sociale d'une entreprise, pour un
+     devis), comme une commande lue par une clé d'API sans « clients:lecture ». */
+  function sansDonneesClient(donnees) {
+    if (!donnees || typeof donnees !== 'object' || !donnees.client || typeof donnees.client !== 'object') return donnees;
+    const c = donnees.client;
+    return { ...donnees, client: c.raison ? { raison: c.raison } : { pays: c.pays || null } };
+  }
   function emettre(boutiqueId, type, donnees) {
     if (!EVENEMENTS.includes(type)) return 0;
     if (!permis(boutiqueId)) return 0;   // formule sans API ou abonnement terminé : plus aucune donnée ne sort
@@ -215,8 +224,9 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     for (const w of db.prepare('SELECT * FROM webhooks WHERE boutique_id = ?').all(boutiqueId)) {
       if (!JSON.parse(w.evenements).includes(type)) continue;
       const id = 'evt_' + crypto.randomBytes(8).toString('hex');
-      const corps = JSON.stringify({ id, type, cree: new Date().toISOString(), donnees });
-      const email = donnees && donnees.client && donnees.client.email, P = chiffrement();
+      const pour = w.donnees_client ? donnees : sansDonneesClient(donnees);
+      const corps = JSON.stringify({ id, type, cree: new Date().toISOString(), donnees: pour });
+      const email = pour && pour.client && pour.client.email, P = chiffrement();
       db.prepare('INSERT INTO webhook_envois (id, webhook_id, evenement, corps, prochain_essai, cree_le, email_index) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, w.id, type, fermer(boutiqueId, id, corps), Date.now(), Date.now(), P && email ? P.index(boutiqueId, email) : null);
       // File bornée, tous statuts confondus : ni un point d'arrivée en panne, ni un flot d'événements ne remplit la base
       // (les plus anciennes lignes au-delà de la limite sont supprimées, pas seulement marquées).

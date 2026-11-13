@@ -90,3 +90,34 @@ test('API v1 et webhooks : pagination des clients, file bornée, ruptures, prix,
     assert.ok(db.prepare("SELECT 1 FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente' AND evenement = 'commande.payee'").get(wh.id), 'le nouvel envoi est gardé');
   } finally { s.close(); rec.close(); }
 });
+
+test('webhook sans données personnelles : le client réduit à son pays ; avec la case, données complètes', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  const gerer = creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', INTEGRATIONS_HTTP_LOCAL: '1' }, urlPublique: base, journal: { log() {}, error() {} } });
+  s.on('request', gerer);
+  const recus = [];
+  const rec = http.createServer((req, res) => { let d = ''; req.on('data', c => d += c); req.on('end', () => { recus.push({ chemin: req.url, corps: JSON.parse(d) }); res.end('ok'); }); });
+  await new Promise(ok => rec.listen(0, '127.0.0.1', ok));
+  let cookie = '';
+  const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length && /session/.test(sc.join(';'))) cookie = sc.map(x => x.split(';')[0]).join('; '); return { s: r.status, j: await r.json().catch(() => null) }; };
+  try {
+    const ins = await c('POST', '/api/auth/inscription', { email: 'min@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Min', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'Min Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'min@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } }, produits: [{ nom: 'Vase', prix: 40, stock: 10, type: 'stock' }] });
+    const { url } = (await c('POST', '/api/abonnement/commencer', { formule: 'croissance' })).j; await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
+    const port = rec.address().port;
+    await c('POST', '/api/admin/integrations/webhooks', { url: `http://127.0.0.1:${port}/sans`, evenements: ['commande.payee'] });
+    await c('POST', '/api/admin/integrations/webhooks', { url: `http://127.0.0.1:${port}/avec`, evenements: ['commande.payee'], donneesClient: true });
+    const liste = (await c('GET', '/api/admin/integrations')).j.webhooks;
+    assert.deepEqual(liste.map(w => w.donneesClient).sort(), [false, true]);
+    const pub = (await c('GET', `/api/public/${ins.j.slug}`)).j;
+    const cmd = (await fetch(`${base}/api/public/${ins.j.slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Lou Martin', email: 'lou@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }) }).then(r => r.json()));
+    await fetch(cmd.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    // En file : seul l'envoi « avec » est indexé par le client (effacement des données).
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM webhook_envois WHERE email_index IS NOT NULL').get().n, 1);
+    await gerer.envoyerWebhooks();
+    const sans = recus.find(r => r.chemin === '/sans').corps.donnees, avec = recus.find(r => r.chemin === '/avec').corps.donnees;
+    assert.equal(avec.client.email, 'lou@exemple.ch');
+    assert.deepEqual(Object.keys(sans.client), ['pays']); assert.ok(!JSON.stringify(sans).includes('lou@') && !JSON.stringify(sans).includes('Martin'));
+    assert.equal(sans.numero, avec.numero, 'le reste de la commande est identique');
+  } finally { s.close(); rec.close(); }
+});
