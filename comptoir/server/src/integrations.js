@@ -17,14 +17,14 @@ const PORTEES = ['commandes:lecture', 'commandes:ecriture', 'produits:lecture', 
 const EVENEMENTS = ['commande.payee', 'commande.expediee', 'commande.livree', 'commande.remboursee', 'commande.remboursement_partiel', 'commande.annulee', 'commande.retiree', 'produit.rupture', 'journal.cloture', 'devis.accepte', 'carte.emise', 'stock.transfert'];
 const ESSAIS_MAX = 15;
 const PAUSE_APRES_MS = 3 * 86400000;   // aucune réponse réussie depuis 3 jours : webhook mis en pause
-const FILE_MAX = 5000;                  // envois en attente par webhook (au-delà, les plus anciens sont abandonnés)
+const FILE_MAX = 5000;                  // lignes gardées par webhook, tous statuts (au-delà, les plus anciennes sont supprimées)
 const sha256 = t => crypto.createHash('sha256').update(t).digest('hex');
 
 /* Adresse IP privée, locale ou réservée : un webhook ne doit jamais viser l'intérieur du serveur ou du réseau. */
 function ipv4Interne(ip) {
   const [a, b, c] = ip.split('.').map(Number);
   return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
-    || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19)) || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113) || a >= 224;
+    || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19)) || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113) || (a === 192 && b === 88 && c === 99) || a >= 224;   // 192.88.99.0/24 : relais 6to4
 }
 // IPv6 → 8 groupes de 16 bits (accepte « :: » et une fin en notation IPv4).
 function groupesIpv6(ip) {
@@ -47,7 +47,8 @@ function ipInterne(ip) {
   if (zero(7) && g[7] === 1) return true;                                // ::1
   if (zero(5) && (g[5] === 0xffff || g[5] === 0)) return ipv4Interne(v4De(g[6], g[7]));   // ::ffff:a.b.c.d, ::a.b.c.d
   if (zero(4) && g[4] === 0xffff && g[5] === 0) return ipv4Interne(v4De(g[6], g[7]));     // ::ffff:0:a.b.c.d
-  if (g[0] === 0x64 && g[1] === 0xff9b) return ipv4Interne(v4De(g[6], g[7]));             // NAT64
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 0) return ipv4Interne(v4De(g[6], g[7]));   // NAT64 bien connu (64:ff9b::/96)
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return true;                         // NAT64 local (64:ff9b:1::/48, RFC 8215) : position de l'IPv4 variable, refusé
   if (g[0] === 0x2002) return ipv4Interne(v4De(g[1], g[2]));                               // 6to4
   if (g[0] === 0x2001 && g[1] === 0) return true;                                          // Teredo
   if (g[0] === 0x2001 && g[1] === 0xdb8) return true;                                      // documentation
@@ -64,7 +65,9 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE, url TEXT NOT NULL, secret TEXT NOT NULL, evenements TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 1, cree_le INTEGER NOT NULL, echecs_suite INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS webhook_envois (id TEXT PRIMARY KEY, webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE, evenement TEXT NOT NULL, corps TEXT NOT NULL, statut TEXT NOT NULL DEFAULT 'attente', tentatives INTEGER NOT NULL DEFAULT 0, prochain_essai INTEGER NOT NULL, dernier_code INTEGER, cree_le INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS webhook_envois_file ON webhook_envois(statut, prochain_essai);
-    CREATE INDEX IF NOT EXISTS webhook_envois_hook ON webhook_envois(webhook_id, statut, cree_le);`);
+    CREATE INDEX IF NOT EXISTS webhook_envois_hook ON webhook_envois(webhook_id, statut, cree_le);
+    CREATE INDEX IF NOT EXISTS webhook_envois_age ON webhook_envois(webhook_id, cree_le);`);
+  for (const col of ['secret_ancien TEXT', 'secret_ancien_jusqu INTEGER']) { try { db.exec(`ALTER TABLE webhooks ADD COLUMN ${col}`); } catch { /* déjà là */ } }
   try { db.exec('ALTER TABLE webhook_envois ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
   for (const col of ['premier_echec INTEGER', 'dernier_succes INTEGER']) { try { db.exec(`ALTER TABLE webhooks ADD COLUMN ${col}`); } catch { /* déjà là */ } }
   const httpLocalPermis = env.INTEGRATIONS_HTTP_LOCAL === '1';   // essais uniquement : webhooks vers http://127.0.0.1
@@ -143,7 +146,14 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
       req.end(corps);
     });
   }
-  const entetesSignes = (secret, id, type, corps) => { const t = Math.floor(Date.now() / 1000); return { 'Content-Type': 'application/json', 'User-Agent': 'Comptoir-Webhooks/1', 'Comptoir-Signature': `t=${t},v1=${signer(secret, t, corps)}`, 'Comptoir-Evenement': type, 'Comptoir-Id': id }; };
+  /* Secret d'un webhook : chiffré en base (comme les données des clients), lu au moment de signer. Pendant 24 heures après
+     une rotation, l'ancien secret signe aussi : l'en-tête porte deux « v1= », le destinataire accepte l'un ou l'autre
+     le temps de mettre à jour sa configuration. */
+  const fermerSecret = (bid, id, secret) => { const P = chiffrement(); return P ? P.chiffrer({ secret }, { boutique: bid, commande: `webhook-secret:${id}` }) : secret; };
+  const ouvrirSecret = (bid, id, texte) => { if (!texte) return null; const P = chiffrement(); if (!P || !/^v[12]\./.test(texte)) return texte; return P.dechiffrer(texte, { boutique: bid, commande: `webhook-secret:${id}` }).secret; };
+  // Ordre : l'ancien secret d'abord, le nouveau en dernier (un vérificateur qui ne garde que le dernier « v1= » marche avec le nouveau secret).
+  const secretsDe = w => [w.secret_ancien && w.secret_ancien_jusqu > Date.now() ? ouvrirSecret(w.boutique_id, w.id, w.secret_ancien) : null, ouvrirSecret(w.boutique_id, w.id, w.secret)].filter(Boolean);
+  const entetesSignes = (secrets, id, type, corps) => { const t = Math.floor(Date.now() / 1000); return { 'Content-Type': 'application/json', 'User-Agent': 'Comptoir-Webhooks/1', 'Comptoir-Signature': `t=${t},${(Array.isArray(secrets) ? secrets : [secrets]).map(x => `v1=${signer(x, t, corps)}`).join(',')}`, 'Comptoir-Evenement': type, 'Comptoir-Id': id }; };
 
   async function creerWebhook(boutiqueId, { url, evenements }) {
     const ev = (Array.isArray(evenements) ? evenements : []).filter(x => EVENEMENTS.includes(x));
@@ -151,8 +161,23 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     if (db.prepare('SELECT COUNT(*) n FROM webhooks WHERE boutique_id = ?').get(boutiqueId).n >= 10) throw erreur(409, '10 webhooks au plus.', 'trop_de_webhooks');
     const propre = await verifierUrl(url);
     const id = 'wh_' + crypto.randomBytes(6).toString('hex'), secret = 'whsec_' + crypto.randomBytes(24).toString('base64url');
-    db.prepare('INSERT INTO webhooks (id, boutique_id, url, secret, evenements, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(id, boutiqueId, propre, secret, JSON.stringify([...new Set(ev)]), Date.now());
+    db.prepare('INSERT INTO webhooks (id, boutique_id, url, secret, evenements, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(id, boutiqueId, propre, fermerSecret(boutiqueId, id, secret), JSON.stringify([...new Set(ev)]), Date.now());
     return { id, secret };
+  }
+  /* Nouveau secret (fuite, départ d'un prestataire) sans perdre la file : l'ancien signe encore 24 heures. */
+  function renouvelerSecret(boutiqueId, id) {
+    const w = db.prepare('SELECT * FROM webhooks WHERE id = ? AND boutique_id = ?').get(String(id), boutiqueId);
+    if (!w) return null;
+    const secret = 'whsec_' + crypto.randomBytes(24).toString('base64url'), jusqu = Date.now() + 24 * 3600000;
+    db.prepare('UPDATE webhooks SET secret = ?, secret_ancien = ?, secret_ancien_jusqu = ? WHERE id = ?').run(fermerSecret(boutiqueId, w.id, secret), w.secret, jusqu, w.id);
+    return { id: w.id, secret, ancienValableJusqua: new Date(jusqu).toISOString() };
+  }
+  /* Secrets encore en clair (avant le chiffrement) : chiffrés une fois (appelé au démarrage). */
+  function chiffrerSecrets() {
+    if (!chiffrement()) return 0;
+    let n = 0;
+    for (const w of db.prepare("SELECT id, boutique_id, secret FROM webhooks WHERE secret NOT LIKE 'v_.%'").all()) { db.prepare('UPDATE webhooks SET secret = ? WHERE id = ?').run(fermerSecret(w.boutique_id, w.id, w.secret), w.id); n++; }
+    return n;
   }
   const listerWebhooks = boutiqueId => db.prepare('SELECT id, url, evenements, actif, cree_le, echecs_suite, premier_echec, dernier_succes FROM webhooks WHERE boutique_id = ? ORDER BY cree_le DESC').all(boutiqueId)
     .map(w => ({ ...w, evenements: JSON.parse(w.evenements), actif: !!w.actif,
@@ -168,9 +193,17 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
 
   /* Émet un événement : un envoi par webhook abonné (file persistante, survit aux redémarrages).
      Un webhook en pause continue de recevoir ses événements dans la file : rien n'est perdu à la réactivation. */
+  const dernieresRuptures = new Map();
   function emettre(boutiqueId, type, donnees) {
     if (!EVENEMENTS.includes(type)) return 0;
     if (!permis(boutiqueId)) return 0;   // formule sans API ou abonnement terminé : plus aucune donnée ne sort
+    // Rupture de stock : au plus une par produit toutes les 10 minutes (un stock qui oscille entre 0 et 5 par l'API ne
+    // remplit pas la file).
+    if (type === 'produit.rupture' && donnees && donnees.id) {
+      const cle = `${boutiqueId}|${donnees.id}`, t = Date.now();
+      if (t - (dernieresRuptures.get(cle) || 0) < 10 * 60000) return 0;
+      dernieresRuptures.set(cle, t); if (dernieresRuptures.size > 20000) dernieresRuptures.clear();
+    }
     let n = 0;
     for (const w of db.prepare('SELECT * FROM webhooks WHERE boutique_id = ?').all(boutiqueId)) {
       if (!JSON.parse(w.evenements).includes(type)) continue;
@@ -178,8 +211,9 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
       const corps = JSON.stringify({ id, type, cree: new Date().toISOString(), donnees });
       const email = donnees && donnees.client && donnees.client.email, P = chiffrement();
       db.prepare('INSERT INTO webhook_envois (id, webhook_id, evenement, corps, prochain_essai, cree_le, email_index) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, w.id, type, fermer(boutiqueId, id, corps), Date.now(), Date.now(), P && email ? P.index(boutiqueId, email) : null);
-      // File bornée : un point d'arrivée en panne depuis des semaines ne remplit pas la base.
-      db.prepare(`UPDATE webhook_envois SET statut = 'echec' WHERE id IN (SELECT id FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente' ORDER BY cree_le DESC LIMIT -1 OFFSET ${FILE_MAX})`).run(w.id);
+      // File bornée, tous statuts confondus : ni un point d'arrivée en panne, ni un flot d'événements ne remplit la base
+      // (les plus anciennes lignes au-delà de la limite sont supprimées, pas seulement marquées).
+      db.prepare(`DELETE FROM webhook_envois WHERE id IN (SELECT id FROM webhook_envois WHERE webhook_id = ? ORDER BY cree_le DESC LIMIT -1 OFFSET ${FILE_MAX})`).run(w.id);
       n++;
     }
     return n;
@@ -193,7 +227,7 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     for (const w of db.prepare('SELECT * FROM webhooks WHERE boutique_id = ?').all(boutiqueId)) {
       const id = 'evt_test_' + crypto.randomBytes(6).toString('hex');
       const corps = JSON.stringify({ id, type: 'test', cree: new Date().toISOString(), donnees: { message: 'Événement de test envoyé depuis Comptoir.' } });
-      const code = await poster(w.url, corps, entetesSignes(w.secret, id, 'test', corps), 5000);
+      const code = await poster(w.url, corps, entetesSignes(secretsDe(w), id, 'test', corps), 5000);
       res.push({ id: w.id, url: w.url, code, ok: code >= 200 && code < 300 });
     }
     return res;
@@ -218,9 +252,10 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
           budget--;
           const corps = ouvrir(w.boutique_id, e.id, e.corps);
           if (corps === null) { db.prepare("UPDATE webhook_envois SET statut = 'echec' WHERE id = ?").run(e.id); journal.error('[webhook] envoi illisible (clé changée ?)', e.id); continue; }
-          const code = await poster(w.url, corps, entetesSignes(w.secret, e.id, e.evenement, corps));
+          const code = await poster(w.url, corps, entetesSignes(secretsDe(w), e.id, e.evenement, corps));
           if (code >= 200 && code < 300) {
-            db.prepare("UPDATE webhook_envois SET statut = 'envoye', tentatives = tentatives + 1, dernier_code = ? WHERE id = ?").run(code, e.id);
+            // Livré : le corps (données du client, chiffrées) ne sert plus ; seules les métadonnées restent (30 jours).
+            db.prepare("UPDATE webhook_envois SET statut = 'envoye', tentatives = tentatives + 1, dernier_code = ?, corps = '', email_index = NULL WHERE id = ?").run(code, e.id);
             db.prepare('UPDATE webhooks SET echecs_suite = 0, premier_echec = NULL, dernier_succes = ? WHERE id = ?').run(Date.now(), w.id);
             n++;
           } else {
@@ -261,6 +296,13 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
       let email = null; try { const d = JSON.parse(corps).donnees; email = d && d.client && d.client.email; } catch { /* corps illisible */ }
       db.prepare('UPDATE webhook_envois SET corps = ?, email_index = ? WHERE id = ?').run(fermer(e.boutique_id, e.id, corps), email ? P.index(e.boutique_id, email) : null, e.id); n++;
     }
+    // Secrets des webhooks (et ancien secret encore valable) : rechiffrés avec la clé courante.
+    for (const w of db.prepare("SELECT id, boutique_id, secret, secret_ancien FROM webhooks WHERE secret LIKE 'v_.%' OR secret_ancien LIKE 'v_.%'").all()) {
+      const ctxS = { boutique: w.boutique_id, commande: `webhook-secret:${w.id}` };
+      const neuf = t => { if (!t || !/^v[12]\./.test(t)) return t; try { return P.aRenouveler(t, ctxS) ? fermerSecret(w.boutique_id, w.id, P.dechiffrer(t, ctxS).secret) : t; } catch { return t; } };
+      const s1 = neuf(w.secret), s2 = neuf(w.secret_ancien);
+      if (s1 !== w.secret || s2 !== w.secret_ancien) { db.prepare('UPDATE webhooks SET secret = ?, secret_ancien = ? WHERE id = ?').run(s1, s2, w.id); n++; }
+    }
     return n;
   }
   function effacerClient(boutiqueId, email) {
@@ -268,7 +310,7 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     return db.prepare("DELETE FROM webhook_envois WHERE webhook_id IN (SELECT id FROM webhooks WHERE boutique_id = ?) AND (email_index = ? OR instr(lower(corps), ?) > 0)").run(boutiqueId, ix, JSON.stringify(String(email).toLowerCase())).changes;
   }
 
-  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, signer, verifierUrl, poster };
+  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, renouvelerSecret, chiffrerSecrets, signer, verifierUrl, poster };
 }
 
 module.exports = { creerIntegrations, ipInterne, PORTEES, EVENEMENTS };

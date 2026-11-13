@@ -971,7 +971,7 @@ Un relecteur indépendant a attaqué la boutique publique et le paiement : prix,
 
 200 tests sur 200. Vérificateur complet : 6 étapes sur 7, puis la simulation de 60 jours relancée seule après le correctif du plancher : 0 anomalie sur plus de 7 000 commandes.
 
-### Cycle 54 (09 h 05) : codes promo avec limites (chantier 47)
+### Cycle 54 (08 h 55) : codes promo avec limites (chantier 47)
 
 - **Nouvelles règles pour un code manuel**, toutes facultatives et contrôlées par le serveur :
   - un montant minimum du panier, compté avec les prix d'offre ;

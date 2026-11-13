@@ -99,7 +99,7 @@ Les statuts possibles :
 
 ### Clients
 
-`GET /clients` liste les clients qui ont au moins une commande payée : e-mail, nom, nombre de commandes, total dépensé et date de la dernière commande.
+`GET /clients` liste les clients qui ont au moins une commande payée : e-mail, nom, nombre de commandes, total dépensé et date de la dernière commande. Par pages : `limite` (entre 1 et 100, 50 par défaut) et `apres` (le curseur `suite` de la page précédente) ; la réponse a la forme `{ "donnees": [...], "suite": "<curseur>" | null }`. Au plus 60 lectures par minute et par boutique.
 
 ## Webhooks
 
@@ -130,17 +130,22 @@ Ces en-têtes accompagnent chaque envoi :
 - `Comptoir-Id` : l'identifiant de l'événement, à mémoriser pour ignorer un éventuel double envoi ;
 - `Comptoir-Signature` : `t=<horodatage>,v1=<signature>`.
 
-**Vérifier la signature.** La signature `v1` est un HMAC-SHA256, en hexadécimal, de la chaîne `<t>.<corps brut>`. La clé de calcul est le secret `whsec_…` affiché une seule fois quand vous créez le webhook. Refusez un appel si la signature ne correspond pas ou si `t` date de plus de 5 minutes.
+**Vérifier la signature.** La signature `v1` est un HMAC-SHA256, en hexadécimal, de la chaîne `<t>.<corps brut>`. La clé de calcul est le secret `whsec_…` affiché une seule fois quand vous créez le webhook. Refusez un appel si aucune signature ne correspond ou si `t` date de plus de 5 minutes.
+
+**Nouveau secret** (bouton « Nouveau secret », ou `POST /api/admin/integrations/webhooks/<id>/secret` depuis l'espace marchand) : pendant 24 heures, chaque envoi est signé avec l'ancien et le nouveau secret. L'en-tête porte alors deux `v1=`, l'ancien d'abord, puis le nouveau. Vous avez le temps de mettre à jour votre outil sans perdre d'événement. Acceptez l'appel si l'une des signatures correspond :
 
 ```js
 const crypto = require('crypto');
 function verifier(corpsBrut, entete, secret) {
-  const { t, v1 } = Object.fromEntries(entete.split(',').map(x => x.split('=')));
+  const parties = entete.split(',').map(x => x.split('='));
+  const t = (parties.find(([k]) => k === 't') || [])[1];
   const attendu = crypto.createHmac('sha256', secret).update(`${t}.${corpsBrut}`).digest('hex');
-  const ok = v1 && v1.length === attendu.length && crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(attendu));
+  const ok = parties.some(([k, v]) => k === 'v1' && v && v.length === attendu.length && crypto.timingSafeEqual(Buffer.from(v), Buffer.from(attendu)));
   return ok && Math.abs(Date.now() / 1000 - Number(t)) < 300;
 }
 ```
+
+Les secrets sont chiffrés en base. Un envoi livré ne garde que ses métadonnées (date, code de réponse) : son contenu est effacé. La file garde au plus 5 000 envois par webhook, et un même produit n'émet pas plus d'une rupture de stock toutes les 10 minutes.
 
 **Réponses et nouveaux essais.** Votre outil doit répondre par un code `2xx` en moins de 10 secondes. Les redirections ne sont pas suivies. Le bouton « Envoyer un test » envoie tout de suite un événement `test` et affiche la réponse reçue.
 

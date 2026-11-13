@@ -39,7 +39,7 @@ function vueIntegrations() {
     ${d.webhooks.map(w => `<div class="webhook-integ"><p><span class="mono">${esc(w.url)}</span> ${w.actif ? (w.premier_echec ? `<span class="pill warn">Ne répond plus depuis le ${date(w.premier_echec)}</span>` : '<span class="pill good">Actif</span>') : `<span class="pill bad">En pause : aucune réponse depuis 3 jours</span> <button class="btn petit" data-action="integ-reactiver" data-id="${esc(w.id)}">Réactiver${w.enAttente ? ` et envoyer les ${w.enAttente} événements en attente` : ''}</button>`}</p>
       <p class="sous">${w.evenements.map(x => esc(LIBELLES_EVENEMENTS[x] || x)).join(' · ')}</p>
       ${w.derniers.length ? `<ul class="journal-compte">${w.derniers.map(e => `<li><span class="sous">${date(e.cree_le)}</span> ${esc(LIBELLES_EVENEMENTS[e.evenement] || e.evenement)} ${statutEnvoi(e)}${e.dernier_code ? ` <span class="mono sous">HTTP ${esc(String(e.dernier_code))}</span>` : ''}</li>`).join('')}</ul>` : '<p class="sous">Aucun envoi pour l’instant.</p>'}
-      <div class="rangee"><button class="btn petit fantome danger" data-action="integ-supprimer" data-id="${esc(w.id)}">Supprimer</button></div></div>`).join('')}
+      <div class="rangee"><button class="btn petit fantome" data-action="integ-secret" data-id="${esc(w.id)}">Nouveau secret</button><button class="btn petit fantome danger" data-action="integ-supprimer" data-id="${esc(w.id)}">Supprimer</button></div></div>`).join('')}
     <details${d.webhooks.length ? '' : ' open'}><summary>Ajouter un webhook</summary><form data-form="integ-webhook" class="grille-form">
       <label class="champ"><span>Adresse (https://…)</span><input name="url" type="url" required placeholder="https://hooks.zapier.com/…" pattern="https://.*"></label>
       <fieldset class="champ"><legend>Événements</legend>${d.evenements.map(x => `<label class="case"><input type="checkbox" name="evenements" value="${esc(x)}"${x === 'commande.payee' ? ' checked' : ''}> ${esc(LIBELLES_EVENEMENTS[x] || x)}</label>`).join('')}</fieldset>
@@ -56,6 +56,12 @@ document.addEventListener('click', async e => {
     else if (a === 'integ-fini') INTEG.nouvelle = null;
     else if (a === 'integ-revoquer') { if (!confirm('Révoquer cette clé ? Les outils qui l’utilisent perdront l’accès immédiatement.')) return; await api('POST', `/api/admin/integrations/cles/${encodeURIComponent(el.dataset.id)}/revoquer`); toast('Clé révoquée.'); INTEG.donnees = null; }
     else if (a === 'integ-supprimer') { if (!confirm('Supprimer ce webhook ?')) return; await api('POST', `/api/admin/integrations/webhooks/${encodeURIComponent(el.dataset.id)}/supprimer`); INTEG.donnees = null; }
+    else if (a === 'integ-secret') {
+      if (!confirm('Créer un nouveau secret de signature ? L’ancien reste valable 24 heures, le temps de mettre à jour votre outil.')) return;
+      const r = await api('POST', `/api/admin/integrations/webhooks/${encodeURIComponent(el.dataset.id)}/secret`);
+      INTEG.nouvelle = { type: 'webhook', valeur: r.secret }; INTEG.donnees = null;
+      toast('Nouveau secret créé : l’ancien signe encore les envois pendant 24 heures.');
+    }
     else if (a === 'integ-reactiver') { await api('POST', `/api/admin/integrations/webhooks/${encodeURIComponent(el.dataset.id)}/reactiver`); toast('Webhook réactivé.'); INTEG.donnees = null; }
     else if (a === 'integ-tester') {
       el.disabled = true;

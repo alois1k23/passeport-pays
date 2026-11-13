@@ -446,7 +446,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Anciennes pages en clair effacées du fichier (SQLite réutilise les pages libérées sans les remettre à zéro).
       try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); db.exec('VACUUM'); db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) { journal.error('[donnees-clients] compactage', e.message); }
     }
-    try { const n = DV.chiffrerAnciens() + integ.chiffrerFile(); if (n) journal.log(`[donnees-clients] ${n} devis ou envoi(s) de webhook chiffré(s)`); } catch (e) { journal.error('[donnees-clients] devis et webhooks', e.message); }
+    try { const n = DV.chiffrerAnciens() + integ.chiffrerFile() + integ.chiffrerSecrets(); if (n) journal.log(`[donnees-clients] ${n} devis ou envoi(s) de webhook chiffré(s)`); } catch (e) { journal.error('[donnees-clients] devis et webhooks', e.message); }
     if (trousseau.length > 1) try { const n = DV.renouvelerCle() + integ.renouvelerCleFile(); if (n) journal.log(`[donnees-clients] ${n} devis ou envoi(s) de webhook rechiffré(s) avec la clé courante`); } catch (e) { journal.error('[donnees-clients] rotation devis et webhooks', e.message); }
     if (illisibles) journal.error(`[donnees-clients] ATTENTION : ${illisibles} commande(s) dont les données client sont illisibles avec les clés connues. SECRET_CHIFFREMENT a-t-il changé ? Remettez l'ancienne valeur.`);
     if (abimees) journal.error(`[donnees-clients] ${abimees} commande(s) aux données illisibles (JSON abîmé), laissées telles quelles`);
@@ -3331,6 +3331,11 @@ ${bloc}</main></body></html>`;
   r.post('/api/admin/integrations/cles/:id/revoquer', exigerMarchand, ctx => { if (!integ.revoquerCle(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Clé inconnue.', 'introuvable'); noterActivite(ctx.marchand.id, 'cle-api-revoquee', null, ctx); return { ok: true }; });
   r.post('/api/admin/integrations/webhooks', exigerFonction('api'), async ctx => ({ statut: 201, corps: await integ.creerWebhook(ctx.boutique.id, ctx.corps) }));
   r.post('/api/admin/integrations/webhooks/:id/supprimer', exigerMarchand, ctx => { if (!integ.supprimerWebhook(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Webhook inconnu.', 'introuvable'); return { ok: true }; });
+  r.post('/api/admin/integrations/webhooks/:id/secret', exigerFonction('api'), ctx => {
+    const r2 = integ.renouvelerSecret(ctx.boutique.id, ctx.params.id); if (!r2) throw erreur(404, 'Webhook inconnu.', 'introuvable');
+    noterActivite(ctx.marchand.id, 'secret-webhook', r2.id, ctx);
+    return r2;
+  });
   r.post('/api/admin/integrations/webhooks/:id/reactiver', exigerFonction('api'), ctx => { if (!integ.reactiverWebhook(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Webhook inconnu.', 'introuvable'); return { ok: true }; });
   r.post('/api/admin/integrations/webhooks/tester', exigerFonction('api'), async ctx => {
     auth.limiter('webhook-test:' + ctx.boutique.id, 5, 60000, 'Trop de tests : réessayez dans une minute.');
@@ -3402,28 +3407,32 @@ ${bloc}</main></body></html>`;
         const u = c.variantes.find(x => x && x.id === v.id); if (!u) return v;
         if (u.stock !== undefined && avant.type === 'drop') throw erreur(400, 'Produit du fournisseur : le stock de ses variantes est celui du fournisseur.', 'stock_fournisseur');
         if (u.stock !== undefined && (!Number.isInteger(u.stock) || u.stock < 0 || u.stock > 1e6)) throw erreur(400, `Stock invalide pour la variante « ${v.id} ».`, 'stock');
-        if (u.prix !== undefined && u.prix !== null && (typeof u.prix !== 'number' || !(u.prix > 0) || u.prix > 1e6)) throw erreur(400, `Prix invalide pour la variante « ${v.id} ».`, 'prix');
+        if (u.prix !== undefined && u.prix !== null && (typeof u.prix !== 'number' || !(prix.arrondi(u.prix) >= 0.01) || u.prix > 1e6)) throw erreur(400, `Prix invalide pour la variante « ${v.id} ».`, 'prix');
         return { ...v, ...(u.stock !== undefined ? { stock: u.stock } : {}), ...(u.prix === null ? { prix: undefined } : u.prix !== undefined ? { prix: u.prix } : {}) };
       });
       if (c.variantes.some(x => !x || !avant.variantes.some(v => v.id === x.id))) throw erreur(400, 'Variante inconnue.', 'variantes');
     }
     if (c.actif !== undefined) { if (typeof c.actif !== 'boolean') throw erreur(400, '« actif » doit valoir true ou false.', 'actif'); maj.actif = c.actif; }
     if (c.stock !== undefined && (!Number.isInteger(c.stock) || c.stock < 0 || c.stock > 1e6)) throw erreur(400, '« stock » doit être un entier positif.', 'stock');
-    if (c.prix !== undefined && (typeof c.prix !== 'number' || !(c.prix > 0) || c.prix > 1e6)) throw erreur(400, '« prix » doit être un nombre positif.', 'prix');
+    if (c.prix !== undefined && (typeof c.prix !== 'number' || !(prix.arrondi(c.prix) >= 0.01) || c.prix > 1e6)) throw erreur(400, '« prix » doit valoir au moins 0,01 (arrondi au centime).', 'prix');
     const propre = nettoyerProduit({ ...maj, type: avant.type, source: avant.source, codeFournisseur: avant.codeFournisseur, image: avant.image, options: avant.options, variantes: maj.variantes || avant.variantes }, avant.historiquePrix || []);
     transaction(db, () => { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, propre), ctx.params.id); reconcilierProduit(ctx.boutique.id, ctx.params.id); });   // fiche et emplacements ensemble
     if (avant.type !== 'drop' && (avant.stock || 0) > 0 && propre.stock <= 0) integ.emettre(ctx.boutique.id, 'produit.rupture', { id: ctx.params.id, nom: propre.nom, stock: 0 });
     return produitApi({ ...propre, id: ctx.params.id }, ctx.boutique.slug);
   });
+  /* Clients : regroupés par l'index aveugle de l'e-mail (sans rien déchiffrer pour compter), par pages de 50 (100 au plus).
+     Seule la dernière commande de chaque client de la page est déchiffrée (e-mail, nom). Avant, la route déchiffrait
+     toutes les commandes de la boutique à chaque appel (0,8 s de calcul bloquant à 20 000 commandes). */
   r.get('/api/v1/clients', exigerCle('clients:lecture'), ctx => {
-    const parEmail = new Map();
-    for (const c of db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee')").all(ctx.boutique.id).map(lireCommande)) {
-      const e = String(c.client && c.client.email || '').toLowerCase(); if (!e) continue;
-      const x = parEmail.get(e) || { email: e, nom: c.client.nom, commandes: 0, total: 0, derniere: null };
-      x.commandes++; x.total = Math.round((x.total + c.total) * 100) / 100; x.derniere = new Date(Math.max(c.date, x.derniere ? Date.parse(x.derniere) : 0)).toISOString();
-      parEmail.set(e, x);
-    }
-    return { donnees: [...parEmail.values()] };
+    auth.limiter(`api-clients:${ctx.boutique.id}`, 60 * facteurLimites, 60000, 'Trop de lectures de la liste des clients : réessayez dans une minute.');
+    const q = ctx.query, limite = Math.max(1, Math.min(100, Number(q.get('limite')) || 50)), apres = q.get('apres') || '';
+    if (apres && !/^[0-9a-f]{40}$/.test(apres)) throw erreur(400, 'Curseur « apres » invalide : repassez la valeur « suite » reçue.', 'curseur');
+    const groupes = db.prepare(`SELECT email_index, COUNT(*) n, ROUND(SUM(json_extract(donnees, '$.total')), 2) total, MAX(date) derniere FROM commandes
+      WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee') AND email_index IS NOT NULL AND email_index > ? GROUP BY email_index ORDER BY email_index LIMIT ?`).all(ctx.boutique.id, apres, limite + 1);
+    const page = groupes.slice(0, limite);
+    const derniere = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND email_index = ? AND statut NOT IN ('attente', 'annulee') ORDER BY date DESC LIMIT 1");
+    const donnees = page.map(g => { const c = lireCommande(derniere.get(ctx.boutique.id, g.email_index)); return { email: String(c.client && c.client.email || '').toLowerCase(), nom: c.client && c.client.nom, commandes: g.n, total: Math.round(g.total * 100) / 100, derniere: new Date(g.derniere).toISOString() }; });
+    return { donnees, suite: groupes.length > limite ? page[page.length - 1].email_index : null };
   });
 
   /* Avis vérifiés : seul un client ayant reçu sa commande peut noter, une fois par produit. */
