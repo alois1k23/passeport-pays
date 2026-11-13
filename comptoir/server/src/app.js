@@ -1152,6 +1152,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Adresse quittée dont le changement peut encore être annulé : réservée (ni inscription, ni invitation, ni autre
   // changement vers elle), pour que sa titulaire puisse toujours la reprendre.
   const adresseReservee = email => !!db.prepare('SELECT 1 FROM annulations_email WHERE lower(ancien_email) = lower(?) AND expire_le > ?').get(String(email || ''), Date.now());
+  try { db.exec('ALTER TABLE reinitialisations ADD COLUMN email TEXT'); } catch { /* déjà là */ }
   const masquer = e => String(e).replace(/^(.)[^@]*@/, '$1…@');
   r.post('/api/admin/compte/email', exigerCompte, ctx => {
     exigerIdentite(ctx, { explicite: true });   // une session simplement récente ne suffit pas : mot de passe (et code) redemandés
@@ -1222,7 +1223,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // fonctionner : la titulaire en choisit un nouveau par le lien envoyé à l'ancienne adresse.
       const avant = l.cle_seule_avant;
       if (avant === 1 && db.prepare('SELECT 1 FROM cles_acces WHERE marchand_id = ?').get(l.marchand_id)) db.prepare('UPDATE marchands SET cle_seule = 1 WHERE id = ?').run(l.marchand_id);
-      else if (avant === 0) db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ?').run(l.marchand_id);
+      else if (avant === 0 || !db.prepare('SELECT 1 FROM cles_acces WHERE marchand_id = ?').get(l.marchand_id)) db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ?').run(l.marchand_id);   // plus aucune clé : l'option tomberait dans le vide
       else db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ? AND cle_seule = 1 AND COALESCE(cle_seule_le, 0) >= ?').run(l.marchand_id, depuis);   // demande d'avant cette règle
       db.prepare("UPDATE marchands SET mot_de_passe = 'annule$' WHERE id = ?").run(l.marchand_id);
       const retires = [];
@@ -1238,16 +1239,19 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         db.prepare('DELETE FROM webhooks WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
       }
       annulerRecuperation(l.marchand_id, 'changement d’adresse annulé', null);
+      // Liens de réinitialisation demandés pendant la période (envoyés à l'adresse de l'intrus) : caducs.
+      db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(l.marchand_id);
       const jeton = crypto.randomBytes(32).toString('base64url');
-      db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le) VALUES (?, ?, ?)').run(auth.sha256(jeton), l.marchand_id, Date.now() + 3600 * 1000);
-      return { l, jeton, retires };
+      db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le, email) VALUES (?, ?, ?, ?)').run(auth.sha256(jeton), l.marchand_id, Date.now() + 3600 * 1000, l.ancien_email);
+      const etat = db.prepare('SELECT cle_seule, (SELECT COUNT(*) FROM cles_acces WHERE marchand_id = marchands.id) cles FROM marchands WHERE id = ?').get(l.marchand_id);
+      return { l, jeton, retires, cleSeule: !!(etat && etat.cle_seule && etat.cles) };
     });
     if (!r0) throw erreur(400, 'Ce lien a expiré ou a déjà servi.', 'lien_expire');
     if (r0.pris) throw erreur(409, 'Cette adresse est utilisée par un autre compte : contactez le support.', 'email_pris');
     noterActivite(r0.l.marchand_id, 'email-changement-annule', masquer(r0.l.ancien_email), ctx);
     for (const x of r0.retires) noterActivite(r0.l.marchand_id, 'equipe-retiree-annulation', x, ctx);
     const liste = r0.retires.length ? `\n\nRetiré de votre équipe, car ajouté pendant la période suspecte :\n${r0.retires.map(x => '- ' + x).join('\n')}` : '';
-    envoyerEmail(null, r0.l.ancien_email, 'Changement d’adresse annulé : choisissez un nouveau mot de passe', `Bonjour,\n\nL’adresse de votre compte Comptoir vous a été rendue et tous les appareils ont été déconnectés. Votre mot de passe actuel ne fonctionne plus : choisissez-en un nouveau (lien valable 1 heure) :\n${urlPublique}/app?reinitialiser=${r0.jeton}${liste}\n\nVérifiez aussi vos clés d’API et webhooks dans Paramètres.\n\nL’équipe Comptoir`);
+    envoyerEmail(null, r0.l.ancien_email, r0.cleSeule ? 'Changement d’adresse annulé : reconnectez-vous avec votre clé d’accès' : 'Changement d’adresse annulé : choisissez un nouveau mot de passe', `Bonjour,\n\nL’adresse de votre compte Comptoir vous a été rendue et tous les appareils ont été déconnectés. ${r0.cleSeule ? `Votre compte n’accepte que votre clé d’accès : reconnectez-vous avec elle (${urlPublique}/app). N’utilisez le lien ci-dessous que si vous n’avez plus aucune clé : il lance la récupération différée de 72 heures, qui supprime vos clés.\n${urlPublique}/app?reinitialiser=${r0.jeton}` : `Votre mot de passe actuel ne fonctionne plus : choisissez-en un nouveau (lien valable 1 heure) :\n${urlPublique}/app?reinitialiser=${r0.jeton}`}${liste}\n\nVérifiez aussi vos clés d’API et webhooks dans Paramètres.\n\nL’équipe Comptoir`);
     return { ok: true };
   });
   r.post('/api/admin/compte/verifier-email/renvoyer', exigerCompte, ctx => {
@@ -1371,7 +1375,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT id FROM marchands WHERE email = ?').get(email);
     if (m) {
       const jeton = crypto.randomBytes(32).toString('base64url');
-      db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le) VALUES (?, ?, ?)').run(auth.sha256(jeton), m.id, Date.now() + 3600 * 1000);
+      db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le, email) VALUES (?, ?, ?, ?)').run(auth.sha256(jeton), m.id, Date.now() + 3600 * 1000, email);
       envoyerEmail(null, email, 'Réinitialiser votre mot de passe Comptoir', `Bonjour,\n\nPour choisir un nouveau mot de passe, ouvrez ce lien (valable 1 heure) :\n${urlPublique}/app?reinitialiser=${jeton}\n\nSi vous n’avez rien demandé, ignorez cet e-mail : votre mot de passe actuel reste valable.`);
     }
     return { ok: true };
@@ -1384,6 +1388,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const ligne = db.prepare('SELECT * FROM reinitialisations WHERE jeton_hash = ?').get(auth.sha256(String(ctx.corps.jeton || '')));
     if (!ligne || ligne.expire_le < Date.now()) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau.', 'lien_expire');
     const avant = db.prepare('SELECT email, cle_seule, (SELECT COUNT(*) FROM cles_acces WHERE marchand_id = marchands.id) cles FROM marchands WHERE id = ?').get(ligne.marchand_id);
+    // Lien envoyé à une adresse qui n'est plus celle du compte (changement d'adresse fait ou annulé depuis) : caduc.
+    if (!avant || (ligne.email && String(ligne.email).toLowerCase() !== String(avant.email).toLowerCase())) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau.', 'lien_expire');
     // Compte qui exige sa clé d'accès, sans double authentification : la boîte e-mail seule ne doit pas suffire.
     // La récupération n'agit qu'après 72 heures ; d'ici là, le propriétaire peut l'annuler depuis une session ouverte avec sa clé.
     const dfAvant = deuxFacteursDe(ligne.marchand_id);
@@ -1911,8 +1917,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!(await essayerMdpSession(ctx, m, ['mdp:' + m.id], String(ctx.corps.motDePasse || '')))) { throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
-      auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
-      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa');
+      auth.limiter('2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16), 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
+      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) { if (ctx.corps.code) echecIdentite(ctx, m, 'code'); throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa'); }
     }
     const actif = !!ctx.corps.actif;
     if (actif && !clesAccesDe(m.id).length) throw erreur(409, 'Ajoutez d’abord une clé d’accès (de préférence deux, sur deux appareils).', 'sans_cle');
@@ -1932,8 +1938,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Double authentification active : une clé d'accès ne s'ajoute qu'avec le code (sinon mot de passe + session volée suffiraient).
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
-      auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
-      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa');
+      auth.limiter('2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16), 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
+      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) { if (ctx.corps.code) echecIdentite(ctx, m, 'code'); throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa'); }
     }
     if (clesAccesDe(m.id).length >= 10) throw erreur(409, '10 clés d’accès au plus : supprimez-en une.', 'trop_de_cles');
     return { publicKey: { challenge: nouveauDefi('create', m.id), rp: { id: rpId, name: 'Comptoir' }, user: { id: WebAuthn.b64u(m.id), name: m.email, displayName: m.email },
@@ -1960,8 +1966,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Mêmes exigences que pour désactiver « Exiger la clé d'accès » : code de double authentification, et pas la dernière clé tant que l'option est active.
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
-      auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
-      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa');
+      auth.limiter('2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16), 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
+      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) { if (ctx.corps.code) echecIdentite(ctx, m, 'code'); throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa'); }
     }
     if (cleSeule(m.id) && clesAccesDe(m.id).length <= 1) throw erreur(409, 'C’est votre dernière clé d’accès et votre compte l’exige : réactivez d’abord la connexion par mot de passe.', 'derniere_cle');
     const c = db.prepare('DELETE FROM cles_acces WHERE id = ? AND marchand_id = ? RETURNING nom').get(String(ctx.params.id), m.id);
@@ -2010,9 +2016,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
     if (!df || df.actif) throw erreur(409, 'Recommencez la mise en place.', 'etat_2fa');
     if (!(await essayerMdpSession(ctx, m, ['mdp:' + m.id], String(ctx.corps.motDePasse || '')))) { throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
-    auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
+    auth.verifierEchecs(['2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16)], 5);
     const pas = totp.verifier(dechiffrerSecret2fa(df.secret).secret, ctx.corps.code);
-    if (pas === null) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect : vérifiez l’heure de votre téléphone et saisissez le code affiché maintenant.', 'code_2fa'); }
+    if (pas === null) { auth.noterEchec(['2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16)]); throw erreur(400, 'Code incorrect : vérifiez l’heure de votre téléphone et saisissez le code affiché maintenant.', 'code_2fa'); }
     const { codes, empreintes } = totp.codesSecours();
     db.prepare('UPDATE deux_facteurs SET actif = 1, dernier_pas = ?, secours = ? WHERE marchand_id = ?').run(pas, JSON.stringify(empreintes), m.id);
     // Les autres appareils déjà connectés sont déconnectés : un intrus déjà entré ne reste pas.
@@ -2027,8 +2033,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
     if (!df || !df.actif) throw erreur(409, 'La double authentification n’est pas active.', 'etat_2fa');
     if (!(await essayerMdpSession(ctx, m, ['mdp:' + m.id], String(ctx.corps.motDePasse || '')))) { throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
-    auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
-    if (!verifierSecondFacteur(deuxFacteursDe(m.id), ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
+    auth.verifierEchecs(['2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16)], 5);
+    if (!verifierSecondFacteur(deuxFacteursDe(m.id), ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16)]); if (ctx.corps.code) echecIdentite(ctx, m, 'code'); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
     const { codes, empreintes } = totp.codesSecours();
     db.prepare('UPDATE deux_facteurs SET secours = ? WHERE marchand_id = ?').run(JSON.stringify(empreintes), m.id);
     noterActivite(m.id, 'codes-secours-renouveles', null, ctx);
@@ -2038,8 +2044,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
     if (!df || !df.actif) return { ok: true };
     if (!(await essayerMdpSession(ctx, m, ['mdp:' + m.id], String(ctx.corps.motDePasse || '')))) { throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
-    auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
-    if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
+    auth.verifierEchecs(['2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16)], 5);
+    if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16)]); if (ctx.corps.code) echecIdentite(ctx, m, 'code'); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
     db.prepare('DELETE FROM deux_facteurs WHERE marchand_id = ?').run(m.id);
     noterActivite(m.id, '2fa-desactivee', null, ctx);
     envoyerEmail(null, m.email, 'Double authentification désactivée', `Bonjour,\n\nLa double authentification vient d’être désactivée sur votre compte Comptoir.\n\nCe n’était pas vous ? Changez votre mot de passe tout de suite et réactivez-la : ${urlPublique}/app\n\nL’équipe Comptoir`);
@@ -2099,8 +2105,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
-      auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
-      if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); echecIdentite(ctx, m, 'code'); throw erreur(400, ctx.corps.code ? 'Code incorrect.' : 'Saisissez le code de votre application d’authentification.', 'code_2fa'); }
+      auth.verifierEchecs(['2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16)], 5);
+      if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16)]); if (ctx.corps.code) echecIdentite(ctx, m, 'code'); throw erreur(400, ctx.corps.code ? 'Code incorrect.' : 'Saisissez le code de votre application d’authentification.', 'code_2fa'); }
     }
     db.prepare('UPDATE sessions SET identite_le = ?, echecs_identite = 0 WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
     noterActivite(m.id, 'identite-confirmee', null, ctx);
@@ -2776,8 +2782,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     auth.limiter('export-complet:' + ctx.boutique.id, 5, 3600000, 'Export déjà fait plusieurs fois cette heure : réessayez plus tard.');
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
-      auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
-      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa');
+      auth.limiter('2fa-gestion:' + m.id + ':' + jetonHash(ctx).slice(0, 16), 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
+      if (!verifierSecondFacteur(df, String(ctx.corps.code || ''), ctx)) { if (ctx.corps.code) echecIdentite(ctx, m, 'code'); throw erreur(401, 'Code de vérification requis ou incorrect.', 'code_2fa'); }
     }
     const b = ctx.boutique, config = lireConfig(b), iso = t => t ? new Date(t).toISOString() : null;
     const pause = () => new Promise(r2 => setImmediate(r2));   // le serveur reste disponible pour les autres boutiques

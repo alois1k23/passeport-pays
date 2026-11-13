@@ -70,7 +70,8 @@ test('double authentification de bout en bout', async () => {
     const nv = await a('POST', '/api/admin/compte/2fa/codes', { motDePasse: 'un mot de passe solide', code: act.j.codesSecours[2] });
     assert.equal(nv.s, 200); assert.equal(nv.j.codesSecours.length, 10);
     // Désactivation : essais de code comptés, code de secours accepté
-    let d; for (let k = 0; k < 6; k++) d = (await a('POST', '/api/admin/compte/2fa/desactiver', { motDePasse: 'un mot de passe solide', code: String(200000 + k) })).s;
-    assert.equal(d, 429, 'essais de code limités à la désactivation');
+    // (au 5e code refusé dans la session, celle-ci est fermée : un voleur de cookie ne bloque pas la titulaire)
+    let d; for (let k = 0; k < 5; k++) d = (await a('POST', '/api/admin/compte/2fa/desactiver', { motDePasse: 'un mot de passe solide', code: String(200000 + k) }));
+    assert.equal(d.s, 401); assert.equal(d.j.code, 'session_fermee', 'essais de code limités à la désactivation');
   } finally { s.close(); }
 });

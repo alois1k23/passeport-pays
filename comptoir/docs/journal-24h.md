@@ -126,6 +126,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 63. **Confirmation d'identité par clé d'accès** : les actions sensibles se confirment aussi avec une clé d'accès du compte (visage, empreinte), sans mot de passe ; c'est le seul moyen pour un compte « clé d'accès seule », qui devait jusqu'ici se déconnecter. Aucune connexion ne vaut plus confirmation.
 64. **Essais refusés dans une session** : au 5e mot de passe (ou code, ou clé) refusé dans une même session, celle-ci est fermée et la titulaire prévenue ; un voleur de cookie ne peut plus bloquer les confirmations du compte.
 65. **Session liée à son appareil** : un cookie rejoué depuis un autre navigateur ou système ferme la session et prévient la titulaire.
+66. **Relecture adversariale croisée** des nouveautés de l'après-midi (changement d'adresse, confirmation par clé d'accès, essais refusés par session, session liée à l'appareil) : ce qui casse quand elles se combinent.
 
 ## Cycles
 
@@ -1429,4 +1430,25 @@ Le vol de cookie de session (logiciel espion qui vide les profils de navigateur,
   - **Grave** : la « version pour ordinateur » des navigateurs Android, activée par défaut sur les tablettes, se présente comme Linux. Android et Linux sont maintenant confondus, le navigateur comptant toujours (testé : Chrome Android en mode ordinateur toléré, Firefox Android refusé).
   - **Bas, accepté et documenté** : l'émulation d'un téléphone dans les outils de développement ferme la session ; il suffit de se reconnecter.
 - Après corrections : 228 tests sur 228, parcours de bout en bout 57/57.
+
+### Cycle 71 (18 h 10) : relecture adversariale croisée des chantiers 62 à 65 (chantier 66)
+
+Chaque nouveauté de l'après-midi avait été relue seule. Une relecture indépendante a cherché ce qui casse quand elles se combinent, et a trouvé un trou grave, reproduit avant correction :
+
+- **Grave : l'intrus reprenait le compte après l'annulation.** Pendant la période où l'adresse du compte était la sienne, il demandait « mot de passe oublié » et recevait un lien. L'annulation ne supprimait pas ce lien. L'intrus choisissait alors un nouveau mot de passe, rouvrait une session, et pouvait même relancer un changement d'adresse, l'ancienne n'étant plus réservée. Corrections :
+  - l'annulation supprime tous les liens de réinitialisation en cours avant d'envoyer celui de la titulaire ;
+  - défense en profondeur : chaque lien garde l'adresse à laquelle il a été envoyé, et un lien dont l'adresse n'est plus celle du compte est refusé (anciens liens sans adresse : acceptés jusqu'à leur expiration, une heure).
+  - Testé avec le scénario exact de la relecture.
+- **Bas à moyen : compte « clé d'accès seule » sans clé.** Si l'intrus avait supprimé les clés de la titulaire, l'annulation pouvait laisser l'option active sans aucune clé : la titulaire passait alors par 72 heures de récupération différée. L'option est retirée quand il ne reste aucune clé. L'e-mail d'annulation d'un compte qui a encore ses clés dit maintenant de se reconnecter avec elles, et prévient que le lien de mot de passe lance la récupération différée qui les supprime (testé).
+- **Bas à moyen : codes refusés hors confirmation.** Sur les écrans qui redemandent le code de double authentification (codes de secours, désactivation, ajout ou suppression de clé, « clé d'accès seule », export), les codes refusés comptaient dans une limite propre au compte, mais pas dans le compteur de session. Un voleur de cookie qui connaissait le mot de passe pouvait donc bloquer à volonté la confirmation par code de la titulaire. Corrections :
+  - cette limite est désormais propre à chaque session ;
+  - un code refusé (non vide) compte dans le compteur de session, qui ferme la session au 5e ;
+  - testé : la session de l'intrus est fermée, celle de la titulaire n'est pas bloquée ;
+  - l'ancien test de la désactivation, qui attendait le blocage au 6e code, attend maintenant la fermeture au 5e.
+- **Vérifié sans problème par la relecture** :
+  - l'annulation et la confirmation par lien n'exigent aucune session, donc ni les fermetures de session ni la liaison à l'appareil ne peuvent empêcher la titulaire d'annuler à temps ;
+  - les limites des différentes fonctions ne se mélangent pas ;
+  - les membres d'équipe ne sont pas touchés.
+- **Risque résiduel, noté** : une clé d'accès ou une double authentification installée par l'intrus plus de 24 heures avant sa demande survit à l'annulation. L'e-mail d'annulation invite à vérifier les clés d'API et webhooks, mais pas encore les clés d'accès.
+- 229 tests sur 229, parcours de bout en bout 57/57.
 

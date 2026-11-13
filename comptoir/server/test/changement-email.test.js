@@ -116,6 +116,7 @@ test('annulation : « clé d’accès seule » d’avant la demande conservée, 
     assert.equal((await intrus('POST', '/api/admin/equipe/inviter', { email: 'avant@pirate.example', role: 'commandes' })).s, 201);
     db.prepare('UPDATE invitations SET cree_le = cree_le - 600000').run(); db.prepare('UPDATE sessions SET cree_le = cree_le - 600000').run();   // 10 minutes plus tôt
     // La protection « clé d'accès seule » de la titulaire existait avant la demande.
+    db.prepare("INSERT INTO cles_acces (id, marchand_id, nom, cle, compteur, cree_le) SELECT 'k-titulaire', id, 'Tel', '{}', 0, ? FROM marchands WHERE email = 'cs@exemple.ch'").run(Date.now() - 30 * 86400000);
     db.prepare('UPDATE marchands SET cle_seule = 1, cle_seule_le = ?').run(Date.now() - 86400000);
     assert.equal((await intrus('POST', '/api/admin/compte/email', { email: 'x@pirate.example' })).s, 200);
     assert.equal((await client()('POST', '/api/auth/changer-email', { jeton: lien('x@pirate.example', 'changer-email') })).s, 200);
@@ -175,3 +176,46 @@ test('annulation : « clé d’accès seule » désactivée par l’intrus, rét
   } finally { s.close(); }
 });
 
+
+test('relecture croisée : lien de réinitialisation de l’intrus caduc après l’annulation ; clé seule sans clé retirée ; codes refusés comptés par session', async () => {
+  const totp = require('../src/totp');
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const lien = (dest, param) => (db.prepare('SELECT corps FROM emails WHERE destinataire = ? ORDER BY id DESC').all(dest).map(x => (x.corps.match(new RegExp(`${param}=([\\w-]+)`)) || [])[1]).find(Boolean));
+  const client = () => { const jar = {}; return async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { ...(corps ? { 'Content-Type': 'application/json' } : {}), Cookie: Object.values(jar).join('; ') }, body: corps ? JSON.stringify(corps) : undefined }); for (const x of r.headers.getSetCookie()) { const [nv] = x.split(';'); jar[nv.split('=')[0]] = nv; } return { s: r.status, j: await r.json().catch(() => null) }; }; };
+  try {
+    const intrus = client();
+    await intrus('POST', '/api/auth/inscription', { email: 'a@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'A' } } });
+    await intrus('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'un mot de passe solide' });
+    // La titulaire avait « clé d'accès seule » et une clé ; l'intrus supprime la clé pendant la période.
+    const mid = db.prepare('SELECT id FROM marchands').get().id;
+    db.prepare("INSERT INTO cles_acces (id, marchand_id, nom, cle, compteur, cree_le) VALUES ('k1', ?, 'Tel', '{}', 0, ?)").run(mid, Date.now() - 30 * 86400000);
+    db.prepare('UPDATE marchands SET cle_seule = 1, cle_seule_le = ?').run(Date.now() - 30 * 86400000);
+    await intrus('POST', '/api/admin/compte/email', { email: 'b@pirate.example' });
+    assert.equal((await client()('POST', '/api/auth/changer-email', { jeton: lien('b@pirate.example', 'changer-email') })).s, 200);
+    db.prepare('DELETE FROM cles_acces').run();
+    await client()('POST', '/api/auth/oubli', { email: 'b@pirate.example' });
+    const resetIntrus = lien('b@pirate.example', 'reinitialiser');
+    assert.ok(resetIntrus);
+    assert.equal((await client()('POST', '/api/auth/annuler-changement-email', { jeton: lien('a@exemple.ch', 'annuler-email') })).s, 200);
+    // Le lien de l'intrus ne sert plus ; celui de la titulaire, oui.
+    assert.equal((await client()('POST', '/api/auth/reinitialiser', { jeton: resetIntrus, motDePasse: 'mot de passe du voleur 42!' })).j.code, 'lien_expire');
+    assert.equal(db.prepare('SELECT cle_seule FROM marchands').get().cle_seule, 0, 'plus aucune clé : option retirée (pas 72 h de blocage)');
+    const t = client();
+    assert.equal((await t('POST', '/api/auth/reinitialiser', { jeton: lien('a@exemple.ch', 'reinitialiser'), motDePasse: 'nouveau mot de passe de la titulaire' })).s, 200);
+    assert.equal((await t('GET', '/api/session')).j.connecte, true);
+    // Codes refusés hors confirmation (ici, codes de secours) : comptés dans la session, qui est fermée au 5e.
+    const prep = await t('POST', '/api/admin/compte/2fa/preparer');
+    await t('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'nouveau mot de passe de la titulaire' });
+    assert.equal((await t('POST', '/api/admin/compte/2fa/activer', { motDePasse: 'nouveau mot de passe de la titulaire', code: totp.code(prep.j.secret, totp.pasActuel() - 1) })).s, 200);
+    const v = client();
+    const d = await v('POST', '/api/auth/connexion', { email: 'a@exemple.ch', motDePasse: 'nouveau mot de passe de la titulaire' });
+    await v('POST', '/api/auth/connexion/2fa', { defi: d.j.defi, code: totp.code(prep.j.secret, totp.pasActuel()) });
+    let dernier;
+    for (let k = 0; k < 5; k++) dernier = await v('POST', '/api/admin/compte/2fa/codes', { motDePasse: 'nouveau mot de passe de la titulaire', code: '00000' + k });
+    assert.equal(dernier.j.code, 'session_fermee');
+    // La session de la titulaire n'est pas bloquée pour autant (compteur des codes propre à chaque session).
+    assert.equal((await t('POST', '/api/admin/compte/2fa/codes', { motDePasse: 'nouveau mot de passe de la titulaire', code: totp.code(prep.j.secret, totp.pasActuel() + 1) })).s, 200);
+  } finally { s.close(); }
+});
