@@ -266,7 +266,7 @@ test('relecture de la vente : pas d’argent rendu si la carte a servi, pas d’
     assert.equal((await appel('POST', `/api/admin/commandes/${achat.json.commandeId}/statut`, { statut: 'payee' })).statut, 409);
     await appel('POST', `/paiement-simule/${pid}/confirmer`, null, false);
     const mail = db.prepare("SELECT corps FROM emails WHERE destinataire = 'tom@exemple.fr'").get().corps;
-    assert.doesNotMatch(mail, /evil\.example/, 'aucun lien de l’acheteur dans l’e-mail'); assert.match(mail, /\[lien retiré\]/);
+    assert.doesNotMatch(mail, /evil\.example/, 'aucun lien de l’acheteur dans l’e-mail'); assert.match(mail, /\[…\]/);
     assert.match(mail, /texte libre, non vérifié par la boutique/);
     // Pas d'expédition possible ; pas d'offre complémentaire.
     assert.equal((await appel('POST', `/api/admin/commandes/${achat.json.commandeId}/statut`, { statut: 'expediee' })).statut, 409);

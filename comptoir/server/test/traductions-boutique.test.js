@@ -15,7 +15,8 @@ function traducteur(langue) {
     document: { documentElement: {}, body: null, querySelector: () => null, getElementById: () => null }, MutationObserver: class { observe() {} }, requestAnimationFrame: () => 0, URL, URLSearchParams };
   vm.runInNewContext(`${source}\nthis.T = Traductions;`, ctx);
   ctx.T.demarrer([langue]);
-  return t => ctx.T.traduireTexte(t);
+  const t = x => ctx.T.traduireTexte(x); t.annonce = x => ctx.T.traduireAnnonce(x);
+  return t;
 }
 
 const TEXTES = [
@@ -26,7 +27,7 @@ const TEXTES = [
   'Vous avez 12 points : utilisables dès 100 points.', 'Utiliser mes 250 points (valeur CHF 2.50)', 'Utiliser mes 250 points (−CHF 2.50)',
   'Carte cadeau inconnue, expirée ou épuisée.', 'Si cette adresse a des points, un code vient d’y être envoyé (valable 15 minutes).',
   'Changer d’adresse ou demander un nouveau code', 'Paiement reçu : la carte cadeau vient de partir par e-mail.',
-  'Pas assez de points pour une remise (minimum 100 points).', 'Vase ajouté au panier. 2 articles dans le panier.', 'Vase retiré du panier.', 'Vase : quantité 3.',
+  'Pas assez de points pour une remise (minimum 100 points).',
   'Facture FA-2026-0001 (PDF)', 'Avoir AV-2026-0002 (PDF)', 'Avoir AV-2026-0003 (PDF, CHF 36.00)', 'Retour du 13.11.2026 : remboursé.',
   'Retour demandé le 13.11.2026 : renvoyez les articles à l’adresse reçue par e-mail.', 'Quantité à retourner : Vase'
 ];
@@ -38,6 +39,10 @@ for (const langue of ['de', 'it', 'en']) {
     assert.deepEqual(manquants, []);
     assert.match(t('Valable en ligne et en boutique chez Atelier Nord. Elle est envoyée par e-mail dès le paiement.'), /Atelier Nord/, 'nom de la boutique gardé');
     assert.match(t('Carte cadeau acceptée : solde CHF 20.00.'), /CHF 20\.00/);
+    // Annonces pour lecteur d'écran : traduites à part ; jamais appliquées au texte du marchand.
+    for (const x of ['Vase ajouté au panier. 2 articles dans le panier.', 'Vase retiré du panier.', 'Vase : quantité 3.']) assert.notEqual(t.annonce(x), x, x);
+    assert.equal(t('Le produit a été retiré du panier.'), null, 'texte du marchand intact');
+    assert.equal(t('Prix : quantité 3.'), null);
   });
 }
 
@@ -46,7 +51,7 @@ test('e-mails de la carte cadeau dans la langue de l’acheteur ; code masqué d
   const de = EmailsClients.carteCadeauCode('de', o), it = EmailsClients.carteCadeauCode('it', o), en = EmailsClients.carteCadeauCode('en', { ...o, offerte: false, message: '' });
   assert.match(de.sujet, /Geschenkgutschein von Atelier Nord für Sie/); assert.match(de.corps, /Guten Tag Sam/); assert.match(de.corps, /geschenkt von Lou/); assert.match(de.corps, /Nachricht von Lou/);
   assert.match(it.corps, /Codice: ABCD-EFGH-JKMN-PQRS/); assert.match(it.corps, /offerta da Lou/);
-  assert.match(en.sujet, /^Your Atelier Nord gift card$/); assert.match(en.corps, /^Hello Sam,/); assert.match(EmailsClients.carteCadeauCode('en', { ...o, nomDest: '' }).corps, /^Hello,/); assert.doesNotMatch(en.corps, /Message from/);
+  assert.match(en.sujet, /^Your gift card from Atelier Nord$/); assert.match(en.corps, /^Hello Sam,/); assert.match(EmailsClients.carteCadeauCode('en', { ...o, nomDest: '' }).corps, /^Hello,/); assert.doesNotMatch(en.corps, /Message from/);
   for (const m of [de, it, en]) { assert.ok(m.corps.includes(o.code)); assert.ok(!masquerSecrets(m.corps).includes(o.code), 'code retiré de la copie gardée'); }
   const avis = EmailsClients.carteCadeauAvis('en', o);
   assert.match(avis.corps, /sent to sam@exemple\.ch/); assert.doesNotMatch(avis.corps, /ABCD/, 'l’avis à l’acheteur ne contient jamais le code');

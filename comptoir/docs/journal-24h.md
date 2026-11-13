@@ -502,6 +502,14 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
   - code masqué dans la copie gardée, vérifié pour les trois langues.
 - **Défaut de conformité trouvé pendant l'audit** : une boutique dont le marchand a supprimé la section « Pied de page » n'affichait plus aucun lien vers les mentions légales, les CGV, « Mes commandes » ni la carte cadeau. En ligne, un pied minimal les affiche désormais toujours.
 - 4 nouveaux tests : 164 tests sur 164. Bout en bout : 51 sur 51. Audit au clavier de la boutique : aucun problème.
+- **Relecture indépendante**, constats corrigés :
+  - Les modèles « ajouté au panier », « retiré du panier » et « quantité » s'appliquaient à tout le texte de la page. Ils pouvaient donc réécrire du texte du marchand (réponse à un avis, texte de la lettre d'information). Ils ne servent plus qu'aux annonces pour lecteur d'écran, et la zone d'annonces est exclue du passage global.
+  - Le champ « Son prénom », traduit « Ihr Vorname », invitait l'acheteur à saisir son propre prénom. Il devient « Vorname der beschenkten Person » (et l'équivalent en italien et en anglais).
+  - Singulier pour 1 point (« 1 Treuepunkt », « 1 punto fedeltà »).
+  - Sujet anglais : « A gift card from … », au lieu d'un article faux devant un nom en voyelle.
+  - Tournures revues, et terminologie allemande unifiée (« Geschenkgutschein »).
+  - Lien retiré d'un message d'acheteur : marqué « […] », neutre dans toutes les langues.
+  - Pied de secours : le nom de la boutique ne s'affiche plus deux fois.
 
 ### Cycle 31 (03 h 51) : facture et avoirs téléchargeables par le client (chantier 22)
 

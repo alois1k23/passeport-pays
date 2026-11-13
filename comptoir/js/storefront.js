@@ -259,7 +259,7 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
   const listeSections = (b.sections || []).length || mode === 'edition' ? (b.sections || []) : [{ id: 'secours', type: 'produits', props: { titre: 'Nos produits', nombre: '8', categorie: '' } }];
   // Pied de page supprimé dans l'éditeur : en ligne, un pied minimal garde les liens obligatoires (mentions légales, CGV)
   // et ceux des commandes et de la carte cadeau.
-  const piedSecours = mode !== 'edition' && !listeSections.some(x => x.type === 'pied') ? renduSection({ id: 'pied-secours', type: 'pied', props: { texte: `© ${new Date().getFullYear()} ${b.nom}` } }, etat, mode) : '';
+  const piedSecours = mode !== 'edition' && !listeSections.some(x => x.type === 'pied') ? renduSection({ id: 'pied-secours', type: 'pied', props: { texte: `© ${new Date().getFullYear()}` } }, etat, mode) : '';
   const sections = listeSections.map(s => {
     const html = renduSection(s, etat, mode);
     if (mode !== 'edition') return html;

@@ -732,7 +732,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Texte saisi par l'acheteur (nom, message) : une ligne, sans adresse web ni caractère invisible ou de direction,
   // pour qu'un e-mail de carte cadeau ne puisse pas servir d'hameçonnage au nom de la boutique.
   const texteSur = (t, max) => String(t || '').normalize('NFC').replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, ' ')
-    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, '[lien retiré]').replace(/\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b\S*/gi, '[lien retiré]')   /* tout ce qui ressemble à un nom de domaine */
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, '[…]').replace(/\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b\S*/gi, '[…]')   /* tout ce qui ressemble à un nom de domaine */
     .replace(/\s+/g, ' ').trim().slice(0, max);
   function emettreCarteVendue(bid, c, { liberer = false } = {}) {
     if (c.carteEmise) return;

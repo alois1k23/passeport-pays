@@ -64,7 +64,7 @@ test('nouveautés traduites : carte cadeau et points dans le récapitulatif, cod
   const c = { numero: 7, langue: 'de', client: { nom: 'Anna' }, lignes: [{ nom: 'Vase', qte: 1, prix: 40 }], total: 40, port: 0, livraison: 'retrait', carteCadeau: { montant: 15, fin: 'AB12' }, fidelite: { gagnes: 25 } };
   const o = { nomBoutique: 'Atelier', formatMontant: m => `CHF ${m.toFixed(2)}`, nomLivraison: 'Retrait', lienCommande: 'https://x', legal: '' };
   const m = E.confirmation(c, o);
-  assert.match(m.corps, /davon CHF 15\.00 mit Geschenkkarte ····AB12, Rest CHF 25\.00/);
+  assert.match(m.corps, /davon CHF 15\.00 mit Geschenkgutschein ····AB12, Rest CHF 25\.00/);
   assert.match(m.corps, /Gesammelte Treuepunkte: 25/);
   for (const [l, motif] of [['de', /Ihr Code/], ['it', /Il suo codice/], ['en', /Your code/]]) {
     const k = E.codeFidelite(l, { nomBoutique: 'Atelier', points: 120, valeur: 'CHF 6.00', code: '123456' });

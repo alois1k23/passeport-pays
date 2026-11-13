@@ -329,7 +329,8 @@ async function suivreCommande(id, jeton, annule) {
 /* Annonce aux lecteurs d'écran (zone « status » hors de l'application, jamais redessinée) : ajout au panier, etc. */
 function annoncer(texte) {
   const z = document.getElementById('annonces'); if (!z) return;
-  z.textContent = ''; setTimeout(() => { z.textContent = texte; }, 60);
+  const t = typeof Traductions !== 'undefined' && Traductions.traduireAnnonce ? Traductions.traduireAnnonce(texte) : texte;
+  z.textContent = ''; setTimeout(() => { z.textContent = t; }, 60);
 }
 /* Fermeture du panier : le focus revient sur le bouton qui l'avait ouvert (ou sur le bouton du panier). */
 function fermerTiroir() {
