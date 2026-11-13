@@ -387,28 +387,25 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const cleBase = Buffer.from(db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
   const anciennesSaisies = String(env.SECRET_CHIFFREMENT_ANCIENNES || '').split(',').map(x => x.trim()).filter(Boolean);
   if (anciennesSaisies.some(x => !/^[0-9a-f]{64}$/i.test(x))) journal.error('[securite] SECRET_CHIFFREMENT_ANCIENNES : chaque clé doit faire 64 caractères hexadécimaux (séparées par des virgules) ; les autres sont ignorées.');
-  /* La clé gardée dans la base n'entre au trousseau que si elle a vraiment servi de clé courante sur cette base (avant que
-     SECRET_CHIFFREMENT soit défini). Sinon, quiconque lit la base (copie volée, sauvegarde) pourrait signer des pièces du
-     journal ou fabriquer des empreintes de cartes cadeaux avec elle, et elles seraient acceptées. Historique des clés
-     courantes : empreintes seulement, jamais les clés. */
-  const empreinteBrute = k => crypto.createHash('sha256').update(k).digest('hex').slice(0, 16);
-  const historiqueCles = new Set((() => { try { return JSON.parse((db.prepare("SELECT valeur FROM cles WHERE nom = 'historique-cles'").get() || {}).valeur || '[]'); } catch { return []; } })());
-  if (!historiqueCles.size && !cleBase.equals(cleChiffrement)) {
-    // Amorçage (base d'avant cet historique) : la clé de la base a-t-elle déjà servi ? Données des clients ou journal
-    // des ventes marqués avec elle.
-    const marqueurPii = (db.prepare("SELECT valeur FROM cles WHERE nom = 'pii-cle'").get() || {}).valeur;
-    let marqueurJournal = null; try { marqueurJournal = (db.prepare("SELECT valeur FROM journal_meta WHERE cle = 'cle'").get() || {}).valeur; } catch { /* pas encore de journal */ }
-    const journalBase = crypto.createHmac('sha256', Buffer.from(crypto.hkdfSync('sha256', cleBase, Buffer.alloc(0), 'comptoir journal inalterable', 32))).update('comptoir:journal:cle').digest('hex').slice(0, 16);
-    if ((marqueurPii && marqueurPii === Pii.creer([cleBase]).empreinteCle) || marqueurJournal === journalBase) historiqueCles.add(empreinteBrute(cleBase));
-  }
-  historiqueCles.add(empreinteBrute(cleChiffrement));
-  db.prepare("INSERT INTO cles (nom, valeur) VALUES ('historique-cles', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(JSON.stringify([...historiqueCles]));
+  /* La clé gardée dans la base n'entre au trousseau que si elle est la clé courante (SECRET_CHIFFREMENT absent), ou si
+     l'exploitant la liste lui-même dans SECRET_CHIFFREMENT_ANCIENNES (hors de la base). Jamais sur la foi d'une donnée de
+     la base : quiconque peut lire ou écrire la base (copie volée, sauvegarde) pourrait sinon signer des pièces du journal
+     ou fabriquer des empreintes de cartes cadeaux avec elle. Si elle a servi (données ou journal marqués avec elle) sans
+     être listée, l'exploitant est prévenu au démarrage et dans la console, avec la marche à suivre. */
   const trousseau = [];
-  for (const k of [cleChiffrement, ...anciennesSaisies.filter(x => /^[0-9a-f]{64}$/i.test(x)).map(x => Buffer.from(x, 'hex')), ...(historiqueCles.has(empreinteBrute(cleBase)) ? [cleBase] : [])]) if (!trousseau.some(t => t.equals(k))) trousseau.push(k);
+  for (const k of [cleChiffrement, ...anciennesSaisies.filter(x => /^[0-9a-f]{64}$/i.test(x)).map(x => Buffer.from(x, 'hex'))]) if (!trousseau.some(t => t.equals(k))) trousseau.push(k);
+  const cleBaseNonListee = !trousseau.some(t => t.equals(cleBase)) && (() => {
+    const marqueurPii = (db.prepare("SELECT valeur FROM cles WHERE nom = 'pii-cle'").get() || {}).valeur;
+    const fpJournal = crypto.createHmac('sha256', Buffer.from(crypto.hkdfSync('sha256', cleBase, Buffer.alloc(0), 'comptoir journal inalterable', 32))).update('comptoir:journal:cle').digest('hex').slice(0, 16);
+    let meta = {}; try { for (const r of db.prepare('SELECT cle, valeur FROM journal_meta').all()) meta[r.cle] = r.valeur; } catch { /* pas encore de journal */ }
+    const rotations = (() => { try { return JSON.parse(meta.rotations || '[]'); } catch { return []; } })();
+    return (marqueurPii && marqueurPii === Pii.creer([cleBase]).empreinteCle) || meta.cle === fpJournal || rotations.some(r => r.de === fpJournal);
+  })();
+  if (cleBaseNonListee) journal.error('[securite] ATTENTION : la clé gardée dans la base a servi avant SECRET_CHIFFREMENT, mais elle n’est pas listée dans SECRET_CHIFFREMENT_ANCIENNES : les données et pièces faites avec elle ne sont pas lues. Affichez-la avec « node server/server.js --cle-base » et ajoutez-la à SECRET_CHIFFREMENT_ANCIENNES.');
   // Sous-clés dédiées (HKDF) : chaque usage a la sienne, dérivée de chaque clé du trousseau.
   const sousCle = (k, etiquette) => Buffer.from(crypto.hkdfSync('sha256', k, Buffer.alloc(0), etiquette, 32));
   // Constats du démarrage, montrés dans la console de l'exploitant (données illisibles avec les clés connues).
-  const etatSecurite = { commandesIllisibles: 0, secrets2faIllisibles: 0, cleHorsBase: !cleChiffrement.equals(cleBase), anciennesCles: trousseau.filter(k => !k.equals(cleChiffrement) && !k.equals(cleBase)).length };
+  const etatSecurite = { cleBaseNonListee, commandesIllisibles: 0, secrets2faIllisibles: 0, cleHorsBase: !cleChiffrement.equals(cleBase), anciennesCles: trousseau.length - 1 };
   const Cartes = CartesCadeaux.creer(db, trousseau.map(k => sousCle(k, 'comptoir:cartes-cadeaux')));
   const DV = Devis.creer(db, () => PII);
   const FID = Fidelite.creer(db, trousseau.map(k => sousCle(k, 'comptoir:fidelite')));   // fidélité : empreinte HMAC, jamais en clair
@@ -1545,6 +1542,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return [
       { titre: 'Clé de chiffrement', valeur: etatSecurite.cleHorsBase ? 'hors de la base (SECRET_CHIFFREMENT)' : 'GARDÉE DANS LA BASE', alerte: !etatSecurite.cleHorsBase,
         conseil: etatSecurite.cleHorsBase ? '' : 'Une copie volée de la base suffirait à lire les données des clients : définissez SECRET_CHIFFREMENT (rotation décrite dans MISE-EN-LIGNE.md).' },
+      ...(etatSecurite.cleBaseNonListee ? [{ titre: 'Clé de la base non listée', valeur: 'données et pièces d’avant SECRET_CHIFFREMENT non lues', alerte: true, conseil: 'Affichez la clé de la base avec « node server/server.js --cle-base », ajoutez-la à SECRET_CHIFFREMENT_ANCIENNES et redémarrez.' }] : []),
       { titre: 'Anciennes clés et rotations', valeur: `${etatSecurite.anciennesCles} ancienne${etatSecurite.anciennesCles > 1 ? 's' : ''} clé${etatSecurite.anciennesCles > 1 ? 's' : ''} · ${rotations.length} rotation${rotations.length > 1 ? 's' : ''}${rotations.length ? ` (dernière le ${new Date(rotations.at(-1).le).toLocaleDateString('fr-CH', { timeZone: 'Europe/Zurich' })})` : ''}`, alerte: etatJ.cleChangee,
         conseil: etatJ.cleChangee ? 'La clé qui signe les journaux des ventes a changé sans que l’ancienne soit gardée : remettez-la dans SECRET_CHIFFREMENT_ANCIENNES.' : '' },
       { titre: 'Données illisibles avec les clés connues (commandes et double authentification : au démarrage)', valeur: illisibles ? `${etatSecurite.commandesIllisibles} commande(s) · ${etatSecurite.secrets2faIllisibles} secret(s) de double authentification · ${webhooksIllisibles} secret(s) de webhook` : 'aucune', alerte: illisibles > 0,
@@ -3837,10 +3835,6 @@ ${bloc}</main></body></html>`;
     const c = lireCommande(row);
     const devise = lireConfig(b).boutique.devise || 'EUR';
     const compte = compteVente(b);
-    for (const ancien of db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id)) {
-      db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(ancien.id);
-      if (ancien.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(ancien).catch(e => journal.error('[paiement] expiration', e.message));
-    }
     // Carte cadeau ou points rendus (paiement abandonné) : repris avant de rouvrir le paiement du reste. Appelé dans la même
     // transaction que les contrôles de la reprise : si l'un d'eux refuse, rien n'est débité.
     const reprendreCartes = frais => {
@@ -3884,6 +3878,12 @@ ${bloc}</main></body></html>`;
       reprendreCartes(frais);   // en dernier : seulement si tout le reste est accepté
       frais.reserveDepuis = Math.max(Date.now(), (frais.abandonneeLe || 0) + 1); enregistrerCommande(frais); Object.assign(c, frais);
     });
+    // Liens encore ouverts : fermés seulement maintenant, une fois la reprise acceptée (un refus ne ferme pas la page de
+    // paiement que le client a peut-être encore ouverte).
+    for (const ancien of db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id)) {
+      db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(ancien.id);
+      if (ancien.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(ancien).catch(e => journal.error('[paiement] expiration', e.message));
+    }
     const resteCentimes = Math.round(c.total * 100) - (c.carteCadeau ? Math.round(c.carteCadeau.montant * 100) : 0);
     const pmt = { id: auth.nouvelId('pay_'), commande_id: c.id, montant_centimes: resteCentimes };
     db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le, compte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(pmt.id, c.id, paiement.nom, resteCentimes, devise, 'cree', Date.now(), compte);

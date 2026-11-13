@@ -13,6 +13,16 @@ const env = process.env;
 /* Vérification avant la mise en ligne : `node server/server.js --verifier` liste ce qui manque ou cloche, puis s'arrête. */
 // Restauration d'une sauvegarde chiffrée : node server/server.js --restaurer comptoir-AAAA-MM-JJ.db.enc destination.db
 const Sauvegarde = require('./src/sauvegarde');
+// Clé gardée dans la base (avant SECRET_CHIFFREMENT) : à ajouter à SECRET_CHIFFREMENT_ANCIENNES quand on passe à une clé hors
+// de la base. Affichée ici seulement (jamais dans un journal), à copier dans la configuration du serveur, puis à effacer de l'écran.
+if (process.argv.includes('--cle-base')) {
+  const { DatabaseSync } = require('node:sqlite');
+  const fichier = env.BASE_DE_DONNEES || path.join(__dirname, 'donnees', 'comptoir.db');
+  let r = null; try { r = new DatabaseSync(fichier, { readOnly: true }).prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get(); } catch (e) { console.error(`Base illisible (${fichier}) : ${e.message}`); process.exit(1); }
+  if (!r) { console.error('Aucune clé dans cette base (elle n’a jamais démarré sans SECRET_CHIFFREMENT).'); process.exit(1); }
+  console.log(`Clé de la base (${fichier}) :\n${r.valeur}\n\nAjoutez-la à SECRET_CHIFFREMENT_ANCIENNES (séparée des autres par une virgule), puis redémarrez.`);
+  process.exit(0);
+}
 if (process.argv.includes('--restaurer')) {
   const [source, destination] = process.argv.slice(process.argv.indexOf('--restaurer') + 1);
   if (!source || !destination || !Sauvegarde.cleValide(env.SAUVEGARDE_CLE)) { console.error('Usage : SAUVEGARDE_CLE=… node server/server.js --restaurer <sauvegarde.db.enc> <destination.db>'); process.exit(1); }

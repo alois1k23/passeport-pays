@@ -79,8 +79,15 @@ test('serveur : commandes chiffrées, recherche par e-mail, migration au démarr
     db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run('c_abimee', bid, 996, Date.now(), 'livree', 'j', '{abîmé');
     app = creerApp({ db, env, urlPublique: base, journal: { log() {}, error() {} } });
     db.prepare('DELETE FROM commandes WHERE id = ?').run('c_abimee');
-    // Nouvelle clé SECRET_CHIFFREMENT (l'ancienne était dans la base) : tout est rechiffré, rien n'est perdu.
-    app = creerApp({ db, env: { ...env, SECRET_CHIFFREMENT: crypto.randomBytes(32).toString('hex') }, urlPublique: base, journal: { log() {}, error() {} } });
+    // Nouvelle clé SECRET_CHIFFREMENT, sans lister la clé de la base : rien n'est lu avec elle (une copie volée de la base
+    // ne doit rien pouvoir signer ni déchiffrer de neuf), rien n'est écrasé, et l'exploitant est prévenu.
+    const nouvelle = crypto.randomBytes(32).toString('hex'), alertes = [];
+    app = creerApp({ db, env: { ...env, SECRET_CHIFFREMENT: nouvelle }, urlPublique: base, journal: { log() {}, error: (...x) => alertes.push(x.join(' ')) } });
+    assert.ok(alertes.some(x => /clé gardée dans la base a servi/.test(x)), alertes.join('\n'));
+    assert.equal((await appel('GET', '/api/admin/etat')).json.commandes.find(x => x.id === cmd.json.commandeId).client.nom, '(données client illisibles)');
+    // L'exploitant liste la clé de la base dans SECRET_CHIFFREMENT_ANCIENNES : tout est rechiffré, rien n'est perdu.
+    const cleBase = db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur;
+    app = creerApp({ db, env: { ...env, SECRET_CHIFFREMENT: nouvelle, SECRET_CHIFFREMENT_ANCIENNES: cleBase }, urlPublique: base, journal: { log() {}, error() {} } });
     const apres = await appel('GET', '/api/admin/etat'); assert.equal(apres.statut, 200);
     assert.equal(apres.json.commandes.find(x => x.id === cmd.json.commandeId).client.nom, 'Élodie Martin');
     // Effacement d'un client : effacé aussi dans le chiffré.

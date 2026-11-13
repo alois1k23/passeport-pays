@@ -1219,3 +1219,38 @@ Tests : une copie chiffrée altérée échoue à l'essai ; deux tentatives simul
   - messages de la boutique annoncés.
 - Le mode sécurisé, le rappel de confirmation de l'adresse et les secrets de webhook demandent un serveur : ils n'apparaissent pas dans la démonstration.
 - Chargée dans Chromium avec les fichiers publiés : aucune erreur JavaScript.
+
+### Cycle 64 (10 h 15) : relecture adversariale transversale des nouveautés de la matinée (chantier 57)
+
+Chaque nouveauté de la matinée avait été relue seule. Un relecteur indépendant a cherché ce qui casse quand elles se combinent, preuves à l'appui (scripts). Le vérificateur complet est passé (7 étapes sur 7) avant les correctifs.
+
+**Ce qui tient** :
+- la rotation des clés couvre bien tout ce qui a été ajouté depuis : secrets des webhooks, file des webhooks et leur index, devis, double authentification, données des clients et leur index (utilisé par les codes « une fois par client » et la liste des clients de l'API) ;
+- le remboursement automatique des sessions non conformes ne compte ni le stock ni les codes en double ;
+- la règle contre les requêtes d'autres sites ne casse aucun parcours ;
+- la console de l'exploitant n'expose rien ;
+- fuzzing des 161 routes : 0 constat.
+
+**Constats corrigés** :
+- **Grave** : le mode sécurisé sur l'IBAN se contournait de deux façons :
+  - par « réinitialiser la boutique », qui écrivait toute la configuration sans contrôle ni alerte, et sans même la protection des membres d'équipe ;
+  - en posant un *premier* IBAN.
+  Une seule règle s'applique maintenant aux deux enregistrements :
+  - tout changement d'IBAN (premier compris), l'activation de la facture QR et le changement de l'e-mail de contact de l'entreprise (adresse de réponse des e-mails aux clients) demandent une identité récente ;
+  - le propriétaire est prévenu par e-mail ;
+  - la vérification d'un domaine aussi : un domaine reçoit les liens des e-mails et les retours de paiement.
+- **Grave** : la clé gardée dans la base restait au trousseau même quand `SECRET_CHIFFREMENT` était défini dès le premier jour. Quiconque lisait la base (copie, sauvegarde) pouvait re-signer tout le journal des ventes, qui se vérifiait sans anomalie, ou fabriquer des cartes cadeaux acceptées.
+  - Premier correctif : un historique des clés tenu en base. La vérification de ce correctif a montré qu'il se contournait en écrivant dans la base, et qu'il cassait les bases déjà passées à `SECRET_CHIFFREMENT`.
+  - Correctif final : la clé de la base n'est acceptée que si elle est la clé courante, ou si l'exploitant la liste lui-même dans `SECRET_CHIFFREMENT_ANCIENNES`, hors de la base. Si elle a servi sans être listée, rien n'est effacé, et l'exploitant est prévenu au démarrage et dans la console avec la marche à suivre ; la nouvelle commande `node server/server.js --cle-base` l'affiche.
+  - Le journal signale aussi une pièce signée avec une clé du trousseau qui n'a jamais été la sienne.
+  - Testé : pièce et carte forgées avec la clé de la base refusées, et le test échoue sans le correctif.
+- **Moyen** : le plafond de réservation par réseau se contournait avec la même adresse e-mail, ou en abandonnant puis reprenant des commandes. Toutes les commandes impayées du réseau comptent maintenant, et la reprise applique le plafond et la limite de commandes impayées (testé).
+- **Moyen** : une reprise refusée (article vendu entre-temps) laissait la carte cadeau débitée jusqu'à 2 heures. La carte et les points ne sont repris qu'une fois tous les contrôles passés, dans la même transaction (testé, échoue sans le correctif). Les liens de paiement encore ouverts ne sont fermés qu'après une reprise acceptée.
+
+**Changement pour l'exploitant** : un serveur qui a tourné sans `SECRET_CHIFFREMENT` doit lister la clé de la base dans `SECRET_CHIFFREMENT_ANCIENNES` en définissant la nouvelle clé. Ce n'est plus automatique, par sécurité ; c'est documenté dans `MISE-EN-LIGNE.md` et `.env.example`.
+
+**Limites connues** :
+- un IBAN saisi juste avant de quitter la page (envoi de dernière seconde) n'est pas enregistré si l'identité n'est pas confirmée ;
+- annuler la fenêtre de confirmation la fait revenir au prochain enregistrement automatique, tant que l'IBAN modifié reste dans le formulaire.
+
+213 tests sur 213 ; parcours de bout en bout : 57 contrôles, 0 anomalie ; audits au clavier : 0 problème.
