@@ -241,3 +241,17 @@ test('vente en ligne : achat, paiement, carte émise et envoyée au destinataire
     assert.equal((await appel('POST', `/api/admin/commandes/${b2.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 409);
   } finally { s.close(); }
 });
+
+test('webhook « carte.emise » : envoyé sans le code de la carte', async () => {
+  const { db, s, appel } = await boutique({ INTEGRATIONS_HTTP_LOCAL: '1' });   // point d'arrivée local accepté pour le test
+  try {
+    const wh = await appel('POST', '/api/admin/integrations/webhooks', { url: 'http://127.0.0.1:9/carte', evenements: ['carte.emise'] });
+    assert.equal(wh.statut, 201, JSON.stringify(wh.json));
+    const { code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 40 })).json;
+    const e = db.prepare("SELECT e.id, e.corps, w.boutique_id FROM webhook_envois e JOIN webhooks w ON w.id = e.webhook_id WHERE e.evenement = 'carte.emise'").get();
+    const P = require('../src/pii').creer(Buffer.from(db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex'));
+    const corps = P.dechiffrer(e.corps, { boutique: e.boutique_id, commande: `webhook:${e.id}` }).corps, d = JSON.parse(corps).donnees;
+    assert.equal(d.montant, 40); assert.equal(d.fin, code.slice(-4));
+    assert.ok(!corps.includes(code) && !corps.includes(code.replace(/-/g, '')), 'jamais le code complet');
+  } finally { s.close(); }
+});

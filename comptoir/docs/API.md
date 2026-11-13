@@ -103,6 +103,9 @@ Ajoutez une adresse `https://` dans **Paramètres > Intégrations** et choisisse
 - `commande.retiree` : retrait en magasin et ventes à la caisse
 - `produit.rupture` : stock tombé à zéro, quelle qu'en soit la cause (vente en ligne, caisse, API)
 - `journal.cloture` : clôture quotidienne du journal inaltérable des ventes. `donnees` contient `jour`, `empreinte`, `pieces`, `totalJour`, `grandTotal` (en unités de la devise) et `devise`. Gardez ces empreintes : elles prouvent que vos ventes n'ont pas été réécrites depuis. Les clôtures faites pendant une période sans accès à l'API (formule sans API, abonnement terminé) ne sont pas renvoyées ensuite : l'export du journal dans Conformité les contient toutes.
+- `devis.accepte` : un client professionnel a accepté un devis en ligne. `donnees` contient `id`, `numero`, `total`, `devise`, `accepteLe`, `commande` (`id`, `numero` de la commande créée) et `client` (`raison`, `email`).
+- `carte.emise` : une carte cadeau a été émise (vendue en ligne ou créée par le marchand). `donnees` contient `id`, `fin` (4 derniers caractères), `montant`, `devise`, `expireLe`, `origine` (`vente` ou `manuelle`) et, pour une vente, `commande`. **Le code de la carte n'est jamais envoyé.**
+- `stock.transfert` : des articles ont été déplacés d'un emplacement de stock à un autre. `donnees` contient `produit` (`id`, `nom`), `varianteId`, `de`, `vers` (identifiants d'emplacements) et `quantite`.
 
 Pour chaque événement, Comptoir envoie une requête `POST` en JSON :
 

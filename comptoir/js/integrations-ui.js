@@ -2,7 +2,7 @@
    Une clé ou un secret de webhook n'est affiché qu'une fois, à sa création. */
 const INTEG = { donnees: null, chargement: false, erreur: '', nouvelle: null };
 const LIBELLES_PORTEES = { 'commandes:lecture': 'Lire les commandes', 'commandes:ecriture': 'Marquer les commandes expédiées', 'produits:lecture': 'Lire les produits', 'produits:ecriture': 'Modifier prix et stock', 'clients:lecture': 'Données des clients (nom, e-mail, adresse)' };
-const LIBELLES_EVENEMENTS = { 'commande.payee': 'Commande payée', 'commande.expediee': 'Commande expédiée', 'commande.livree': 'Commande livrée', 'commande.remboursee': 'Commande remboursée', 'commande.annulee': 'Commande annulée', 'commande.retiree': 'Commande retirée en magasin', 'produit.rupture': 'Produit épuisé', 'journal.cloture': 'Clôture du journal des ventes (empreinte du jour)' };
+const LIBELLES_EVENEMENTS = { 'commande.payee': 'Commande payée', 'commande.expediee': 'Commande expédiée', 'commande.livree': 'Commande livrée', 'commande.remboursee': 'Commande remboursée', 'commande.annulee': 'Commande annulée', 'commande.retiree': 'Commande retirée en magasin', 'produit.rupture': 'Produit épuisé', 'journal.cloture': 'Clôture du journal des ventes (empreinte du jour)', 'devis.accepte': 'Devis accepté par le client', 'carte.emise': 'Carte cadeau émise (sans son code)', 'stock.transfert': 'Transfert de stock entre emplacements' };
 function chargerIntegrations() {
   if (INTEG.chargement) return;
   INTEG.chargement = true;

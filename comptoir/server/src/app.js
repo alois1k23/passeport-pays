@@ -731,6 +731,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const dest = (c.client && c.client.destinataire) || {};
     const { carte, code } = Cartes.emettre(bid, { montant: c.total, devise: config.boutique.devise || 'EUR', expireLe: d.getTime(), destinataire: dest.nom ? String(dest.nom).slice(0, 100) : null, origine: 'vente', commandeId: c.id });
     c.carteEmise = { id: carte.id, fin: carte.fin };
+    integ.emettre(bid, 'carte.emise', { id: carte.id, fin: carte.fin, montant: carte.initial, devise: carte.devise, expireLe: carte.expireLe ? new Date(carte.expireLe).toISOString() : null, origine: 'vente', commande: { id: c.id, numero: c.numero } });   // jamais le code
     const a = dest.email || c.client.email, offerte = !!dest.email && dest.email !== c.client.email;
     envoyerEmail(bid, a, `${offerte ? `${c.client.nom} vous offre une carte cadeau` : 'Votre carte cadeau'} ${config.boutique.nom}`,
       `Bonjour${dest.nom ? ` ${dest.nom}` : ''},\n\n${offerte ? `${c.client.nom} vous offre une carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.` : `Voici votre carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.`}${c.client.message ? `\n\nSon message : « ${String(c.client.message).slice(0, 300)} »` : ''}\n\nCode : ${code}\nValable jusqu’au ${new Date(carte.expireLe).toLocaleDateString('fr-FR')}, en ligne (${urlBoutique(b)}) et en boutique.\n\nGardez ce code : il vaut de l’argent.\n\n${config.boutique.nom}`);
@@ -912,7 +913,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const hashMdp = await auth.hacherMotDePasse(mdp);
     // Un domaine choisi à l'inscription n'est jamais actif : il faut d'abord prouver qu'on le possède (DNS + TXT).
     const config = garderDomaine(nettoyerConfig(ctx.corps.config), { boutique: {} });
-    if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(email)) throw erreur(409, 'Un compte existe déjà avec cet e-mail. Connectez-vous.', 'email_pris');
+    if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(email)) {
+      // Une inscription refusée révèle qu'un compte existe : ces refus sont bornés par réseau (10 par heure), ce qui rend
+      // le repérage d'adresses clientes de Comptoir lent et visible. Le titulaire est prévenu (une fois par jour).
+      auth.limiter(`inscription-existant:${reseauIp(ctx.ip)}`, 10 * facteurLimites, 3600000, 'Trop de tentatives d’inscription : réessayez plus tard, ou connectez-vous.');
+      try { auth.limiter(`inscription-existant-avis:${email}`, 1, 86400000, ''); envoyerEmail(null, email, 'Tentative d’inscription avec votre adresse', `Bonjour,\n\nQuelqu’un a essayé de créer un compte Comptoir avec votre adresse, qui en a déjà un. Si c’était vous : connectez-vous, ou choisissez « Mot de passe oublié ».\nSinon, vous n’avez rien à faire : votre compte n’a pas été modifié.\n\nComptoir`); } catch { /* déjà prévenu aujourd'hui */ }
+      throw erreur(409, 'Un compte existe déjà avec cet e-mail. Connectez-vous.', 'email_pris');
+    }
     const marchandId = auth.nouvelId('m_');
     const boutiqueId = auth.nouvelId('b_');
     const slug = slugUnique(config.boutique.nom);
@@ -2577,6 +2584,7 @@ ${bloc}</main></body></html>`;
       DV.ecrire(frais, maintenant);
       return { c, frais };
     });
+    integ.emettre(b.id, 'devis.accepte', { id: res.frais.id, numero: res.frais.numero, total: res.frais.total, devise: config.boutique.devise || 'EUR', accepteLe: new Date(res.frais.acceptation.le).toISOString(), commande: { id: res.c.id, numero: res.c.numero }, client: { raison: res.frais.client.raison, email: res.frais.client.email } });
     const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
     if (mch) envoyerEmail(null, mch.email, `Devis ${res.frais.numero} accepté : ${formatMontant(res.frais.total, config)}`, `Bonjour,\n\n${res.frais.client.raison} a accepté le devis ${res.frais.numero}.\nCommande n° ${res.c.numero} créée, en attente de paiement (en ligne ou par virement). Marquez-la payée à réception d'un virement.${res.frais.manques && res.frais.manques.length ? `\n\nAttention, stock insuffisant : ${res.frais.manques.join(', ')}.` : ''}\n\nVoir la commande : ${urlPublique}/app#commandes\n\nComptoir`);
     envoyerEmail(b.id, res.frais.client.email, `Devis ${res.frais.numero} accepté : commande n° ${res.c.numero}`, `Bonjour,\n\nNous avons bien reçu votre accord pour le devis ${res.frais.numero} (${formatMontant(res.frais.total, config)}). Votre commande n° ${res.c.numero} est enregistrée.\n\nPaiement en ligne ou coordonnées de virement : ${urlPublique}/devis/${encodeURIComponent(b.slug)}/${res.frais.id}?jeton=${encodeURIComponent(f.jeton)}\n\n${(config.entreprise || {}).raison || config.boutique.nom}`);
@@ -2624,6 +2632,7 @@ ${bloc}</main></body></html>`;
     const aVar = Array.isArray(p.variantes) && p.variantes.length;
     if (aVar && !p.variantes.some(v => v.id === b.varianteId)) throw erreur(400, 'Choisissez une variante.', 'variante_requise');
     transaction(db, () => EMP.transferer(ctx.boutique.id, { produitId: p.id, varianteId: aVar ? b.varianteId : '', de: b.de, vers: b.vers, quantite: b.quantite }));
+    integ.emettre(ctx.boutique.id, 'stock.transfert', { produit: { id: p.id, nom: p.nom }, varianteId: aVar ? b.varianteId : null, de: b.de, vers: b.vers, quantite: Number(b.quantite) });
     return { repartition: EMP.repartition(ctx.boutique.id)[p.id] || {} };
   });
 
@@ -2653,6 +2662,7 @@ ${bloc}</main></body></html>`;
     const r2 = Cartes.emettre(ctx.boutique.id, { montant: Number(b.montant), devise: config.boutique.devise || 'EUR', expireLe, destinataire: texte(b.destinataire, 100), note: texte(b.note, 200) });
     // Émettre une carte crée un moyen de paiement : noté dans le journal d'activité ; le propriétaire est prévenu si un membre l'a fait.
     noterActivite(ctx.marchand.id, 'carte-cadeau', `${formatMontant(r2.carte.initial, config)}, carte ····${r2.carte.fin}`, ctx);
+    integ.emettre(ctx.boutique.id, 'carte.emise', { id: r2.carte.id, fin: r2.carte.fin, montant: r2.carte.initial, devise: r2.carte.devise, expireLe: r2.carte.expireLe ? new Date(r2.carte.expireLe).toISOString() : null, origine: 'manuelle' });   // jamais le code
     if (ctx.role && ctx.role !== 'proprietaire') { const p = db.prepare('SELECT email FROM marchands WHERE id = ?').get(ctx.boutique.marchand_id); if (p) envoyerEmail(null, p.email, `Carte cadeau émise par ${ctx.marchand.email}`, `Bonjour,\n\n${ctx.marchand.email} a émis une carte cadeau de ${formatMontant(r2.carte.initial, config)} (····${r2.carte.fin}) sur ${config.boutique.nom}.\n\nToutes les cartes : ${urlPublique}/app#magasin\n\nComptoir`); }
     return { statut: 201, corps: r2 };
   });

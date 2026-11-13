@@ -414,3 +414,13 @@ Chantier 12 de la deuxième phase. Un relecteur indépendant a audité tout le s
   - les **emplacements de stock**, avec la répartition et les mouvements ;
   - le **programme de fidélité** : réglages et soldes, anonymes, car seule une empreinte de l'e-mail est connue.
 - Test étendu (vérifie notamment que le code d'une carte n'apparaît pas dans le fichier) : 151 tests sur 151.
+
+### Cycle 26 (02 h 45) : inscription et webhooks des nouveautés
+
+- **Chantier 18, inscription** : un refus « adresse déjà utilisée » révèle qu'un compte existe. Une réponse identique dans tous les cas casserait l'inscription immédiate. Ces refus sont donc bornés à 10 par heure et par réseau, et le titulaire de l'adresse est prévenu (une fois par jour) qu'on a essayé de s'inscrire avec elle. Repérer les adresses clientes de Comptoir devient lent et visible. Avec le temps de connexion constant (cycle 22), c'est la limite raisonnable sans changer le parcours.
+- **Chantier 19, webhooks** : trois nouveaux événements, documentés dans `docs/API.md` et proposés dans l'écran des intégrations :
+  - `devis.accepte` ;
+  - `carte.emise` (jamais le code de la carte : vérifié par un test sur la file chiffrée) ;
+  - `stock.transfert`.
+- **Chantier 17 (retours partiels), différé** : remettre en stock seulement les articles retournés n'a de sens qu'avec un remboursement partiel et un avoir partiel, cohérents avec le journal scellé. C'est un chantier comptable à part entière, traité plus tard avec sa propre relecture.
+- 2 nouveaux tests : 153 tests sur 153.

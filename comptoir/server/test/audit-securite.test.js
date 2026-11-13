@@ -62,3 +62,16 @@ test('effacement d’un client : ses devis sont anonymisés', async () => {
     assert.equal(d.client.raison, 'Client effacé'); assert.equal(d.client.email, ''); assert.equal(d.total, 120, 'montants gardés');
   } finally { s.close(); }
 });
+
+test('inscription avec une adresse existante : refus bornés par réseau, titulaire prévenu une fois', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const inscrire = () => fetch(`${base}/api/auth/inscription`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'titulaire@exemple.fr', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'T', pays: 'fr', secteur: 'maison', sections: [] }, entreprise: { raison: 'T', adresse: '5 rue Neuve, 69001 Lyon' } }, produits: [] }) }).then(r => r.status);
+  try {
+    assert.equal(await inscrire(), 201);
+    const statuts = []; for (let i = 0; i < 12; i++) statuts.push(await inscrire());
+    assert.equal(statuts[0], 409); assert.equal(statuts[11], 429, 'au-delà de 10 refus par heure');
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE destinataire = 'titulaire@exemple.fr' AND sujet LIKE 'Tentative%'").get().n, 1);
+  } finally { s.close(); }
+});
