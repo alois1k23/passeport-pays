@@ -1562,5 +1562,5 @@ Les clés d'avant le chantier 68, et celles qu'on crée sans adresses autorisée
   - « clé d'accès seule » retirée à l'annulation ;
 - **deux faux positifs graves** qui auraient déconnecté de vrais marchands (app iOS installée, Android en mode ordinateur).
 
-État à la fin de la phase : 231 tests sur 231, parcours de bout en bout 57/57, vérification complète (7 étapes) réussie après chaque chantier.
+État à la fin de la phase : 231 tests sur 231, parcours de bout en bout 57/57. La vérification complète (7 étapes) a réussi sur le code final des chantiers 62, 64, 65 et 66 (ensemble), 67, 68 et 69 ; le chantier 63 n'a pas eu de passage propre, il est couvert par celui du chantier 64. Un passage du chantier 64 a connu un échec intermittent du parcours marchand au clavier, de cause non établie (voir le cycle 69).
 
