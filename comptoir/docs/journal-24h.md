@@ -36,6 +36,14 @@ La feuille de route peut évoluer selon les constats des relectures.
 14. **Espace marchand au clavier** : caisse, commandes, devis.
 15. **E-mails des nouveautés dans les langues de la boutique** (fidélité, cartes cadeaux, devis).
 
+**Troisième phase** (la deuxième est terminée le 13 novembre vers 2 h 40) :
+
+16. **Export complet de la boutique** : ajouter les emplacements, cartes cadeaux, devis, programme de fidélité et registres (portabilité des données, reprise).
+17. **Retours partiels** : remettre en stock seulement les articles retournés.
+18. **Inscription sans énumération des comptes** : même réponse que l'adresse soit connue ou non.
+19. **Webhooks des nouveautés** : devis accepté, carte cadeau émise, transfert de stock.
+20. **Une seule commande de vérification** : tests, bout en bout, simulations et audits clavier enchaînés (`npm run verifier`).
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
