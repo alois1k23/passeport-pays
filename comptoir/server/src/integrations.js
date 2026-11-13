@@ -132,7 +132,7 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     if (c.expire_le && c.expire_le < Date.now()) throw erreur(401, 'Clé d’API expirée : créez-en une nouvelle dans Paramètres > Intégrations.', 'cle_expiree');
     if (c.reseaux && !dansReseaux(ip, JSON.parse(c.reseaux))) throw erreur(403, 'Cette clé d’API n’est pas autorisée depuis cette adresse IP.', 'reseau_refuse');
     if (!c.utilisee_le || Date.now() - c.utilisee_le > 60000) db.prepare('UPDATE cles_api SET utilisee_le = ? WHERE id = ?').run(Date.now(), c.id);
-    return { id: c.id, boutiqueId: c.boutique_id, portees: JSON.parse(c.portees) };
+    return { id: c.id, boutiqueId: c.boutique_id, portees: JSON.parse(c.portees), nom: c.nom, prefixe: c.prefixe, creeLe: c.cree_le, limiteeIp: !!c.reseaux };
   }
 
   /* ---------- Webhooks ---------- */

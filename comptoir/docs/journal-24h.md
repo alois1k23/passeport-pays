@@ -1522,7 +1522,7 @@ Les clés d'avant le chantier 68, et celles qu'on crée sans adresses autorisée
 - **Réseaux appris par clé** : chaque clé garde les réseaux d'où elle est utilisée (IPv4 /24, IPv6 /48), 50 au plus, les plus anciens oubliés. Ces lignes sont purgées pour les clés révoquées et après un an sans usage.
 - **Alerte** : passé le premier jour de la clé (mise en place de l'outil, essais : réseaux appris sans alerte), la première utilisation depuis un réseau inconnu est notée dans le journal du compte. Le propriétaire reçoit un e-mail qui dit quoi faire : révoquer, recréer, limiter aux adresses de l'outil. Au plus un e-mail toutes les 6 heures par clé ; l'appel n'est pas bloqué, pour ne pas casser un outil qui change d'hébergement.
 - **Clés limitées à des adresses** : pas de suivi, la limite suffit.
-- **Coût** : une lecture et au plus une écriture par appel ; la date de dernier passage n'est réécrite qu'une fois par heure. Charge réduite : 932 actions par seconde, aucune erreur.
+- **Coût** : charge réduite à 932 actions par seconde, sans erreur. La première version faisait jusqu'à trois requêtes par appel ; voir la relecture.
 - **Tests** :
   - premier jour sans alerte ;
   - même /24 sans alerte ;
@@ -1530,4 +1530,8 @@ Les clés d'avant le chantier 68, et celles qu'on crée sans adresses autorisée
   - second nouveau réseau, IPv6 : noté, sans second e-mail ;
   - clé limitée : non suivie.
 - 231 tests sur 231, parcours de bout en bout 57/57.
-
+- **Relecture indépendante** : rien de grave. Courses impossibles, puisque tout est synchrone ; éviction juste ; e-mail sans injection ; lignes des clés révoquées purgées. Sur la suppression de l'alerte, la relecture conclut qu'un détenteur de la clé ne peut épuiser la limite de 6 heures qu'en déclenchant lui-même une alerte, qui nomme son premier réseau. Inondation de réseaux : les vrais réseaux oubliés alertent de nouveau. Acceptable. Points mineurs traités :
+  - **Coût par appel** : les informations de la clé viennent maintenant de l'authentification, sans relecture. Le cas courant (réseau connu) ne fait plus qu'une lecture, et la date de passage n'est réécrite qu'une fois par heure.
+  - **Limite écrite** : une clé sans aucun réseau appris apprend son premier réseau sans alerte, quel que soit son âge. C'est le cas des clés d'avant ce chantier, et des clés après un an sans usage.
+  - **Limite écrite** : seuls les appels acceptés sont suivis. Un appel refusé faute de permission (403) ou d'abonnement (402) ne compte pas.
+- Après corrections : 231 tests sur 231, parcours de bout en bout 57/57.

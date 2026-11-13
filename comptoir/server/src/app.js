@@ -3759,11 +3759,12 @@ ${bloc}</main></body></html>`;
   db.exec('CREATE TABLE IF NOT EXISTS cles_api_reseaux (cle_id TEXT NOT NULL, reseau TEXT NOT NULL, premier_le INTEGER NOT NULL, dernier_le INTEGER NOT NULL, PRIMARY KEY (cle_id, reseau))');
   const blocCle = ip => { const a = String(ip || '').replace(/^::ffff:/i, ''); return /^\d+\.\d+\.\d+\.\d+$/.test(a) ? a.replace(/\.\d+$/, '.0/24') : a.includes(':') ? `${reseauIp(a).split(':').slice(0, 3).join(':')}::/48` : a; };
   function surveillerReseauCle(ctx, c) {
-    const cle = db.prepare('SELECT nom, prefixe, cree_le, reseaux FROM cles_api WHERE id = ?').get(c.id);
-    if (!cle || cle.reseaux) return;
+    if (c.limiteeIp) return;
+    const cle = { nom: c.nom, prefixe: c.prefixe, cree_le: c.creeLe };
     const reseau = blocCle(ctx.ipBrute), maintenant = Date.now();
-    if (db.prepare('UPDATE cles_api_reseaux SET dernier_le = ? WHERE cle_id = ? AND reseau = ? AND dernier_le < ?').run(maintenant, c.id, reseau, maintenant - 3600000).changes) return;
-    if (db.prepare('SELECT 1 FROM cles_api_reseaux WHERE cle_id = ? AND reseau = ?').get(c.id, reseau)) return;
+    // Cas courant (réseau connu) : une seule lecture ; la date de passage n'est réécrite qu'une fois par heure.
+    const vu = db.prepare('SELECT dernier_le FROM cles_api_reseaux WHERE cle_id = ? AND reseau = ?').get(c.id, reseau);
+    if (vu) { if (vu.dernier_le < maintenant - 3600000) db.prepare('UPDATE cles_api_reseaux SET dernier_le = ? WHERE cle_id = ? AND reseau = ?').run(maintenant, c.id, reseau); return; }
     const connus = db.prepare('SELECT COUNT(*) n FROM cles_api_reseaux WHERE cle_id = ?').get(c.id).n;
     db.prepare('INSERT OR IGNORE INTO cles_api_reseaux (cle_id, reseau, premier_le, dernier_le) VALUES (?, ?, ?, ?)').run(c.id, reseau, maintenant, maintenant);
     if (connus >= 50) db.prepare('DELETE FROM cles_api_reseaux WHERE rowid IN (SELECT rowid FROM cles_api_reseaux WHERE cle_id = ? ORDER BY dernier_le LIMIT ?)').run(c.id, connus - 49);
