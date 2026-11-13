@@ -924,3 +924,43 @@ Le point ouvert du cycle 49 est fermé. Jusqu'ici, n'importe qui pouvait ouvrir 
 - **Démonstration mise à jour** : https://claude.ai/artifact/VVqm5yN2b2csXTiHAt6sM9. Seuls les fichiers modifiés depuis la version 24 sont republiés (`data.js`, `serveur.js`, `parametres.js`, `app.css`), avec le secteur par défaut qui empêche le tableau de bord de planter.
 - Le rappel de confirmation de l'adresse et l'indication de la section Paiements n'apparaissent pas dans la démonstration : ils n'ont de sens qu'avec un serveur.
 - **Vérifié dans Chromium** avec les fichiers publiés : tableau de bord, commandes, réglages, analyse et clients. Aucune erreur JavaScript.
+
+### Cycle 53 (08 h 20) : relecture adversariale de la boutique publique et du paiement (chantier 45)
+
+Un relecteur indépendant a attaqué la boutique publique et le paiement : prix, stock, codes, cartes cadeaux, points de fidélité, états de la commande, webhooks Stripe, accès aux commandes et aux documents. Chaque constat est prouvé par un script, sans faille critique.
+
+**Ce qui tient** (vérifié par scripts, parfois sur 200 000 paniers au hasard) :
+- prix toujours recalculés côté serveur ;
+- aucun écart d'arrondi entre Stripe et la commande ;
+- cartes cadeaux et points sans double dépense, même avec 5 commandes simultanées ;
+- carte d'une autre boutique refusée ;
+- commande d'une autre boutique introuvable ;
+- jetons comparés en temps constant ;
+- webhooks signés, datés et dédoublonnés ;
+- pas d'énumération des adresses.
+
+**Constats corrigés, en deux tours** (le second relecteur a trouvé les premiers correctifs incomplets) :
+- **E-mails de la boutique détournés** : le nom saisi à la commande était repris tel quel dans la relance de paiement (« Bonjour … ») et dans l'e-mail de la facture QR. N'importe qui pouvait faire envoyer par la boutique un message de son choix, avec un lien, à l'adresse de son choix.
+  - Correctif : nom, adresse et ville tiennent sur une ligne. Un lien ou une adresse de site, même maquillé (« exemple[.]com », adresse IP), est refusé avec un message clair, jamais réécrit en silence, puisque le nom figure sur la facture. « J. Dupont », « Müller & Co. » et « St.Gallen Sàrl » passent.
+  - Les relances des commandes passées avant le correctif nettoient le nom au moment de l'envoi.
+- **Stock retenu sans payer** : un même réseau pouvait bloquer tout le catalogue avec des commandes jamais payées, sous des adresses jetables.
+  - Correctif : ses commandes impayées (la première comprise) retiennent au plus la moitié du stock d'un produit, au moins 3 et au plus 20. Le plancher était d'abord de 2 : la simulation de 60 jours a montré 4 vrais clients refusés (3 exemplaires des 3 derniers), d'où 3. Au-delà, il faut payer d'abord ou demander un devis.
+  - Un client qui annule le paiement rend le stock tout de suite, au lieu d'attendre 35 minutes.
+- **Vente en double** : la page de paiement Stripe restait ouverte 24 heures, et la réservation du stock seulement 30 minutes.
+  - Correctif : la page se ferme à 31 minutes et la réservation dure 35 minutes.
+  - Un paiement repris des heures plus tard par le lien de relance revérifie le stock (refusé si l'article a été vendu entre-temps) et le réserve de nouveau (testé).
+- **Montant et devise contrôlés** à chaque confirmation Stripe (défense en profondeur ; aucune exploitation trouvée) :
+  - une session qui ne correspond pas n'est jamais validée ; l'argent reçu est marqué à rembourser et noté dans la commande pour le marchand ;
+  - le webhook de la plateforme ignore les ventes des boutiques connectées.
+- **Code de bienvenue** :
+  - il était publié dans la vitrine, ce qui contournait la double confirmation de l'inscription ; il ne l'est plus ;
+  - deux commandes ouvertes ensemble en profitaient toutes les deux ; une seule le peut maintenant ;
+  - un client qui annule son paiement recommence avec le code, mais l'ancienne commande ne repart plus avec lui (testé).
+- **Tests** : 5 nouveaux tests de boutique durcie, plus 3 contrôles dans celui de Stripe Connect. Le test du contrôle de montant échoue si l'on retire le contrôle.
+
+**Limites connues** :
+- un client qui veut plus de la moitié du stock d'un produit (et plus de 3 exemplaires) en une commande non payée doit demander un devis (choix assumé contre le blocage du stock). Un même réseau peut encore retenir 3 exemplaires de chaque produit pendant 35 minutes sans payer ;
+- avec le prestataire de paiement simulé (essais, hors production), les liens n'expirent pas ;
+- les codes promo n'ont pas encore de limite d'usage par code ou par client.
+
+200 tests sur 200. Vérificateur complet : 6 étapes sur 7, puis la simulation de 60 jours relancée seule après le correctif du plancher : 0 anomalie sur plus de 7 000 commandes.

@@ -8,6 +8,15 @@ const crypto = require('node:crypto');
 const { erreur } = require('./http');
 
 const centimes = n => Math.round(n * 100);
+/* La session payée correspond-elle au paiement attendu ? Montant et devise comparés quand Stripe les donne (défense en
+   profondeur : les sessions sont créées par le serveur, mais un écart ne doit jamais valider une commande). */
+function sessionConforme(s, p) {
+  if (!s || !p) return false;
+  if (s.amount_total !== undefined && s.amount_total !== null && Number(s.amount_total) !== Number(p.montant_centimes)) return false;
+  if (s.currency && p.devise && String(s.currency).toLowerCase() !== String(p.devise).toLowerCase()) return false;
+  if (p.ref_externe && s.id && /^cs_/.test(p.ref_externe) && s.id !== p.ref_externe) return false;
+  return true;
+}
 
 function prestataireSimulation({ urlPublique }) {
   return {
@@ -56,7 +65,10 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
         ['client_reference_id', commande.id],
         ['customer_email', commande.client.email],
         ['metadata[commande_id]', commande.id],
-        ['metadata[paiement_id]', paiement.id]
+        ['metadata[paiement_id]', paiement.id],
+        // Page de paiement fermée au bout de 31 minutes (minimum de Stripe : 30) : la réservation du stock dure 35 minutes,
+        // un paiement ne peut donc pas aboutir une fois l'article rendu à la vente.
+        ['expires_at', Math.floor(Date.now() / 1000) + 31 * 60]
       ];
       // TWINT n'est proposé par Stripe qu'en CHF.
       // Sur un compte connecté, seulement si Stripe a activé ce moyen pour la boutique (sinon la session entière est refusée).
@@ -119,6 +131,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
     async sessionPayee(p) {
       if (!p.ref_externe || !/^cs_/.test(p.ref_externe)) return false;
       const s = await lire(`checkout/sessions/${p.ref_externe}`, p.compte || null);
+      if (!sessionConforme(s, p)) return false;
       return s.payment_status === 'paid' ? (s.payment_intent || true) : false;   // payment_intent : sert à retrouver un litige
     },
     modeCle: /^sk_live_/.test(cleSecrete) ? 'live' : 'test',
@@ -151,4 +164,4 @@ function choisirPrestataire(env, urlPublique, fetchImpl = fetch) {
   return prestataireSimulation({ urlPublique });
 }
 
-module.exports = { etatDepuisCompte, choisirPrestataire, prestataireSimulation, prestataireStripe, verifierSignatureStripe, centimes };
+module.exports = { sessionConforme, etatDepuisCompte, choisirPrestataire, prestataireSimulation, prestataireStripe, verifierSignatureStripe, centimes };

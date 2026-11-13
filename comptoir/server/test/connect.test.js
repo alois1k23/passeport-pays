@@ -77,6 +77,20 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     const evPaye = compte => ({ type: 'checkout.session.completed', account: compte, data: { object: { id: pay.ref_externe, payment_status: 'paid', metadata: { paiement_id: pay.id } } } });
     assert.equal(await webhook(evPaye('acct_autre')), 200);   // une autre boutique ne peut pas confirmer cette vente
     assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cmd.json.commandeId).statut, 'attente');
+    // Session au mauvais montant, ou dans une autre devise : jamais validée (défense en profondeur).
+    const avec = (champs, compte = 'acct_boutique') => { const ev = evPaye(compte); ev.data.object = { ...ev.data.object, ...champs }; return ev; };
+    assert.equal(await webhook(avec({ amount_total: 1 })), 200);
+    assert.equal(await webhook(avec({ amount_total: pay.montant_centimes, currency: 'usd' })), 200);
+    // Paiement d'une boutique connectée annoncé par le webhook de la plateforme : ignoré.
+    assert.equal(await webhook(avec({ amount_total: pay.montant_centimes }, null), 'whsec_plateforme'), 200);
+    assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cmd.json.commandeId).statut, 'attente', 'aucune de ces sessions ne valide la commande');
+    // Le client a payé un montant inattendu : paiement à rembourser, noté dans la commande pour le marchand.
+    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pay.id).statut, 'a_rembourser');
+    db.prepare("UPDATE paiements SET statut = 'cree' WHERE id = ?").run(pay.id);   // la suite du test reprend le paiement attendu
+    // La page de paiement Stripe se ferme avant la fin de la réservation du stock (35 minutes).
+    const sess = appels.find(x => x.chemin === 'checkout/sessions');
+    const fin = Number(sess.corps.get('expires_at'));
+    assert.ok(fin > Date.now() / 1000 + 29 * 60 && fin < Date.now() / 1000 + 35 * 60, `expires_at ${fin}`);
     assert.equal(await webhook(evPaye('acct_boutique')), 200);
     assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cmd.json.commandeId).statut, 'payee');
     // Litige ouvert par le client : la commande le montre et le marchand est prévenu

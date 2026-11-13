@@ -52,6 +52,9 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
   // 1. Paiement abandonné : la commande a été créée mais jamais payée.
   if (a.paiement.actif) {
     for (const c of commandes) {
+      // Nom repris dans le message : une seule ligne, sans lien (commandes passées avant le contrôle à la saisie).
+      // Copie pour le message seulement : la commande enregistrée garde le nom saisi.
+      const cm = { ...c, client: { ...c.client, nom: String((c.client && c.client.nom) || '').replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, ' ').replace(/\S*(?:https?:|www\.|:\/\/|\[\.\])\S*/gi, '').replace(/\s+/g, ' ').trim().slice(0, 70) } };
       if (c.statut !== 'attente' || c.moyen === 'facture' || c.canal === 'devis' || c.canal === 'carte' || !c.client.email || maintenant - c.date > 7 * JOUR) continue;   // facture QR ou devis accepté (paiement par virement attendu) : pas un panier abandonné
       // Au plus une relance par passage : la plus avancée qui est due et pas encore envoyée
       // (après une interruption du serveur, le client ne reçoit pas trois e-mails d'un coup).
@@ -63,9 +66,9 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
         const lien = EmailsClients.avecLangue(`${base}?reprendre=${encodeURIComponent(c.id)}&jeton=${encodeURIComponent(c.jeton)}`, c);
         const derniere = i === a.paiement.etapes.length - 1;
         const offre = derniere && a.paiement.remise && a.paiement.code ? `\n\nPour vous aider à vous décider : -${a.paiement.remise} % avec le code ${a.paiement.code}.` : '';
-        if (EmailsClients.langueDe(c)) { const m = EmailsClients.relance(c, { nomBoutique: nom, i, lien, formatMontant: x => formatMontant(x, config), remise: derniere && a.paiement.remise && a.paiement.code ? a.paiement.remise : 0, code: a.paiement.code }); envoyerEmail(boutique.id, c.client.email, m.sujet, m.corps, { marketing: true, motif: 'commande', langue: c.langue }); }
+        if (EmailsClients.langueDe(c)) { const m = EmailsClients.relance(cm, { nomBoutique: nom, i, lien, formatMontant: x => formatMontant(x, config), remise: derniere && a.paiement.remise && a.paiement.code ? a.paiement.remise : 0, code: a.paiement.code }); envoyerEmail(boutique.id, c.client.email, m.sujet, m.corps, { marketing: true, motif: 'commande', langue: c.langue }); }
         else envoyerEmail(boutique.id, c.client.email, i === 0 ? `Votre commande chez ${nom} vous attend` : `Votre panier chez ${nom} vous attend toujours`,
-          `Bonjour ${c.client.nom},\n\nVotre commande n° ${c.numero} (${formatMontant(c.total, config)}) n’a pas été finalisée. Un souci au moment de payer ? Vous pouvez la reprendre ici :\n${lien}${offre}\n\nL’équipe ${nom}`, { marketing: true, motif: 'commande' });   // relance commerciale : lien de désinscription, désinscrits respectés
+          `Bonjour ${cm.client.nom},\n\nVotre commande n° ${c.numero} (${formatMontant(c.total, config)}) n’a pas été finalisée. Un souci au moment de payer ? Vous pouvez la reprendre ici :\n${lien}${offre}\n\nL’équipe ${nom}`, { marketing: true, motif: 'commande' });   // relance commerciale : lien de désinscription, désinscrits respectés
         c.relances = i + 1;
         c.historique.push({ date: maintenant, texte: `Relance de paiement n° ${i + 1} envoyée par e-mail` });
         enregistrerCommande(c);

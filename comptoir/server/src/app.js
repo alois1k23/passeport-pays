@@ -31,7 +31,7 @@ const auth = require('./auth');
 const totp = require('./totp');
 const { transaction } = require('./db');
 const prix = require('./prix');
-const { choisirPrestataire, etatDepuisCompte } = require('./paiements');
+const { choisirPrestataire, etatDepuisCompte, sessionConforme } = require('./paiements');
 const fournisseurs = require('./fournisseurs');
 const social = require('./social');
 const relances = require('./relances');
@@ -810,6 +810,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const texteSur = (t, max) => String(t || '').normalize('NFC').replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, ' ')
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, '[…]').replace(/\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}\b\S*/gi, '[…]')   /* tout ce qui ressemble à un nom de domaine */
     .replace(/\s+/g, ' ').trim().slice(0, max);
+  const uneLigne = t => String(t || '').normalize('NFC').replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Texte qui contient un lien ou une adresse de site (y compris maquillée : « exemple[.]com », adresse IP) : refusé avec
+  // un message clair, jamais réécrit en silence (le nom figure sur la facture).
+  const LIEN = /(?:https?:|www\.|:\/\/|\[\.\]|\(\.\)|\b\d{1,3}(?:\.\d{1,3}){3}\b|\.(?:ch|com|fr|be|de|at|it|li|lu|nl|eu|net|org|info|biz|io|co|me|app|site|online|shop|store|link|click|xyz|top|ru|cn|tk|ml|ga|cf|gq|ws|cc|ly|gl|to|sh|page|dev)(?![\p{L}\d]))/iu;
+  const sansLien = (t, quoi, code) => { if (LIEN.test(t)) throw erreur(400, `${quoi} ne peut pas contenir de lien ni d’adresse de site.`, code); return t; };
+  const nomSur = t => { const n = uneLigne(t).slice(0, 70); if (!n) throw erreur(400, 'Indiquez votre nom.', 'nom_invalide'); return sansLien(n, 'Le nom', 'nom_invalide'); };
   function emettreCarteVendue(bid, c, { liberer = false } = {}) {
     if (c.carteEmise) return;
     const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid), config = lireConfig(b), reg = Cartes.reglagesVente(bid);
@@ -904,6 +910,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       }
     }
   }
+  // Session de paiement qui ne correspond pas au paiement attendu (montant, devise, référence) : jamais validée, signalée.
+  const sessionNonConforme = (objet, p) => {
+    if (sessionConforme(objet, p)) return false;
+    // Le client a payé, mais pas ce qui était attendu : l'argent est à rendre, la commande n'est pas validée, le marchand le voit.
+    if (objet.payment_status === 'paid' && ['cree', 'annule'].includes(p.statut)) transaction(db, () => {
+      db.prepare("UPDATE paiements SET statut = 'a_rembourser', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(objet.id ? String(objet.id) : null, p.id);
+      const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(p.commande_id);
+      if (row) { const c = lireCommande(row); historique(c, 'Paiement reçu qui ne correspond pas à la commande (montant ou devise) : à rembourser, commande non validée.'); enregistrerCommande(c); }
+    });
+    journal.error(`[paiement] session ${String(objet.id || '').slice(0, 40)} non conforme au paiement ${p.id} (montant ${objet.amount_total} au lieu de ${p.montant_centimes}, devise ${objet.currency || '?'} au lieu de ${p.devise}) : ignorée`);
+    return true;
+  };
   async function paiementConfirme(paiementId, refExterne) {
     const p0 = db.prepare('SELECT * FROM paiements WHERE id = ?').get(paiementId);
     if (!p0 || p0.statut === 'paye' || p0.statut === 'rembourse' || p0.statut === 'a_rembourser') return;
@@ -2517,7 +2535,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       cartesCadeaux: (() => { const v = Cartes.reglagesVente(b.id); return v.actif ? { montants: v.montants } : null; })(),
       fidelite: (() => { const f = FID.reglages(b.id); return f.actif ? { pointsParUnite: f.pointsParUnite, valeurPour100: f.valeurPour100, seuil: f.seuil, plafondPct: f.plafondPct } : null; })(),
       offres: (({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles }) => ({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles: regles.filter(r => r.actif && r.type === 'panier') }))(Remises.offresDe(config)),
-      newsletter: relances.nettoyer(config.automatisations).bienvenue,
+      // Le code de bienvenue n'est pas publié (il passerait outre la double confirmation de l'inscription) : seulement s'il existe.
+      newsletter: (({ actif, remise, code }) => ({ actif, remise, code: !!code }))(relances.nettoyer(config.automatisations).bienvenue),
       paiement: paiement.nom,
       paiementsActifs: paiementsActifs(b) || factureQrPossible(config),
       factureQr: factureQrPossible(config) ? { echeanceJours: config.reglages.echeanceJours, enLigne: paiementsActifs(b) } : null,
@@ -2545,43 +2564,61 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Stock réservé par les commandes en attente de paiement d'AUTRES clients : 30 minutes pour un paiement en ligne,
     // jusqu'à l'échéance pour une facture QR. Sans cela, plusieurs clients pourraient payer le dernier exemplaire.
     const emailClient = String((ctx.corps.client || {}).email || '').trim().toLowerCase();
-    const reserve = {};
+    const reserve = {}, parReseau = {};
     const indexClient = PII.index(b.id, emailClient);
+    const empreinteReseau = crypto.createHmac('sha256', cleChiffrement).update(`reseau:${b.id}:${reseauIp(ctx.ip)}`).digest('hex').slice(0, 24);
     for (const r2 of db.prepare("SELECT date, donnees, email_index FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ?").all(b.id, Date.now() - 90 * 86400000)) {
       const d = JSON.parse(r2.donnees);   // lignes et moyen seulement : rien à déchiffrer
       // 30 minutes pour un paiement en ligne, 48 heures pour une facture QR (une commande fictive sur facture ne bloque pas le stock un mois).
       // Devis accepté : payé souvent par virement, stock réservé 7 jours.
-      const active = r2.date > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 30 * 60000);
+      // Paiement en ligne : 35 minutes, plus longtemps que la page de paiement Stripe (fermée au bout de 31 minutes) : un
+      // paiement ne peut donc pas aboutir après la fin de la réservation et vendre un article déjà revendu.
+      const depuis = Math.max(r2.date, d.reserveDepuis || 0);
+      const active = !(d.abandonneeLe >= depuis) && depuis > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 35 * 60000);
       if (!active || (indexClient && r2.email_index === indexClient)) continue;   // son propre essai précédent ne bloque pas le client
+      if (d.reseau === empreinteReseau && active && d.moyen !== 'facture' && d.canal !== 'devis') for (const l of d.lignes || []) if (l.type !== 'drop') parReseau[l.produitId] = (parReseau[l.produitId] || 0) + (l.qte || 0);
       for (const l of d.lignes || []) if (l.type !== 'drop') { reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0); if (l.varianteId) reserve[`${l.produitId}:${l.varianteId}`] = (reserve[`${l.produitId}:${l.varianteId}`] || 0) + (l.qte || 0); }
     }
     const produits = listerProduits(b.id).filter(vendable).map(p => !reserve[p.id] || p.type === 'drop' ? p : { ...p, stock: Math.max(0, p.stock - reserve[p.id]), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(v => ({ ...v, stock: Math.max(0, v.stock - (reserve[`${p.id}:${v.id}`] || 0)) })) } : {}) });   // produit masqué ou du fournisseur de démonstration : « plus disponible »
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
+    // Un même réseau ne réserve pas tout le stock sans payer : ses commandes impayées (adresses e-mail différentes, souvent
+    // jetables ; la commande en cours comprise) retiennent au plus la moitié du stock d'un produit, au moins 3, au plus 20.
+    // Un achat courant (jusqu'à 3 exemplaires, même s'ils sont les derniers) passe toujours (simulation de 60 jours : des
+    // clients réels refusés avec un plancher de 2). Au-delà, le client paie d'abord, ou passe
+    // par un devis (achats professionnels en quantité).
+    { const parProduit = {}; for (const l of lignesBrutes) if (l.type !== 'drop') parProduit[l.produitId] = (parProduit[l.produitId] || 0) + l.qte;
+      let tous = null; const stockDe = pid => { tous = tous || listerProduits(b.id); const p = tous.find(x => x.id === pid); return p ? Math.max(0, p.stock) : 0; };
+      for (const [pid, q] of Object.entries(parProduit)) if ((parReseau[pid] || 0) + q > Math.min(20, Math.max(3, Math.ceil(stockDe(pid) / 2))) * facteurLimites) throw erreur(429, 'Quantité trop grande pour une commande en ligne non payée : terminez d’abord un paiement en cours, réduisez la quantité, ou demandez un devis à la boutique.', 'trop_reserve'); }
     const modes = prix.modesLivraison(config);
     const mode = typeof ctx.corps.livraison === 'string' && Object.hasOwn(modes, ctx.corps.livraison) ? modes[ctx.corps.livraison] : null;
     if (!mode) throw erreur(400, 'Mode de livraison indisponible.', 'livraison_invalide');
     const cl = ctx.corps.client || {};
+    // Le nom est repris dans les e-mails de la boutique (« Bonjour … ») : une seule ligne, sans lien ni nom de domaine,
+    // sinon n'importe qui ferait envoyer par la boutique un message de son choix à l'adresse de son choix.
     const client = {
-      nom: valider.texte(cl.nom, 'Le nom', { max: 100 }),
+      nom: nomSur(valider.texte(cl.nom, 'Le nom', { max: 100 })),
       email: valider.email(cl.email),
-      adresse: ctx.corps.livraison === 'retrait' ? '' : valider.texte(cl.adresse, 'L’adresse', { max: 200 }),
-      npa: ctx.corps.livraison === 'retrait' ? '' : valider.texte(cl.npa, 'Le code postal', { min: 4, max: 10 }),
-      ville: valider.texte(cl.ville, 'La ville', { max: 100 }),
+      adresse: ctx.corps.livraison === 'retrait' ? '' : sansLien(uneLigne(valider.texte(cl.adresse, 'L’adresse', { max: 200 })), 'L’adresse', 'adresse_invalide'),
+      npa: ctx.corps.livraison === 'retrait' ? '' : uneLigne(valider.texte(cl.npa, 'Le code postal', { min: 4, max: 10 })),
+      ville: sansLien(uneLigne(valider.texte(cl.ville, 'La ville', { max: 100 })), 'La ville', 'ville_invalide'),
       consentement: cl.consentement === true || cl.consentement === 'on' ? Date.now() : null
     };
     if (config.boutique.pays === 'ch' && client.npa && !/^\d{4}$/.test(client.npa)) throw erreur(400, 'Le NPA suisse compte 4 chiffres.', 'npa_invalide');
     // Commandes impayées : elles réservent le stock (30 minutes). Au plus 3 en cours par adresse e-mail et par réseau
     // (empreinte, jamais l'adresse IP en clair) : un visiteur ne garde pas un produit « épuisé » en enchaînant des
     // commandes jamais payées. Les commandes payées ne comptent pas.
-    const empreinteReseau = crypto.createHmac('sha256', cleChiffrement).update(`reseau:${b.id}:${reseauIp(ctx.ip)}`).digest('hex').slice(0, 24);
     const impayees = db.prepare("SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ? AND (email_index = ? OR json_extract(donnees, '$.reseau') = ?)").get(b.id, Date.now() - 30 * 60000, PII.index(b.id, client.email) || '', empreinteReseau).n;
     if (impayees >= 3 * facteurLimites) throw erreur(429, 'Plusieurs commandes attendent déjà leur paiement : terminez un paiement en cours, ou réessayez dans 30 minutes.', 'trop_impayees');
     const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
     if (ctx.corps.code && calcul.codeValide === false) throw erreur(400, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
     // Le code de bienvenue est annoncé « sur votre première commande » : refusé à une adresse qui a déjà commandé ici.
     const bienvenue = ((config.automatisations || {}).bienvenue || {});
-    if (calcul.motif && calcul.motif.code && bienvenue.code && calcul.motif.code.toUpperCase() === String(bienvenue.code).toUpperCase()) {
-      const deja = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND statut NOT IN ('attente', 'annulee') AND email_index = ? LIMIT 1").get(b.id, PII.index(b.id, client.email) || '');
+    const codeBienvenue = !!(calcul.motif && calcul.motif.code && bienvenue.code && calcul.motif.code.toUpperCase() === String(bienvenue.code).toUpperCase());
+    if (codeBienvenue) {
+      // Commandes en attente comprises si leur paiement est encore possible (lien ouvert depuis moins de 35 minutes, ou
+      // facture QR) : deux commandes ouvertes ensemble ne profitent pas toutes deux du code. Une commande dont le client a
+      // annulé le paiement ne compte pas : il peut recommencer avec le code. Reprendre plus tard l'ancienne est alors refusé.
+      const deja = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND email_index = ? AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, PII.index(b.id, client.email) || '', Date.now() - 35 * 60000);
       if (deja) throw erreur(400, `Le code ${bienvenue.code} est réservé à une première commande.`, 'code_premiere_commande');
     }
     let lignes = calcul.lignes, remise = calcul.remise, apresRemise = calcul.apresRemise;
@@ -2635,7 +2672,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const now = Date.now();
       if (fidelite && !FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''), { demande: String(ctx.corps.fidelite.demande || ''), reseau: reseauIp(ctx.ip), consommer: true })) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
       const motifs = [calcul.motif ? calcul.motif.libelle : null, fidelite ? `${fidelite.points} points de fidélité` : null].filter(Boolean);
-      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, ...(codeBienvenue ? { codeBienvenue: true } : {}), client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
@@ -3129,7 +3166,7 @@ ${bloc}</main></body></html>`;
     const montant = Number(ctx.corps.montant);
     if (!reg.montants.includes(montant)) throw erreur(400, 'Montant de carte cadeau indisponible.', 'montant_invalide');
     const cl = ctx.corps.client || {}, de = ctx.corps.destinataire || {};
-    const client = { nom: valider.texte(cl.nom, 'Votre nom', { max: 100 }), email: valider.email(cl.email), adresse: '', npa: '', ville: '' };
+    const client = { nom: nomSur(valider.texte(cl.nom, 'Votre nom', { max: 100 })), email: valider.email(cl.email), adresse: '', npa: '', ville: '' };
     if (de.email) client.destinataire = { nom: de.nom ? valider.texte(de.nom, 'Le nom du destinataire', { max: 100 }) : '', email: valider.email(de.email) };
     if (ctx.corps.message) client.message = texteSur(ctx.corps.message, 300);
     auth.limiter(`achat-carte-email:${b.id}:${client.email.toLowerCase()}`, 5 * facteurLimites, 86400000, 'Trop d’achats de cartes pour cette adresse aujourd’hui.');
@@ -3591,8 +3628,12 @@ ${bloc}</main></body></html>`;
       const frais = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id), c = lireCommande(frais);
       if (frais.statut !== 'attente' || c.moyen === 'facture') return [];
       const liens = db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'cree'").all(c.id);
-      if (!libererReservations(row.boutique_id, c, 'paiement annulé par le client')) return [];
+      // Le client a quitté le paiement : liens fermés, stock rendu à la vente tout de suite (pas au bout de 35 minutes),
+      // carte cadeau et points rendus. « Reprendre » rouvre un lien et réserve de nouveau, si le stock est encore là.
+      libererReservations(row.boutique_id, c, 'paiement annulé par le client');
+      if (!liens.length && c.abandonneeLe) return [];
       db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND statut = 'cree'").run(c.id);
+      c.abandonneeLe = Date.now();
       enregistrerCommande(c);
       return liens;
     });
@@ -3609,6 +3650,17 @@ ${bloc}</main></body></html>`;
   });
   /* Nouveau lien de paiement en ligne pour une commande en attente (paiement repris, devis accepté) : les liens encore
      ouverts sont fermés d'abord ; la carte cadeau éventuellement recréditée est débitée à nouveau. */
+  // Stock réservé par les autres commandes en attente encore actives (même règle qu'à la commande).
+  function reservationsAutres(bid, saufId) {
+    const reserve = {};
+    for (const r2 of db.prepare("SELECT id, date, donnees FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND id <> ? AND date > ?").all(bid, saufId, Date.now() - 90 * 86400000)) {
+      const d = JSON.parse(r2.donnees);
+      const depuis = Math.max(r2.date, d.reserveDepuis || 0);
+      if (d.abandonneeLe >= depuis || !(depuis > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 35 * 60000))) continue;
+      for (const l of d.lignes || []) if (l.type !== 'drop') { reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0); if (l.varianteId) reserve[`${l.produitId}:${l.varianteId}`] = (reserve[`${l.produitId}:${l.varianteId}`] || 0) + (l.qte || 0); }
+    }
+    return reserve;
+  }
   async function ouvrirPaiement(b, row) {
     const c = lireCommande(row);
     const devise = lireConfig(b).boutique.devise || 'EUR';
@@ -3625,6 +3677,20 @@ ${bloc}</main></body></html>`;
       if (refus) throw erreur(409, `Paiement impossible : ${refus}. Passez une nouvelle commande.`, 'reservation');
       historique(frais, 'Paiement repris : réservations reprises'); enregistrerCommande(frais);
       Object.assign(c, frais);
+    });
+    // Paiement repris en ligne (lien de relance, des heures plus tard) : le stock est vérifié à nouveau (les articles ont pu
+    // être vendus entre-temps) et réservé de nouveau pour la durée du lien. Le code de bienvenue ne sert qu'une fois.
+    if (c.canal !== 'devis' && c.moyen !== 'facture') transaction(db, () => {
+      const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
+      const autres = reservationsAutres(b.id, c.id), prods = listerProduits(b.id);
+      const manque = frais.lignes.filter(l => l.type !== 'drop').find(l => { const p = prods.find(x => x.id === l.produitId); if (!p || p.type === 'drop') return false;
+        const v = l.varianteId && Array.isArray(p.variantes) ? p.variantes.find(y => y.id === l.varianteId) : null;
+        const dispo = v ? v.stock - (autres[`${l.produitId}:${l.varianteId}`] || 0) : p.stock - (autres[l.produitId] || 0);
+        return dispo < frais.lignes.filter(y => y.produitId === l.produitId && (!v || y.varianteId === l.varianteId)).reduce((a, y) => a + y.qte, 0); });
+      if (manque) throw erreur(409, `« ${manque.nom} » n’est plus disponible dans cette quantité : passez une nouvelle commande.`, 'stock_insuffisant');
+      if (frais.codeBienvenue && db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND id <> ? AND email_index = ? AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, c.id, PII.index(b.id, frais.client.email) || '', Date.now() - 35 * 60000))
+        throw erreur(409, 'Le code de bienvenue a déjà servi pour une autre commande : passez une nouvelle commande sans lui.', 'code_premiere_commande');
+      frais.reserveDepuis = Math.max(Date.now(), (frais.abandonneeLe || 0) + 1); enregistrerCommande(frais); Object.assign(c, frais);
     });
     const resteCentimes = Math.round(c.total * 100) - (c.carteCadeau ? Math.round(c.carteCadeau.montant * 100) : 0);
     const pmt = { id: auth.nouvelId('pay_'), commande_id: c.id, montant_centimes: resteCentimes };
@@ -3906,8 +3972,8 @@ ${bloc}</main></body></html>`;
       if (ev.type === 'account.updated') { const e = etatDepuisCompte(objet); db.prepare('UPDATE comptes_stripe SET pret = ?, moyens = ?, maj_le = ? WHERE compte = ?').run(e.pret ? 1 : 0, JSON.stringify(e.moyens), Date.now(), ev.account); }
       if (ev.type === 'account.application.deauthorized') db.prepare('UPDATE comptes_stripe SET pret = 0, maj_le = ? WHERE compte = ?').run(Date.now(), ev.account);
       if (((ev.type === 'checkout.session.completed' && objet.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') && objet.metadata && objet.metadata.paiement_id) {
-        const p = db.prepare('SELECT compte FROM paiements WHERE id = ?').get(String(objet.metadata.paiement_id));
-        if (p && p.compte === ev.account) {   // la vente doit venir du compte de la boutique
+        const p = db.prepare('SELECT * FROM paiements WHERE id = ?').get(String(objet.metadata.paiement_id));
+        if (p && p.compte === ev.account && !sessionNonConforme(objet, p)) {   // la vente doit venir du compte de la boutique, au bon montant
           await paiementConfirme(objet.metadata.paiement_id, objet.id);
           if (objet.payment_intent) db.prepare('UPDATE paiements SET intent = ? WHERE id = ?').run(String(objet.payment_intent), String(objet.metadata.paiement_id));
         }
@@ -3941,7 +4007,9 @@ ${bloc}</main></body></html>`;
     if (evAbo) { if (evAbo.marchandId) emailAbonnement(evAbo.marchandId, evAbo.evenement); return { recu: true }; }
     const objet = (ev.data && ev.data.object) || {};
     if (((ev.type === 'checkout.session.completed' && objet.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') && objet.metadata && objet.metadata.paiement_id) {
-      await paiementConfirme(ev.data.object.metadata.paiement_id, ev.data.object.id);
+      // Webhook de la plateforme : seulement pour un paiement encaissé par la plateforme (pas celui d'une boutique connectée).
+      const p = db.prepare('SELECT * FROM paiements WHERE id = ?').get(String(objet.metadata.paiement_id));
+      if (p && !p.compte && !sessionNonConforme(objet, p)) await paiementConfirme(p.id, objet.id);
     }
     return { recu: true };
   }
