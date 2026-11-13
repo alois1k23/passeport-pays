@@ -129,6 +129,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 66. **Relecture adversariale croisée** des nouveautés de l'après-midi (changement d'adresse, confirmation par clé d'accès, essais refusés par session, session liée à l'appareil) : ce qui casse quand elles se combinent.
 67. **Signaux d'attaque dans la console de l'exploitant** : sessions fermées par précaution, clés d'accès peut-être copiées et changements d'adresse annulés, comptés sur toute la plateforme, avec alerte.
 68. **Clés d'API limitées** : date d'expiration et adresses IP autorisées ; une clé volée ne sert ni après sa date, ni depuis ailleurs.
+69. **Clé d'API utilisée depuis un nouveau réseau** : le propriétaire est prévenu dès le premier appel d'une clé non limitée depuis un réseau inconnu.
 
 ## Cycles
 
@@ -1513,3 +1514,20 @@ Une clé d'API de Comptoir valait jusqu'ici pour toujours et depuis n'importe o�
     - affichage échappé.
 - Après corrections : 230 tests sur 230, parcours de bout en bout 57/57, fuzzing sans constat.
 - Vérification complète (7 étapes) réussie sur le code final du chantier 68.
+
+### Cycle 74 (20 h 45) : clé d'API utilisée depuis un nouveau réseau (chantier 69)
+
+Les clés d'avant le chantier 68, et celles qu'on crée sans adresses autorisées, restent utilisables de partout. Pour ces clés, une fuite doit au moins se voir :
+
+- **Réseaux appris par clé** : chaque clé garde les réseaux d'où elle est utilisée (IPv4 /24, IPv6 /48), 50 au plus, les plus anciens oubliés. Ces lignes sont purgées pour les clés révoquées et après un an sans usage.
+- **Alerte** : passé le premier jour de la clé (mise en place de l'outil, essais : réseaux appris sans alerte), la première utilisation depuis un réseau inconnu est notée dans le journal du compte. Le propriétaire reçoit un e-mail qui dit quoi faire : révoquer, recréer, limiter aux adresses de l'outil. Au plus un e-mail toutes les 6 heures par clé ; l'appel n'est pas bloqué, pour ne pas casser un outil qui change d'hébergement.
+- **Clés limitées à des adresses** : pas de suivi, la limite suffit.
+- **Coût** : une lecture et au plus une écriture par appel ; la date de dernier passage n'est réécrite qu'une fois par heure. Charge réduite : 932 actions par seconde, aucune erreur.
+- **Tests** :
+  - premier jour sans alerte ;
+  - même /24 sans alerte ;
+  - nouveau réseau : alerte et journal ;
+  - second nouveau réseau, IPv6 : noté, sans second e-mail ;
+  - clé limitée : non suivie.
+- 231 tests sur 231, parcours de bout en bout 57/57.
+

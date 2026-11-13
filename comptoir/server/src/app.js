@@ -3753,6 +3753,30 @@ ${bloc}</main></body></html>`;
   });
 
   /* ---------- API publique v1 (clé d'API du marchand) ---------- */
+  // Réseaux d'où chaque clé est utilisée (IPv4 /24, IPv6 /48) : la première utilisation depuis un réseau inconnu, après le
+  // premier jour de la clé, prévient le propriétaire (une clé volée se trahit dès son premier appel ailleurs). Les clés
+  // limitées à des adresses IP n'en ont pas besoin. Au plus 50 réseaux gardés par clé (les plus anciens oubliés).
+  db.exec('CREATE TABLE IF NOT EXISTS cles_api_reseaux (cle_id TEXT NOT NULL, reseau TEXT NOT NULL, premier_le INTEGER NOT NULL, dernier_le INTEGER NOT NULL, PRIMARY KEY (cle_id, reseau))');
+  const blocCle = ip => { const a = String(ip || '').replace(/^::ffff:/i, ''); return /^\d+\.\d+\.\d+\.\d+$/.test(a) ? a.replace(/\.\d+$/, '.0/24') : a.includes(':') ? `${reseauIp(a).split(':').slice(0, 3).join(':')}::/48` : a; };
+  function surveillerReseauCle(ctx, c) {
+    const cle = db.prepare('SELECT nom, prefixe, cree_le, reseaux FROM cles_api WHERE id = ?').get(c.id);
+    if (!cle || cle.reseaux) return;
+    const reseau = blocCle(ctx.ipBrute), maintenant = Date.now();
+    if (db.prepare('UPDATE cles_api_reseaux SET dernier_le = ? WHERE cle_id = ? AND reseau = ? AND dernier_le < ?').run(maintenant, c.id, reseau, maintenant - 3600000).changes) return;
+    if (db.prepare('SELECT 1 FROM cles_api_reseaux WHERE cle_id = ? AND reseau = ?').get(c.id, reseau)) return;
+    const connus = db.prepare('SELECT COUNT(*) n FROM cles_api_reseaux WHERE cle_id = ?').get(c.id).n;
+    db.prepare('INSERT OR IGNORE INTO cles_api_reseaux (cle_id, reseau, premier_le, dernier_le) VALUES (?, ?, ?, ?)').run(c.id, reseau, maintenant, maintenant);
+    if (connus >= 50) db.prepare('DELETE FROM cles_api_reseaux WHERE rowid IN (SELECT rowid FROM cles_api_reseaux WHERE cle_id = ? ORDER BY dernier_le LIMIT ?)').run(c.id, connus - 49);
+    // Premier jour de la clé (mise en place de l'outil, essais) : réseaux appris sans alerte.
+    if (!connus || maintenant - cle.cree_le < 86400000) return;
+    const proprio = db.prepare('SELECT m.id, m.email FROM boutiques b JOIN marchands m ON m.id = b.marchand_id WHERE b.id = ?').get(c.boutiqueId);
+    if (!proprio) return;
+    noterActivite(proprio.id, 'cle-api-nouveau-reseau', `« ${cle.nom} » depuis ${reseau}`, ctx);
+    try {
+      auth.limiter('alerte-cle-reseau:' + c.id, 1, 6 * 3600000, '');
+      envoyerEmail(null, proprio.email, `Clé d’API « ${cle.nom} » utilisée depuis un nouveau réseau`, `Bonjour,\n\nVotre clé d’API « ${cle.nom} » (${cle.prefixe}…) vient d’être utilisée depuis un réseau inconnu jusqu’ici (${reseau}).\n\nSi votre outil a changé d’hébergement, tout va bien. Sinon, la clé a peut-être fuité : révoquez-la tout de suite dans Paramètres > Intégrations, créez-en une nouvelle et limitez-la aux adresses IP de votre outil.\n${urlPublique}/app\n\nL’équipe Comptoir`);
+    } catch { /* déjà prévenu récemment pour cette clé */ }
+  }
   function exigerCle(portee) {
     return ctx => {
       let c;
@@ -3763,6 +3787,7 @@ ${bloc}</main></body></html>`;
       if (!c.portees.includes(portee)) throw erreur(403, `Cette clé n’a pas la permission « ${portee} ».`, 'portee');
       if (!apiPermise(c.boutiqueId)) throw erreur(402, 'API indisponible : abonnement inactif ou formule sans API.', 'abonnement_requis');
       ctx.boutique = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(c.boutiqueId); ctx.cleApi = c;
+      surveillerReseauCle(ctx, c);
     };
   }
   const deviseDeBoutique = b => lireConfig(b).boutique.devise || 'CHF';
@@ -4240,6 +4265,7 @@ ${bloc}</main></body></html>`;
     db.prepare('DELETE FROM sessions WHERE expire_le < ?').run(maintenant);
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
     db.prepare('DELETE FROM signaux_securite WHERE date < ?').run(maintenant - 90 * 86400000);   // signaux d'attaque : 90 jours
+    db.prepare('DELETE FROM cles_api_reseaux WHERE cle_id NOT IN (SELECT id FROM cles_api WHERE revoquee = 0) OR dernier_le < ?').run(maintenant - 365 * 86400000);
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
     /* E-mails : le contenu (nom, adresse et commande des clients, en clair le temps de l'envoi) n'est gardé que le temps
        utile, puis effacé ; l'adresse du destinataire ne reste pas indéfiniment non plus.

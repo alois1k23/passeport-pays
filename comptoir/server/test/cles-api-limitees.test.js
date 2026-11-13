@@ -44,3 +44,39 @@ test('clé d’API : expiration et réseaux autorisés', async () => {
     assert.match(JSON.stringify((await c('GET', '/api/admin/compte/securite')).j), /1 clé d’API sans date d’expiration ni adresse IP autorisée/);
   } finally { s.close(); }
 });
+
+test('clé d’API sans limite d’adresse : première utilisation depuis un nouveau réseau signalée au propriétaire', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const c = async (m, chemin, corps, entetes = {}) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...entetes }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
+  const alertes = () => db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet LIKE 'Clé d’API « Compta » utilisée depuis un nouveau réseau'").get().n;
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'res@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Res', pays: 'ch' } } });
+    const { url } = (await c('POST', '/api/abonnement/commencer', { formule: 'croissance' })).j; await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
+    const k = (await c('POST', '/api/admin/integrations/cles', { nom: 'Compta', portees: ['produits:lecture'], expireJours: '90' })).j.cle;
+    const appel = ip => c('GET', '/api/v1/produits', null, { Authorization: `Bearer ${k}`, 'X-Forwarded-For': ip });
+    // Premier jour : réseaux appris sans alerte (mise en place de l'outil).
+    assert.equal((await appel('203.0.113.10')).s, 200);
+    assert.equal((await appel('198.51.100.20')).s, 200);
+    assert.equal(alertes(), 0);
+    db.prepare('UPDATE cles_api SET cree_le = cree_le - 2 * 86400000').run();
+    // Même /24 qu'un réseau connu : rien.
+    assert.equal((await appel('203.0.113.99')).s, 200);
+    assert.equal(alertes(), 0);
+    // Nouveau réseau : l'appel passe, le propriétaire est prévenu et c'est noté.
+    assert.equal((await appel('192.0.2.7')).s, 200);
+    assert.equal(alertes(), 1);
+    assert.ok(db.prepare("SELECT 1 FROM journal_compte WHERE type = 'cle-api-nouveau-reseau' AND detail LIKE '%192.0.2.0/24%'").get());
+    // Un autre nouveau réseau dans les 6 heures : noté, sans second e-mail.
+    assert.equal((await appel('2001:db8:aa:1::5')).s, 200);
+    assert.equal(alertes(), 1);
+    assert.ok(db.prepare("SELECT 1 FROM cles_api_reseaux WHERE reseau = '2001:db8:aa::/48'").get());
+    // Clé limitée à des adresses : pas de suivi des réseaux.
+    const lim = (await c('POST', '/api/admin/integrations/cles', { nom: 'Lim', portees: ['produits:lecture'], reseaux: '192.0.2.0/24' })).j;
+    assert.equal((await c('GET', '/api/v1/produits', null, { Authorization: `Bearer ${lim.cle}`, 'X-Forwarded-For': '192.0.2.8' })).s, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM cles_api_reseaux WHERE cle_id = ?').get(lim.id).n, 0);
+  } finally { s.close(); }
+});
+
