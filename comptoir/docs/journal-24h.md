@@ -1472,4 +1472,4 @@ Autres changements du chantier :
   - **Signaux ajoutés** : le bon mot de passe essayé sur un compte « clé d'accès seule » (mot de passe fuité) et la récupération annulée par la titulaire elle-même (quelqu'un a accès à sa boîte e-mail). Ils forment une ligne « mots de passe ou boîtes e-mail probablement fuités », en alerte dès 3 comptes en 7 jours. Les autres annulations de récupération ne comptent pas, pour ne pas compter deux fois une annulation de changement d'adresse.
   - **Alertes** : une clé copiée ou une annulation n'allume plus la ligne pendant 30 jours. Le total sur 30 jours reste affiché, mais l'alerte ne porte que sur les 7 derniers jours (testé).
 - Après corrections : 229 tests sur 229, parcours de bout en bout 57/57.
-
+- Vérification complète (7 étapes) réussie sur le code final du chantier 67.
