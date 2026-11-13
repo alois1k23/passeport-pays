@@ -3516,6 +3516,8 @@ ${bloc}</main></body></html>`;
     try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
     try { alertesRetourStock(maintenant); } catch (e) { journal.error('[retour-stock]', e.message); }
     try { appliquerRecuperations(maintenant); } catch (e) { journal.error('[recuperation]', e.message); }
+    // Fidélité : points des comptes inactifs expirés (le solde affiché et les points en circulation restent justes).
+    for (const { boutique_id: bid } of db.prepare('SELECT boutique_id FROM fidelite_reglages').all()) { try { FID.expirer(bid, maintenant); } catch (e) { journal.error('[fidelite] expiration', e.message); } }
     // Clôture journalière du journal inaltérable (jours terminés), pour chaque boutique qui a des pièces.
     // (boutiques supprimées : leur journal est gardé pour l'archivage, mais plus clôturé)
     for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT j.boutique_id FROM journal_inalterable j JOIN boutiques b ON b.id = j.boutique_id').all()) {

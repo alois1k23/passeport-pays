@@ -5,6 +5,7 @@ function carteFidelite() {
   const f = ui.fidelite; if (!f) return '';
   const r = f.reglages, valeur = n => euros(Math.floor(n * r.valeurPour100 / 100) / 100);
   return `<details class="carte fidelite" ${r.actif ? '' : 'open'}><summary><h2>Programme de fidélité</h2><span class="sous">${r.actif ? `Actif · ${f.stats.membres} client${f.stats.membres > 1 ? 's' : ''} avec des points · ${f.stats.points.toLocaleString('fr-FR')} points en circulation (${valeur(f.stats.points)})` : 'Inactif'}</span></summary>
+    ${r.actif && f.stats.bientot && f.stats.bientot.points ? `<p class="sous">${f.stats.bientot.points.toLocaleString('fr-FR')} points (${valeur(f.stats.bientot.points)}, ${f.stats.bientot.comptes} client${f.stats.bientot.comptes > 1 ? 's' : ''}) expirent dans les 30 jours sans nouvel achat : une bonne occasion de les relancer.</p>` : ''}
     <p class="sous">Sans compte client : vos clients gagnent des points à chaque commande payée en ligne et les utilisent comme remise. Pour les utiliser, ils reçoivent un code par e-mail : connaître leur adresse ne suffit pas. Les adresses ne sont pas stockées en clair.</p>
     <form data-form="fidelite">
       <label class="case"><input type="checkbox" name="actif" ${r.actif ? 'checked' : ''}> Activer le programme</label>

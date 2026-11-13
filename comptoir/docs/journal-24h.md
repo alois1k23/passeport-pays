@@ -529,3 +529,13 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
   - Le message d'erreur interne destiné au marchand est remplacé par un message neutre.
   - Les unités déjà rendues sont calculées une seule fois.
   - 1 test de plus : 166 tests sur 166.
+
+### Cycle 32 (03 h 59) : expiration des points de fidélité appliquée en lot (chantier 24)
+
+- **Défaut corrigé** : l'expiration des points (compte sans achat depuis la durée choisie) ne s'appliquait qu'au moment où le solde du client était consulté. Les « points en circulation » affichés au marchand comptaient donc des points déjà expirés, et l'engagement envers les clients était surestimé.
+- **Correctif** :
+  - les comptes inactifs sont remis à zéro par la maintenance quotidienne et avant chaque calcul des statistiques, chaque expiration étant inscrite au registre ;
+  - un index rend ce passage léger ;
+  - la mise à zéro est conditionnelle : un achat arrivé entre-temps n'est pas effacé.
+- **Nouveau** : la valeur des points en circulation, et les points qui expirent dans les 30 jours sans nouvel achat (nombre de clients et valeur), affichés dans la carte Fidélité.
+- 1 nouveau test : 167 tests sur 167.

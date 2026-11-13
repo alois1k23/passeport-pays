@@ -152,3 +152,21 @@ test('relecture : points réservés dès la commande, paiement manuel, abandon, 
     void app;
   } finally { s.close(); }
 });
+
+test('expiration en lot : points expirés retirés des statistiques, registre cohérent, expirations prochaines annoncées', () => {
+  const db = ouvrir(':memory:'), K = Fid.creer(db, crypto.randomBytes(32)), j = 86400000, t0 = Date.UTC(2026, 0, 1);
+  K.ecrireReglages('b1', { actif: true, expirationMois: 6 });
+  K.crediter('b1', 'ancien@exemple.fr', 300, { maintenant: t0 });
+  K.crediter('b1', 'bientot@exemple.fr', 200, { maintenant: t0 + 30 * j });   // expire vers t0 + 213 j
+  K.crediter('b1', 'actif@exemple.fr', 100, { maintenant: t0 + 200 * j });
+  const maintenant = t0 + 200 * j;   // 200 jours après le premier gain (6 mois ≈ 183 j) : expiré ; le deuxième expire dans ~13 jours
+  const st = K.stats('b1', maintenant);
+  assert.equal(st.points, 300, 'les 300 points expirés ne comptent plus');
+  assert.equal(st.membres, 2);
+  assert.deepEqual(st.bientot, { comptes: 1, points: 200 });
+  assert.equal(st.valeur, K.valeur(K.reglages('b1'), 300));
+  assert.equal(K.solde('b1', 'ancien@exemple.fr', maintenant), 0);
+  assert.deepEqual(K.verifier('b1'), [], 'registre : expiration inscrite');
+  assert.equal(K.expirer('b1', maintenant), 0, 'idempotent');
+  assert.equal(K.stats('b1', maintenant).trenteJours.expiration, -300);
+});
