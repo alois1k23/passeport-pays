@@ -52,6 +52,13 @@ La réponse a la forme `{ "donnees": [...], "suite": "<curseur>" | null }`. Pour
 
 `GET /commandes/:numero` renvoie une commande.
 
+Chaque commande indique aussi :
+- `rembourse` : total remboursé, avoirs compris ;
+- par ligne, `rendu` : unités déjà rendues (retours partiels) ;
+- `avoirs` : la liste des avoirs émis, avec pour chacun `numero`, `date`, `type` et `montant`. `type` vaut `partiel` (retour d'une partie des articles), `geste` (geste commercial, sans retour d'article) ou `final` (remboursement du reste). Un avoir partiel détaille aussi `lignes` (`nom`, `qte`, `montant`) et `livraison`.
+
+La somme des avoirs ne dépasse jamais le total de la facture. Elle l'égale exactement quand la commande est entièrement remboursée.
+
 `POST /commandes/:numero/expedier` marque une commande payée comme expédiée et envoie l'e-mail d'expédition au client. Le corps est `{ "suivi": "99.00.123456.12345678", "transporteur": "Poste" }`. Une commande en dropshipping ou en retrait en magasin ne s'expédie pas par l'API : l'API répond `409`.
 
 Exemple de commande :
@@ -99,7 +106,7 @@ Ajoutez une adresse `https://` dans **Paramètres > Intégrations** et choisisse
 - `commande.expediee`
 - `commande.livree`
 - `commande.remboursee`
-- `commande.remboursement_partiel` : une partie des articles a été remboursée (retour partiel). `donnees` contient la commande (sans données personnelles du client), plus `avoir` (numéro de l'avoir partiel), `montant` et `lignesRendues` (`nom`, `qte`, `montant`).
+- `commande.remboursement_partiel` : une partie des articles a été remboursée (retour partiel). `donnees` contient la commande (sans données personnelles du client), plus `avoir` (numéro de l'avoir), `montant`, `geste` (`true` pour un geste commercial sans retour d'article) et `lignesRendues` (`nom`, `qte`, `montant`).
 - `commande.annulee`
 - `commande.retiree` : retrait en magasin et ventes à la caisse
 - `produit.rupture` : stock tombé à zéro, quelle qu'en soit la cause (vente en ligne, caisse, API)

@@ -627,3 +627,12 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
 - Calculé depuis le registre des mouvements, donc juste aussi pour une date passée.
 - Textes neutralisés pour les tableurs (pas de formule), en-têtes sans cache, une seule boutique.
 - 1 nouveau test : 172 tests sur 172.
+
+### Cycle 37 (04 h 42) : avoirs dans l'API publique (chantier 27)
+
+- **`/api/v1/commandes`** et les webhooks donnent maintenant, pour chaque commande :
+  - les avoirs émis, avec numéro, date, type (`partiel`, `geste` ou `final`), montant, et pour un avoir partiel ses lignes et la livraison ;
+  - le total remboursé ;
+  - les unités déjà rendues, par ligne.
+- Un logiciel comptable ou un ERP peut ainsi rapprocher chaque remboursement de sa pièce. Documenté dans `docs/API.md`, y compris le champ `geste` du webhook `commande.remboursement_partiel`.
+- 1 nouveau test, par une vraie clé d'API : 173 tests sur 173.

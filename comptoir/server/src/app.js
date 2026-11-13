@@ -262,7 +262,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     livraison: c.livraison, canal: c.canal || 'web', moyen: c.moyen || 'en_ligne', facture: c.facture || null, suivi: c.suivi || null, transporteur: c.transporteur || null,
     // Données personnelles du client : seulement avec la permission clients:lecture (sinon le pays de livraison suffit).
     client: !c.client ? null : client ? { nom: c.client.nom, email: c.client.email, adresse: c.client.adresse, npa: c.client.npa, ville: c.client.ville, pays: c.client.pays || null } : { pays: c.client.pays || null },
-    lignes: (c.lignes || []).map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock' })) });
+    lignes: (c.lignes || []).map((l, i) => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock', rendu: Retours.deja(c).qte[i] || 0 })),
+    // Avoirs émis (partiels, gestes commerciaux, final) et total remboursé : de quoi rapprocher la comptabilité.
+    avoirs: avoirsApi(c), rembourse: Math.round((Retours.deja(c).total + (c.avoir && c.avoir.numero ? Math.round(Number(c.avoir.montant ?? c.total) * 100) : 0))) / 100 });
+  const avoirsApi = c => [
+    ...(c.retoursPartiels || []).filter(p => p.numero).map(p => ({ numero: p.numero, date: new Date(p.date).toISOString(), type: p.geste ? 'geste' : 'partiel', montant: p.montant / 100,
+      livraison: (p.port || 0) / 100, lignes: p.geste ? [] : p.lignes.map(x => ({ nom: (c.lignes[x.index] || {}).nom, qte: x.qte, montant: x.montant / 100 })) })),
+    ...(c.avoir && c.avoir.numero ? [{ numero: c.avoir.numero, date: new Date(c.avoir.date).toISOString(), type: 'final', montant: Number(c.avoir.montant ?? c.total) }] : [])];
   /* Journal inaltérable : chaque facture, ticket ou avoir est scellé dès qu'il existe (une seule fois). */
   // Clé de signature dérivée de la clé de chiffrement du serveur (SECRET_CHIFFREMENT) : créé à la première utilisation.
   let journalVentes = null;

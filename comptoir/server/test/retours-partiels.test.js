@@ -372,3 +372,24 @@ test('TVA : avoirs partiels, geste et avoir final compensent exactement la factu
   // Sans retour partiel : l'avoir final porte la facture entière (comportement d'avant inchangé).
   const simple = { ...c, retoursPartiels: [] }; assert.equal(R.piecesAvoir(simple)[0].vue, simple);
 });
+
+test('API publique : avoirs, unités rendues et total remboursé de la commande', async () => {
+  const { s, appel, slug, produits: [vase] } = await boutique();
+  try {
+    const cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: vase, qte: 3 }], livraison: 'colissimo', client }, false);
+    await appel('POST', `/paiement-simule/${cmd.json.paiementUrl.split('/').pop()}/confirmer`, null, false);
+    const id = cmd.json.commandeId, base = `/api/admin/commandes/${id}/retour-partiel`;
+    const r1 = await retourner(appel, base, { lignes: [{ index: 0, qte: 1 }] });
+    const g = await retourner(appel, base, { geste: 3 });
+    assert.equal((await appel('POST', `/api/admin/commandes/${id}/statut`, { statut: 'remboursee' })).statut, 200);
+    // Clé d'API (lecture des commandes) : passe par l'écran des intégrations.
+    const cle = (await appel('POST', '/api/admin/integrations/cles', { nom: 'Compta', portees: ['commandes:lecture'] })).json;
+    const r = await fetch(`${(await appel('GET', '/api/admin/integrations')).json.base}/commandes/${cmd.json.numero}`, { headers: { Authorization: `Bearer ${cle.cle}` } });
+    const c = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(c));
+    assert.deepEqual(c.avoirs.map(a => [a.numero, a.type]), [[r1.json.avoir, 'partiel'], [g.json.avoir, 'geste'], [c.avoirs[2].numero, 'final']]);
+    assert.equal(c.lignes[0].rendu, 1); assert.equal(c.avoirs[0].lignes[0].qte, 1);
+    assert.equal(Math.round(c.avoirs.reduce((a, x) => a + x.montant, 0) * 100), Math.round(c.total * 100));
+    assert.equal(c.rembourse, c.total);
+  } finally { s.close(); }
+});
