@@ -119,6 +119,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 **Quinzième phase** (la quatorzième est terminée le 13 novembre vers 10 h 45) :
 
 61. **Minimisation des e-mails gardés** : le contenu des e-mails envoyés (noms et adresses des clients, en clair) effacé après 7 jours au lieu de 180, la trace entière (destinataire compris) supprimée après 180 jours.
+62. **Changement de l'adresse e-mail du compte** : identité récente, confirmation par la nouvelle adresse, avertissement et annulation (7 jours) par l'ancienne, sans révéler les adresses déjà prises.
 
 ## Cycles
 

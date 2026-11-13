@@ -1105,6 +1105,76 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     noterActivite(v.marchand_id, 'email-verifie', v.email, ctx);
     return { ok: true, email: v.email };
   });
+  /* Changement de l'adresse e-mail du compte (adresse de connexion et de récupération) :
+     1. demandé depuis l'espace, avec une identité confirmée récemment ; un lien part vers la NOUVELLE adresse (24 h), un
+        avertissement vers l'ancienne ;
+     2. confirmé par ce lien (il prouve la nouvelle adresse) ; l'ancienne reçoit un lien d'annulation valable 7 jours ;
+     3. annulable par l'ancienne adresse : elle est remise, toutes les sessions et appareils connus sont révoqués (compte
+        peut-être compromis), et un lien de réinitialisation du mot de passe lui est envoyé.
+     La réponse ne dit jamais si la nouvelle adresse a déjà un compte (pas de repérage d'adresses). */
+  db.exec(`CREATE TABLE IF NOT EXISTS changements_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, nouvel_email TEXT NOT NULL, expire_le INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS annulations_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, ancien_email TEXT NOT NULL, expire_le INTEGER NOT NULL);`);
+  const masquer = e => String(e).replace(/^(.)[^@]*@/, '$1…@');
+  r.post('/api/admin/compte/email', exigerCompte, ctx => {
+    exigerIdentite(ctx);
+    const m = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    const nouvel = valider.email(ctx.corps.email);
+    if (nouvel.toLowerCase() === m.email.toLowerCase()) throw erreur(400, 'C’est déjà l’adresse de votre compte.', 'meme_email');
+    auth.limiter('changer-email:' + m.id, 3 * facteurLimites, 3600000, 'Trop de demandes de changement d’adresse : réessayez dans une heure.');
+    if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(nouvel)) {
+      // Adresse déjà prise : même réponse ; seule la personne qui la détient est prévenue (une fois par jour).
+      try { auth.limiter(`changer-email-pris:${nouvel.toLowerCase()}`, 1, 86400000, ''); envoyerEmail(null, nouvel, 'Demande de changement d’adresse Comptoir', `Bonjour,\n\nQuelqu’un a demandé à utiliser cette adresse pour un compte Comptoir, mais elle en a déjà un. Si ce n’était pas vous, ignorez cet e-mail.\n\nL’équipe Comptoir`); } catch { /* déjà prévenu aujourd'hui */ }
+    } else {
+      const jeton = crypto.randomBytes(32).toString('base64url');
+      db.prepare('DELETE FROM changements_email WHERE marchand_id = ?').run(m.id);   // une seule demande en cours
+      db.prepare('INSERT INTO changements_email (jeton_hash, marchand_id, nouvel_email, expire_le) VALUES (?, ?, ?, ?)').run(auth.sha256(jeton), m.id, nouvel, Date.now() + 86400000);
+      envoyerEmail(null, nouvel, 'Confirmez votre nouvelle adresse Comptoir', `Bonjour,\n\nPour que cette adresse devienne celle de votre compte Comptoir (connexion, récupération, alertes), ouvrez ce lien (valable 24 heures) :\n${urlPublique}/app?changer-email=${jeton}\n\nSi vous n’avez rien demandé, ignorez cet e-mail.\n\nL’équipe Comptoir`);
+    }
+    envoyerEmail(null, m.email, 'Changement d’adresse demandé sur votre compte Comptoir', `Bonjour,\n\nUn changement de l’adresse de votre compte vers ${masquer(nouvel)} vient d’être demandé. Il ne prendra effet qu’après confirmation depuis la nouvelle adresse, et vous recevrez alors un lien pour l’annuler.\n\nCe n’était pas vous ? Changez votre mot de passe et déconnectez les autres appareils.\n\nL’équipe Comptoir`);
+    noterActivite(m.id, 'email-changement-demande', masquer(nouvel), ctx);
+    return { ok: true };
+  });
+  r.post('/api/auth/changer-email', ctx => {
+    auth.limiter('lien-email:' + reseauIp(ctx.ip), 30 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans quelques minutes.');
+    const r0 = transaction(db, () => {
+      const l = db.prepare('DELETE FROM changements_email WHERE jeton_hash = ? RETURNING *').get(auth.sha256(String(ctx.corps.jeton || '')));
+      if (!l || l.expire_le < Date.now()) return null;
+      const m = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(l.marchand_id);
+      if (!m || db.prepare('SELECT 1 FROM marchands WHERE email = ? AND id <> ?').get(l.nouvel_email, m.id)) return { pris: true };
+      db.prepare('UPDATE marchands SET email = ?, email_verifie_le = ? WHERE id = ?').run(l.nouvel_email, Date.now(), m.id);
+      db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);   // liens envoyés à l'ancienne adresse : caducs
+      db.prepare('DELETE FROM verifications_email WHERE marchand_id = ?').run(m.id);
+      const annul = crypto.randomBytes(32).toString('base64url');
+      db.prepare('INSERT INTO annulations_email (jeton_hash, marchand_id, ancien_email, expire_le) VALUES (?, ?, ?, ?)').run(auth.sha256(annul), m.id, m.email, Date.now() + 7 * 86400000);
+      return { m, nouvel: l.nouvel_email, annul };
+    });
+    if (!r0) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Refaites la demande depuis votre espace.', 'lien_expire');
+    if (r0.pris) throw erreur(409, 'Cette adresse est maintenant utilisée par un autre compte : choisissez-en une autre.', 'email_pris');
+    noterActivite(r0.m.id, 'email-change', `${masquer(r0.m.email)} → ${masquer(r0.nouvel)}`, ctx);
+    envoyerEmail(null, r0.m.email, 'L’adresse de votre compte Comptoir a changé', `Bonjour,\n\nL’adresse de votre compte Comptoir est désormais ${masquer(r0.nouvel)}. Cette adresse-ci ne reçoit plus les alertes ni les liens de récupération.\n\nCe n’était pas vous ? Annulez ce changement avec ce lien (valable 7 jours) : votre adresse sera remise, tous les appareils seront déconnectés et vous recevrez un lien pour choisir un nouveau mot de passe.\n${urlPublique}/app?annuler-email=${r0.annul}\n\nL’équipe Comptoir`);
+    return { ok: true, email: r0.nouvel };
+  });
+  r.post('/api/auth/annuler-changement-email', async ctx => {
+    auth.limiter('lien-email:' + reseauIp(ctx.ip), 30 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans quelques minutes.');
+    const r0 = transaction(db, () => {
+      const l = db.prepare('DELETE FROM annulations_email WHERE jeton_hash = ? RETURNING *').get(auth.sha256(String(ctx.corps.jeton || '')));
+      if (!l || l.expire_le < Date.now()) return null;
+      if (db.prepare('SELECT 1 FROM marchands WHERE email = ? AND id <> ?').get(l.ancien_email, l.marchand_id)) return { pris: true };
+      db.prepare('UPDATE marchands SET email = ?, email_verifie_le = ? WHERE id = ?').run(l.ancien_email, Date.now(), l.marchand_id);   // le lien prouve l'ancienne adresse
+      db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(l.marchand_id);
+      oublierAppareils(l.marchand_id);
+      db.prepare('DELETE FROM changements_email WHERE marchand_id = ?').run(l.marchand_id);
+      db.prepare('DELETE FROM annulations_email WHERE marchand_id = ?').run(l.marchand_id);
+      const jeton = crypto.randomBytes(32).toString('base64url');
+      db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le) VALUES (?, ?, ?)').run(auth.sha256(jeton), l.marchand_id, Date.now() + 3600 * 1000);
+      return { l, jeton };
+    });
+    if (!r0) throw erreur(400, 'Ce lien a expiré ou a déjà servi.', 'lien_expire');
+    if (r0.pris) throw erreur(409, 'Cette adresse est utilisée par un autre compte : contactez le support.', 'email_pris');
+    noterActivite(r0.l.marchand_id, 'email-changement-annule', masquer(r0.l.ancien_email), ctx);
+    envoyerEmail(null, r0.l.ancien_email, 'Changement d’adresse annulé : choisissez un nouveau mot de passe', `Bonjour,\n\nL’adresse de votre compte Comptoir vous a été rendue et tous les appareils ont été déconnectés. Choisissez maintenant un nouveau mot de passe (lien valable 1 heure) :\n${urlPublique}/app?reinitialiser=${r0.jeton}\n\nL’équipe Comptoir`);
+    return { ok: true };
+  });
   r.post('/api/admin/compte/verifier-email/renvoyer', exigerCompte, ctx => {
     if (emailVerifie(ctx.marchand.id)) return { ok: true, deja: true };
     auth.limiter('verif-email:' + ctx.marchand.id, 3 * facteurLimites, 3600000, 'Un lien vient déjà d’être envoyé. Vérifiez votre boîte de réception (et les indésirables), ou réessayez dans une heure.');

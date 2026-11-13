@@ -68,6 +68,13 @@ async function initServeur() {
       setTimeout(() => toast(SERVEUR.connecte && SERVEUR.emailVerifie ? 'Votre adresse e-mail est confirmée.' : (err.message || 'Ce lien n’a pas pu être utilisé.')), 300);
     }
   }
+  // Liens de changement d'adresse (confirmation depuis la nouvelle, annulation depuis l'ancienne) : traités puis retirés.
+  for (const [param, chemin, ok] of [['changer-email', '/api/auth/changer-email', r => `Adresse du compte changée : ${r.email}.`], ['annuler-email', '/api/auth/annuler-changement-email', () => 'Changement annulé : votre adresse est rendue et tous les appareils sont déconnectés. Un lien pour choisir un nouveau mot de passe vient de vous être envoyé.']]) {
+    const jeton = params.get(param); if (!jeton) continue;
+    params.delete(param); history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash);
+    try { const r = await api('POST', chemin, { jeton }); if (param === 'changer-email' && SERVEUR.connecte) SERVEUR.email = r.email; setTimeout(() => toast(ok(r)), 300); if (param === 'annuler-email' && SERVEUR.connecte) setTimeout(() => location.replace('/app?connexion=1'), 6000); }
+    catch (err) { setTimeout(() => toast(err.message || 'Ce lien n’a pas pu être utilisé.'), 300); }
+  }
   const formuleUrl = params.get('formule');
   if (formuleUrl) { try { sessionStorage.setItem('comptoir-formule', formuleUrl); } catch { /* ignoré */ } }
   // Retour de Stripe Checkout : le paiement est vérifié tout de suite (le webhook peut arriver quelques secondes plus tard).

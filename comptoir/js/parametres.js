@@ -228,6 +228,13 @@ document.addEventListener('change', e => {
   r.readAsText(f);
 });
 document.addEventListener('submit', async e => {
+  if (e.target.dataset.form !== 'changer-email') return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const email = String(new FormData(e.target).get('email') || '').trim();
+  try { await api('POST', '/api/admin/compte/email', { email }); e.target.reset(); toast(`Lien de confirmation envoyé à ${email}. Le changement prend effet quand vous l’ouvrez.`); }
+  catch (err) { toast(err.message); }
+}, true);
+document.addEventListener('submit', async e => {
   if (e.target.dataset.form !== 'changer-mdp') return;
   e.preventDefault(); e.stopImmediatePropagation();
   const d = new FormData(e.target);
@@ -252,7 +259,7 @@ document.addEventListener('submit', async e => {
 
 /* ---------- Sécurité du compte (mode connecté) ---------- */
 const SECURITE = { donnees: null, chargement: false, mise: null, codes: null, erreur: '' };
-const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-acces': 'Connexion par clé d’accès', 'cle-acces-ajoutee': 'Clé d’accès ajoutée', 'cle-acces-supprimee': 'Clé d’accès supprimée', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé', 'membre-invite': 'Membre invité', 'membre-arrive': 'Membre arrivé dans l’équipe', 'membre-retire': 'Membre retiré', 'carte-cadeau': 'Carte cadeau émise', 'email-verifie': 'Adresse e-mail confirmée', 'secret-webhook': 'Secret de webhook renouvelé', 'identite-confirmee': 'Identité confirmée (action sensible)', 'echec-identite': 'Confirmation d’identité refusée', 'iban-modifie': 'IBAN modifié', 'email-entreprise-modifie': 'E-mail de contact modifié', 'webhook-donnees-ajoutees': 'Données clients ajoutées à un webhook', 'webhook-donnees-retirees': 'Données clients retirées d’un webhook' };
+const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-acces': 'Connexion par clé d’accès', 'cle-acces-ajoutee': 'Clé d’accès ajoutée', 'cle-acces-supprimee': 'Clé d’accès supprimée', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé', 'membre-invite': 'Membre invité', 'membre-arrive': 'Membre arrivé dans l’équipe', 'membre-retire': 'Membre retiré', 'carte-cadeau': 'Carte cadeau émise', 'email-verifie': 'Adresse e-mail confirmée', 'secret-webhook': 'Secret de webhook renouvelé', 'identite-confirmee': 'Identité confirmée (action sensible)', 'echec-identite': 'Confirmation d’identité refusée', 'iban-modifie': 'IBAN modifié', 'email-entreprise-modifie': 'E-mail de contact modifié', 'webhook-donnees-ajoutees': 'Données clients ajoutées à un webhook', 'webhook-donnees-retirees': 'Données clients retirées d’un webhook', 'email-changement-demande': 'Changement d’adresse demandé', 'email-change': 'Adresse du compte changée', 'email-changement-annule': 'Changement d’adresse annulé' };
 function chargerSecurite() {
   if (SECURITE.chargement) return;
   SECURITE.chargement = true;
@@ -315,7 +322,10 @@ function vueSecurite() {
         <form data-form="changer-mdp" class="grille-form"><label class="champ"><span>Mot de passe actuel</span><input type="password" name="actuel" required autocomplete="current-password"></label>
           <label class="champ"><span>Nouveau mot de passe (10 caractères minimum)</span><input type="password" name="nouveau" required minlength="10" autocomplete="new-password"></label>
           <div class="rangee"><button class="btn">Changer le mot de passe</button><span class="sous">Les autres appareils connectés sont déconnectés.</span></div></form>
-        <div class="rangee"><button class="btn fantome petit" data-action="deconnecter-autres">Déconnecter les autres appareils</button></div></section>`;
+        <div class="rangee"><button class="btn fantome petit" data-action="deconnecter-autres">Déconnecter les autres appareils</button></div></section>
+    <section class="carte" id="sec-email"><div class="carte-tete"><h2>Adresse e-mail du compte</h2><span class="sous mono">${esc(SERVEUR.email || '')}</span></div>
+        <p class="sous">Elle sert à vous connecter, à récupérer votre compte et à recevoir les alertes de sécurité. Un lien de confirmation part vers la nouvelle adresse ; l’ancienne est prévenue et peut annuler pendant 7 jours.</p>
+        <form data-form="changer-email" class="rangee"><label class="champ"><span>Nouvelle adresse</span><input type="email" name="email" required autocomplete="email"></label><button class="btn">Changer d’adresse</button></form></section>`;
   const recup = d.recuperationEnAttente ? `<section class="carte"><div class="encart alerte-encart" role="alert"><b>Récupération du compte en attente</b>
     <p>Quelqu’un a demandé à réinitialiser votre mot de passe par e-mail. Si rien n’est fait, le nouveau mot de passe prendra effet le ${new Date(d.recuperationEnAttente).toLocaleString('fr-CH', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })} et vos clés d’accès seront supprimées.</p>
     <div class="rangee"><button class="btn" data-action="recuperation-annuler">Ce n’est pas moi : annuler</button></div></div></section>` : '';
