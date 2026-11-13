@@ -1121,3 +1121,34 @@ Un auditeur indépendant a parcouru dans Chromium, au clavier, à 1 280 et 390 p
 **Non testé** : avec de vrais lecteurs d'écran (NVDA, VoiceOver). Les constats sur les annonces viennent de l'arbre d'accessibilité et du comportement connu des zones d'annonce.
 
 205 tests sur 205 ; audits au clavier de la boutique et de l'espace marchand : 0 problème.
+
+### Cycle 60 (10 h 10) : documentation relue contre le code (chantier 53)
+
+Un relecteur indépendant a confronté les six documents (`API.md`, `FONCTIONNALITES.md`, `MISE-EN-LIGNE.md`, les deux README, `.env.example`) au code. `API.md` était pour l'essentiel exact ; les erreurs se concentraient dans le README du serveur et `.env.example`. Tout est corrigé :
+
+- **Chiffres faux** :
+  - le seuil du bloc d'adresses est trois fois (et non cinq fois) le seuil par adresse ;
+  - une file d'e-mails tente 12 fois (et non 5) ;
+  - `charge.refunded` manquait aux listes de webhooks Stripe du README du serveur ;
+  - la console de l'exploitant exige la double authentification par application, pas une clé d'accès ;
+  - les journaux d'e-mails montrent une adresse masquée, jamais le sujet.
+- **Affirmations inexactes de `API.md`** :
+  - `modifiee` n'est présent que dans la liste des commandes ;
+  - une commande en préparation s'expédie aussi par l'API, et seule une commande entièrement en dropshipping est refusée ;
+  - le prix va de 0,01 à 1 000 000, arrondi au centime ;
+  - le total d'un client inclut les commandes remboursées ;
+  - un webhook fait 15 tentatives en tout, pendant environ 38 heures.
+- **Ajouts à `API.md`** :
+  - limite de 10 webhooks ;
+  - 30 clés refusées par minute et par adresse ;
+  - code `403 portee` ;
+  - bouton de test ;
+  - forme de la réponse des produits ;
+  - corps de requête limité à 2 Mo ;
+  - identité confirmée pour créer une clé ou un webhook.
+- **`.env.example`** : les variables qu'un exploitant doit connaître y sont maintenant (fournisseur réel, sauvegardes, fuseau horaire, `CACHE_ETAT_MAX`), avec la liste des variables réservées aux essais, à ne jamais définir en production.
+- **Fonctionnalités et mise en ligne** :
+  - console de l'exploitant complète (journaux, rapports CSP, bilan de sécurité) et comment l'ouvrir ;
+  - rotation des clés, secrets de webhooks, mode sécurisé ;
+  - le numéro IDE de l'exploitant n'est pas contrôlé par `--verifier`.
+- **README** : il annonçait encore « à faire » la disponibilité des domaines, les certificats HTTPS automatiques et les e-mails transactionnels, qui sont faits. Il renvoie maintenant à `API.md`.

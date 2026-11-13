@@ -6,7 +6,7 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 
 ## Lancer
 
-**Version réelle (serveur)** : `cd comptoir && npm start`, puis ouvrir http://localhost:3000. On y crée un compte et une boutique publique (`/s/<nom>`). Les commandes, paiements (TWINT/cartes via Stripe, ou simulation), fournisseurs et factures sont gérés en base. Il faut Node 22.13 ou plus récent ; rien d'autre à installer. Détails dans [`server/README.md`](server/README.md).
+**Version réelle (serveur)** : `cd comptoir && npm start`, puis ouvrir http://localhost:3000. On y crée un compte et une boutique publique (`/s/<nom>`). Les commandes, paiements (TWINT/cartes via Stripe, ou simulation), fournisseurs et factures sont gérés en base. Il faut Node 22.13 ou plus récent ; rien d'autre à installer. Détails dans [`server/README.md`](server/README.md). API publique et webhooks pour les intégrations : [`docs/API.md`](docs/API.md).
 
 **Tout vérifier d'un coup** : `npm run verifier` enchaîne les tests automatiques, le parcours de bout en bout, les deux audits au clavier (boutique et espace marchand), la simulation de 60 jours sur 100 marchands, un fuzzing HTTP de toutes les routes et un test de charge réduit, puis affiche un bilan. Compter une dizaine de minutes. `npm run verifier -- --rapide` s'arrête après le parcours de bout en bout. Les étapes qui ouvrent un navigateur (bout en bout, clavier) demandent Playwright ; sans lui, elles sont sautées et signalées.
 
@@ -89,7 +89,7 @@ comptoir/
 
 1. ~~Back-end et base de données~~ : **fait**. Voir `server/` (comptes, boutiques, commandes, paiements, fournisseurs, webhooks, tests de bout en bout).
 2. ~~Paiement TWINT et cartes~~ : **fait** via Stripe Checkout et **Stripe Connect** : chaque marchand encaisse sur son propre compte Stripe, sans commission. Il reste à ouvrir le compte Stripe de la plateforme, activer Connect et configurer les deux webhooks (voir `server/README.md`).
-3. **Domaines** : API d'un registrar (OVH, Gandi ou Namecheap) pour vérifier la disponibilité, réserver et configurer le DNS ; certificats HTTPS automatiques.
+3. **Domaines** : réservation par l'API d'un registrar (OVH, Gandi ou Namecheap) à brancher. La vérification de disponibilité (RDAP) et les certificats HTTPS automatiques (Caddy à la demande) sont faits.
 4. **Données de demande** : Google Trends / Keyword Planner, Search Console, historique réel de ventes.
 5. **Hébergement des boutiques** : rendu des pages à partir du JSON des sections (le même que l'éditeur), servi derrière un CDN.
-6. **E-mails transactionnels et expédition** : confirmation, suivi Colissimo / Mondial Relay, étiquettes.
+6. **Expédition** : suivi Colissimo / Mondial Relay et étiquettes. Les e-mails transactionnels (Brevo ou Postmark) sont faits.

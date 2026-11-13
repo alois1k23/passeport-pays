@@ -50,6 +50,9 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Clés d'accès** (Face ID, Touch ID, Windows Hello) et **double authentification**, avec codes de secours. Option **« Exiger la clé d'accès »** : le mot de passe seul ne suffit plus, et une tentative avec le bon mot de passe est signalée.
 - **Adresse e-mail confirmée** : un lien (valable 7 jours, à usage unique) est envoyé à l'inscription. Sans confirmation, le marchand prépare sa boutique mais ne peut ni inviter son équipe, ni envoyer de devis, ni activer les versements. Quelqu'un qui ouvre un compte avec l'adresse d'autrui ne peut donc écrire à personne en son nom, et la vraie titulaire reprend le compte par « mot de passe oublié ».
 - **Appareils reconnus révocables** et **requêtes d'autres sites refusées** : chaque appareil a son propre jeton, révoqué avec sa session, à l'activation de la double authentification ou au changement de mot de passe. Toute action venue d'un autre site est refusée, même sans corps de requête.
+- **Mode sécurisé** : créer une clé d'API ou un webhook, renouveler un secret ou inviter l'équipe demande une identité confirmée depuis moins de 15 minutes (mot de passe, et code si la double authentification est active). Une session dure au plus 90 jours, même utilisée chaque jour.
+- **Rotation des clés de chiffrement** sans interruption : l'ancienne clé passe dans `SECRET_CHIFFREMENT_ANCIENNES`, tout est rechiffré au démarrage, le journal des ventes reste vérifiable.
+- **Webhooks** : secret chiffré en base et renouvelable (24 heures de double signature) ; un paiement qui ne correspond pas à la commande (montant, devise) est remboursé automatiquement.
 - Alerte à chaque nouvel appareil, déconnexion à distance, journal d'activité.
 - **Bilan de sécurité** : ce qui protège le compte et ce qui reste à faire (tentatives suspectes, appareils oubliés, équipe sans protection, clés d'API dormantes).
 - Mots de passe courants ou parus dans des fuites de données refusés (anonymat k).
@@ -89,7 +92,10 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Console de l'exploitant** (`/operateur`) :
   - marchands, abonnements, revenu mensuel récurrent ;
   - files d'e-mails et de webhooks ;
-  - dernière sauvegarde.
+  - dernière sauvegarde ;
+  - état des journaux des ventes de toutes les boutiques, violations de la politique de sécurité (CSP) signalées par les navigateurs ;
+  - **bilan de sécurité** : clé de chiffrement hors de la base ou non, rotations, données illisibles, comptes protégés, adresses non confirmées, codes refusés, paiements à rembourser.
+  Accès : adresse dans `OPERATEUR_EMAILS`, double authentification active, et lien de confirmation à la première ouverture.
 - Point de santé `/sante` pour la surveillance.
 - Vérification avant la mise en ligne : `node server/server.js --verifier`.
 - Tests automatiques, simulation de 100 marchands sur 60 jours, et essai de bout en bout avec un vrai navigateur.

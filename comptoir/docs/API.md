@@ -26,7 +26,7 @@ Chaque appel envoie la clé dans l'en-tête `Authorization` :
 Authorization: Bearer cpt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-Une clé est limitée à 300 requêtes par minute, et une boutique à 600 requêtes par minute toutes clés confondues. Au-delà, l'API répond `429`.
+Une clé est limitée à 300 requêtes par minute, et une boutique à 600 requêtes par minute toutes clés confondues. Au-delà, l'API répond `429`. Une même adresse IP qui présente plus de 30 clés refusées par minute reçoit aussi `429`. Une clé sans la permission demandée reçoit `403` (code `portee`). Un corps de requête ne dépasse pas 2 Mo.
 
 Sans la permission `clients:lecture`, une commande ne contient que le pays de livraison du client : ni nom, ni e-mail, ni adresse. Un entrepôt qui expédie a donc besoin de cette permission ; un outil de statistiques, non.
 
@@ -48,7 +48,7 @@ L'adresse de base est `https://<votre-instance>/api/v1`. Elle s'affiche aussi da
 - `statut` : par exemple `payee`. Sans ce paramètre, les commandes en attente de paiement (paniers abandonnés) ne sont pas listées ;
 - `limite` : entre 1 et 100, 50 par défaut.
 
-La réponse a la forme `{ "donnees": [...], "suite": "<curseur>" | null }`. Pour lire la page suivante, rappelez avec `apres=<suite>` et le même `tri`. Aucune commande n'est sautée ni répétée, même si plusieurs ont été créées à la même milliseconde. Chaque commande porte aussi `modifiee`, la date de sa dernière modification.
+La réponse a la forme `{ "donnees": [...], "suite": "<curseur>" | null }`. Pour lire la page suivante, rappelez avec `apres=<suite>` et le même `tri`. Aucune commande n'est sautée ni répétée, même si plusieurs ont été créées à la même milliseconde. Dans cette liste, chaque commande porte aussi `modifiee`, la date de sa dernière modification.
 
 `GET /commandes/:numero` renvoie une commande.
 
@@ -59,7 +59,7 @@ Chaque commande indique aussi :
 
 La somme des avoirs ne dépasse jamais le total de la facture. Elle l'égale exactement quand la commande est entièrement remboursée.
 
-`POST /commandes/:numero/expedier` marque une commande payée comme expédiée et envoie l'e-mail d'expédition au client. Le corps est `{ "suivi": "99.00.123456.12345678", "transporteur": "Poste" }`. Une commande en dropshipping ou en retrait en magasin ne s'expédie pas par l'API : l'API répond `409`.
+`POST /commandes/:numero/expedier` marque une commande payée ou en préparation comme expédiée et envoie l'e-mail d'expédition au client. Le corps est `{ "suivi": "99.00.123456.12345678", "transporteur": "Poste" }`. Une commande entièrement en dropshipping (le fournisseur expédie) ou en retrait en magasin ne s'expédie pas par l'API, et une commande déjà expédiée non plus : l'API répond `409`.
 
 Les corps de requête sont des objets JSON. Les clés `__proto__`, `constructor`, `prototype`, `toString`, `valueOf`, `toJSON`, `toLocaleString` et `hasOwnProperty` y sont ignorées, à toute profondeur : n'en utilisez pas comme noms de champs.
 
@@ -91,19 +91,19 @@ Les statuts possibles :
 
 ### Produits
 
-`GET /produits` liste les produits.
+`GET /produits` liste les produits, sous la forme `{ "donnees": [{ "id", "nom", "prix", "stock", "type", "actif", "categorie", "image", "options", "variantes" }] }`.
 
-`PATCH /produits/:id` modifie un produit. Le corps contient un ou plusieurs de ces champs : `{ "prix": 39.9, "stock": 12, "actif": true }`. Le prix est un nombre positif, le stock un entier positif ou nul, `actif` un vrai booléen (`true` ou `false`, pas `"false"`). Un stock mis à zéro déclenche l'événement `produit.rupture`.
+`PATCH /produits/:id` modifie un produit. Le corps contient un ou plusieurs de ces champs : `{ "prix": 39.9, "stock": 12, "actif": true }`. Le prix est compris entre 0,01 et 1 000 000 (arrondi au centime), le stock est un entier entre 0 et 1 000 000 (ignoré pour un produit en dropshipping), `actif` un vrai booléen (`true` ou `false`, pas `"false"`). Un stock mis à zéro déclenche l'événement `produit.rupture`.
 
 **Produits à variantes** (tailles, couleurs) : `GET /produits` renvoie `options` et `variantes` (`id` = combinaison, ex. `M/Noir` ; `valeurs`, `stock`, `prix`). Le stock se met à jour variante par variante : `{ "variantes": [{ "id": "M/Noir", "stock": 12 }, { "id": "L/Noir", "prix": 39.9 }] }` (`"prix": null` revient au prix du produit). Le champ `stock` seul est refusé pour un tel produit (le stock total est la somme des variantes). Les lignes de commande d'une variante portent `varianteId`. Le stock d'un produit en dropshipping vient du fournisseur et ne se modifie pas.
 
 ### Clients
 
-`GET /clients` liste les clients qui ont au moins une commande payée : e-mail, nom, nombre de commandes, total dépensé et date de la dernière commande. Par pages : `limite` (entre 1 et 100, 50 par défaut) et `apres` (le curseur `suite` de la page précédente) ; la réponse a la forme `{ "donnees": [...], "suite": "<curseur>" | null }`. Au plus 60 lectures par minute et par boutique.
+`GET /clients` liste les clients qui ont au moins une commande payée : e-mail, nom, nombre de commandes, total de leurs commandes non annulées (remboursements non déduits) et date de la dernière commande. Par pages : `limite` (entre 1 et 100, 50 par défaut) et `apres` (le curseur `suite` de la page précédente) ; la réponse a la forme `{ "donnees": [...], "suite": "<curseur>" | null }`. Au plus 60 lectures par minute et par boutique.
 
 ## Webhooks
 
-Ajoutez une adresse `https://` dans **Paramètres > Intégrations** et choisissez les événements à recevoir :
+Ajoutez une adresse `https://` dans **Paramètres > Intégrations** (10 webhooks au plus par boutique) et choisissez les événements à recevoir. Le bouton « Envoyer un test » envoie un événement `test` à chaque webhook (réponse attendue en 5 secondes, 5 tests par minute au plus). Créer un webhook ou une clé, ou renouveler un secret, demande une identité confirmée depuis moins de 15 minutes (mot de passe, et code si la double authentification est active) :
 
 - `commande.payee`
 - `commande.expediee`
@@ -149,7 +149,7 @@ Les secrets sont chiffrés en base. Un envoi livré ne garde que ses métadonné
 
 **Réponses et nouveaux essais.** Votre outil doit répondre par un code `2xx` en moins de 10 secondes. Les redirections ne sont pas suivies. Le bouton « Envoyer un test » envoie tout de suite un événement `test` et affiche la réponse reçue.
 
-Si votre outil ne répond pas correctement, Comptoir réessaie 15 fois, à intervalles croissants, pendant environ 40 heures. Si aucune réponse réussie n'arrive pendant 3 jours, le webhook est mis en pause. Les événements continuent alors d'être gardés en file, jusqu'à 30 jours, et repartent dès que vous réactivez le webhook dans Paramètres > Intégrations, où s'affichent aussi les derniers envois.
+Si votre outil ne répond pas correctement, Comptoir fait 15 tentatives en tout (la première comprise), à intervalles croissants, pendant environ 38 heures. Si aucune réponse réussie n'arrive pendant 3 jours, le webhook est mis en pause. Les événements continuent alors d'être gardés en file, jusqu'à 30 jours, et repartent dès que vous réactivez le webhook dans Paramètres > Intégrations, où s'affichent aussi les derniers envois.
 
 Les envois sont gardés en file d'attente : un redémarrage du serveur ne fait perdre aucun événement.
 
