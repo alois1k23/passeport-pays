@@ -28,7 +28,11 @@ for (const [nom, args, cwd, ok, navigateur] of etapes) {
   const sortie = `${r.stdout || ''}${r.stderr || ''}`, reussi = r.status === 0 && ok(sortie);
   const duree = `${Math.round((Date.now() - t0) / 1000)} s`;
   console.log(reussi ? `réussie (${duree})` : `ÉCHEC (${duree})`);
-  if (!reussi) console.log(sortie.split('\n').filter(l => /not ok|✗|anomal|erreur|Error|problemes/i.test(l)).slice(0, 15).join('\n'));
+  if (!reussi) {
+    console.log(sortie.split('\n').filter(l => /not ok|✗|anomal|erreur|Error/i.test(l)).slice(0, 15).join('\n'));
+    // Parcours au clavier : la liste des problèmes en entier (ses lignes ne contiennent pas forcément les mots-clés).
+    const pb = /"problemes": \[[\s\S]*?\]/.exec(sortie); if (pb) console.log(pb[0].slice(0, 2000));
+  }
   bilan.push([nom, reussi ? 'réussie' : 'ÉCHEC']);
 }
 console.log('\nBilan :'); for (const [n, e] of bilan) console.log(`  ${e === 'réussie' ? '✓' : e.startsWith('sautée') ? '–' : '✗'} ${n} : ${e}`);
