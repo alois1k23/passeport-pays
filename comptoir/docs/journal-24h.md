@@ -556,3 +556,12 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
 - Un article dont toute la valeur a déjà été rendue par un geste ne peut plus être remboursé partiellement. Le message renvoie au remboursement complet.
 - **Propriété vérifiée sur 1 000 commandes tirées au hasard**, gestes compris : avoirs partiels, gestes et avoir final font exactement la facture.
 - 1 nouveau test, et le test de propriété étendu : 168 tests sur 168.
+- **Relecture indépendante**, constats corrigés :
+  - **Sceau** : la prise en compte d'un geste « antérieur » dépendait de l'heure des pièces. Avec deux pièces de la même milliseconde ou une horloge recalée, le contenu recalculé d'un avoir scellé pouvait changer, et la vérification aurait signalé une falsification. C'est maintenant l'ordre d'émission qui compte, avec un test pour la même milliseconde et pour une horloge recalée.
+  - **PDF** : l'avoir qui suit un geste affichait « Remise, déjà déduite des prix », alors que les lignes sont au prix d'origine. Le geste apparaît désormais comme une déduction chiffrée.
+  - **Fidélité** : un geste ne reprend plus de points ; c'est un dédommagement, pas une vente annulée.
+  - **Article rendu après un geste qui avait couvert toute sa valeur** : le marchand était renvoyé au remboursement complet, qui remettait en stock tous les articles, même ceux gardés par le client. Ce retour est désormais enregistré sans remboursement ni avoir : stock remis, unités suivies. Il n'a pas de numéro de pièce, et le journal ne l'attend pas.
+  - **Saisie** : un geste ne se combine plus avec un retour d'articles (refus explicite), et un montant vide est refusé.
+  - **Webhook** : il indique `geste: true`.
+  - **Focus** rendu au bon bouton.
+- `npm run verifier` complet (lancé avant ces corrections) : 6 étapes sur 6. 169 tests sur 169, sur deux passages complets.

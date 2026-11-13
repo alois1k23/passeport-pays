@@ -16,8 +16,8 @@ function blocRetoursPartiels(c) {
     : c.retour && c.retour.statut === 'demande' ? Math.min(c.lignes[i].qte - deja[i], ((c.retour.lignes || []).find(x => x.ligne === i) || { qte: 0 }).qte) : 0;
   const total = pieces.reduce((a, p) => a + p.montant, 0) / 100;
   return `<div class="bloc retours-partiels"><h3>Retours partiels</h3>
-    ${pieces.length ? `<ul class="sous">${pieces.map(p => `<li><b>${esc(p.numero)}</b> · ${new Date(p.date).toLocaleDateString('fr-CH')} · ${euros(p.montant / 100)} : ${p.geste ? 'geste commercial' : p.lignes.map(x => `${x.qte} × ${esc(c.lignes[x.index].nom)}`).join(', ')}${p.port ? `${p.lignes.length ? ', ' : ''}livraison` : ''}${p.carte ? ` (dont ${euros(p.carte / 100)} sur la carte cadeau)` : ''}${p.mode === 'manuel' && p.argent ? ' · à rendre par vos soins' : ''}${p.stock || p.geste ? '' : ' · non remis en stock'}
-      <button class="btn petit fantome" data-action="facture-xml" data-format="pdf" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en PDF Factur-X">PDF</button><button class="btn petit fantome" data-action="facture-xml" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en XML EN 16931">XML</button></li>`).join('')}</ul>
+    ${pieces.length ? `<ul class="sous">${pieces.map(p => `<li>${p.numero ? `<b>${esc(p.numero)}</b>` : '<b>Sans avoir</b>'} · ${new Date(p.date).toLocaleDateString('fr-CH')} · ${euros(p.montant / 100)} : ${p.geste ? 'geste commercial' : p.lignes.map(x => `${x.qte} × ${esc(c.lignes[x.index].nom)}`).join(', ')}${p.port ? `${p.lignes.length ? ', ' : ''}livraison` : ''}${p.carte ? ` (dont ${euros(p.carte / 100)} sur la carte cadeau)` : ''}${p.mode === 'manuel' && p.argent ? ' · à rendre par vos soins' : ''}${p.stock || p.geste ? '' : ' · non remis en stock'}
+      ${p.numero ? `<button class="btn petit fantome" data-action="facture-xml" data-format="pdf" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en PDF Factur-X">PDF</button><button class="btn petit fantome" data-action="facture-xml" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en XML EN 16931">XML</button>` : ''}</li>`).join('')}</ul>
       <p class="sous">Total remboursé : ${euros(total)} sur ${euros(c.total)}.</p>` : ''}
     ${c.retourEnCours ? `<p class="alerte-texte" role="alert">Un retour partiel de ${euros(c.retourEnCours.calcul.montant / 100)} a été remboursé chez Stripe, mais son avoir n’a pas encore été créé.</p><button class="btn petit" data-action="retour-partiel-terminer" data-id="${esc(c.id)}">Terminer le retour en cours</button>` : ''}
     ${peut && !r && !c.retourEnCours ? `<div class="rangee"><button class="btn petit fantome" data-action="retour-partiel-ouvrir" data-id="${esc(c.id)}">${c.retour && c.retour.statut === 'demande' ? 'Rembourser les articles retournés…' : 'Retour partiel…'}</button><button class="btn petit fantome" data-action="retour-partiel-ouvrir" data-mode="geste" data-id="${esc(c.id)}" title="Rembourser un montant sans retour d’article (retard, petit défaut accepté par le client)">Geste commercial…</button></div>` : ''}
@@ -37,9 +37,9 @@ function blocRetoursPartiels(c) {
       ${c.port && !portRendu ? `<label class="case"><input type="checkbox" name="port" ${r.saisie.port ? 'checked' : ''}> Rembourser aussi la livraison (${euros(c.port)})</label>` : ''}
       <label class="case"><input type="checkbox" name="stock" ${r.saisie.remettreEnStock !== false ? 'checked' : ''}> Remettre les articles en stock (décochez s’ils sont abîmés)</label>
       <label class="champ"><span>Motif (interne, facultatif)</span><input name="motif" maxlength="200" value="${esc(r.saisie.motif || '')}"></label>
-      ${r.apercu ? `<p class="encart" role="status">À rembourser : <b>${euros(r.apercu.montant / 100)}</b>${r.apercu.carte ? `, dont ${euros(r.apercu.carte / 100)} recrédités sur la carte cadeau` : ''}${r.apercu.argent ? `${r.apercu.carte ? ' et ' : ', '}${euros(r.apercu.argent / 100)} ${r.apercu.mode === 'stripe' ? 'remboursés automatiquement sur le moyen de paiement du client' : r.apercu.mode === 'manuel' ? 'à rendre au client par vos soins (virement, espèces)' : 'remboursés (simulation)'}` : ''}. Un avoir partiel sera émis et le client prévenu par e-mail.</p>` : '<p class="sous">La part de remise des articles est déduite automatiquement. Calculez le montant avant de confirmer.</p>'}
+      ${r.apercu && r.apercu.sansMontant ? '<p class="encart" role="status">Valeur de ces articles déjà rendue par un geste commercial : le retour sera enregistré (stock, suivi) sans remboursement ni avoir.</p>' : r.apercu ? `<p class="encart" role="status">À rembourser : <b>${euros(r.apercu.montant / 100)}</b>${r.apercu.carte ? `, dont ${euros(r.apercu.carte / 100)} recrédités sur la carte cadeau` : ''}${r.apercu.argent ? `${r.apercu.carte ? ' et ' : ', '}${euros(r.apercu.argent / 100)} ${r.apercu.mode === 'stripe' ? 'remboursés automatiquement sur le moyen de paiement du client' : r.apercu.mode === 'manuel' ? 'à rendre au client par vos soins (virement, espèces)' : 'remboursés (simulation)'}` : ''}. Un avoir partiel sera émis et le client prévenu par e-mail.</p>` : '<p class="sous">La part de remise des articles est déduite automatiquement. Calculez le montant avant de confirmer.</p>'}
       ${r.erreur ? `<p class="alerte-texte" role="alert" tabindex="-1">${esc(r.erreur)}</p>` : ''}
-      <div class="rangee"><button class="btn fantome" name="action" value="apercu">Calculer le montant</button>${r.apercu ? `<button class="btn danger" name="action" value="confirmer">Rembourser ${euros(r.apercu.montant / 100)}</button>` : ''}<button type="button" class="btn fantome" data-action="retour-partiel-fermer">Annuler</button></div>
+      <div class="rangee"><button class="btn fantome" name="action" value="apercu">Calculer le montant</button>${r.apercu ? `<button class="btn danger" name="action" value="confirmer">${r.apercu.sansMontant ? 'Enregistrer le retour' : `Rembourser ${euros(r.apercu.montant / 100)}`}</button>` : ''}<button type="button" class="btn fantome" data-action="retour-partiel-fermer">Annuler</button></div>
     </form>` : ''}
   </div>`;
 }
@@ -54,7 +54,7 @@ document.addEventListener('click', e => {
   const o = e.target.closest('[data-action="retour-partiel-ouvrir"]');
   if (o) { ui.retourPartiel = { id: o.dataset.id, mode: o.dataset.mode || 'articles', saisie: { lignes: [], remettreEnStock: true }, apercu: null, initial: true }; rendre(); const champ = document.querySelector('[data-form="retour-partiel"] input:not([disabled])'); if (champ) champ.focus(); return; }
   const f = e.target.closest('[data-action="retour-partiel-fermer"]');
-  if (f) { ui.retourPartiel = null; rendre(); const b = document.querySelector('[data-action="retour-partiel-ouvrir"]'); if (b) b.focus(); }
+  if (f) { const mode = ui.retourPartiel && ui.retourPartiel.mode; ui.retourPartiel = null; rendre(); const b = document.querySelector(mode === 'geste' ? '[data-action="retour-partiel-ouvrir"][data-mode="geste"]' : '[data-action="retour-partiel-ouvrir"]:not([data-mode])'); if (b) b.focus(); }
 });
 // Une quantité changée rend l'aperçu caduc : il faut recalculer avant de confirmer.
 document.addEventListener('input', e => {
@@ -77,7 +77,7 @@ document.addEventListener('submit', async e => {
       const vu = ui.retourPartiel.apercuVu;   // montant et rang vus par le marchand : refusés s'ils ont changé
       const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/retour-partiel`, { ...saisie, attendu: vu ? { rang: vu.rang, montant: vu.montant } : null });
       ui.retourPartiel = null;
-      await rafraichir(`${saisie.geste ? 'Geste commercial' : 'Retour partiel'} remboursé : avoir ${r.avoir} émis, client prévenu.`);
+      await rafraichir(r.avoir ? `${saisie.geste ? 'Geste commercial' : 'Retour partiel'} remboursé : avoir ${r.avoir} émis, client prévenu.` : 'Retour enregistré sans remboursement (valeur déjà rendue par un geste commercial).');
       return;
     }
   } catch (err) { ui.retourPartiel.erreur = err.message; }

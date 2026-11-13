@@ -47,7 +47,7 @@ function calculerGeste(c, demande, { argentPaye }) {
   if (!c.facture) throw erreur(409, 'Cette commande n’a pas de facture : pas de geste commercial possible.', 'sans_facture');
   if (c.canal === 'carte') throw erreur(409, 'Une carte cadeau vendue se rembourse en entier (si elle n’a pas servi).', 'carte_vendue');
   const montant = cts(demande.geste), d = deja(c), nets = netsLignes(c);
-  if (!Number.isInteger(montant) || montant <= 0 || Math.abs(Number(demande.geste) * 100 - montant) > 1e-6) throw erreur(400, 'Montant du geste commercial invalide.', 'montant_invalide');
+  if (typeof demande.geste !== 'number' || !Number.isInteger(montant) || montant <= 0 || Math.abs(Number(demande.geste) * 100 - montant) > 1e-6) throw erreur(400, 'Montant du geste commercial invalide.', 'montant_invalide');
   const restes = c.lignes.map((l, i) => (Number(l.qte) || 0) - d.qte[i] > 0 ? Math.max(0, nets[i] - d.montant[i]) : 0);
   const dispo = restes.reduce((a, b) => a + b, 0);
   if (montant > dispo) throw erreur(409, `Le geste commercial dépasse la valeur des articles non remboursés (${(dispo / 100).toFixed(2)}).`, 'depasse');
@@ -72,7 +72,10 @@ function repartirArgent(c, d, r, argentPaye) {
 /* Calcule un retour partiel. demande = { lignes: [{ index, qte }], port: bool }. argentPaye : centimes payés par le
    moyen d'origine (hors carte cadeau). Lève une erreur 400/409 explicite si la demande n'est pas possible. */
 function calculer(c, demande, { argentPaye }) {
-  if (demande.geste !== undefined && demande.geste !== null && demande.geste !== '') return calculerGeste(c, demande, { argentPaye });
+  if (Object.hasOwn(demande, 'geste')) {
+    if ((Array.isArray(demande.lignes) && demande.lignes.length) || demande.port === true) throw erreur(400, 'Un geste commercial ne se combine pas avec un retour d’articles : faites deux opérations.', 'geste_mixte');
+    return calculerGeste(c, demande, { argentPaye });
+  }
   if (!c.facture) throw erreur(409, 'Cette commande n’a pas de facture : rien à rembourser partiellement.', 'sans_facture');
   if (c.canal === 'carte') throw erreur(409, 'Une carte cadeau vendue se rembourse en entier (si elle n’a pas servi).', 'carte_vendue');
   const d = deja(c), nets = netsLignes(c), demandees = Array.isArray(demande.lignes) ? demande.lignes : [];
@@ -101,7 +104,9 @@ function calculer(c, demande, { argentPaye }) {
   const toutRendu = c.lignes.every((l, i) => d.qte[i] + (lignes.find(x => x.index === i) || { qte: 0 }).qte >= (Number(l.qte) || 0));
   if (toutRendu) throw erreur(409, 'Ce retour couvre tous les articles restants : utilisez « Rembourser » pour la commande entière (livraison comprise).', 'retour_complet');
   const montant = lignes.reduce((a, l) => a + l.montant, 0) + port;
-  if (montant <= 0) throw erreur(409, 'Rien à rembourser : la valeur de ces articles a déjà été rendue (geste commercial). Utilisez « Rembourser » pour clore la commande.', 'montant_nul');
+  // Articles dont toute la valeur a déjà été rendue (geste commercial) : retour sans remboursement ni avoir (aucun montant),
+  // seulement le stock et le suivi des unités rendues.
+  if (montant <= 0) return { lignes, port: 0, montant: 0, argent: 0, carte: 0, sansMontant: true };
   return repartirArgent(c, d, { lignes, port, montant }, argentPaye);
 }
 
@@ -125,7 +130,7 @@ function vueReste(c) {
   const d = deja(c), lignes = [];
   c.lignes.forEach((l, i) => { const q = (Number(l.qte) || 0) - d.qte[i]; if (q > 0) lignes.push({ ...l, qte: q }); });
   const port = d.port ? 0 : cts(c.port);
-  const avoir = c.avoir ? { ...c.avoir, libelle: c.avoir.libelle || `Avoir pour le solde de la facture ${c.facture} (après ${c.retoursPartiels.map(p => p.numero).join(', ')}).` } : c.avoir;
+  const avoir = c.avoir ? { ...c.avoir, libelle: c.avoir.libelle || `Avoir pour le solde de la facture ${c.facture} (après ${c.retoursPartiels.filter(p => p.numero).map(p => p.numero).join(', ')}).` } : c.avoir;
   const reste = resteAvoir(c), articles = lignes.reduce((a, l) => a + l.prix * l.qte, 0);
   return { ...c, retoursPartiels: undefined, lignes, sousTotal: Math.round(articles * 100) / 100, ...remiseGeste(c, Math.round(articles * 100) + port - reste), port: port / 100, total: reste / 100,
     carteCadeau: c.carteCadeau ? { ...c.carteCadeau, montant: Math.max(0, cts(c.carteCadeau.montant) - d.carte) / 100 } : c.carteCadeau, arrondi: undefined, encaisse: undefined, avoir };
@@ -134,7 +139,10 @@ function vueReste(c) {
 /* Après un geste commercial, les articles valent moins que leur prix : l'écart est présenté comme une remise nommée
    (sinon la facture électronique l'appellerait « Arrondi »). Sans geste, rien ne change (remise 0). */
 function remiseGeste(c, ecart, pieceCourante = null) {
-  const geste = (c.retoursPartiels || []).some(p => p.geste && p !== pieceCourante && (!pieceCourante || p.date <= pieceCourante.date));
+  // « Antérieur » = placé avant dans la liste des pièces (ordre d'émission), jamais d'après l'heure : deux pièces de la même
+  // milliseconde ou une horloge recalée ne changent pas le contenu recalculé d'une pièce scellée.
+  const liste = c.retoursPartiels || [], k = pieceCourante ? liste.findIndex(p => p.numero === pieceCourante.numero) : liste.length;
+  const geste = liste.slice(0, k < 0 ? liste.length : k).some(p => p.geste);
   return geste && ecart > 0 ? { remise: ecart / 100, motifRemise: 'Geste commercial déjà accordé' } : { remise: 0, motifRemise: null };
 }
 

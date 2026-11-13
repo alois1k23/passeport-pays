@@ -1921,7 +1921,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const f = commandeDeBoutique(bid, ctx.params.id), calcul = en.calcul, mode = en.mode;
       if ((f.retoursPartiels || []).length + 1 !== en.rang) { delete f.retourEnCours; enregistrerCommande(f); return { commande: f, avoir: (f.retoursPartiels.at(-1) || {}).numero }; }   // déjà enregistré
       delete f.retourEnCours;
-      const piece = { numero: prochaineFacture(bid, Date.now(), 'AV'), date: Date.now(), lignes: calcul.lignes, port: calcul.port, montant: calcul.montant, argent: calcul.argent, carte: calcul.carte, mode, stock: en.stock, motif: en.motif, ...(calcul.geste ? { geste: true } : {}) };
+      // Retour sans montant (valeur déjà rendue par un geste) : pas de pièce comptable, donc pas de numéro.
+      const piece = { numero: calcul.sansMontant ? null : prochaineFacture(bid, Date.now(), 'AV'), date: Date.now(), lignes: calcul.lignes, port: calcul.port, montant: calcul.montant, argent: calcul.argent, carte: calcul.carte, mode, stock: en.stock, motif: en.motif, ...(calcul.geste ? { geste: true } : {}) };
       // Stock : les unités vraiment retirées à la vente reviennent (ou sont sorties du compte si l'article est abîmé).
       for (const x of calcul.lignes) {
         const l = f.lignes[x.index];
@@ -1942,7 +1943,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Points gagnés avec la commande : la part des articles rendus (hors livraison) est reprise ; des points déjà
       // dépensés ne peuvent pas l'être : l'écart est noté.
       let notePoints = '';
-      if (f.fidelite && f.fidelite.gagnes && !f.fidelite.annule && f.client && f.client.email) {
+      // (un geste commercial ne reprend pas de points : c'est un dédommagement, pas une vente annulée)
+      if (!calcul.geste && f.fidelite && f.fidelite.gagnes && !f.fidelite.annule && f.client && f.client.email) {
         const articles = Math.max(1, Retours.cts(f.total) - Retours.cts(f.port));
         const vises = Math.min(f.fidelite.gagnes - Retours.deja(f).points, Math.round(f.fidelite.gagnes * (piece.montant - piece.port) / articles));
         if (vises > 0) {
@@ -1954,9 +1956,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Demande de retour du client entièrement couverte par les retours partiels : marquée remboursée.
       if (f.retour && f.retour.statut === 'demande' && (f.retour.lignes || []).every(x => Number.isInteger(x.ligne) && Retours.deja(f).qte[x.ligne] >= x.qte)) f.retour.statut = 'rembourse';
       const liste = calcul.geste ? 'geste commercial, sans retour d’article' : calcul.lignes.map(x => `${x.qte} × ${f.lignes[x.index].nom}`).join(', ');
+      if (calcul.sansMontant) {
+        historique(f, `Retour sans remboursement (valeur déjà rendue par un geste commercial) : ${liste}${piece.stock ? '' : ' ; articles non remis en stock'}${piece.motif ? ` ; motif : ${piece.motif}` : ''}`);
+        enregistrerCommande(f);
+        noterActivite(ctx.marchand.id, 'remboursement', `Retour sans remboursement (commande n° ${f.numero})`, ctx);
+        return { commande: f, avoir: null };
+      }
       historique(f, `${calcul.geste ? 'Geste commercial' : 'Retour partiel'} ${piece.numero} : ${formatMontant(piece.montant / 100, config)} remboursés (${liste}${piece.port ? ', livraison' : ''})${piece.carte ? `, dont ${formatMontant(piece.carte / 100, config)} sur la carte cadeau ····${f.carteCadeau.fin}` : ''}${mode === 'manuel' && piece.argent ? ` ; ${formatMontant(piece.argent / 100, config)} à rendre au client par vos soins (virement, espèces)` : ''}${piece.stock ? '' : ' ; articles non remis en stock'}${notePoints}${piece.motif ? ` ; motif : ${piece.motif}` : ''}${f.litige ? ' ; attention : un litige bancaire est ouvert sur cette commande' : ''}`);
       enregistrerCommande(f);   // scelle l'avoir partiel au journal
-      try { integ.emettre(bid, 'commande.remboursement_partiel', { ...commandeApi(f, config.boutique.devise || 'CHF', { client: false }), avoir: piece.numero, montant: piece.montant / 100, lignesRendues: calcul.lignes.map(x => ({ nom: f.lignes[x.index].nom, qte: x.qte, montant: x.montant / 100 })) }); } catch (e) { journal.error('[webhook]', e.message); }
+      try { integ.emettre(bid, 'commande.remboursement_partiel', { ...commandeApi(f, config.boutique.devise || 'CHF', { client: false }), avoir: piece.numero, montant: piece.montant / 100, geste: !!calcul.geste, lignesRendues: calcul.lignes.map(x => ({ nom: f.lignes[x.index].nom, qte: x.qte, montant: x.montant / 100 })) }); } catch (e) { journal.error('[webhook]', e.message); }
       noterActivite(ctx.marchand.id, 'remboursement', `${calcul.geste ? 'Geste commercial' : 'Retour partiel'} ${piece.numero} (commande n° ${f.numero}, ${formatMontant(piece.montant / 100, config)})`, ctx);
       // Client prévenu (dans sa langue) : montant, articles, livraison, part recréditée sur la carte, numéro de l'avoir.
       if (f.client && f.client.email && !f.client.illisible) {
@@ -3598,7 +3606,7 @@ ${bloc}</main></body></html>`;
       // Liens de téléchargement seulement si la boutique a toutes ses mentions (sinon le document ne peut pas être produit).
       documentsDisponibles: !!c.facture && c.canal !== 'carte' && !FactureElectronique.manques(c, lireConfig(b)).length,
       facture: c.facture && c.canal !== 'carte' ? c.facture : null, avoir: c.avoir && c.avoir.numero ? c.avoir.numero : null, retour: c.retour ? { statut: c.retour.statut, date: c.retour.date } : null,
-      avoirsPartiels: (c.retoursPartiels || []).map(p => ({ numero: p.numero, date: p.date, montant: p.montant / 100 })),
+      avoirsPartiels: (c.retoursPartiels || []).filter(p => p.numero).map(p => ({ numero: p.numero, date: p.date, montant: p.montant / 100 })),
       retourPossible: delaiRetour(b, c) > Date.now() && !(c.retour && c.retour.statut === 'demande') && !c.avoir && c.statut !== 'remboursee' && rendus.some((q, i) => q < c.lignes[i].qte) };
   });
 

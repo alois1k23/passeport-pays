@@ -182,7 +182,9 @@ function composer(c, config, { avoir, devise }) {
     const tl = tauxLigne(l);
     rangee(l.nom, l.qte, sansTva ? argent(l.prix) : argent(l.prix / (1 + tl)), pctTva(tl), argent(l.prix * l.qte));
   }
-  if (c.remise) rangee(`Remise${c.motifRemise ? ` (${String(c.motifRemise).slice(0, 60)})` : ''}, déjà déduite des prix`, '', '', '', normaliser(format.format(c.remise)), { couleur: gris });
+  // Geste commercial déjà accordé (avoir après geste) : les lignes sont au prix d'origine, l'écart est une déduction affichée.
+  if (c.remise && c.motifRemise === 'Geste commercial déjà accordé') rangee('Geste commercial déjà accordé (déduit)', '', '', '', argent(-c.remise));
+  else if (c.remise) rangee(`Remise${c.motifRemise ? ` (${String(c.motifRemise).slice(0, 60)})` : ''}, déjà déduite des prix`, '', '', '', normaliser(format.format(c.remise)), { couleur: gris });
   if (c.port) rangee('Livraison', 1, sansTva ? argent(c.port) : '—', sansTva ? '' : 'au prorata', argent(c.port));
 
   // Totaux

@@ -109,7 +109,7 @@ function creer(db, cle) {
     return db.prepare(`SELECT c.* FROM commandes c WHERE ${boutiqueId ? 'c.boutique_id = ? AND' : ''} (
         (json_extract(c.donnees, '$.facture') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.commande_id = c.id AND j.type IN ('facture', 'ticket')))
         OR (json_extract(c.donnees, '$.avoir.numero') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.commande_id = c.id AND j.type = 'avoir'))
-        OR (json_type(c.donnees, '$.retoursPartiels') = 'array' AND EXISTS (SELECT 1 FROM json_each(c.donnees, '$.retoursPartiels') r WHERE NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.type = 'avoir-partiel' AND j.ref = json_extract(r.value, '$.numero')))))`)
+        OR (json_type(c.donnees, '$.retoursPartiels') = 'array' AND EXISTS (SELECT 1 FROM json_each(c.donnees, '$.retoursPartiels') r WHERE json_extract(r.value, '$.numero') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.type = 'avoir-partiel' AND j.ref = json_extract(r.value, '$.numero')))))`)
       .all(...(boutiqueId ? [boutiqueId] : []));
   }
 

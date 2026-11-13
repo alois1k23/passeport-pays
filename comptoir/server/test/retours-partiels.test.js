@@ -29,7 +29,8 @@ test('calcul : lignes au centime (prix déjà remisés, même fractionnaires), s
       }
       let r;
       try { r = R.calculer(c, { lignes: [{ index: i, qte: 1 }], port: c.retoursPartiels.length === 1 }, { argentPaye: Math.round(c.total * 100) }); }
-      catch (e) { if (e.code === 'montant_nul') break; throw e; }   // valeur déjà rendue par un geste : on clôt par l'avoir final
+      catch (e) { throw e; }
+      if (r.sansMontant) { assert.equal(r.montant, 0); c.retoursPartiels.push({ numero: null, date: c.retoursPartiels.length, ...r }); continue; }   // valeur déjà rendue par un geste
       assert.ok(r.montant > 0);
       c.retoursPartiels.push({ numero: `AV-${c.retoursPartiels.length}`, date: c.retoursPartiels.length, ...r });
     }
@@ -315,6 +316,16 @@ test('geste commercial : avoir sans retour d’article, puis retour et rembourse
     assert.equal(c.retoursPartiels[1].montant, Math.round((nets[0] - partVase) / 2));
     const xr = await appel('GET', `/api/admin/commandes/${id}/facture-electronique?avoir=${r1.json.avoir}`);
     assert.equal(xr.statut, 200, xr.texte); assert.match(xr.texte, /Geste commercial déjà accordé/);
+    // Geste couvrant toute la valeur restante de la bougie, puis la bougie rendue : retour sans remboursement ni avoir, stock remis.
+    const stockBougie = stock(db, bougie);
+    const valeurBougie = R.netsLignes(c)[1] - R.deja(c).montant[1];
+    const g2 = await retourner(appel, base, { geste: valeurBougie / 100 + (R.netsLignes(c)[0] - R.deja(lire(db, id)).montant[0]) / 100 });
+    assert.equal(g2.statut, 200, JSON.stringify(g2.json));
+    const zero = await retourner(appel, base, { lignes: [{ index: 1, qte: 1 }] });
+    assert.equal(zero.statut, 200, JSON.stringify(zero.json)); assert.equal(zero.json.avoir, null);
+    assert.equal(stock(db, bougie), stockBougie + 1);
+    c = lire(db, id);
+    assert.equal(c.retoursPartiels.at(-1).numero, null); assert.match(c.historique.at(-1).texte, /sans remboursement/);
     assert.equal((await appel('POST', `/api/admin/commandes/${id}/statut`, { statut: 'remboursee' })).statut, 200);
     c = lire(db, id);
     assert.equal(c.retoursPartiels.reduce((a, p) => a + p.montant, 0) + Math.round(c.avoir.montant * 100), Math.round(c.total * 100), 'avoirs = facture');
@@ -323,4 +334,19 @@ test('geste commercial : avoir sans retour d’article, puis retour et rembourse
     const v = (await appel('POST', '/api/admin/journal-inalterable/verifier', {})).json;
     assert.equal(v.ok, true, JSON.stringify(v.anomalies));
   } finally { s.close(); }
+});
+
+test('geste : contenu recalculé d’une pièce indépendant de l’heure (même milliseconde, horloge recalée)', () => {
+  const J = require('../src/journal-inalterable');
+  const c = { id: 'c', numero: 1, facture: 'FA-1', lignes: [{ nom: 'A', prix: 0.945, qte: 3 }], remise: 0, port: 0, total: 2.84, retoursPartiels: [] };
+  const r1 = R.calculer(c, { lignes: [{ index: 0, qte: 1 }] }, { argentPaye: 284 });
+  c.retoursPartiels.push({ numero: 'AV-1', date: 1000, ...r1 });
+  const avant = J.contenuPiece('avoir-partiel', c, 'AV-1');
+  const g = R.calculer(c, { geste: 0.5 }, { argentPaye: 284 });
+  for (const date of [1000, 999]) {
+    const c2 = JSON.parse(JSON.stringify({ ...c, retoursPartiels: [...c.retoursPartiels, { numero: 'AV-2', date, geste: true, ...g }] }));
+    assert.equal(J.contenuPiece('avoir-partiel', c2, 'AV-1'), avant, `geste daté ${date}`);
+  }
+  assert.throws(() => R.calculer(c, { geste: 1, lignes: [{ index: 0, qte: 1 }] }, { argentPaye: 284 }), /ne se combine pas/);
+  assert.throws(() => R.calculer(c, { geste: null }, { argentPaye: 284 }), /invalide/);
 });
