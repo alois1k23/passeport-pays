@@ -124,6 +124,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 **Seizième phase** (la quinzième est terminée le 13 novembre vers 13 h) :
 
 63. **Confirmation d'identité par clé d'accès** : les actions sensibles se confirment aussi avec une clé d'accès du compte (visage, empreinte), sans mot de passe ; c'est le seul moyen pour un compte « clé d'accès seule », qui devait jusqu'ici se déconnecter. Aucune connexion ne vaut plus confirmation.
+64. **Essais refusés dans une session** : au 5e mot de passe (ou code, ou clé) refusé dans une même session, celle-ci est fermée et la titulaire prévenue ; un voleur de cookie ne peut plus bloquer les confirmations du compte.
 
 ## Cycles
 
@@ -1367,4 +1368,24 @@ La relecture du chantier 62 l'a montré : un compte « clé d'accès seule » ne
     - compte « clé d'accès seule » sur un appareil sans clé utilisable : ni champ de mot de passe ni bouton (le serveur le refuserait), focus sur « Se reconnecter » (vérifié dans Chromium) ;
     - le message « confirmez votre identité » mentionne la clé d'accès.
   - Non corrigé, noté : la confirmation par mot de passe partage toujours la limite du jour (30 échecs). Un voleur de cookie qui tape de faux mots de passe peut donc bloquer pour la journée la confirmation par mot de passe. La clé d'accès compte à part pour les réponses sans rapport.
+
+### Cycle 69 (16 h 45) : session fermée après 5 essais refusés (chantier 64)
+
+La relecture du chantier 63 laissait un défaut. Un voleur de cookie qui tapait de faux mots de passe dans les écrans qui les redemandent (confirmation d'identité, suppression du compte, export complet, gestion des clés d'accès et de la double authentification, changement de mot de passe) épuisait les compteurs du compte. Il bloquait ainsi la titulaire pendant un quart d'heure, et pouvait recommencer à volonté.
+
+- **Correction d'un commentaire** : la limite de 30 confirmations refusées était dite « par jour ». Elle est en réalité par quart d'heure (le compteur des échecs repart après 15 minutes). Commentaire corrigé.
+- **Compteur par session** : chaque mot de passe, code ou signature de clé d'accès refusé dans une session y est compté. C'est vrai pour les 10 contrôles de mot de passe faits dans une session ; la page de connexion a son propre compteur et n'est pas touchée.
+- **Au 5e refus** :
+  - la session est fermée ;
+  - l'événement va au journal du compte ;
+  - la titulaire reçoit un e-mail (« si c'était vous, reconnectez-vous ; sinon, changez votre mot de passe ») ;
+  - la réponse porte le code `session_fermee`, et l'application renvoie à la connexion après 4 secondes, le message restant lisible.
+- **Remise à zéro** : une confirmation réussie remet le compteur à zéro.
+- **Effet** : un voleur n'a plus que 5 essais par cookie volé. Il lui faudrait 6 sessions volées pour atteindre la limite du compte, au lieu d'un seul cookie et de la patience. Les réponses sans rapport à la confirmation par clé d'accès (défi ou clé d'ailleurs) ne comptent toujours pas.
+- **Tests** :
+  - essais répartis entre trois routes : comptés ensemble ;
+  - une réussite remet le compteur à zéro ;
+  - au 5e refus : session fermée, les autres sessions restent, e-mail et journal ;
+  - l'ancien test de la suppression du compte (limite atteinte en moins de 1001 essais) vérifie maintenant la fermeture au 5e.
+- 226 tests sur 226, parcours de bout en bout 57/57, fuzzing sans anomalie.
 

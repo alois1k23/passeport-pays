@@ -922,10 +922,11 @@ test('entrées malformées : cookie, adresse et jeton multi-octets donnent une r
   const row = db.prepare('SELECT jeton_client FROM commandes WHERE id = ?').get(cmd.json.commandeId);
   const faux = 'é'.repeat(row.jeton_client.length);   // même nombre de caractères, plus d'octets
   assert.equal((await fetch(`${base}/api/public/${ins.json.slug}/commandes/${cmd.json.commandeId}?jeton=${encodeURIComponent(faux)}`)).status, 404);
-  // Suppression du compte : les essais de mot de passe sont limités, même avec une session valide
-  let dernier;
-  for (let i = 0; i < 1001; i++) { dernier = await m('POST', '/api/admin/compte/supprimer', { motDePasse: 'mauvais mot de passe ' + i }); if (dernier.statut === 429) break; }
-  assert.equal(dernier.statut, 429);
+  // Suppression du compte : les essais de mot de passe sont limités, même avec une session valide (au 5e, la session est fermée)
+  let dernier, n = 0;
+  for (let i = 0; i < 1001; i++) { n++; dernier = await m('POST', '/api/admin/compte/supprimer', { motDePasse: 'mauvais mot de passe ' + i }); if (dernier.statut === 429 || (dernier.json && dernier.json.code === 'session_fermee')) break; }
+  assert.equal(dernier.json.code, 'session_fermee'); assert.equal(n, 5);
+  assert.equal((await m('POST', '/api/admin/compte/supprimer', { motDePasse: 'un mot de passe solide' })).statut, 401, 'plus de session : plus d’essai');
 });
 
 test('passage à Lancement : les publications programmées ne partent pas, elles redeviennent des brouillons', async () => {

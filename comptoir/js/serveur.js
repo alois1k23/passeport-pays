@@ -21,6 +21,8 @@ async function api(methode, chemin, corps, { deja = false } = {}) {
     if (await confirmerIdentite()) return api(methode, chemin, corps, { deja: true });
     const e = new Error('Action annulée : identité non confirmée.'); e.statut = 403; e.code = 'identite_annulee'; throw e;
   }
+  // Session fermée par le serveur après trop d'essais refusés : retour à la connexion (le message reste lisible un instant).
+  if (json.code === 'session_fermee') setTimeout(() => { location.href = '/app?connexion=1'; }, 4000);
   if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; e.code = json.code; throw e; }
   // Le serveur répond de nouveau : une modification restée en échec part tout de suite.
   if (typeof ENREGISTREMENT !== 'undefined' && ENREGISTREMENT.echecs && !ENREGISTREMENT.enCours && chemin !== '/api/admin/config') setTimeout(envoyerConfig, 0);
@@ -241,7 +243,7 @@ async function confirmerIdentite() {
       const err = d.querySelector('.erreur');
       boutonCle.disabled = true;
       try { await ClesAcces.confirmerIdentite(); fin(true); }
-      catch (x) { err.textContent = ClesAcces.messageErreur(x); err.hidden = false; boutonCle.disabled = false; boutonCle.focus(); }
+      catch (x) { err.textContent = ClesAcces.messageErreur(x); err.hidden = false; if (x.code === 'session_fermee') return; boutonCle.disabled = false; boutonCle.focus(); }
     });
     d.querySelector('form').addEventListener('submit', async e => {
       e.preventDefault();
@@ -255,6 +257,7 @@ async function confirmerIdentite() {
         fin(true);
       } catch (x) {
         err.textContent = x.message; err.hidden = false; bouton.disabled = false;
+        if (x.code === 'session_fermee') { d.querySelectorAll('input, [value="ok"], [data-par-cle]').forEach(el => { el.disabled = true; }); setTimeout(() => { location.href = '/app?connexion=1'; }, 4000); return; }
         if (x.code === 'cle_seule') { d.querySelector('[data-cle-seule]').hidden = false; d.querySelector('[data-reconnecter]').focus(); return; }
         // Le focus va au champ en cause : le code s'il est faux, sinon le mot de passe.
         (x.code === 'code_2fa' && d.querySelector('input[name=code]') || d.querySelector('input[name=motDePasse]')).focus();

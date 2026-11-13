@@ -124,3 +124,27 @@ test('premier IBAN, réinitialisation, e-mail de l’entreprise, domaine : même
     assert.equal((await c('PUT', '/api/admin/config', { config: { ...conf, boutique: { ...conf.boutique, slogan: 'Bonjour' } } })).s, 200);
   } finally { s.close(); }
 });
+
+test('essais de mot de passe refusés dans une session : au 5e, la session est fermée et la titulaire prévenue', async () => {
+  const { db, s, c } = await demarrer();
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'vol@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Vol' } } });
+    const jeton = db.prepare('SELECT jeton_hash FROM sessions').get().jeton_hash;
+    // Une seconde session (la titulaire, sur un autre appareil) : intacte.
+    db.prepare("INSERT INTO sessions (jeton_hash, marchand_id, expire_le, cree_le, vu_le) SELECT 'autre', marchand_id, expire_le, cree_le, vu_le FROM sessions").run();
+    // Une réussite remet le compteur à zéro.
+    for (let k = 0; k < 4; k++) assert.equal((await c('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'mauvais ' + k })).s, 401);
+    assert.equal((await c('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'un mot de passe solide' })).s, 200);
+    assert.equal(db.prepare('SELECT echecs_identite n FROM sessions WHERE jeton_hash = ?').get(jeton).n, 0);
+    // Essais répartis sur plusieurs routes qui redemandent le mot de passe : comptés ensemble.
+    assert.equal((await c('POST', '/api/admin/compte/cles-acces/options', { motDePasse: 'mauvais a' })).s, 401);
+    assert.equal((await c('POST', '/api/admin/compte/mot-de-passe', { actuel: 'mauvais b', nouveau: 'un autre mot de passe sûr' })).s, 401);
+    for (let k = 0; k < 2; k++) assert.equal((await c('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'mauvais c' + k })).s, 401);
+    const fin = await c('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'mauvais d' });
+    assert.equal(fin.s, 401); assert.equal(fin.j.code, 'session_fermee');
+    assert.equal((await c('GET', '/api/session')).j.connecte, false, 'session fermée');
+    assert.ok(db.prepare("SELECT 1 FROM sessions WHERE jeton_hash = 'autre'").get(), 'les autres sessions restent');
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'vol@exemple.ch' AND sujet = 'Session fermée après des essais de confirmation refusés'").get());
+    assert.ok(db.prepare("SELECT 1 FROM journal_compte WHERE type = 'session-fermee-echecs'").get());
+  } finally { s.close(); }
+});

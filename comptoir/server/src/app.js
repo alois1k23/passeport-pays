@@ -1458,7 +1458,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/compte/mot-de-passe', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     const cles = ['mdp:' + m.id];   // clé propre : une attaque sur la page de connexion ne bloque pas un marchand déjà connecté
-    if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.actuel || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.actuel || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe actuel incorrect.', 'identifiants'); }
     const nouveau = valider.texte(ctx.corps.nouveau, 'Le nouveau mot de passe', { min: 10, max: 200 });
     { const b = db.prepare('SELECT config FROM boutiques WHERE marchand_id = ?').get(m.id); await exigerMotDePasseSolide(nouveau, { email: m.email, noms: [b ? (JSON.parse(b.config).boutique || {}).nom || '' : ''] }); }
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
@@ -1878,7 +1878,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const cleSeule = mid => !!(db.prepare('SELECT cle_seule FROM marchands WHERE id = ?').get(mid) || {}).cle_seule;
   r.post('/api/admin/compte/cle-seule', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
-    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
       auth.limiter('2fa-gestion:' + m.id, 5 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans 15 minutes.');
@@ -1898,7 +1898,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   });
   r.post('/api/admin/compte/cles-acces/options', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
-    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     // Double authentification active : une clé d'accès ne s'ajoute qu'avec le code (sinon mot de passe + session volée suffiraient).
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
@@ -1926,7 +1926,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   });
   r.post('/api/admin/compte/cles-acces/:id/supprimer', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
-    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     // Mêmes exigences que pour désactiver « Exiger la clé d'accès » : code de double authentification, et pas la dernière clé tant que l'option est active.
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
@@ -1979,7 +1979,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/compte/2fa/activer', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
     if (!df || df.actif) throw erreur(409, 'Recommencez la mise en place.', 'etat_2fa');
-    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
     const pas = totp.verifier(dechiffrerSecret2fa(df.secret).secret, ctx.corps.code);
     if (pas === null) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect : vérifiez l’heure de votre téléphone et saisissez le code affiché maintenant.', 'code_2fa'); }
@@ -1996,7 +1996,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/compte/2fa/codes', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
     if (!df || !df.actif) throw erreur(409, 'La double authentification n’est pas active.', 'etat_2fa');
-    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
     if (!verifierSecondFacteur(deuxFacteursDe(m.id), ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
     const { codes, empreintes } = totp.codesSecours();
@@ -2007,7 +2007,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/compte/2fa/desactiver', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id), df = deuxFacteursDe(m.id);
     if (!df || !df.actif) return { ok: true };
-    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
     if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
     db.prepare('DELETE FROM deux_facteurs WHERE marchand_id = ?').run(m.id);
@@ -2020,6 +2020,22 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
      redemande déjà mot de passe et code à chaque fois). Une
      session volée (cookie copié) ne suffit donc pas à exfiltrer les données de la boutique sans le mot de passe. */
   const IDENTITE_DUREE = 15 * 60000;
+  // Échecs de confirmation comptés par session : au 5e, la session est fermée et la titulaire prévenue. Un voleur de cookie
+  // qui essaie des mots de passe est mis dehors au lieu de bloquer les confirmations de la titulaire (la limite par compte,
+  // 30 échecs par quart d'heure, demanderait alors 6 sessions volées).
+  const ECHECS_IDENTITE_MAX = 5;
+  try { db.exec('ALTER TABLE sessions ADD COLUMN echecs_identite INTEGER NOT NULL DEFAULT 0'); } catch { /* déjà là */ }
+  const echecIdentite = (ctx, m, quoi) => {
+    auth.noterEchec(['identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', quoi, ctx);
+    const h = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
+    const sess = db.prepare('UPDATE sessions SET echecs_identite = echecs_identite + 1 WHERE jeton_hash = ? AND marchand_id = ? RETURNING echecs_identite, appareil').get(h, m.id);
+    if (!sess || sess.echecs_identite < ECHECS_IDENTITE_MAX) return;
+    db.prepare('DELETE FROM sessions WHERE jeton_hash = ?').run(h);
+    noterActivite(m.id, 'session-fermee-echecs', sess.appareil || null, ctx);
+    const mail = db.prepare('SELECT email FROM marchands WHERE id = ?').get(m.id);
+    if (mail) envoyerEmail(null, mail.email, 'Session fermée après des essais de confirmation refusés', `Bonjour,\n\nUne session ouverte sur votre compte Comptoir${sess.appareil ? ` (${sess.appareil})` : ''} a échoué ${ECHECS_IDENTITE_MAX} fois à confirmer votre identité (mot de passe, code ou clé d’accès) : elle a été fermée par précaution.\n\nSi c’était vous, reconnectez-vous simplement. Sinon, quelqu’un avait accès à cette session : changez votre mot de passe et déconnectez les autres appareils dans Paramètres > Sécurité.\n${urlPublique}/app\n\nL’équipe Comptoir`);
+    throw erreur(401, `${ECHECS_IDENTITE_MAX} essais refusés : cette session a été fermée par précaution. Reconnectez-vous.`, 'session_fermee');
+  };
   const sessionDe = ctx => db.prepare('SELECT cree_le, identite_le FROM sessions WHERE jeton_hash = ?').get(auth.sha256(String(ctx.cookies[auth.COOKIE] || ''))) || {};
   const identiteRecente = ctx => { const s0 = sessionDe(ctx); return Math.max(s0.cree_le || 0, s0.identite_le || 0) > Date.now() - IDENTITE_DUREE; };
   const exigerIdentite = (ctx, { explicite = false } = {}) => { if (explicite ? !((sessionDe(ctx).identite_le || 0) > Date.now() - IDENTITE_DUREE) : !identiteRecente(ctx)) throw erreur(403, 'Confirmez votre identité pour continuer (clé d’accès, ou mot de passe et code si la double authentification est active).', 'identite_a_confirmer'); };
@@ -2027,16 +2043,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     // Compte qui n'accepte que sa clé d'accès : le mot de passe ne suffit pas ; il se reconnecte avec sa clé.
     if (m.cle_seule) throw erreur(403, 'Votre compte n’accepte que votre clé d’accès : confirmez avec elle.', 'cle_seule');
-    auth.verifierEchecs(['identite-jour:' + m.id], 30);   // au plus 30 échecs par jour, en plus de la limite par quart d'heure
+    auth.verifierEchecs(['identite-jour:' + m.id], 30);   // au plus 30 échecs par quart d'heure pour le compte (et 5 par session, voir echecIdentite)
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) {
-      auth.noterEchec(['identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'mot de passe', ctx); throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+      echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
     }
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
       auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
-      if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id, 'identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'code', ctx); throw erreur(400, ctx.corps.code ? 'Code incorrect.' : 'Saisissez le code de votre application d’authentification.', 'code_2fa'); }
+      if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); echecIdentite(ctx, m, 'code'); throw erreur(400, ctx.corps.code ? 'Code incorrect.' : 'Saisissez le code de votre application d’authentification.', 'code_2fa'); }
     }
-    db.prepare('UPDATE sessions SET identite_le = ? WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
+    db.prepare('UPDATE sessions SET identite_le = ?, echecs_identite = 0 WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
     noterActivite(m.id, 'identite-confirmee', null, ctx);
     return { ok: true, valableJusqua: new Date(Date.now() + IDENTITE_DUREE).toISOString() };
   });
@@ -2056,7 +2072,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const d = consommerDefi(rep, 'identite');
     // Seules les signatures fausses comptent dans la limite du jour : une réponse sans rapport (défi ou clé d'ailleurs),
     // qui ne prouve rien, ne doit pas permettre à un voleur de cookie de bloquer les confirmations de la titulaire.
-    const refus = (msg, compter = true) => { if (compter) { auth.noterEchec(['identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'clé d’accès', ctx); } throw erreur(401, msg, 'cle_acces_refusee'); };
+    const refus = (msg, compter = true) => { if (compter) echecIdentite(ctx, m, 'clé d’accès'); throw erreur(401, msg, 'cle_acces_refusee'); };
     if (d.marchand_id !== m.id) refus('Demande expirée : recommencez.', false);
     const cred = db.prepare('SELECT * FROM cles_acces WHERE id = ? AND marchand_id = ?').get(String(rep.id || ''), m.id);
     if (!cred) refus('Cette clé d’accès n’appartient pas à ce compte.', false);
@@ -2064,7 +2080,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     try { v = WebAuthn.verifierConnexion(rep, { defi: d.defi, origine: origineRp, rpId, cle: JSON.parse(cred.cle), compteur: cred.compteur }); }
     catch (e) { echecCle(cred, e, ctx); refus('Clé d’accès refusée.'); }
     if (!avancerCompteur(cred, v.compteur)) { echecCle(cred, new Error('compteur dépassé par une signature simultanée'), ctx); refus('Clé d’accès refusée.'); }
-    db.prepare('UPDATE sessions SET identite_le = ? WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
+    db.prepare('UPDATE sessions SET identite_le = ?, echecs_identite = 0 WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
     noterActivite(m.id, 'identite-confirmee', `clé d’accès « ${cred.nom} »`, ctx);
     return { ok: true, valableJusqua: new Date(Date.now() + IDENTITE_DUREE).toISOString() };
   });
@@ -2111,7 +2127,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/compte/supprimer', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     const cles = ['mdp:' + m.id];   // même compteur que le changement de mot de passe : une session volée ne devine pas le mot de passe par essais
-    if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     await supprimerCompte(m);
     ctx.entetes['Set-Cookie'] = [auth.cookieSession(null, securise), `comptoir_appareil=; Path=/api; HttpOnly; SameSite=Lax; Max-Age=0${securise ? '; Secure' : ''}`];
     return { ok: true };
@@ -2705,7 +2721,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
      des clients. Aucun secret n'en sort (mots de passe, sessions, clés d'API, secrets de webhooks, jetons des clients). */
   r.post('/api/admin/export-complet', exigerProprietaire, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
-    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) { echecIdentite(ctx, m, 'mot de passe'); throw erreur(401, 'Mot de passe incorrect.', 'identifiants'); }
     // Limite vérifiée avant le code : un code de secours n'est pas consommé pour un export refusé.
     auth.limiter('export-complet:' + ctx.boutique.id, 5, 3600000, 'Export déjà fait plusieurs fois cette heure : réessayez plus tard.');
     const df = deuxFacteursDe(m.id);
