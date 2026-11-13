@@ -714,3 +714,23 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   Jusqu'ici, ce ménage n'avait lieu qu'à la demande d'un nouveau code, et les réseaux sûrs n'étaient jamais effacés. Rien n'est gardé plus longtemps que nécessaire.
 - **Rapport du lundi** : nouvelle ligne « Remboursements » avec les avoirs émis dans la semaine (retours partiels, gestes commerciaux, remboursements complets), quelle que soit la date de la commande, gestes à part. Les annulations de factures jamais payées n'y figurent pas, puisqu'aucun argent n'a été rendu.
 - 2 tests de plus : 178 tests sur 178.
+
+### Cycle 42 (05 h 29) : relecture des chantiers 31 à 33 et documentation relue contre le code (chantier 35)
+
+- **Rapport du lundi** :
+  - une boutique sans commande récente ne recevait aucun rapport, même si elle avait remboursé cette semaine une commande ancienne ; elle le reçoit désormais ;
+  - la part recréditée sur des cartes cadeaux, qui n'est pas de l'argent rendu, est indiquée à part ;
+  - le rapport précise que les retours des commandes de la période sont déjà déduits du chiffre d'affaires ;
+  - les anciennes commandes sans date de modification sont prises en compte.
+- **Test de restauration renforcé** : il prouve désormais ce que dit son titre.
+  - Solde de la carte, points, pièces du journal et stock identiques avant et après.
+  - La carte sert encore sur la copie.
+  - Une copie relancée avec une autre clé du serveur est détectée comme telle (« clé changée »), sans que chaque pièce soit accusée de falsification.
+- **`npm run verifier`** : le parcours de bout en bout ouvre aussi un navigateur ; sans Playwright, il est maintenant sauté et signalé au lieu d'échouer.
+- **Documentation corrigée** :
+  - `FONCTIONNALITES.md` : facture électronique (le PDF Factur-X existe, non contrôlé par veraPDF) ; sauvegardes en clair sans `SAUVEGARDE_CLE` ; protection réelle sans `SECRET_CHIFFREMENT` ; geste commercial ; points gagnés seulement en ligne ; règles des points lors des retours et des pauses ; contenu du rapport du lundi.
+  - `MISE-EN-LIGNE.md` : ce que permet une copie volée sans `SECRET_CHIFFREMENT` ; procédure de restauration complète, avec la même clé ; `SAUVEGARDE_CLE` définie sur le serveur ; nombre de tests.
+  - `server/README.md` : la phrase « pas encore de double authentification », devenue fausse, est retirée ; rythme et chiffrement des sauvegardes ; variables non documentées.
+  - `.env.example` : rôle complet de `SECRET_CHIFFREMENT`.
+  - `README.md` : langues de la boutique.
+  - `API.md` : exemple de commande avec les nouveaux champs.

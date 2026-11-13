@@ -1,7 +1,7 @@
 // Toutes les vérifications de Comptoir, l'une après l'autre, avec un bilan final.
 // Usage : npm run verifier            (complet : tests, bout en bout, clavier, simulation de 60 jours, charge réduite)
 //         npm run verifier -- --rapide (tests et bout en bout seulement)
-// Les étapes « navigateur » (clavier) demandent Playwright ; si Chromium est absent, elles sont signalées et sautées.
+// Les étapes qui ouvrent un navigateur (bout en bout, clavier) demandent Playwright ; sans lui, elles sont signalées et sautées.
 'use strict';
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
@@ -11,7 +11,7 @@ const fichiers = d => require('node:fs').readdirSync(path.join(racine, d)).filte
 let playwright = true; try { require.resolve('playwright'); } catch { playwright = false; }
 const etapes = [
   ['Tests automatiques', [sansAvert, '--test', ...fichiers('server/test')], racine, r => /# fail 0/.test(r)],
-  ['Parcours de bout en bout', [sansAvert, path.join(racine, 'outils/simulation/bout-en-bout.js')], path.join(racine, 'server'), r => / 0 anomalie/.test(r)],
+  ['Parcours de bout en bout', [sansAvert, path.join(racine, 'outils/simulation/bout-en-bout.js')], path.join(racine, 'server'), r => / 0 anomalie/.test(r), true],   // ouvre aussi un navigateur
   ...(rapide ? [] : [
     ['Achat au clavier (boutique)', [sansAvert, 'outils/simulation/clavier.js'], racine, r => /"problemes": \[\]/.test(r), true],
     ['Espace marchand au clavier', [sansAvert, 'outils/simulation/clavier-marchand.js'], racine, r => /"problemes": \[\]/.test(r), true],

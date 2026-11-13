@@ -70,7 +70,8 @@ Exemple de commande :
   "livraison": "poste-eco", "canal": "web", "moyen": "en_ligne", "facture": "FA-2026-0042",
   "suivi": null, "transporteur": null,
   "client": { "nom": "Pia Muster", "email": "pia@exemple.ch", "adresse": "Marktgasse 28", "npa": "9400", "ville": "Rorschach", "pays": "ch" },
-  "lignes": [{ "produitId": "…", "nom": "Vase en grès", "qte": 1, "prix": 82.9, "type": "stock" }]
+  "lignes": [{ "produitId": "…", "nom": "Vase en grès", "qte": 1, "prix": 82.9, "type": "stock", "rendu": 0 }],
+  "avoirs": [], "rembourse": 0
 }
 ```
 

@@ -109,7 +109,7 @@ La route `/api/tls/autoriser` ne répond « oui » que pour le domaine principal
 ## Mise en ligne
 
 - **Docker** : `docker build -t comptoir . && docker run -p 127.0.0.1:3000:3000 -v comptoir-data:/data --env-file .env comptoir`. Publiez le port sur `127.0.0.1` uniquement : seul Caddy (sur la machine) doit joindre le conteneur, par la passerelle Docker `172.17.0.1`, déclarée dans `PROXY_DE_CONFIANCE` par l'image. Sans cela, tous les clients auraient la même adresse et les limites d'essais vaudraient pour tous à la fois (le serveur l'écrit alors dans son journal). L'image règle aussi l'heure sur Lausanne (`TZ=Europe/Zurich`).
-- Hébergement en Suisse possible chez Infomaniak, Exoscale ou un VPS. Placez la base sur un disque persistant et sauvegardez-la chaque jour. Le serveur fait lui-même une sauvegarde cohérente chaque jour (`VACUUM INTO`, 14 jours gardés) dans `SAUVEGARDE_DOSSIER` (par défaut `sauvegardes/` à côté de la base, donc `/data/sauvegardes` avec Docker ; `SAUVEGARDE=non` pour couper). Copiez ce dossier hors de la machine (stockage objet, autre serveur) et testez la restauration : ne copiez jamais le fichier `.db` à la main pendant que le serveur tourne (mode WAL).
+- Hébergement en Suisse possible chez Infomaniak, Exoscale ou un VPS. Placez la base sur un disque persistant et sauvegardez-la chaque jour. Le serveur fait lui-même une sauvegarde cohérente chaque jour (`VACUUM INTO`, 14 jours gardés) dans `SAUVEGARDE_DOSSIER` (par défaut `sauvegardes/` à côté de la base, donc `/data/sauvegardes` avec Docker ; `SAUVEGARDE=non` pour couper). Copiez ce dossier hors de la machine (stockage objet, autre serveur) et testez la restauration : ne copiez jamais le fichier `.db` à la main pendant que le serveur tourne (mode WAL). Un essai de sauvegarde a lieu toutes les 6 heures, un fichier par date. Avec `SAUVEGARDE_CLE`, les copies sont chiffrées (AES-256-GCM) ; restauration par `node server/server.js --restaurer <copie> <nouvelle base>`. Le détail est dans `docs/MISE-EN-LIGNE.md`, étape 4.
 - HTTPS obligatoire. Le cookie passe automatiquement en `Secure` quand `URL_PUBLIQUE` commence par `https://`.
 - En production (`NODE_ENV=production`), les pages de paiement simulé (`/paiement-simule`, `/abonnement-simule`) sont désactivées et, sans clé Stripe, le début d'un abonnement répond 503 (sauf `ABONNEMENT_OBLIGATOIRE=non`).
 
@@ -127,6 +127,8 @@ La route `/api/tls/autoriser` ne répond « oui » que pour le domaine principal
 | `RDAP_URL` | Registre interrogé pour la disponibilité des domaines (tests). Par défaut : SWITCH (.ch, .li), AFNIC (.fr), Verisign (.com, .net), rdap.org pour les autres. |
 | `HEBERGEUR`, `EXPLOITANT_*` | Voir ci-dessus. |
 | `STRIPE_API_URL`, `BREVO_API_URL`, `POSTMARK_API_URL` | Essais uniquement : adresse d'un faux service (voir `outils/simulation/bout-en-bout.js`). Jamais en production. |
+| `INTEGRATIONS_HTTP_LOCAL`, `FUITES_API_URL` | Essais uniquement : webhooks vers une adresse locale (`1`), faux service de mots de passe divulgués. Le contrôle `--verifier` signale `INTEGRATIONS_HTTP_LOCAL` en production. |
+| `FLUX_INTERVALLE_MS`, `FLUX_CONTROLE_MS` | Rythme des mises à jour en direct de l'espace marchand (par défaut 2 s) et du contrôle des sessions ouvertes (30 s). À laisser par défaut. |
 | `SOCIAL_SIMULATION` | `1` : publication et statistiques des réseaux simulées. |
 | `LIMITE_COMMANDES` | Commandes publiques par adresse IP et par quart d'heure (30), multipliées par `LIMITES_FACTEUR`. |
 | `EMAIL_INTERVALLE_MS`, `SOCIAL_INTERVALLE_MS`, `AUTO_INTERVALLE_MS` | Fréquence d'envoi de la file d'e-mails (30 000), des publications programmées (60 000) et des e-mails automatiques (300 000), en ms. |
@@ -139,5 +141,4 @@ Paiement : la carte partout, TWINT en CHF, Bancontact pour les boutiques belges 
 
 - Sans domaine personnalisé, les boutiques restent servies sur le domaine de l'admin (`/s/<slug>`). Pour plus de sûreté, servez l'admin et les boutiques sur des domaines différents.
 - La réservation des domaines (API d'un registrar) et l'API La Poste pour les étiquettes ne sont pas encore branchées ; la disponibilité d'un nom est, elle, vérifiée auprès du registre (RDAP).
-- Pas encore de double authentification.
 - Abandons par moyen de paiement : à brancher sur les événements du prestataire de paiement.

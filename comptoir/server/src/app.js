@@ -3535,7 +3535,16 @@ ${bloc}</main></body></html>`;
       if (!e.actif || (config.reglages && config.reglages.rapportHebdo === false)) { db.prepare('INSERT OR IGNORE INTO rapports_hebdo VALUES (?, ?)').run(b.id, semaine); continue; }
       const cmds = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? AND date >= ?').all(b.id, lundi - 14 * 86400000).map(lireCommande);
       db.prepare('INSERT OR IGNORE INTO rapports_hebdo VALUES (?, ?)').run(b.id, semaine);
-      if (!cmds.length) continue;
+      // Remboursements de la semaine : avoirs émis (retours partiels, gestes, remboursements complets), quelle que soit la
+      // date de la commande ; pas les annulations de factures jamais payées (aucun argent rendu).
+      const debutSem = lundi - 7 * 86400000;
+      const avoirsSem = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND COALESCE(maj_le, date) >= ? AND (json_extract(donnees, '$.retoursPartiels') IS NOT NULL OR json_extract(donnees, '$.avoir.date') >= ?)").all(b.id, debutSem, debutSem).map(lireCommande)
+        .flatMap(c => Retours.piecesAvoir(c).filter(a => a.date >= debutSem && a.date < lundi && !(a.final && !(c.payeLe || c.payeManuelLe))));
+      const totalAvoirs = avoirsSem.reduce((x, a) => x + Math.round(a.vue.total * 100), 0) / 100, gestesSem = avoirsSem.filter(a => a.geste);
+      // Part recréditée sur des cartes cadeaux (pas de l'argent rendu) : dite à part.
+      const surCartes = avoirsSem.reduce((x, a) => x + Math.round(((a.vue.carteCadeau && !a.vue.carteCadeau.liberee && a.vue.carteCadeau.montant) || 0) * 100), 0) / 100;
+      // Rien à dire : ni commande récente ni remboursement de la semaine (un remboursement d'une commande ancienne compte).
+      if (!cmds.length && !avoirsSem.length) continue;
       const vendue = c => !['attente', 'annulee', 'remboursee'].includes(c.statut) && c.canal !== 'carte';   // carte cadeau vendue : pas du chiffre d'affaires (compté quand elle sert)
       const sem = cmds.filter(c => c.date >= lundi - 7 * 86400000 && c.date < lundi && vendue(c)), avant = cmds.filter(c => c.date < lundi - 7 * 86400000 && vendue(c));
       const ca = l => l.reduce((a, c) => a + c.total - Retours.deja(c).total / 100, 0), f = m => formatMontant(m, config);   // moins les retours partiels
@@ -3555,19 +3564,13 @@ ${bloc}</main></body></html>`;
         const periode = Math.max(7, Math.min(28, (maintenant - premiere) / 86400000));   // même calcul que le tableau de bord
         return v >= 2 ? { p, jours: Math.floor(p.stock / (v / periode)) } : null;
       }).filter(x => x && x.jours <= 14).sort((a, b2) => a.jours - b2.jours).slice(0, 5);
-      // Remboursements de la semaine : avoirs émis (retours partiels, gestes, remboursements complets), quelle que soit la
-      // date de la commande ; pas les annulations de factures jamais payées (aucun argent rendu).
-      const debutSem = lundi - 7 * 86400000;
-      const avoirsSem = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND maj_le >= ? AND (json_extract(donnees, '$.retoursPartiels') IS NOT NULL OR json_extract(donnees, '$.avoir.date') >= ?)").all(b.id, debutSem, debutSem).map(lireCommande)
-        .flatMap(c => Retours.piecesAvoir(c).filter(a => a.date >= debutSem && a.date < lundi && !(a.final && !(c.payeLe || c.payeManuelLe))));
-      const totalAvoirs = avoirsSem.reduce((x, a) => x + Math.round(a.vue.total * 100), 0) / 100, gestesSem = avoirsSem.filter(a => a.geste);
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
       if (!mch) continue;
       const lignes = [
         `Bonjour,`, '', `Votre semaine sur ${config.boutique.nom} (du ${new Date(lundi - 7 * 86400000).toLocaleDateString('fr-CH')} au ${new Date(lundi - 86400000).toLocaleDateString('fr-CH')}) :`, '',
         `- Chiffre d’affaires : ${f(ca(sem))} (${evol(ca(sem), ca(avant))})`,
         `- Commandes : ${sem.length}${sem.length ? ` · panier moyen ${f(ca(sem) / sem.length)}` : ''}`,
-        ...(avoirsSem.length ? [`- Remboursements : ${f(totalAvoirs)} (${avoirsSem.length} avoir${avoirsSem.length > 1 ? 's' : ''}${gestesSem.length ? `, dont ${gestesSem.length} geste${gestesSem.length > 1 ? 's' : ''} commercia${gestesSem.length > 1 ? 'ux' : 'l'} pour ${f(gestesSem.reduce((x, a) => x + Math.round(a.vue.total * 100), 0) / 100)}` : ''})`] : []),
+        ...(avoirsSem.length ? [`- Remboursements : ${f(totalAvoirs)} (${avoirsSem.length} avoir${avoirsSem.length > 1 ? 's' : ''}${gestesSem.length ? `, dont ${gestesSem.length} geste${gestesSem.length > 1 ? 's' : ''} commercia${gestesSem.length > 1 ? 'ux' : 'l'} pour ${f(gestesSem.reduce((x, a) => x + Math.round(a.vue.total * 100), 0) / 100)}` : ''}${surCartes ? `, dont ${f(surCartes)} recrédités sur des cartes cadeaux` : ''}). Les retours des commandes de la période sont déjà déduits du chiffre d’affaires ci-dessus.`] : []),
         ...(tops.length ? ['', 'Meilleurs produits :', ...tops.map(([nom, x]) => `- ${nom} : ${x.q} vendu${x.q > 1 ? 's' : ''}, ${f(x.m)}`)] : []),
         '', 'À faire cette semaine :',
         aExpedier.length ? `- ${aExpedier.length} commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier` : '- Aucune commande en retard d’expédition',

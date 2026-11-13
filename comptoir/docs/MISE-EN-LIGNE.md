@@ -1,6 +1,6 @@
 # Mettre Comptoir en ligne : ce qu'il reste à faire (environ 2 heures)
 
-Tout le logiciel est prêt et testé : 68 tests ; 100 marchands simulés sur 60 jours ; un essai de bout en bout avec de faux services Stripe, e-mails et fournisseur. Il reste les étapes qui exigent **votre identité** ou **vos comptes**. Après chaque étape, lancez la vérification :
+Tout le logiciel est prêt et testé : 180 tests automatiques ; 100 marchands simulés sur 60 jours ; un essai de bout en bout avec de faux services Stripe, e-mails et fournisseur. Il reste les étapes qui exigent **votre identité** ou **vos comptes**. Après chaque étape, lancez la vérification :
 
 ```
 node server/server.js --verifier
@@ -49,11 +49,11 @@ Renseignez ensuite `FOURNISSEUR_URL_API`, `FOURNISSEUR_CLE_API` et `FOURNISSEUR_
    - `NODE_ENV=production` ;
    - l'identité de l'exploitant : `EXPLOITANT_NOM`, `EXPLOITANT_ADRESSE`, `EXPLOITANT_EMAIL`, `EXPLOITANT_IDE` ;
    - `HEBERGEUR` ;
-   - `SECRET_CHIFFREMENT` : générez-le avec `openssl rand -hex 32` et gardez-en une copie hors du serveur (gestionnaire de mots de passe). **À fixer avant d'ouvrir et à ne plus changer.** Il chiffre les secrets de double authentification des marchands et les données personnelles des clients dans les commandes (nom, e-mail, adresse), protège les codes des cartes cadeaux et les comptes de fidélité, et signe le journal inaltérable des ventes : s'il change, les codes de double authentification ne marchent plus, les données des clients et les cartes cadeaux deviennent illisibles et les journaux existants ne peuvent plus être vérifiés (Comptoir le signale au démarrage et dans Conformité). Sans lui, la clé est gardée dans la base : une copie volée de la base permettrait alors de recalculer le journal ;
-   - `SAUVEGARDE_CLE` : générée de la même façon, gardée hors du serveur. Les sauvegardes quotidiennes sont alors chiffrées : vous pouvez les copier sur un stockage externe sans risque. Pour restaurer : `SAUVEGARDE_CLE=… node server/server.js --restaurer comptoir-AAAA-MM-JJ.db.enc nouvelle.db` ;
+   - `SECRET_CHIFFREMENT` : générez-le avec `openssl rand -hex 32` et gardez-en une copie hors du serveur (gestionnaire de mots de passe). **À fixer avant d'ouvrir et à ne plus changer.** Il chiffre les secrets de double authentification des marchands et les données personnelles des clients dans les commandes (nom, e-mail, adresse), protège les codes des cartes cadeaux et les comptes de fidélité, et signe le journal inaltérable des ventes : s'il change, les codes de double authentification ne marchent plus, les données des clients et les cartes cadeaux deviennent illisibles et les journaux existants ne peuvent plus être vérifiés (Comptoir le signale au démarrage et dans Conformité). Sans lui, la clé est gardée dans la base : une copie volée de la base permettrait alors de lire les données des clients et les secrets de double authentification, et de recalculer le journal ;
+   - `SAUVEGARDE_CLE` : générée de la même façon, définie sur le serveur, avec une copie gardée ailleurs (gestionnaire de mots de passe). Les sauvegardes quotidiennes sont alors chiffrées : vous pouvez les copier sur un stockage externe sans risque. Pour restaurer : `SAUVEGARDE_CLE=… node server/server.js --restaurer comptoir-AAAA-MM-JJ.db.enc nouvelle.db` ;
    - `WEBAUTHN_RP_ID` : laissez vide pour utiliser le domaine de `URL_PUBLIQUE`. Ne le changez plus une fois que des marchands ont créé des clés d'accès.
 4. Lancez `node server/server.js --verifier` : chaque ligne marquée ✗ dit quoi corriger.
-5. Les sauvegardes sont automatiques et quotidiennes, dans `/data/sauvegardes`. **Copiez ce dossier ailleurs** (stockage objet, autre serveur) et faites une fois l'essai de restauration.
+5. Les sauvegardes sont automatiques et quotidiennes, dans `/data/sauvegardes`. **Copiez ce dossier ailleurs** (stockage objet, autre serveur) et faites une fois l'essai de restauration. Pour restaurer : arrêtez le serveur, restaurez vers un fichier qui n'existe pas encore (`--restaurer`), puis pointez `BASE_DE_DONNEES` vers ce fichier. La copie ne se lit qu'avec le **même** `SECRET_CHIFFREMENT` (clients, cartes cadeaux, journal) : avec une autre clé, Comptoir le signale au démarrage et dans Conformité.
 
 6. **À savoir avant d'ouvrir (ajouts de la nuit du 12 novembre)** :
    - en HTTPS, la session utilise le cookie `__Host-comptoir_session` : les marchands déjà connectés en test devront se reconnecter une fois ;

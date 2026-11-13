@@ -32,5 +32,15 @@ test('rapport hebdomadaire du marchand', async () => {
     assert.doesNotMatch(r[0].corps, /undefined|NaN/);
     gerer.automatisationsEcheances(lundi.getTime() + 3600000);
     assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet LIKE 'Votre semaine%'").get().n, 1, 'une seule fois par semaine');
+    // Semaine suivante : aucune commande récente, mais un geste commercial sur une commande ancienne → rapport quand même.
+    const lundi2 = lundi.getTime() + 7 * 86400000;
+    db.prepare('UPDATE commandes SET date = ?').run(lundi2 - 40 * 86400000);
+    const d2 = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(row.id).donnees);
+    d2.retoursPartiels.push({ numero: 'AV-2026-0103', date: lundi2 - 86400000, geste: true, lignes: [{ index: 0, qte: 0, montant: 500 }], port: 0, montant: 500, argent: 500, carte: 0 });
+    db.prepare('UPDATE commandes SET donnees = ?, maj_le = ? WHERE id = ?').run(JSON.stringify(d2), lundi2 - 86400000, row.id);
+    gerer.automatisationsEcheances(lundi2);
+    const r2 = db.prepare("SELECT corps FROM emails WHERE destinataire = 'lundi@exemple.ch' AND sujet LIKE 'Votre semaine%' ORDER BY rowid DESC").get();
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet LIKE 'Votre semaine%'").get().n, 2, 'rapport envoyé malgré l’absence de commande récente');
+    assert.match(r2.corps, /- Remboursements : CHF 5\.00 \(1 avoir, dont 1 geste commercial/);
   } finally { s.close(); }
 });

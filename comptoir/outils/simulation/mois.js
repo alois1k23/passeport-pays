@@ -314,7 +314,9 @@ const durees = [];
   // Survente : une vente payée sans stock est signalée au marchand (alerte de rupture), jamais silencieuse
   for (const r of db.prepare("SELECT id, boutique_id, numero, donnees FROM commandes WHERE statut NOT IN ('attente', 'annulee', 'remboursee')").all()) {
     const c = lireDonnees(r);
-    if (c.canal !== 'magasin' && c.lignes.some(l => l.type !== 'drop' && l.retireStock !== undefined && l.retireStock < l.qte) && !c.alerteStock) note(`commande ${r.numero}`, 'vendue sans stock et sans alerte de rupture');
+    // (unités rendues par un retour partiel : retirées du compte « retiré du stock », sans être une vente à découvert)
+    const rendus = (c.retoursPartiels || []).reduce((t, pc) => { for (const x of pc.lignes) t[x.index] = (t[x.index] || 0) + x.qte; return t; }, {});
+    if (c.canal !== 'magasin' && c.lignes.some((l, i) => l.type !== 'drop' && l.retireStock !== undefined && l.retireStock + (rendus[i] || 0) < l.qte) && !c.alerteStock) note(`commande ${r.numero}`, 'vendue sans stock et sans alerte de rupture');
   }
   // Désinscrits : plus aucun e-mail commercial après le clic
   for (const [cle, t] of desinscrits) {
@@ -379,7 +381,8 @@ const durees = [];
     requetes: { nombre: durees.length, medianeMs: tri[Math.floor(tri.length / 2)], p95Ms: tri[Math.floor(tri.length * 0.95)], maxMs: tri[tri.length - 1] },
     erreursJournalServeur: erreursServeur.slice(0, 10), nbErreursJournal: erreursServeur.length,
     anomaliesParType: anomalies.reduce((o, a) => { o[a.quoi] = (o[a.quoi] || 0) + 1; return o; }, {}),
-    anomalies: anomalies.slice(0, 40), nbAnomalies: anomalies.length
+    anomalies: anomalies.slice(0, 40), nbAnomalies: anomalies.length,
+    parType: anomalies.reduce((o, a) => { o[a.quoi] = (o[a.quoi] || 0) + 1; return o; }, {})
   }, null, 1));
   serveur.close(); db.close(); try { require('node:fs').rmSync(fichier); require('node:fs').rmSync(fichier + '-wal', { force: true }); require('node:fs').rmSync(fichier + '-shm', { force: true }); } catch { /* ignoré */ }
   process.exit(0);

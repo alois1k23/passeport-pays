@@ -27,19 +27,23 @@ test('restauration : la copie chiffrée d’une boutique active est utilisable e
   const env = { SECRET_CHIFFREMENT: crypto.randomBytes(32).toString('hex') }, cleSauv = crypto.randomBytes(32).toString('hex');
   try {
     const a = await demarrer(path.join(dir, 'base.db'), env);
-    let numero, idCmd, code;
+    let numero, idCmd, code, slug, produit, avant;
     try {
       const conf = { boutique: { nom: 'Rest', pays: 'fr', secteur: 'maison', sections: [] }, entreprise: { raison: 'Rest SAS', adresse: '5 rue Neuve, 69001 Lyon', email: 'r@exemple.fr', tvaIntra: 'FR12345678901', siret: '12345678901234' } };
       assert.equal((await a.appel('POST', '/api/auth/inscription', { email: 'rest@exemple.fr', motDePasse: 'un mot de passe solide', config: conf, produits: [{ nom: 'Vase', prix: 40, stock: 50, type: 'stock' }] })).statut, 201);
       await a.appel('PUT', '/api/admin/fidelite', { actif: true });
-      const e = (await a.appel('GET', '/api/admin/etat')).json, slug = e.serveur.slug;
-      code = (await a.appel('POST', '/api/admin/cartes-cadeaux', { montant: 30 })).json.code;
+      const e = (await a.appel('GET', '/api/admin/etat')).json; slug = e.serveur.slug; produit = e.produits[0].id;
+      code = (await a.appel('POST', '/api/admin/cartes-cadeaux', { montant: 300 })).json.code;   // la commande est payée par la carte ; les retours la recréditent
       const client = { nom: 'Lou Martin', email: 'lou@exemple.fr', adresse: '3 rue Haute', npa: '69002', ville: 'Lyon' };
       const cmd = await a.appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: e.produits[0].id, qte: 3 }], livraison: 'colissimo', client, carteCadeau: code }, false);
       await a.appel('POST', `/paiement-simule/${cmd.json.paiementUrl.split('/').pop()}/confirmer`, null, false);
       numero = cmd.json.numero; idCmd = cmd.json.commandeId;
       const base = `/api/admin/commandes/${idCmd}/retour-partiel`;
       for (const corps of [{ lignes: [{ index: 0, qte: 1 }] }, { geste: 4 }]) { const ap = (await a.appel('POST', base, { ...corps, apercu: true })).json.apercu; assert.equal((await a.appel('POST', base, { ...corps, attendu: { rang: ap.rang, montant: ap.montant } })).statut, 200); }
+      // Valeurs relevées avant la sauvegarde, à retrouver à l'identique sur la copie.
+      avant = { solde: (await a.appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, points: (await a.appel('GET', '/api/admin/fidelite')).json.stats.points,
+        pieces: a.db.prepare("SELECT COUNT(*) n FROM journal_inalterable WHERE type != 'cloture'").get().n, stock: (await a.appel('GET', '/api/admin/etat')).json.produits[0].stock };
+      assert.ok(avant.solde > 0 && avant.points > 0 && avant.pieces >= 3, JSON.stringify(avant));
       // Sauvegarde du jour, chiffrée.
       await S.sauvegarderBase(a.db, path.join(dir, 'sauv'), { cle: cleSauv, date: new Date('2026-11-13T05:00:00Z') });
     } finally { a.s.close(); }
@@ -55,6 +59,14 @@ test('restauration : la copie chiffrée d’une boutique active est utilisable e
       const cmdR = (await b.appel('GET', '/api/admin/etat')).json.commandes.find(x => x.id === idCmd);
       assert.equal(cmdR.client.email, 'lou@exemple.fr', 'données du client déchiffrées');
       assert.equal(cmdR.retoursPartiels.length, 2);
+      // Mêmes valeurs qu'avant la sauvegarde.
+      assert.equal((await b.appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, avant.solde, 'solde de la carte');
+      assert.equal((await b.appel('GET', '/api/admin/fidelite')).json.stats.points, avant.points, 'points en circulation');
+      assert.equal(b.db.prepare("SELECT COUNT(*) n FROM journal_inalterable WHERE type != 'cloture'").get().n, avant.pieces, 'pièces du journal');
+      assert.equal((await b.appel('GET', '/api/admin/etat')).json.produits[0].stock, avant.stock, 'stock');
+      // La carte sert encore sur la copie.
+      const achat = await b.appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'colissimo', client: { nom: 'Sam', email: 'sam@exemple.fr', adresse: '1 rue', npa: '69001', ville: 'Lyon' }, carteCadeau: code }, false);
+      assert.equal(achat.statut, 201, JSON.stringify(achat.json));
       const cartes = (await b.appel('GET', '/api/admin/cartes-cadeaux')).json; assert.equal(cartes.registreCoherent, true);
       assert.equal((await b.appel('GET', '/api/admin/fidelite')).json.registreCoherent, true);
       // Et elle continue de vivre : remboursement du reste, journal toujours intact.
@@ -62,5 +74,13 @@ test('restauration : la copie chiffrée d’une boutique active est utilisable e
       assert.equal((await b.appel('POST', '/api/admin/journal-inalterable/verifier', {})).json.ok, true);
       assert.ok(numero);
     } finally { b.s.close(); }
+    // Erreur la plus probable en vrai : redémarrage avec une autre clé du serveur. Le journal le dit (clé changée),
+    // sans accuser chaque pièce de falsification.
+    const c2 = await demarrer(path.join(dir, 'restauree.db'), { SECRET_CHIFFREMENT: crypto.randomBytes(32).toString('hex') });
+    try {
+      assert.equal((await c2.appel('POST', '/api/auth/connexion', { email: 'rest@exemple.fr', motDePasse: 'un mot de passe solide' })).statut, 200);
+      const v2 = (await c2.appel('POST', '/api/admin/journal-inalterable/verifier', {})).json;
+      assert.equal(v2.ok, false); assert.equal(v2.cleChangee, true);
+    } finally { c2.s.close(); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

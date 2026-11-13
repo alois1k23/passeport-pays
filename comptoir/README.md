@@ -8,7 +8,7 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 
 **Version réelle (serveur)** : `cd comptoir && npm start`, puis ouvrir http://localhost:3000. On y crée un compte et une boutique publique (`/s/<nom>`). Les commandes, paiements (TWINT/cartes via Stripe, ou simulation), fournisseurs et factures sont gérés en base. Il faut Node 22.13 ou plus récent ; rien d'autre à installer. Détails dans [`server/README.md`](server/README.md).
 
-**Tout vérifier d'un coup** : `npm run verifier` enchaîne les tests automatiques, le parcours de bout en bout, les deux audits au clavier (boutique et espace marchand), la simulation de 60 jours sur 100 marchands et un test de charge réduit, puis affiche un bilan. Compter une dizaine de minutes. `npm run verifier -- --rapide` s'arrête après le parcours de bout en bout.
+**Tout vérifier d'un coup** : `npm run verifier` enchaîne les tests automatiques, le parcours de bout en bout, les deux audits au clavier (boutique et espace marchand), la simulation de 60 jours sur 100 marchands et un test de charge réduit, puis affiche un bilan. Compter une dizaine de minutes. `npm run verifier -- --rapide` s'arrête après le parcours de bout en bout. Les étapes qui ouvrent un navigateur (bout en bout, clavier) demandent Playwright ; sans lui, elles sont sautées et signalées.
 
 **Site public** : avec le serveur, `/` affiche la page d'accueil commerciale (`accueil.html`) avec les formules. Le client choisit sa formule, crée son compte, paie l'abonnement, puis accède à `/app` : son site, ses modifications, ses commandes et son tableau de bord, uniquement les siens. `/demo` montre une boutique fictive, sans accès à aucun compte.
 
@@ -40,7 +40,7 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 
 Dropshipping : transmission automatique des commandes au fournisseur, statut « chez le fournisseur », bénéfice par commande et sur 30 jours, marge nette et seuil de rentabilité publicitaire (ROAS) sur chaque fiche, délais affichés au client, date limite de commande avant Noël.
 
-Suisse : CHF, TWINT, La Poste (Economy, Priority, PickPost), Impressum, protection des données (nLPD), TVA à 8,1 % ou non-assujetti avec suivi du seuil de CHF 100 000, calendrier suisse (Singles Day, fête des mères le 2e dimanche de mai, 1er Août…), boutique en FR/DE/IT (traduction simulée).
+Suisse : CHF, TWINT, La Poste (Economy, Priority, PickPost), Impressum, protection des données (nLPD), TVA à 8,1 % ou non-assujetti avec suivi du seuil de CHF 100 000, calendrier suisse (Singles Day, fête des mères le 2e dimanche de mai, 1er Août…), boutique en FR/DE/IT/EN.
 
 Autres fonctions : ajout de produits **par photo** (fiches créées automatiquement), rédaction de description, étiquettes d'envoi, session d'accompagnement à réserver.
 
