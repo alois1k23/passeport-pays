@@ -1999,7 +1999,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), utilisationsCodes: Object.fromEntries(Remises.offresDe(config).codes.map(x => [x.code, utilisationsCode(ctx.boutique.id, x.code)])), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), utilisationsCodes: Object.fromEntries(Remises.offresDe(config).codes.map(x => [x.code, utilisationsCode(ctx.boutique.id, x.code, { depuis: x.cree })])), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
     etatComplet.attentesStock = Object.fromEntries(db.prepare("SELECT produit_id || '|' || variante_id AS k, COUNT(*) AS n FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id").all(ctx.boutique.id).map(x => [x.k, x.n]));   // « clients en attente » par produit et variante
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
     let final = etatComplet;
@@ -3668,7 +3668,7 @@ ${bloc}</main></body></html>`;
     // Le code de bienvenue ne vaut que pour une première commande : on le dit dès sa saisie (contrôlé au paiement avec l'e-mail).
     const bv = ((configVente(b).automatisations || {}).bienvenue || {});
     const m = Remises.offresDe(configVente(b)).codes.find(x => x.code === c.code);
-    if (m && m.max && utilisationsCode(b.id, c.code) >= m.max) throw erreur(404, `Le code ${c.code} a atteint son nombre d’utilisations.`, 'code_epuise');
+    if (m && m.max && utilisationsCode(b.id, c.code, { depuis: m.cree }) >= m.max) throw erreur(404, `Le code ${c.code} a atteint son nombre d’utilisations.`, 'code_epuise');
     const conditions = [bv.code && String(bv.code).toUpperCase() === c.code ? { type: 'premiere', texte: 'Valable sur une première commande.' } : null, m && m.minimum ? { type: 'minimum', texte: `Dès ${formatMontant(m.minimum, configVente(b))} d’achat.` } : null, m && m.unParClient ? { type: 'client', texte: 'Une fois par adresse e-mail.' } : null].filter(Boolean);
     return { code: c.code, remise: c.remise, ...(m && m.minimum ? { minimum: m.minimum } : {}), ...(conditions.length ? { conditions, condition: conditions.map(x => x.texte).join(' ') } : {}) };
   });
@@ -3801,17 +3801,19 @@ ${bloc}</main></body></html>`;
   /* Utilisations d'un code promo : commandes qui le portent et qui comptent (payées, ou en attente avec un paiement encore
      possible : lien ouvert depuis moins de 35 minutes, facture QR). Une commande annulée ou dont le client a quitté le
      paiement rend son utilisation. Avec index : celles de ce client seulement. */
-  function utilisationsCode(bid, code, { index = null, saufId = '' } = {}) {
-    return db.prepare(`SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND id <> ? AND code_promo = ? ${index ? 'AND email_index = ?' : ''}
-      AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?))`)
+  function utilisationsCode(bid, code, { index = null, saufId = '', depuis = 0 } = {}) {
+    // Une commande annulée ou entièrement remboursée rend son utilisation ; seules comptent les commandes passées depuis la
+    // création du code (un code supprimé puis recréé sous le même nom repart de zéro).
+    return db.prepare(`SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND id <> ? AND code_promo = ? AND date >= ${Number(depuis) || 0} ${index ? 'AND email_index = ?' : ''}
+      AND statut NOT IN ('annulee', 'remboursee') AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?))`)
       .get(bid, saufId, code, ...(index ? [index] : []), Date.now() - 35 * 60000).n;
   }
   // Le code peut-il encore servir à ce client ? Renvoie null, ou l'erreur à lever.
   function limiteCode(bid, config, code, email, saufId = '') {
     const c = code && Remises.offresDe(config).codes.find(x => x.code === code);
     if (!c) return null;
-    if (c.max && utilisationsCode(bid, code, { saufId }) >= c.max) return erreur(400, `Le code ${code} a atteint son nombre d’utilisations.`, 'code_epuise');
-    if (c.unParClient && utilisationsCode(bid, code, { index: PII.index(bid, email) || '', saufId }) > 0) return erreur(400, `Le code ${code} ne s’utilise qu’une fois par client.`, 'code_deja_utilise');
+    if (c.max && utilisationsCode(bid, code, { saufId, depuis: c.cree }) >= c.max) return erreur(400, `Le code ${code} a atteint son nombre d’utilisations.`, 'code_epuise');
+    if (c.unParClient && utilisationsCode(bid, code, { index: PII.index(bid, email) || '', saufId, depuis: c.cree }) > 0) return erreur(400, `Le code ${code} ne s’utilise qu’une fois par client.`, 'code_deja_utilise');
     return null;
   }
   // Stock réservé par les autres commandes en attente encore actives (même règle qu'à la commande).

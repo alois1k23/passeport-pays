@@ -25,7 +25,9 @@
     o.codes = (Array.isArray(o.codes) ? o.codes : []).filter(x => x && typeof x === 'object').slice(0, 50).map(c => ({ code: String(c.code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), remise: Math.max(1, Math.min(70, Number(c.remise) || 0)), expire: Number(c.expire) || null,
       // Limites facultatives : nombre total d'utilisations, une fois par client (adresse e-mail), montant minimum du panier.
       max: Number.isInteger(Number(c.max)) && Number(c.max) > 0 ? Math.min(100000, Number(c.max)) : null, unParClient: c.unParClient === true,
-      minimum: Number(c.minimum) > 0 ? Math.min(100000, Math.round(Number(c.minimum) * 100) / 100) : null })).filter(c => c.code);
+      minimum: Number(c.minimum) > 0 ? Math.min(100000, Math.round(Number(c.minimum) * 100) / 100) : null,
+      // Date de création : les utilisations se comptent à partir d'elle (un code supprimé puis recréé repart de zéro).
+      cree: Number.isFinite(Number(c.cree)) && Number(c.cree) > 0 ? Number(c.cree) : null })).filter(c => c.code);
     return o;
   }
 

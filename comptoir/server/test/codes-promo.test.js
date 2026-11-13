@@ -74,3 +74,30 @@ test('montant minimum comparé au panier avec les prix d’offre', () => {
   // 30 + offre à 15 (au lieu de 30) : 45 < 50 : pas appliqué, même si le prix plein ferait 60.
   assert.equal(R.appliquer([{ produitId: 'a', prix: 30, qte: 1 }, { produitId: 'b', prix: 30, prixOffre: 15, qte: 1 }], cfg, 'MIN').codeMinimum, 50);
 });
+
+test('codes promo : une commande remboursée rend son utilisation ; un code recréé repart de zéro', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const appel = async (m, chemin, corps, cookie) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { ...(corps ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); return { s: r.status, j: await r.json().catch(() => null), cookie: r.headers.getSetCookie().map(x => x.split(';')[0]).join('; ') }; };
+  try {
+    const ins = await appel('POST', '/api/auth/inscription', { email: 'rc@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Rc', pays: 'ch', secteur: 'maison' }, entreprise: { raison: 'Rc Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'rc@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } }, produits: [{ nom: 'Vase', prix: 40, stock: 500, type: 'stock' }] });
+    const cookie = ins.cookie, conf = (await appel('GET', '/api/admin/etat', null, cookie)).j, slug = conf.serveur.slug, produit = conf.produits[0].id;
+    const poser = async codes => { conf.offres = { ...(conf.offres || {}), paliersActifs: false, codes }; assert.equal((await appel('PUT', '/api/admin/config', { config: conf }, cookie)).s, 200); };
+    await poser([{ code: 'UN', remise: 10, max: 1, cree: Date.now() - 1000 }]);
+    const commander = email => appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 1 }], livraison: 'poste-eco', code: 'UN', client: { nom: 'C', email, adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } });
+    const a = await commander('a@exemple.ch'); assert.equal(a.s, 201);
+    await appel('POST', `/paiement-simule/${a.j.paiementUrl.split('/').pop()}/confirmer`);
+    assert.equal((await commander('b@exemple.ch')).j.code, 'code_epuise');
+    // Commande entièrement remboursée : l'utilisation revient.
+    db.prepare("UPDATE commandes SET statut = 'remboursee' WHERE id = ?").run(a.j.commandeId);
+    const b = await commander('b@exemple.ch'); assert.equal(b.s, 201, JSON.stringify(b.j));
+    await appel('POST', `/paiement-simule/${b.j.paiementUrl.split('/').pop()}/confirmer`);
+    assert.equal((await commander('c@exemple.ch')).j.code, 'code_epuise');
+    // Code retiré puis recréé (nouvelle date de création) : les commandes d'avant ne comptent plus.
+    await poser([]); await poser([{ code: 'UN', remise: 10, max: 1, cree: Date.now() + 10 }]);
+    await new Promise(ok => setTimeout(ok, 20));
+    assert.equal((await commander('c@exemple.ch')).s, 201);
+    assert.equal((await appel('GET', '/api/admin/etat', null, cookie)).j.serveur.utilisationsCodes.UN, 1);
+  } finally { s.close(); }
+});

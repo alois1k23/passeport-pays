@@ -308,7 +308,8 @@ document.addEventListener('submit', e => {
   const max = Math.floor(Number(d.get('max'))) > 0 ? Math.min(100000, Math.floor(Number(d.get('max')))) : null;
   const minimum = Number(d.get('minimum')) > 0 ? Math.min(100000, Math.round(Number(d.get('minimum')) * 100) / 100) : null;
   const unParClient = d.get('unParClient') === 'on';
-  o.codes = [...(o.codes || []).filter(c => c.code !== code), { code, remise, ...(exp ? { expire: exp } : {}), ...(max ? { max } : {}), ...(minimum ? { minimum } : {}), ...(unParClient ? { unParClient } : {}) }];
+  const ancien = (o.codes || []).find(c => c.code === code);
+  o.codes = [...(o.codes || []).filter(c => c.code !== code), { code, remise, ...(exp ? { expire: exp } : {}), ...(max ? { max } : {}), ...(minimum ? { minimum } : {}), ...(unParClient ? { unParClient } : {}), cree: (ancien && ancien.cree) || Date.now() }];
   const conditions = [exp ? `jusqu’au ${new Date(exp).toLocaleDateString('fr-FR')}` : null, minimum ? `dès ${euros(minimum)}` : null, max ? `${max} utilisation${max > 1 ? 's' : ''} au plus` : null, unParClient ? 'une fois par client' : null].filter(Boolean);
   sauver(); toast(`Code ${code} ${remplace ? 'mis à jour' : 'ajouté'} : −${remise} %${conditions.length ? ` (${conditions.join(', ')})` : ''}.`); rendre();
   // Clavier : on reste dans le champ du code, pour en saisir un autre à la suite.
