@@ -43,8 +43,8 @@ function vueParametres() {
         return pb.pret
           ? '<p class="sous">Votre compte Stripe est actif : chaque vente est versée directement sur votre compte (Comptoir ne prend aucune commission ; seuls les frais de Stripe s’appliquent). Les remboursements partent depuis la fiche commande.</p>'
           : `<div class="alerte"><strong>Activez vos paiements pour ouvrir les commandes.</strong> Les ventes sont versées sur votre propre compte Stripe : Stripe vérifie votre identité et l’IBAN de votre entreprise (quelques minutes). Tant que ce n’est pas fait, la boutique est visible mais n’accepte pas de commande.</div>
-             ${SERVEUR.emailVerifie === false ? '<p class="sous">Confirmez d’abord votre adresse e-mail avec le lien reçu à l’inscription (bouton « Renvoyer le lien » en haut de page) : les versements l’exigent.</p>' : ''}
-             <div class="rangee"><button class="btn" data-action="activer-paiements">${pb.compte ? 'Terminer l’activation chez Stripe' : 'Activer les paiements avec Stripe'}</button></div>`;
+             ${SERVEUR.emailVerifie === false ? '<p class="sous" id="aide-verif-paiements">Confirmez d’abord votre adresse e-mail avec le lien reçu à l’inscription : les versements l’exigent. <button class="btn petit fantome" data-action="renvoyer-verif-email">Renvoyer le lien</button></p>' : ''}
+             <div class="rangee"><button class="btn" data-action="activer-paiements"${SERVEUR.emailVerifie === false ? ' aria-describedby="aide-verif-paiements"' : ''}>${pb.compte ? 'Terminer l’activation chez Stripe' : 'Activer les paiements avec Stripe'}</button></div>`;
       })() : ''}
       <p class="sous">${stripe ? '' : 'Le paiement en ligne n’est pas encore branché sur cette installation : il est simulé et aucun montant n’est débité. Il s’active quand l’exploitant de la plateforme relie Stripe (cartes, TWINT en Suisse, Bancontact en Belgique).'}</p></section>`;
     if (b.pays === 'ch') {

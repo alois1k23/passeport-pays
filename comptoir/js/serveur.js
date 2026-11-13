@@ -357,12 +357,17 @@ function installerModeConnecte() {
 
   // Adresse e-mail pas encore confirmée : rappel discret, avec renvoi du lien (inviter l'équipe et activer les versements l'exigent).
   if (SERVEUR.emailVerifie === false && !document.querySelector('.bandeau-verif-email')) {
-    document.querySelector('.barre-haut').insertAdjacentHTML('afterend', `<div class="encart bandeau-verif-email" role="status"><span>Confirmez votre adresse <b>${esc(SERVEUR.email)}</b> avec le lien reçu par e-mail : il faut une adresse confirmée pour inviter votre équipe et activer les versements.</span> <button class="btn" data-action="renvoyer-verif-email">Renvoyer le lien</button></div>`);
+    document.querySelector('.barre-haut').insertAdjacentHTML('afterend', `<div class="encart bandeau-verif-email" role="region" aria-label="Adresse e-mail à confirmer"><span>Confirmez votre adresse <b>${esc(SERVEUR.email)}</b> avec le lien reçu par e-mail : il faut une adresse confirmée pour inviter votre équipe et activer les versements.</span> <button class="btn" data-action="renvoyer-verif-email">Renvoyer le lien</button></div>`);
     document.addEventListener('click', async e => {
       const b = e.target.closest('[data-action="renvoyer-verif-email"]'); if (!b) return;
       b.disabled = true;
-      try { const r = await api('POST', '/api/admin/compte/verifier-email/renvoyer'); toast(r.deja ? 'Votre adresse est déjà confirmée.' : `Lien envoyé à ${SERVEUR.email}.`); if (r.deja) document.querySelector('.bandeau-verif-email')?.remove(); }
-      catch (err) { toast(err.message); b.disabled = false; }
+      try {
+        const r = await api('POST', '/api/admin/compte/verifier-email/renvoyer');
+        toast(r.deja ? 'Votre adresse est déjà confirmée.' : `Lien envoyé à ${SERVEUR.email}.`);
+        if (r.deja) document.querySelector('.bandeau-verif-email')?.remove();
+        // Le bouton reste actif (focus gardé), et le bandeau dit ce qui s'est passé.
+        else { b.disabled = false; b.textContent = 'Renvoyer encore'; b.focus(); const t = b.parentElement.querySelector('span'); if (t && !t.dataset.envoye) { t.dataset.envoye = '1'; t.insertAdjacentHTML('beforeend', ' <b>Lien envoyé : vérifiez votre boîte de réception (et les indésirables).</b>'); } }
+      } catch (err) { toast(err.message); b.disabled = false; b.focus(); }
     });
   }
   // Pied de la barre latérale : compte, boutique en ligne, déconnexion.

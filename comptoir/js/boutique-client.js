@@ -460,7 +460,7 @@ async function demanderCodeFidelite(email) {
     vue.fid = { email, demande: json.demande }; vue.fidMessage = `Si cette adresse a des points, un code vient d’y être envoyé (valable 15 minutes).`;
     const champ = document.querySelector('#commande input[name="email"]'); if (champ && !champ.value) champ.value = email;   // relu par rendre()
   } catch (e) { vue.fidMessage = e.message || 'Envoi impossible pour l’instant.'; }
-  rendre();
+  rendre(); if (vue.fidMessage) annoncer(vue.fidMessage);
 }
 async function validerCodeFidelite(code) {
   try {
@@ -468,7 +468,7 @@ async function validerCodeFidelite(code) {
     const json = await rep.json(); if (!rep.ok) throw new Error(json.erreur);
     vue.fid = { ...vue.fid, code: String(code).trim(), points: json.points, valeur: json.valeur, utiliser: json.utilisable }; vue.fidMessage = '';
   } catch (e) { vue.fidMessage = e.message || 'Code non reconnu.'; }
-  rendre();
+  rendre(); if (vue.fidMessage) annoncer(vue.fidMessage);
 }
 
 /* Carte cadeau : le solde est vérifié par le serveur (essais limités) ; il est déduit du total, le reste se paie en ligne. */
@@ -482,7 +482,7 @@ async function utiliserCarte(code) {
     vue.carte = { code, fin: json.fin, solde: json.solde };
     vue.carteMessage = `Carte cadeau acceptée : solde ${euros(json.solde)}.`;
   } catch (e) { vue.carte = null; vue.carteMessage = e.message || 'Carte cadeau non reconnue.'; }
-  rendre();
+  rendre(); if (vue.carteMessage) annoncer(vue.carteMessage);   // zone d'annonce permanente (plus fiable qu'un élément qui vient d'apparaître)
 }
 
 async function appliquerCode(code) {
@@ -497,7 +497,7 @@ async function appliquerCode(code) {
     const autres = (json.conditions || []).filter(x => x.type !== 'minimum').map(x => x.texte).join(' ');
     vue.codeMessage = calc.codeMinimum ? `Code ${json.code} : −${json.remise} % dès ${euros(calc.codeMinimum)} d’achat.${autres ? ' ' + autres : ''}` : calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.${json.condition ? ' ' + json.condition : ''}` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
   } catch (e) { vue.code = null; vue.codeMessage = e.message || 'Code non reconnu.'; }
-  rendre();
+  rendre(); if (vue.codeMessage) annoncer(vue.codeMessage);
 }
 
 // Adresse du vendeur réellement saisie (pas le modèle « à compléter ») : sinon le serveur refuse la commande.

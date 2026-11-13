@@ -22,7 +22,7 @@ function vueIntegrations() {
     <ul class="journal-compte">${d.cles.map(c => `<li>Clé « ${esc(c.nom)} » <span class="mono">${esc(c.prefixe)}…</span> <button class="btn petit fantome danger" data-action="integ-revoquer" data-id="${esc(c.id)}">Révoquer</button></li>`).join('')}
     ${d.webhooks.map(w => `<li>Webhook <span class="mono">${esc(w.url)}</span> <button class="btn petit fantome danger" data-action="integ-supprimer" data-id="${esc(w.id)}">Supprimer</button></li>`).join('')}</ul></section>` : '');
   const date = t => t ? new Date(t).toLocaleString('fr-CH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'jamais';
-  const nouvelle = INTEG.nouvelle ? `<section class="carte"><div class="carte-tete"><h2>${INTEG.nouvelle.type === 'cle' ? 'Votre nouvelle clé d’API' : 'Secret de signature du webhook'}</h2><span class="pill warn">Affiché une seule fois</span></div>
+  const nouvelle = INTEG.nouvelle ? `<section class="carte"><div class="carte-tete"><h2 id="integ-nouvelle-titre" tabindex="-1">${INTEG.nouvelle.type === 'cle' ? 'Votre nouvelle clé d’API' : 'Secret de signature du webhook'}</h2><span class="pill warn">Affiché une seule fois</span></div>
       <p class="sous">${INTEG.nouvelle.type === 'cle' ? 'Copiez-la maintenant dans votre outil. Elle donne accès à vos données : ne la partagez pas, ne la publiez pas.' : 'Votre outil s’en sert pour vérifier que les appels viennent bien de Comptoir (en-tête Comptoir-Signature).'}</p>
       <p class="mono secret-integ">${esc(INTEG.nouvelle.valeur)}</p>
       <div class="rangee"><button class="btn" data-action="integ-copier">Copier</button><button class="btn fantome" data-action="integ-fini">C’est copié</button></div></section>` : '';
@@ -35,11 +35,11 @@ function vueIntegrations() {
       <fieldset class="champ"><legend>Permissions</legend>${d.portees.map(p => `<label class="case"><input type="checkbox" name="portees" value="${esc(p)}"${p.endsWith(':lecture') && p.startsWith('commandes') ? ' checked' : ''}> ${esc(LIBELLES_PORTEES[p] || p)}</label>`).join('')}</fieldset>
       <div class="rangee"><button class="btn">Créer la clé</button><span class="sous">N’accordez que le nécessaire.</span></div></form></details></section>`;
   const statutEnvoi = e => e.statut === 'envoye' ? '<span class="pill good">Reçu</span>' : e.statut === 'echec' ? '<span class="pill bad">Abandonné</span>' : `<span class="pill warn">Nouvel essai (${e.tentatives})</span>`;
-  const webhooks = `<section class="carte"><div class="carte-tete"><h2>Webhooks</h2>${d.webhooks.length ? '<button class="btn petit fantome" data-action="integ-tester">Envoyer un test</button>' : ''}</div>
+  const webhooks = `<section class="carte"><div class="carte-tete"><h2 id="integ-webhooks-titre" tabindex="-1">Webhooks</h2>${d.webhooks.length ? '<button class="btn petit fantome" data-action="integ-tester">Envoyer un test</button>' : ''}</div>
     ${d.webhooks.map(w => `<div class="webhook-integ"><p><span class="mono">${esc(w.url)}</span> ${w.actif ? (w.premier_echec ? `<span class="pill warn">Ne répond plus depuis le ${date(w.premier_echec)}</span>` : '<span class="pill good">Actif</span>') : `<span class="pill bad">En pause : aucune réponse depuis 3 jours</span> <button class="btn petit" data-action="integ-reactiver" data-id="${esc(w.id)}">Réactiver${w.enAttente ? ` et envoyer les ${w.enAttente} événements en attente` : ''}</button>`}</p>
       <p class="sous">${w.evenements.map(x => esc(LIBELLES_EVENEMENTS[x] || x)).join(' · ')}</p>
       ${w.derniers.length ? `<ul class="journal-compte">${w.derniers.map(e => `<li><span class="sous">${date(e.cree_le)}</span> ${esc(LIBELLES_EVENEMENTS[e.evenement] || e.evenement)} ${statutEnvoi(e)}${e.dernier_code ? ` <span class="mono sous">HTTP ${esc(String(e.dernier_code))}</span>` : ''}</li>`).join('')}</ul>` : '<p class="sous">Aucun envoi pour l’instant.</p>'}
-      <div class="rangee"><button class="btn petit fantome" data-action="integ-secret" data-id="${esc(w.id)}">Nouveau secret</button><button class="btn petit fantome danger" data-action="integ-supprimer" data-id="${esc(w.id)}">Supprimer</button></div></div>`).join('')}
+      <div class="rangee"><button class="btn petit fantome" data-action="integ-secret" data-id="${esc(w.id)}" data-url="${esc(w.url)}" aria-label="Nouveau secret pour ${esc(w.url)}">Nouveau secret</button><button class="btn petit fantome danger" data-action="integ-supprimer" data-id="${esc(w.id)}">Supprimer</button></div></div>`).join('')}
     <details${d.webhooks.length ? '' : ' open'}><summary>Ajouter un webhook</summary><form data-form="integ-webhook" class="grille-form">
       <label class="champ"><span>Adresse (https://…)</span><input name="url" type="url" required placeholder="https://hooks.zapier.com/…" pattern="https://.*"></label>
       <fieldset class="champ"><legend>Événements</legend>${d.evenements.map(x => `<label class="case"><input type="checkbox" name="evenements" value="${esc(x)}"${x === 'commande.payee' ? ' checked' : ''}> ${esc(LIBELLES_EVENEMENTS[x] || x)}</label>`).join('')}</fieldset>
@@ -53,14 +53,15 @@ document.addEventListener('click', async e => {
   try {
     if (a === 'integ-reessayer') INTEG.donnees = null;
     else if (a === 'integ-copier') { await navigator.clipboard.writeText(INTEG.nouvelle.valeur); toast('Copié.'); return; }
-    else if (a === 'integ-fini') INTEG.nouvelle = null;
+    else if (a === 'integ-fini') { INTEG.nouvelle = null; focaliserQuandPret('#integ-webhooks-titre'); }
     else if (a === 'integ-revoquer') { if (!confirm('Révoquer cette clé ? Les outils qui l’utilisent perdront l’accès immédiatement.')) return; await api('POST', `/api/admin/integrations/cles/${encodeURIComponent(el.dataset.id)}/revoquer`); toast('Clé révoquée.'); INTEG.donnees = null; }
     else if (a === 'integ-supprimer') { if (!confirm('Supprimer ce webhook ?')) return; await api('POST', `/api/admin/integrations/webhooks/${encodeURIComponent(el.dataset.id)}/supprimer`); INTEG.donnees = null; }
     else if (a === 'integ-secret') {
-      if (!confirm('Créer un nouveau secret de signature ? L’ancien reste valable 24 heures, le temps de mettre à jour votre outil.')) return;
+      if (!confirm(`Créer un nouveau secret de signature pour ${el.dataset.url || 'ce webhook'} ? L’ancien reste valable 24 heures, le temps de mettre à jour votre outil.`)) return;
       const r = await api('POST', `/api/admin/integrations/webhooks/${encodeURIComponent(el.dataset.id)}/secret`);
       INTEG.nouvelle = { type: 'webhook', valeur: r.secret }; INTEG.donnees = null;
-      toast('Nouveau secret créé : l’ancien signe encore les envois pendant 24 heures.');
+      toast('Nouveau secret créé, affiché en haut de la page : l’ancien signe encore les envois pendant 24 heures.');
+      focaliserQuandPret('#integ-nouvelle-titre');
     }
     else if (a === 'integ-reactiver') { await api('POST', `/api/admin/integrations/webhooks/${encodeURIComponent(el.dataset.id)}/reactiver`); toast('Webhook réactivé.'); INTEG.donnees = null; }
     else if (a === 'integ-tester') {
@@ -71,6 +72,13 @@ document.addEventListener('click', async e => {
   } catch (err) { INTEG.erreur = err.message; toast(err.message); }
   rendre();
 });
+/* Après un nouveau rendu (souvent après rechargement des données), le focus va à l'élément attendu dès qu'il existe :
+   un utilisateur au clavier ou au lecteur d'écran n'est pas renvoyé en haut de la page. */
+function focaliserQuandPret(selecteur) {
+  let essais = 0;
+  const essayer = () => { const el = document.querySelector(selecteur); if (el) { el.focus(); el.scrollIntoView({ block: 'center' }); } else if (essais++ < 120) setTimeout(essayer, 25); };
+  setTimeout(essayer, 0);
+}
 document.addEventListener('submit', async e => {
   const f = e.target.closest('[data-form="integ-cle"], [data-form="integ-webhook"]'); if (!f) return;
   e.preventDefault();

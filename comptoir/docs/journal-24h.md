@@ -1088,3 +1088,36 @@ Aucune donnée de client final ni aucun secret : seulement des comptes et des da
 - Le chiffre était plus bas que celui du cycle 48 (environ 583). Plutôt que de conclure, une comparaison directe a été faite sur la même machine et au même moment, avec les mêmes paramètres : code du cycle 48 contre code actuel, 522 contre 529 actions par seconde. **Pas de régression** : l'écart venait de la charge de la machine, pas du code.
 - Latences au 95e centile : vitrine 183 ms, espace marchand 194 ms, commande payée de bout en bout 145 ms.
 - Le profil du serveur montre que le temps se partage entre les lectures de la base et le chiffrement des données des clients ; rien ne se détache.
+
+### Cycle 59 (10 h 05) : audit au clavier et au lecteur d'écran des nouveaux écrans (chantier 52)
+
+Un auditeur indépendant a parcouru dans Chromium, au clavier, à 1 280 et 390 pixels de large, les écrans ajoutés depuis la nuit : rappel de confirmation de l'adresse, codes promo, nouveau secret de webhook, indication de la section Paiements, message du code promo dans la boutique.
+
+**Ce qui allait** :
+- ordre de tabulation logique ;
+- focus visible, pas de piège ;
+- champs nommés ;
+- lignes de codes lues avec leurs limites ;
+- copie du secret au clavier.
+
+**Constats corrigés** (vérifiés dans Chromium après correction) :
+- **« Retirer » retirait le code suivant au second appui** : après un retrait, le focus tombait sur le bouton « Retirer » du code suivant, sans message. Un second Entrée en effaçait un autre en silence.
+  - Chaque bouton dit maintenant quel code il retire (« Retirer le code BBB »).
+  - Un message confirme le retrait, et le focus revient au champ du code.
+- **Focus perdu après l'ajout d'un code** : il revient au champ du code, pour en saisir plusieurs à la suite.
+- **Messages pas toujours lus par les lecteurs d'écran** : la bulle apparaissait et se remplissait au même instant, ce que NVDA et JAWS manquent souvent avec Chrome. Les messages passent maintenant par une zone d'annonce toujours présente (jamais masquée), vidée puis remplie un instant après ; un même message est donc relu. Les messages longs restent affichés plus longtemps (jusqu'à 12 secondes). L'audit au clavier de l'espace marchand vérifie désormais cette zone.
+- **Rappel de confirmation** :
+  - après « Renvoyer le lien », le bouton restait grisé et le focus se perdait ; le bouton reste actif (« Renvoyer encore ») et garde le focus, et le rappel dit « Lien envoyé » ;
+  - c'est une région nommée, et non plus une zone d'annonce qui contiendrait un bouton.
+- **Nouveau secret de webhook** :
+  - le focus va au titre de la carte qui montre le secret, amenée à l'écran ; « C'est copié » le rend au titre des webhooks ;
+  - la confirmation et le bouton nomment l'adresse du webhook.
+- **Noms accessibles** :
+  - « Dès » et « Au plus » commencent par le mot affiché (commande vocale) ;
+  - la colonne d'actions du tableau a un titre pour les lecteurs d'écran.
+- **Section Paiements** : l'indication est reliée au bouton « Activer les paiements » (`aria-describedby`) et a son propre bouton « Renvoyer le lien », au lieu de renvoyer « en haut de page ».
+- **Boutique** : les messages du code promo, de la carte cadeau et des points de fidélité passent par la zone d'annonce existante de la boutique.
+
+**Non testé** : avec de vrais lecteurs d'écran (NVDA, VoiceOver). Les constats sur les annonces viennent de l'arbre d'accessibilité et du comportement connu des zones d'annonce.
+
+205 tests sur 205 ; audits au clavier de la boutique et de l'espace marchand : 0 problème.

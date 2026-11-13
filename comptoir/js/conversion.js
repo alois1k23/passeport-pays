@@ -182,10 +182,10 @@ function vueConversion() {
     ${blocRegles(o)}
     <section class="carte sans-pad">
       <div class="carte-tete pad"><h2>Codes promo valables</h2><span class="sous">${codes.length} code${codes.length > 1 ? "s" : ""}</span></div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th class="num">Remise</th><th>Origine</th><th></th></tr></thead><tbody>
-        ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}${c.expire ? ` · ${c.expireDeja ? 'expiré le' : 'jusqu’au'} ${new Date(c.expire).toLocaleDateString('fr-FR')}` : ''}${limitesCode(c, manuels)}</td><td class="num">${c.source === 'Code manuel' ? `<button class="btn petit fantome danger-doux" data-action="suppr-code" data-code="${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
+      <div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th class="num">Remise</th><th>Origine</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+        ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}${c.expire ? ` · ${c.expireDeja ? 'expiré le' : 'jusqu’au'} ${new Date(c.expire).toLocaleDateString('fr-FR')}` : ''}${limitesCode(c, manuels)}</td><td class="num">${c.source === 'Code manuel' ? `<button class="btn petit fantome danger-doux" data-action="suppr-code" data-code="${esc(c.code)}" aria-label="Retirer le code ${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
       </tbody></table></div>
-      <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="50" value="10" required aria-label="Remise en %"><label class="sous">Jusqu’au <input name="expire" type="date" aria-label="Date d’expiration (facultative)"></label><label class="sous">Dès <input name="minimum" type="number" min="0" step="1" placeholder="0" aria-label="Montant minimum du panier (facultatif)" class="court"></label><label class="sous">Au plus <input name="max" type="number" min="1" step="1" placeholder="∞" aria-label="Nombre maximum d’utilisations (facultatif)" class="court"> fois</label><label class="case"><input type="checkbox" name="unParClient"> Une fois par client</label><button class="btn">Ajouter</button></form>
+      <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="50" value="10" required aria-label="Remise en %"><label class="sous">Jusqu’au <input name="expire" type="date" aria-label="Date d’expiration (facultative)"></label><label class="sous">Dès <input name="minimum" type="number" min="0" step="1" placeholder="0" aria-label="Dès : montant minimum du panier (facultatif)" class="court"></label><label class="sous">Au plus <input name="max" type="number" min="1" step="1" placeholder="∞" aria-label="Au plus : nombre d’utilisations (facultatif)" class="court"> fois</label><label class="case"><input type="checkbox" name="unParClient"> Une fois par client</label><button class="btn">Ajouter</button></form>
     </section>
   </div>
   ${blocAvis()}`;
@@ -311,6 +311,8 @@ document.addEventListener('submit', e => {
   o.codes = [...(o.codes || []).filter(c => c.code !== code), { code, remise, ...(exp ? { expire: exp } : {}), ...(max ? { max } : {}), ...(minimum ? { minimum } : {}), ...(unParClient ? { unParClient } : {}) }];
   const conditions = [exp ? `jusqu’au ${new Date(exp).toLocaleDateString('fr-FR')}` : null, minimum ? `dès ${euros(minimum)}` : null, max ? `${max} utilisation${max > 1 ? 's' : ''} au plus` : null, unParClient ? 'une fois par client' : null].filter(Boolean);
   sauver(); toast(`Code ${code} ${remplace ? 'mis à jour' : 'ajouté'} : −${remise} %${conditions.length ? ` (${conditions.join(', ')})` : ''}.`); rendre();
+  // Clavier : on reste dans le champ du code, pour en saisir un autre à la suite.
+  const champ = document.querySelector('[data-form="ajout-code"] input[name=code]'); if (champ) champ.focus();
 });
 document.addEventListener('click', e => {
   if (e.target.closest('[data-action="ajout-regle"]')) {
@@ -328,5 +330,7 @@ document.addEventListener('click', e => {
   if (!el) return;
   const { o } = etatConversion();
   o.codes = (o.codes || []).filter(c => c.code !== el.dataset.code);
-  sauver(); rendre();
+  sauver(); toast(`Code ${el.dataset.code} retiré.`); rendre();
+  // Le focus ne glisse pas sur le bouton « Retirer » du code suivant (un second Entrée le retirerait aussi) : il va au champ du code.
+  const champ = document.querySelector('[data-form="ajout-code"] input[name=code]'); if (champ) champ.focus();
 });

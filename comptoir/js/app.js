@@ -56,7 +56,18 @@ function toast(msg, lien) {
   t.innerHTML = esc(msg) + (lien ? ` <a href="#${lien[0]}">${esc(lien[1])}</a>` : '');
   t.hidden = false;
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => { t.hidden = true; }, 4200);
+  // Message long : affiché plus longtemps (environ 60 ms par caractère, entre 4 et 12 secondes).
+  toast.t = setTimeout(() => { t.hidden = true; }, Math.min(12000, Math.max(4200, String(msg).length * 60)));
+  annoncerEcran(msg);
+}
+/* Lecteurs d'écran : une zone d'annonce toujours présente dans la page (jamais masquée), vidée puis remplie un instant
+   après. Un message identique au précédent est ainsi relu, et rien ne dépend d'un élément qui vient d'apparaître. */
+function annoncerEcran(msg) {
+  let r = document.getElementById('annonce-ecran');
+  if (!r) { r = document.createElement('div'); r.id = 'annonce-ecran'; r.className = 'sr-only'; r.setAttribute('role', 'status'); r.setAttribute('aria-live', 'polite'); document.body.appendChild(r); }
+  r.textContent = '';
+  clearTimeout(annoncerEcran.t);
+  annoncerEcran.t = setTimeout(() => { r.textContent = String(msg); }, 80);
 }
 function nouvelId(prefixe) { return prefixe + Math.random().toString(36).slice(2, 8); }
 
