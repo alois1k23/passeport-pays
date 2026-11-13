@@ -1358,4 +1358,13 @@ La relecture du chantier 62 l'a montré : un compte « clé d'accès seule » ne
   - compte « clé d'accès seule » : mot de passe refusé, clé acceptée.
 - **Vérifié dans Chromium avec un authentificateur virtuel**, bureau et mobile : enregistrement d'une clé, puis fenêtre ouverte par la création d'une clé d'API. Le focus est sur le bouton de la clé, Entrée confirme et la clé d'API s'affiche. En mode « clé seule », aucun champ de mot de passe. Aucune erreur de page.
 - 225 tests sur 225, parcours de bout en bout 57/57.
+- **Relecture indépendante** : rien de grave (défis, rejeu, clé d'un autre compte, vérification de l'utilisateur, session visée : tenus). Constats mineurs, tous corrigés :
+  - **Compteur des signatures** : deux vérifications simultanées pouvaient le faire reculer. Il n'avance plus que s'il progresse (mise à jour conditionnelle), à la connexion comme à la confirmation. Une signature dont le compteur recule (signe d'une clé copiée) est maintenant notée au journal du compte, et la titulaire est prévenue par e-mail, une fois par jour et par clé (testé).
+  - **Limite du jour** : une réponse sans rapport (défi ou clé d'ailleurs) n'y compte plus. Un voleur de cookie ne peut donc plus bloquer les confirmations de la titulaire avec des réponses bidon. Seules les signatures fausses comptent (testé).
+  - **Journal du serveur** : le message d'erreur, qui peut reprendre l'origine envoyée par le client, est nettoyé des caractères de contrôle.
+  - **Fenêtre** :
+    - Échap pendant l'invite de la clé ne peut plus fermer la fenêtre puis la « confirmer » ;
+    - compte « clé d'accès seule » sur un appareil sans clé utilisable : ni champ de mot de passe ni bouton (le serveur le refuserait), focus sur « Se reconnecter » (vérifié dans Chromium) ;
+    - le message « confirmez votre identité » mentionne la clé d'accès.
+  - Non corrigé, noté : la confirmation par mot de passe partage toujours la limite du jour (30 échecs). Un voleur de cookie qui tape de faux mots de passe peut donc bloquer pour la journée la confirmation par mot de passe. La clé d'accès compte à part pour les réponses sans rapport.
 

@@ -215,14 +215,14 @@ function modeHorsEspace() {
 async function confirmerIdentite() {
   // État de la double authentification relu à l'ouverture (activée ou désactivée depuis le chargement de la page).
   try { const s = await (await fetch('/api/session', { cache: 'no-store', credentials: 'same-origin' })).json(); SERVEUR.deuxFacteurs = !!s.deuxFacteurs; SERVEUR.clesAcces = s.clesAcces || 0; SERVEUR.cleSeule = !!s.cleSeule; } catch { /* état connu gardé */ }
-  const parCle = SERVEUR.clesAcces > 0 && typeof ClesAcces !== 'undefined' && ClesAcces.disponible(), cleSeule = SERVEUR.cleSeule && parCle;
+  const parCle = SERVEUR.clesAcces > 0 && typeof ClesAcces !== 'undefined' && ClesAcces.disponible(), cleSeule = SERVEUR.cleSeule;   // clé seule : jamais de champ de mot de passe (le serveur le refuserait)
   return new Promise(resoudre => {
     const retour = document.activeElement;
     const d = document.createElement('dialog');
     d.className = 'dialogue-identite'; d.setAttribute('aria-labelledby', 'identite-titre'); d.setAttribute('aria-describedby', 'identite-explication');
     d.innerHTML = `<form method="dialog" class="pile">
       <h2 id="identite-titre">Confirmez votre identité</h2>
-      <p class="sous" id="identite-explication">Cette action donne un accès durable aux données de votre boutique. ${cleSeule ? 'Confirmez avec votre clé d’accès' : `Elle demande votre mot de passe${SERVEUR.deuxFacteurs ? ' et un code de votre application d’authentification' : ''}${parCle ? ', ou votre clé d’accès' : ''}`} (valable 15 minutes).</p>
+      <p class="sous" id="identite-explication">Cette action donne un accès durable aux données de votre boutique. ${cleSeule ? (parCle ? 'Confirmez avec votre clé d’accès' : 'Elle demande votre clé d’accès') : `Elle demande votre mot de passe${SERVEUR.deuxFacteurs ? ' et un code de votre application d’authentification' : ''}${parCle ? ', ou votre clé d’accès' : ''}`} (valable 15 minutes).</p>
       ${parCle ? '<button class="btn" type="button" data-par-cle>Confirmer avec ma clé d’accès</button>' : ''}
       ${cleSeule ? '' : `<label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" autocomplete="current-password" required></label>
       ${SERVEUR.deuxFacteurs ? '<label class="champ"><span>Code de vérification (ou code de secours)</span><input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>' : ''}`}
@@ -231,7 +231,8 @@ async function confirmerIdentite() {
       <div class="rangee">${cleSeule ? '' : `<button class="btn${parCle ? ' fantome' : ''}" value="ok">Confirmer avec le mot de passe</button>`}<button class="btn fantome" type="button" data-annuler>Annuler</button></div>
     </form>`;
     document.body.appendChild(d);
-    const fin = ok => { d.close(); d.remove(); if (retour && document.contains(retour)) retour.focus(); resoudre(ok); };
+    let fini = false;
+    const fin = ok => { if (fini) return; fini = true; d.close(); d.remove(); if (retour && document.contains(retour)) retour.focus(); resoudre(ok); };
     d.querySelector('[data-annuler]').addEventListener('click', () => fin(false));
     d.querySelector('[data-reconnecter]').addEventListener('click', async e => { e.preventDefault(); await fetch('/api/auth/deconnexion', { method: 'POST', credentials: 'same-origin' }).catch(() => {}); location.href = '/app?connexion=1'; });
     d.addEventListener('cancel', e => { e.preventDefault(); fin(false); });
@@ -260,8 +261,8 @@ async function confirmerIdentite() {
       }
     });
     d.showModal();
-    (d.querySelector('[data-par-cle]') || d.querySelector('input') || d.querySelector('[data-annuler]')).focus();
-    if (SERVEUR.cleSeule && !parCle) d.querySelector('[data-cle-seule]').hidden = false;
+    if (cleSeule && !parCle) d.querySelector('[data-cle-seule]').hidden = false;
+    (d.querySelector('[data-par-cle]') || d.querySelector('input') || (cleSeule && d.querySelector('[data-reconnecter]')) || d.querySelector('[data-annuler]')).focus();
   });
 }
 

@@ -1830,6 +1830,20 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!d) throw erreur(400, 'Demande expirée : recommencez.', 'defi_expire');
     return d;
   }
+  // Compteur de signatures : avancé seulement s'il progresse (deux vérifications simultanées ne le font pas reculer).
+  // Un compteur qui recule trahit une copie de la clé : la titulaire est prévenue (une fois par jour et par clé).
+  const avancerCompteur = (cred, compteur) => db.prepare('UPDATE cles_acces SET compteur = ?, utilisee_le = ? WHERE id = ? AND (compteur < ? OR (? = 0 AND compteur = 0))').run(compteur, Date.now(), cred.id, compteur, compteur).changes === 1;
+  const echecCle = (cred, e, ctx) => {
+    const msg = String(e && e.message || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').slice(0, 200);
+    journal.error('[cle-acces]', msg);
+    if (!/compteur/.test(msg)) return;
+    noterActivite(cred.marchand_id, 'cle-acces-copiee', cred.nom, ctx);
+    try {
+      auth.limiter('alerte-clone:' + cred.id, 1, 86400000, '');
+      const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(cred.marchand_id);
+      if (m) envoyerEmail(null, m.email, 'Clé d’accès peut-être copiée', `Bonjour,\n\nUne signature de votre clé d’accès « ${cred.nom} » a été refusée parce que son compteur ne progressait pas : c’est le signe possible d’une copie de la clé. Si vous n’en êtes pas sûre, supprimez-la dans Paramètres > Sécurité et créez-en une nouvelle.\n${urlPublique}/app\n\nL’équipe Comptoir`);
+    } catch { /* déjà prévenue aujourd'hui */ }
+  };
   const clesAccesDe = mid => db.prepare('SELECT id, nom, cree_le, utilisee_le FROM cles_acces WHERE marchand_id = ? ORDER BY cree_le').all(mid);
   db.exec('CREATE TABLE IF NOT EXISTS recuperations_differees (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, mot_de_passe TEXT NOT NULL, effectif_le INTEGER NOT NULL, cree_le INTEGER NOT NULL)');
   try { db.exec('ALTER TABLE recuperations_differees ADD COLUMN ancien TEXT'); } catch { /* déjà là */ }
@@ -1943,8 +1957,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (rep.userHandle && WebAuthn.deB64u(rep.userHandle).toString('utf8') !== cred.marchand_id) refus('Clé d’accès refusée.');
     let v;
     try { v = WebAuthn.verifierConnexion(rep, { defi: d.defi, origine: origineRp, rpId, cle: JSON.parse(cred.cle), compteur: cred.compteur }); }
-    catch (e) { journal.error('[cle-acces]', e.message); refus('Clé d’accès refusée.'); }
-    db.prepare('UPDATE cles_acces SET compteur = ?, utilisee_le = ? WHERE id = ?').run(v.compteur, Date.now(), cred.id);
+    catch (e) { echecCle(cred, e, ctx); refus('Clé d’accès refusée.'); }
+    if (!avancerCompteur(cred, v.compteur)) { echecCle(cred, new Error('compteur dépassé par une signature simultanée'), ctx); refus('Clé d’accès refusée.'); }
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(cred.marchand_id);
     if (!m) refus('Compte introuvable.');
     const appareilConnu = !!appareilConnuPour(ctx, m.id);
@@ -2008,7 +2022,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const IDENTITE_DUREE = 15 * 60000;
   const sessionDe = ctx => db.prepare('SELECT cree_le, identite_le FROM sessions WHERE jeton_hash = ?').get(auth.sha256(String(ctx.cookies[auth.COOKIE] || ''))) || {};
   const identiteRecente = ctx => { const s0 = sessionDe(ctx); return Math.max(s0.cree_le || 0, s0.identite_le || 0) > Date.now() - IDENTITE_DUREE; };
-  const exigerIdentite = (ctx, { explicite = false } = {}) => { if (explicite ? !((sessionDe(ctx).identite_le || 0) > Date.now() - IDENTITE_DUREE) : !identiteRecente(ctx)) throw erreur(403, 'Confirmez votre identité pour continuer (mot de passe, et code si la double authentification est active).', 'identite_a_confirmer'); };
+  const exigerIdentite = (ctx, { explicite = false } = {}) => { if (explicite ? !((sessionDe(ctx).identite_le || 0) > Date.now() - IDENTITE_DUREE) : !identiteRecente(ctx)) throw erreur(403, 'Confirmez votre identité pour continuer (clé d’accès, ou mot de passe et code si la double authentification est active).', 'identite_a_confirmer'); };
   r.post('/api/admin/compte/confirmer-identite', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     // Compte qui n'accepte que sa clé d'accès : le mot de passe ne suffit pas ; il se reconnecte avec sa clé.
@@ -2040,14 +2054,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     auth.verifierEchecs(['identite-jour:' + m.id], 30);
     const rep = ctx.corps.reponse || {};
     const d = consommerDefi(rep, 'identite');
-    const refus = msg => { auth.noterEchec(['identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'clé d’accès', ctx); throw erreur(401, msg, 'cle_acces_refusee'); };
-    if (d.marchand_id !== m.id) refus('Demande expirée : recommencez.');
+    // Seules les signatures fausses comptent dans la limite du jour : une réponse sans rapport (défi ou clé d'ailleurs),
+    // qui ne prouve rien, ne doit pas permettre à un voleur de cookie de bloquer les confirmations de la titulaire.
+    const refus = (msg, compter = true) => { if (compter) { auth.noterEchec(['identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'clé d’accès', ctx); } throw erreur(401, msg, 'cle_acces_refusee'); };
+    if (d.marchand_id !== m.id) refus('Demande expirée : recommencez.', false);
     const cred = db.prepare('SELECT * FROM cles_acces WHERE id = ? AND marchand_id = ?').get(String(rep.id || ''), m.id);
-    if (!cred) refus('Cette clé d’accès n’appartient pas à ce compte.');
+    if (!cred) refus('Cette clé d’accès n’appartient pas à ce compte.', false);
     let v;
     try { v = WebAuthn.verifierConnexion(rep, { defi: d.defi, origine: origineRp, rpId, cle: JSON.parse(cred.cle), compteur: cred.compteur }); }
-    catch (e) { journal.error('[cle-acces]', e.message); refus('Clé d’accès refusée.'); }
-    db.prepare('UPDATE cles_acces SET compteur = ?, utilisee_le = ? WHERE id = ?').run(v.compteur, Date.now(), cred.id);
+    catch (e) { echecCle(cred, e, ctx); refus('Clé d’accès refusée.'); }
+    if (!avancerCompteur(cred, v.compteur)) { echecCle(cred, new Error('compteur dépassé par une signature simultanée'), ctx); refus('Clé d’accès refusée.'); }
     db.prepare('UPDATE sessions SET identite_le = ? WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
     noterActivite(m.id, 'identite-confirmee', `clé d’accès « ${cred.nom} »`, ctx);
     return { ok: true, valableJusqua: new Date(Date.now() + IDENTITE_DUREE).toISOString() };

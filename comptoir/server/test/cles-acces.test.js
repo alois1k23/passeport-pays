@@ -145,6 +145,15 @@ test('confirmation d’identité par clé d’accès : vaut mot de passe et code
     // Le défi d'un autre compte non plus.
     const oB = (await b('POST', '/api/admin/compte/confirmer-identite/cle/options')).j.publicKey;
     assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: tel.signer(oB) })).s, 401);
+    // Réponses sans rapport : refusées sans compter dans la limite du jour ni dans le journal (pas de blocage par un voleur de cookie).
+    assert.ok(!(await a('GET', '/api/admin/compte/securite')).j.journal.some(x => x.type === 'echec-identite'));
+    // Clé copiée (compteur qui recule) : refusée, notée, et la titulaire est prévenue.
+    const oc2 = (await a('POST', '/api/admin/compte/confirmer-identite/cle/options')).j.publicKey;
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: tel.signer(oc2, { figerCompteur: true }) })).s, 401);
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'conf@exemple.ch' AND sujet = 'Clé d’accès peut-être copiée'").get());
+    const jr = (await a('GET', '/api/admin/compte/securite')).j.journal;
+    assert.ok(jr.some(x => x.type === 'cle-acces-copiee') && jr.some(x => x.type === 'echec-identite'));
+    db.prepare('UPDATE cles_acces SET compteur = 0').run(); for (let k = 0; k < 3; k++) tel.signer({ challenge: 'x' });   // l'authentificateur logiciel repart au-dessus
     // Bonne clé, bon défi : identité confirmée, l'action passe, et c'est noté.
     const o2 = (await a('POST', '/api/admin/compte/confirmer-identite/cle/options')).j.publicKey;
     const r = tel.signer(o2);
