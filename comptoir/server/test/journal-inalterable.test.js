@@ -168,9 +168,11 @@ test('chaque clôture part vers les webhooks abonnés à journal.cloture', async
     const p = (await c('GET', '/api/admin/etat')).j.produits[0];
     assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: p.id, qte: 1 }], moyen: 'carte', cle: 'w1' })).s, 201);
     gerer.automatisationsEcheances(Date.now() + 86400000);
-    const envoi = db.prepare("SELECT corps FROM webhook_envois WHERE evenement = 'journal.cloture'").get();
+    const envoi = db.prepare("SELECT e.id, e.corps, w.boutique_id FROM webhook_envois e JOIN webhooks w ON w.id = e.webhook_id WHERE e.evenement = 'journal.cloture'").get();
     assert.ok(envoi, 'clôture envoyée au webhook');
-    const d = JSON.parse(envoi.corps).donnees;
+    assert.match(envoi.corps, /^v2\./, 'file des webhooks chiffrée au repos');
+    const P = require('../src/pii').creer(Buffer.from(db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex'));
+    const d = JSON.parse(P.dechiffrer(envoi.corps, { boutique: envoi.boutique_id, commande: `webhook:${envoi.id}` }).corps).donnees;
     assert.match(d.empreinte, /^[0-9a-f]{64}$/); assert.equal(d.pieces, 1); assert.equal(d.totalJour, 12); assert.equal(d.grandTotal, 12);
     assert.equal(d.empreinte, (await c('GET', '/api/admin/journal-inalterable')).j.derniereCloture.empreinte);
   } finally { s.close(); }

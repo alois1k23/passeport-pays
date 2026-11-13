@@ -252,7 +252,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const e = abo.etat(b.marchand_id);
     return !!e.actif && (!e.obligatoire || Formules.permet(e.formule, 'api'));
   };
-  const integ = creerIntegrations({ db, env, journal, permis: apiPermise });
+  const integ = creerIntegrations({ db, env, journal, permis: apiPermise, chiffrement: () => PII });
   // Date de dernière modification des commandes (synchronisation incrémentale par l'API).
   try { db.exec('ALTER TABLE commandes ADD COLUMN maj_le INTEGER'); } catch { /* déjà là */ }
   db.exec('CREATE INDEX IF NOT EXISTS commandes_maj ON commandes(boutique_id, maj_le)');
@@ -349,7 +349,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Sous-clé dédiée (HKDF) : les empreintes des cartes ne dépendent pas directement de la clé des autres usages.
   // Changer SECRET_CHIFFREMENT rend les cartes en cours introuvables : la clé ne se change pas sans migration.
   const Cartes = CartesCadeaux.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:cartes-cadeaux', 32)));
-  const DV = Devis.creer(db);
+  const DV = Devis.creer(db, () => PII);
   const FID = Fidelite.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:fidelite', 32)));   // fidélité : empreinte HMAC, jamais en clair
   // Trousseau : la clé courante chiffre ; la clé gardée dans la base (avant que SECRET_CHIFFREMENT soit défini) déchiffre
   // encore. Ainsi définir SECRET_CHIFFREMENT après l'ouverture rechiffre tout, au lieu de rendre les données illisibles.
@@ -388,6 +388,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Anciennes pages en clair effacées du fichier (SQLite réutilise les pages libérées sans les remettre à zéro).
       try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); db.exec('VACUUM'); db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) { journal.error('[donnees-clients] compactage', e.message); }
     }
+    try { const n = DV.chiffrerAnciens() + integ.chiffrerFile(); if (n) journal.log(`[donnees-clients] ${n} devis ou envoi(s) de webhook chiffré(s)`); } catch (e) { journal.error('[donnees-clients] devis et webhooks', e.message); }
     if (illisibles) journal.error(`[donnees-clients] ATTENTION : ${illisibles} commande(s) dont les données client sont illisibles avec les clés connues. SECRET_CHIFFREMENT a-t-il changé ? Remettez l'ancienne valeur.`);
     if (abimees) journal.error(`[donnees-clients] ${abimees} commande(s) aux données illisibles (JSON abîmé), laissées telles quelles`);
   }
@@ -2410,7 +2411,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #1F5F8B;outline-offse
     // (sauf devis expiré : le renvoyer lui redonne sa durée de validité, le marchand le confirme ainsi).
     if (d.statut === 'brouillon' || !d.valableJusquau || d.valableJusquau < maintenant) d.valableJusquau = maintenant + d.validiteJours * 86400000;
     d.statut = 'envoye'; d.envoyeLe = maintenant;
-    d.historique.push({ date: maintenant, texte: `Envoyé à ${d.client.email}` });
+    d.historique.push({ date: maintenant, texte: "Envoyé au client par e-mail" });   // sans l’adresse : l’historique n’est pas chiffré
     DV.ecrire(d);
     const lien = lienDevis(ctx.boutique, d, jeton);
     envoyerEmail(ctx.boutique.id, d.client.email, `Devis ${d.numero} de ${config.boutique.nom}${d.objet ? ` : ${d.objet}` : ''}`,
@@ -2511,7 +2512,7 @@ ${bloc}</main></body></html>`;
         lignes: frais.lignes.map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, prix: l.prix, qte: l.qte, type: l.type, tauxTva: l.tauxTva, tauxReduit: l.tauxReduit, source: l.source || null, fournisseur: l.fournisseur || null, ...(l.codeFournisseur ? { codeFournisseur: l.codeFournisseur } : {}) })),
         sousTotal: frais.sousTotal, remise: frais.remise, motifRemise: frais.remise ? `Remise du devis ${frais.numero} (${frais.remisePct} %)` : null, port: frais.port, total: frais.total, tauxTva: frais.tauxTva,
         livraison: 'devis', canal: 'devis', devis: { id: frais.id, numero: frais.numero }, echeance: maintenant + (config.reglages.echeanceJours || 30) * 86400000, suivi: '', note: '',
-        historique: [{ date: maintenant, texte: `Commande issue du devis ${frais.numero}, accepté en ligne par ${nom}` }] };
+        historique: [{ date: maintenant, texte: `Commande issue du devis ${frais.numero}, accepté en ligne (signataire dans la fiche du devis)` }] };
       const jetonCommande = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       insererCommande(id, b.id, n, date, statut, jetonCommande, donnees);
@@ -2522,9 +2523,10 @@ ${bloc}</main></body></html>`;
       if (manques.length) { const { id: _i, numero: _n, date: _d, statut: _s, ...dn } = c; db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(stockerDonneesCommande(dn, b.id, c.id), c.id); }
       frais.manques = manques;
       frais.statut = 'accepte';
-      frais.acceptation = { le: maintenant, nom, reseau: crypto.createHmac('sha256', cleChiffrement).update(`devis:${ctx.ip}`).digest('hex').slice(0, 32), empreinte: Devis.empreinteContenu(frais.numero, frais) };
+      frais.acceptation = { le: maintenant, reseau: crypto.createHmac('sha256', cleChiffrement).update(`devis:${ctx.ip}`).digest('hex').slice(0, 32), empreinte: Devis.empreinteContenu(frais.numero, frais) };
       frais.commande = { id: c.id, numero };
-      frais.historique.push({ date: maintenant, texte: `Accepté en ligne par ${nom} : commande n° ${numero}` });
+      frais.client = { ...frais.client, signataire: nom };   // nom du signataire : avec les coordonnées chiffrées du client
+      frais.historique.push({ date: maintenant, texte: `Accepté en ligne : commande n° ${numero}` });
       DV.ecrire(frais, maintenant);
       return { c, frais };
     });

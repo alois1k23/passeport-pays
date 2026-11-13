@@ -55,12 +55,17 @@ function ipInterne(ip) {
   return (h & 0xfe00) === 0xfc00 || (h & 0xffc0) === 0xfe80 || (h & 0xffc0) === 0xfec0 || (h & 0xff00) === 0xff00 || (h & 0xff00) === 0x0100 && g[1] === 0 && g[2] === 0 && g[3] === 0;
 }
 
-function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dns.lookup(h, { all: true }), permis = () => true }) {
+function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dns.lookup(h, { all: true }), permis = () => true, chiffrement = () => null }) {
+  /* File des envois chiffrée au repos (données des clients dans les événements) : même chiffrement que les commandes,
+     lié à la boutique et à l'envoi ; index aveugle de l'e-mail du client pour l'effacement (RGPD). */
+  const fermer = (bid, id, corps) => { const P = chiffrement(); return P ? P.chiffrer({ corps }, { boutique: bid, commande: `webhook:${id}` }) : corps; };
+  const ouvrir = (bid, id, texte) => { const P = chiffrement(); if (!P || !/^v[12]\./.test(texte)) return texte; try { return P.dechiffrer(texte, { boutique: bid, commande: `webhook:${id}` }).corps; } catch { return null; } };
   db.exec(`CREATE TABLE IF NOT EXISTS cles_api (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE, nom TEXT NOT NULL, prefixe TEXT NOT NULL, empreinte TEXT NOT NULL UNIQUE, portees TEXT NOT NULL, cree_le INTEGER NOT NULL, utilisee_le INTEGER, revoquee INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL REFERENCES boutiques(id) ON DELETE CASCADE, url TEXT NOT NULL, secret TEXT NOT NULL, evenements TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 1, cree_le INTEGER NOT NULL, echecs_suite INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS webhook_envois (id TEXT PRIMARY KEY, webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE, evenement TEXT NOT NULL, corps TEXT NOT NULL, statut TEXT NOT NULL DEFAULT 'attente', tentatives INTEGER NOT NULL DEFAULT 0, prochain_essai INTEGER NOT NULL, dernier_code INTEGER, cree_le INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS webhook_envois_file ON webhook_envois(statut, prochain_essai);
     CREATE INDEX IF NOT EXISTS webhook_envois_hook ON webhook_envois(webhook_id, statut, cree_le);`);
+  try { db.exec('ALTER TABLE webhook_envois ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
   for (const col of ['premier_echec INTEGER', 'dernier_succes INTEGER']) { try { db.exec(`ALTER TABLE webhooks ADD COLUMN ${col}`); } catch { /* déjà là */ } }
   const httpLocalPermis = env.INTEGRATIONS_HTTP_LOCAL === '1';   // essais uniquement : webhooks vers http://127.0.0.1
 
@@ -171,7 +176,8 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
       if (!JSON.parse(w.evenements).includes(type)) continue;
       const id = 'evt_' + crypto.randomBytes(8).toString('hex');
       const corps = JSON.stringify({ id, type, cree: new Date().toISOString(), donnees });
-      db.prepare('INSERT INTO webhook_envois (id, webhook_id, evenement, corps, prochain_essai, cree_le) VALUES (?, ?, ?, ?, ?, ?)').run(id, w.id, type, corps, Date.now(), Date.now());
+      const email = donnees && donnees.client && donnees.client.email, P = chiffrement();
+      db.prepare('INSERT INTO webhook_envois (id, webhook_id, evenement, corps, prochain_essai, cree_le, email_index) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, w.id, type, fermer(boutiqueId, id, corps), Date.now(), Date.now(), P && email ? P.index(boutiqueId, email) : null);
       // File bornée : un point d'arrivée en panne depuis des semaines ne remplit pas la base.
       db.prepare(`UPDATE webhook_envois SET statut = 'echec' WHERE id IN (SELECT id FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente' ORDER BY cree_le DESC LIMIT -1 OFFSET ${FILE_MAX})`).run(w.id);
       n++;
@@ -210,7 +216,9 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
         for (const e of envois) {
           if (budget <= 0) return;
           budget--;
-          const code = await poster(w.url, e.corps, entetesSignes(w.secret, e.id, e.evenement, e.corps));
+          const corps = ouvrir(w.boutique_id, e.id, e.corps);
+          if (corps === null) { db.prepare("UPDATE webhook_envois SET statut = 'echec' WHERE id = ?").run(e.id); journal.error('[webhook] envoi illisible (clé changée ?)', e.id); continue; }
+          const code = await poster(w.url, corps, entetesSignes(w.secret, e.id, e.evenement, corps));
           if (code >= 200 && code < 300) {
             db.prepare("UPDATE webhook_envois SET statut = 'envoye', tentatives = tentatives + 1, dernier_code = ? WHERE id = ?").run(code, e.id);
             db.prepare('UPDATE webhooks SET echecs_suite = 0, premier_echec = NULL, dernier_succes = ? WHERE id = ?').run(Date.now(), w.id);
@@ -232,11 +240,22 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     return n;
   }
   /* Effacement d'un client (RGPD) : ses données disparaissent aussi des envois gardés. */
+  /* Envois en attente d'avant le chiffrement : chiffrés une fois (appelé au démarrage). */
+  function chiffrerFile() {
+    const P = chiffrement(); if (!P) return 0;
+    let n = 0;
+    for (const e of db.prepare("SELECT e.id, e.corps, w.boutique_id FROM webhook_envois e JOIN webhooks w ON w.id = e.webhook_id WHERE e.corps LIKE '{%'").all()) {
+      let email = null; try { const d = JSON.parse(e.corps).donnees; email = d && d.client && d.client.email; } catch { /* corps illisible : chiffré tel quel */ }
+      db.prepare('UPDATE webhook_envois SET corps = ?, email_index = ? WHERE id = ?').run(fermer(e.boutique_id, e.id, e.corps), email ? P.index(e.boutique_id, email) : null, e.id); n++;
+    }
+    return n;
+  }
   function effacerClient(boutiqueId, email) {
-    return db.prepare("DELETE FROM webhook_envois WHERE webhook_id IN (SELECT id FROM webhooks WHERE boutique_id = ?) AND instr(lower(corps), ?) > 0").run(boutiqueId, JSON.stringify(String(email).toLowerCase())).changes;
+    const P = chiffrement(), ix = P ? P.index(boutiqueId, email) : null;
+    return db.prepare("DELETE FROM webhook_envois WHERE webhook_id IN (SELECT id FROM webhooks WHERE boutique_id = ?) AND (email_index = ? OR instr(lower(corps), ?) > 0)").run(boutiqueId, ix, JSON.stringify(String(email).toLowerCase())).changes;
   }
 
-  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, signer, verifierUrl, poster };
+  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, signer, verifierUrl, poster };
 }
 
 module.exports = { creerIntegrations, ipInterne, PORTEES, EVENEMENTS };

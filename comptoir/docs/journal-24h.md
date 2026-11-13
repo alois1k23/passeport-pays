@@ -317,3 +317,11 @@ Relecture indépendante du chiffrement des données clients : changement de clé
 - Registre des mouvements (stock initial, vente, retour, correction, transfert) et entrée dans le journal d'activité. Sans emplacement déclaré, rien ne change.
 - Vérifié dans un vrai navigateur (deux emplacements, transfert de 5 articles, répartition affichée). 2 tests : module et parcours complet (transfert, caisse au magasin, vente en ligne à l'entrepôt, remboursement, correction de fiche). 144 tests sur 144, bout en bout 51 sur 51, simulation de 60 jours : 0 anomalie.
 - **Toute la feuille de route du marathon est réalisée.** Chaque chantier a été relu, sauf celui-ci, dont la relecture est en cours.
+
+### Cycle 19 (01 h 55) : chiffrement des devis et de la file des webhooks
+
+- Premier chantier de la deuxième phase. Les **coordonnées des clients professionnels dans les devis** (raison sociale, contact, e-mail, adresse, numéro de TVA) sont désormais chiffrées au repos, comme les clients des commandes : AES-256-GCM, lié à la boutique et au devis.
+- **Nom du signataire** : il apparaissait en clair dans l'historique du devis et dans celui de la commande. Il est maintenant rangé avec les coordonnées chiffrées et présenté comme avant dans l'acceptation, mais il n'est jamais écrit en clair. L'historique ne contient plus non plus l'e-mail du client (« Envoyé au client par e-mail »).
+- **File d'envoi des webhooks** : chaque événement en attente (commande payée, expédiée…) contenait le nom, l'e-mail et l'adresse du client pendant 30 jours. Il est désormais chiffré, lié à la boutique et à l'envoi, et déchiffré seulement au moment de l'envoi. L'effacement d'un client (RGPD) le retrouve par un index aveugle. Un envoi illisible (clé changée) est marqué en échec, sans bloquer la file.
+- Les devis et envois existants sont chiffrés une fois au démarrage.
+- Tests : rien de lisible en base pour le devis, le signataire et l'envoi de webhook. 144 tests sur 144, bout en bout 51 sur 51.

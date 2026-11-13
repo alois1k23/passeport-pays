@@ -84,25 +84,45 @@ const ventiler = (d, config) => FactureElectronique.ventiler({ lignes: d.lignes,
 /* Empreinte du contenu accepté (client, lignes, montants, conditions) : preuve de ce qui a été accepté. */
 const empreinteContenu = (numero, d) => crypto.createHash('sha256').update(JSON.stringify([numero, d.client, d.lignes.map(l => [l.nom, l.qte, l.prix, l.tauxTva]), d.port, d.total, d.conditions, d.valableJusquau])).digest('hex');
 
-function creer(db) {
+function creer(db, chiffrement = () => null) {
+  // Coordonnées du client professionnel chiffrées au repos (même chiffrement que les commandes, lié au devis).
+  const ctx = row => ({ boutique: row.boutique_id, commande: `devis:${row.id}` });
+  const versStockage = (row, donnees) => { const P = chiffrement(); return JSON.stringify(P ? P.versStockage(donnees, ctx(row)) : donnees); };
   db.exec(`CREATE TABLE IF NOT EXISTS devis (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, numero TEXT NOT NULL, statut TEXT NOT NULL,
     cree_le INTEGER NOT NULL, maj_le INTEGER NOT NULL, jeton_hash TEXT, donnees TEXT NOT NULL, UNIQUE (boutique_id, numero))`);
   db.exec('CREATE INDEX IF NOT EXISTS devis_boutique ON devis (boutique_id, cree_le)');
   try { db.exec('ALTER TABLE boutiques ADD COLUMN compteur_devis INTEGER NOT NULL DEFAULT 0'); } catch { /* déjà là */ }
-  const lire = row => row && ({ id: row.id, numero: row.numero, statut: row.statut, creeLe: row.cree_le, majLe: row.maj_le, ...JSON.parse(row.donnees) });
+  const lire = row => {
+    if (!row) return row;
+    const P = chiffrement(), d0 = JSON.parse(row.donnees), d = P ? P.depuisStockage(d0, ctx(row)) : d0;
+    // Signataire gardé avec les coordonnées chiffrées ; présenté dans l'acceptation comme avant.
+    if (d.acceptation && d.client && d.client.signataire && !d.acceptation.nom) d.acceptation = { ...d.acceptation, nom: d.client.signataire };
+    return { id: row.id, numero: row.numero, statut: row.statut, creeLe: row.cree_le, majLe: row.maj_le, ...d };
+  };
   const ecrire = (d, maintenant = Date.now()) => {
     const { id, numero, statut, creeLe, majLe, ...donnees } = d;
-    db.prepare('UPDATE devis SET statut = ?, maj_le = ?, donnees = ? WHERE id = ?').run(statut, maintenant, JSON.stringify(donnees), id);
+    if (donnees.acceptation && donnees.acceptation.nom) { const { nom, ...acc } = donnees.acceptation; donnees.acceptation = acc; if (donnees.client && !donnees.client.signataire) donnees.client = { ...donnees.client, signataire: nom }; }   // jamais en clair
+    const b = db.prepare('SELECT boutique_id FROM devis WHERE id = ?').get(id);
+    db.prepare('UPDATE devis SET statut = ?, maj_le = ?, donnees = ? WHERE id = ?').run(statut, maintenant, versStockage({ id, boutique_id: b ? b.boutique_id : '' }, donnees), id);
   };
   const hash = j => crypto.createHash('sha256').update(String(j)).digest('hex');
   return {
     lire, ecrire, STATUTS,
+    /* Devis d'avant le chiffrement : coordonnées du client chiffrées une fois (appelé au démarrage). */
+    chiffrerAnciens() {
+      if (!chiffrement()) return 0;
+      let n = 0;
+      for (const row of db.prepare("SELECT * FROM devis WHERE json_valid(donnees) AND json_extract(donnees, '$.client') IS NOT NULL").all()) {
+        db.prepare('UPDATE devis SET donnees = ? WHERE id = ?').run(versStockage(row, JSON.parse(row.donnees)), row.id); n++;
+      }
+      return n;
+    },
     nouveau(boutiqueId, contenu, maintenant = Date.now()) {
       const n = db.prepare('UPDATE boutiques SET compteur_devis = compteur_devis + 1 WHERE id = ? RETURNING compteur_devis').get(boutiqueId).compteur_devis;
       const numero = `DE-${new Date(maintenant).getFullYear()}-${String(n).padStart(4, '0')}`;
       const id = `dv_${crypto.randomBytes(9).toString('base64url')}`;
       const donnees = { ...contenu, historique: [{ date: maintenant, texte: 'Devis créé' }] };
-      db.prepare('INSERT INTO devis (id, boutique_id, numero, statut, cree_le, maj_le, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, boutiqueId, numero, 'brouillon', maintenant, maintenant, JSON.stringify(donnees));
+      db.prepare('INSERT INTO devis (id, boutique_id, numero, statut, cree_le, maj_le, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, boutiqueId, numero, 'brouillon', maintenant, maintenant, versStockage({ id, boutique_id: boutiqueId }, donnees));
       return lire(db.prepare('SELECT * FROM devis WHERE id = ?').get(id));
     },
     deBoutique(boutiqueId, id) {

@@ -58,6 +58,8 @@ test('parcours : création, envoi, consultation, acceptation unique, commande pa
     assert.equal(env.statut, 200); const lien = env.json.lien; const jeton = new URL(lien).searchParams.get('jeton');
     assert.ok(jeton.length >= 40);
     assert.ok(!JSON.stringify(db.prepare('SELECT * FROM devis').all()).includes(jeton), 'jeton jamais stocké en clair');
+    const brut = JSON.stringify(db.prepare('SELECT * FROM devis').all());
+    assert.ok(!brut.includes('Hôtel du Lac') && !brut.includes('achats@hotel-lac.fr'), 'coordonnées du client professionnel chiffrées en base');
     assert.ok(db.prepare('SELECT corps FROM emails WHERE destinataire = ?').get(client.email).corps.includes(lien), 'lien envoyé au client');
     // Page publique : contenu échappé, en-têtes stricts, mauvais jeton refusé.
     let page = await fetch(lien); const html = await page.text();
@@ -74,7 +76,8 @@ test('parcours : création, envoi, consultation, acceptation unique, commande pa
     assert.deepEqual([a1.status, a2.status].sort(), [200, 303], 'une acceptation, l’autre réaffiche la page');
     assert.equal(db.prepare("SELECT COUNT(*) n FROM commandes WHERE json_extract(donnees, '$.devis.id') = ?").get(id).n, 1);
     const d = (await api('GET', `/api/admin/devis/${id}`)).json.devis;
-    assert.equal(d.statut, 'accepte'); assert.equal(d.acceptation.nom, 'C. Roux, directrice'); assert.match(d.acceptation.empreinte, /^[0-9a-f]{64}$/);
+    assert.equal(d.statut, 'accepte'); assert.equal(d.acceptation.nom, 'C. Roux, directrice');
+    assert.ok(!JSON.stringify(db.prepare('SELECT donnees FROM devis').all()).includes('C. Roux') && !JSON.stringify(db.prepare('SELECT donnees FROM commandes').all()).includes('C. Roux'), 'nom du signataire jamais en clair en base'); assert.match(d.acceptation.empreinte, /^[0-9a-f]{64}$/);
     assert.ok(!JSON.stringify(d).includes('127.0.0.1'), 'adresse IP non stockée en clair');
     const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(d.commande.id);
     assert.ok(!row.donnees.includes('Hôtel du Lac') && !row.donnees.includes(client.email), 'client chiffré en base');
