@@ -127,6 +127,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 64. **Essais refusés dans une session** : au 5e mot de passe (ou code, ou clé) refusé dans une même session, celle-ci est fermée et la titulaire prévenue ; un voleur de cookie ne peut plus bloquer les confirmations du compte.
 65. **Session liée à son appareil** : un cookie rejoué depuis un autre navigateur ou système ferme la session et prévient la titulaire.
 66. **Relecture adversariale croisée** des nouveautés de l'après-midi (changement d'adresse, confirmation par clé d'accès, essais refusés par session, session liée à l'appareil) : ce qui casse quand elles se combinent.
+67. **Signaux d'attaque dans la console de l'exploitant** : sessions fermées par précaution, clés d'accès peut-être copiées et changements d'adresse annulés, comptés sur toute la plateforme, avec alerte.
 
 ## Cycles
 
@@ -1452,3 +1453,15 @@ Chaque nouveauté de l'après-midi avait été relue seule. Une relecture indép
 - **Risque résiduel, noté** : une clé d'accès ou une double authentification installée par l'intrus plus de 24 heures avant sa demande survit à l'annulation. L'e-mail d'annulation invite désormais à vérifier les clés d'accès, la double authentification, les clés d'API et les webhooks.
 - 229 tests sur 229, parcours de bout en bout 57/57.
 - Vérification complète (7 étapes) réussie sur le code final des chantiers 65 et 66.
+
+### Cycle 72 (18 h 45) : signaux d'attaque dans la console de l'exploitant (chantier 67)
+
+Les protections de l'après-midi préviennent chaque marchand, mais l'exploitant ne voyait rien d'une attaque à l'échelle de la plateforme : un logiciel espion qui vide les cookies de nombreux marchands, ou une série de prises de compte. Le bilan de sécurité de la console compte désormais trois nouveaux signaux, en événements et en comptes touchés, sans aucune adresse affichée :
+
+- **Sessions fermées par précaution sur 7 jours** (autre appareil, ou 5 essais refusés). Alerte dès 5 comptes touchés en 24 heures, avec un conseil : des cookies circulent peut-être.
+- **Clés d'accès peut-être copiées sur 30 jours.** Alerte dès la première.
+- **Changements d'adresse annulés par l'ancienne adresse sur 30 jours.** Chaque annulation est une tentative probable de prise de compte : alerte, avec le conseil de chercher d'autres signaux, comme un IBAN modifié.
+- **Index** sur le journal des comptes (type, date), pour que ces comptes restent rapides avec beaucoup de marchands.
+- **Test** : rien au départ, puis des fermetures sur 5 comptes en 24 heures (alerte et conseil), une clé copiée, une annulation. Un événement hors période n'est pas compté, et aucune adresse n'apparaît dans la page.
+- 229 tests sur 229, parcours de bout en bout 57/57.
+

@@ -96,7 +96,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
   - files d'e-mails et de webhooks ;
   - dernière sauvegarde ;
   - état des journaux des ventes de toutes les boutiques, violations de la politique de sécurité (CSP) signalées par les navigateurs ;
-  - **bilan de sécurité** : clé de chiffrement hors de la base ou non, rotations, données illisibles, comptes protégés, adresses non confirmées, codes refusés, paiements à rembourser.
+  - **bilan de sécurité** : clé de chiffrement hors de la base ou non, rotations, données illisibles, comptes protégés, adresses non confirmées, codes refusés, paiements à rembourser, et signaux de vol de session ou de compte (sessions fermées par précaution, clés d'accès peut-être copiées, changements d'adresse annulés), comptés en événements et en comptes touchés, sans aucune adresse affichée.
   Accès : adresse dans `OPERATEUR_EMAILS`, double authentification active, et lien de confirmation à la première ouverture.
 - Point de santé `/sante` pour la surveillance.
 - Vérification avant la mise en ligne : `node server/server.js --verifier`.

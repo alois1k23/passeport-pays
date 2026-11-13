@@ -475,7 +475,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   auth.persisterLimites(db, cleChiffrement);   // compteurs anti-abus rechargés (empreintes HMAC) : un redémarrage ne les remet pas à zéro
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
-    CREATE INDEX IF NOT EXISTS journal_compte_marchand ON journal_compte(marchand_id, date);`);
+    CREATE INDEX IF NOT EXISTS journal_compte_marchand ON journal_compte(marchand_id, date);
+    CREATE INDEX IF NOT EXISTS journal_compte_type ON journal_compte(type, date);`);
   // Rotation de clé : secrets de double authentification chiffrés avec une ancienne clé, rechiffrés avec la courante.
   // Un secret illisible avec toutes les clés connues est signalé (le marchand passera par ses codes de secours).
   {   // à chaque démarrage : aussi quand la clé a été retirée (secrets d'une clé disparue comptés, jamais écrasés)
@@ -1690,6 +1691,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const aRembourser = n("SELECT COUNT(*) n FROM paiements WHERE statut = 'a_rembourser'");
     const nonConfirmees = n('SELECT COUNT(*) n FROM marchands WHERE email_verifie_le IS NULL AND cree_le < ?', maintenant - 7 * j);
     const echecs2fa = n("SELECT COUNT(*) n FROM journal_compte WHERE type = 'echec-2fa' AND date > ?", maintenant - j);
+    // Signaux de vol de session ou de compte (chantiers 62 à 66) : nombre d'événements et de comptes touchés.
+    const signal = (types, depuis) => db.prepare(`SELECT COUNT(*) n, COUNT(DISTINCT marchand_id) c FROM journal_compte WHERE type IN (${types.map(() => '?').join(', ')}) AND date > ?`).get(...types, maintenant - depuis);
+    const fermees = signal(['session-autre-appareil', 'session-fermee-echecs'], 7 * j), fermees24 = signal(['session-autre-appareil', 'session-fermee-echecs'], j);
+    const copiees = signal(['cle-acces-copiee'], 30 * j), annules = signal(['email-changement-annule'], 30 * j);
+    const comptesTxt = x => `${x.n} (${x.c} compte${x.c > 1 ? 's' : ''})`;
     return [
       { titre: 'Clé de chiffrement', valeur: etatSecurite.cleHorsBase ? 'hors de la base (SECRET_CHIFFREMENT)' : 'GARDÉE DANS LA BASE', alerte: !etatSecurite.cleHorsBase,
         conseil: etatSecurite.cleHorsBase ? '' : 'Une copie volée de la base suffirait à lire les données des clients : définissez SECRET_CHIFFREMENT (rotation décrite dans MISE-EN-LIGNE.md).' },
@@ -1701,6 +1707,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       { titre: 'Comptes marchands protégés (double authentification ou clé d’accès exigée)', valeur: `${proteges} / ${comptes}${comptes ? ` (${Math.round(proteges / comptes * 100)} %)` : ''}`, alerte: false },
       { titre: 'Adresses e-mail non confirmées depuis plus de 7 jours', valeur: nonConfirmees, alerte: false },
       { titre: 'Codes de vérification refusés (24 h)', valeur: echecs2fa, alerte: echecs2fa >= 20, conseil: echecs2fa >= 20 ? 'Beaucoup de codes refusés : une attaque sur des mots de passe connus est possible (les marchands concernés sont prévenus par e-mail).' : '' },
+      { titre: 'Sessions fermées par précaution (7 jours : autre appareil, 5 essais refusés)', valeur: comptesTxt(fermees), alerte: fermees24.c >= 5,
+        conseil: fermees24.c >= 5 ? `${fermees24.c} comptes touchés en 24 h : des cookies de session circulent peut-être (logiciel espion, fuite). Les marchands sont prévenus ; surveillez les connexions et les changements d’adresse.` : '' },
+      { titre: 'Clés d’accès peut-être copiées (30 jours)', valeur: comptesTxt(copiees), alerte: copiees.n > 0,
+        conseil: copiees.n ? 'Une signature dont le compteur recule a été refusée : la titulaire est prévenue ; si cela se répète, conseillez-lui de supprimer la clé et d’en créer une nouvelle.' : '' },
+      { titre: 'Changements d’adresse annulés par l’ancienne adresse (30 jours)', valeur: comptesTxt(annules), alerte: annules.n > 0,
+        conseil: annules.n ? 'Chaque annulation est une tentative de prise de compte probable : le compte a été remis à sa titulaire, vérifiez s’il y a d’autres signaux (paiements, IBAN modifié).' : '' },
       (() => {
         // Sauvegardes : chiffrées, chacune est restaurée à l'essai avant d'être gardée ; sans clé, seulement vérifiée par
         // quick_check (voir sauvegarde.js). Plus de 30 heures sans

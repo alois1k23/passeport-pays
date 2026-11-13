@@ -44,6 +44,23 @@ test('santé et console de l’exploitant', async () => {
     const page2 = await op('GET', '/operateur');
     assert.match(page2.t, /<tr class="alerte"><td>Données illisibles avec les clés connues[^<]*<\/td><td class="d"><b>0 commande\(s\) · 0 secret\(s\) de double authentification · 1 secret\(s\) de webhook/);
     assert.match(page2.t, /<tr class="alerte"><td>Paiements reçus à rembourser<\/td><td class="d"><b>1</);
+    // Signaux de vol de session ou de compte : rien d'abord, puis des fermetures sur 5 comptes en 24 h (alerte), une clé
+    // copiée et un changement d'adresse annulé.
+    assert.match(page2.t, /<tr><td>Sessions fermées par précaution[^<]*<\/td><td class="d"><b>0 \(0 compte\)/);
+    const ev = db.prepare('INSERT INTO journal_compte (marchand_id, date, type) VALUES (?, ?, ?)');
+    for (let k = 0; k < 5; k++) {
+      db.prepare("INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES (?, ?, 'x', 1)").run('m_sig' + k, `sig${k}@exemple.ch`);
+      ev.run('m_sig' + k, Date.now() - 3600000, k % 2 ? 'session-autre-appareil' : 'session-fermee-echecs');
+    }
+    ev.run('m_sig0', Date.now() - 9 * 86400000, 'session-autre-appareil');   // hors des 7 jours
+    ev.run('m_sig1', Date.now() - 86400000 * 2, 'cle-acces-copiee');
+    ev.run('m_sig2', Date.now() - 86400000 * 3, 'email-changement-annule');
+    const page3 = await op('GET', '/operateur');
+    assert.match(page3.t, /<tr class="alerte"><td>Sessions fermées par précaution[^<]*<\/td><td class="d"><b>5 \(5 comptes\)/);
+    assert.match(page3.t, /des cookies de session circulent peut-être/);
+    assert.match(page3.t, /<tr class="alerte"><td>Clés d’accès peut-être copiées[^<]*<\/td><td class="d"><b>1 \(1 compte\)/);
+    assert.match(page3.t, /<tr class="alerte"><td>Changements d’adresse annulés[^<]*<\/td><td class="d"><b>1 \(1 compte\)/);
+    assert.doesNotMatch(page3.t, /sig\d@exemple\.ch/, 'aucune adresse affichée');
     // Sauvegardes : aucune encore, puis une vérifiée il y a 2 h (pas d'alerte), puis une tentative en échec (alerte).
     assert.match(page2.t, /<tr class="alerte"><td>Sauvegardes<\/td><td class="d"><b>aucune encore/);
     const etat = v => db.prepare("INSERT INTO cles (nom, valeur) VALUES ('sauvegarde-etat', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(JSON.stringify(v));
