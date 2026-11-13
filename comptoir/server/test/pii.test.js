@@ -9,19 +9,31 @@ const { ouvrir } = require('../src/db');
 const { creerApp } = require('../src/app');
 const Pii = require('../src/pii');
 
-test('module : aller-retour, falsification détectée, index aveugle stable et sans casse', () => {
-  const K = Pii.creer(crypto.randomBytes(32)), client = { nom: 'Élodie Martin', email: 'Elodie@Exemple.fr', adresse: '3 rue Haute', npa: '69002', ville: 'Lyon' };
-  const c = K.chiffrer(client);
-  assert.match(c, /^v1\.[A-Za-z0-9_-]+$/); assert.ok(!c.includes('Martin'));
-  assert.deepEqual(K.dechiffrer(c), client);
-  assert.notEqual(K.chiffrer(client), c, 'vecteur aléatoire : deux chiffrés différents');
+test('module : aller-retour, falsification, liaison à la commande, trousseau, index par boutique', () => {
+  const cle = crypto.randomBytes(32), K = Pii.creer(cle), ctx = { boutique: 'b1', commande: 'c1' };
+  const client = { nom: 'Élodie Martin', email: 'Elodie@Exemple.fr', adresse: '3 rue Haute', npa: '69002', ville: 'Lyon' };
+  const c = K.chiffrer(client, ctx);
+  assert.match(c, /^v2\.[A-Za-z0-9_-]+$/); assert.ok(!c.includes('Martin'));
+  assert.deepEqual(K.dechiffrer(c, ctx), client);
+  assert.notEqual(K.chiffrer(client, ctx), c, 'vecteur aléatoire : deux chiffrés différents');
   const b = Buffer.from(c.slice(3), 'base64url'); b[b.length - 1] ^= 1;
-  assert.throws(() => K.dechiffrer(`v1.${b.toString('base64url')}`), 'falsification détectée');
-  assert.throws(() => Pii.creer(crypto.randomBytes(32)).dechiffrer(c), 'autre clé : illisible');
-  assert.equal(K.index('elodie@exemple.fr'), K.index(' ELODIE@exemple.FR '));
-  assert.notEqual(K.index('elodie@exemple.fr'), Pii.creer(crypto.randomBytes(32)).index('elodie@exemple.fr'));
-  assert.deepEqual(K.depuisStockage(K.versStockage({ a: 1, client })), { a: 1, client });
-  assert.deepEqual(K.depuisStockage({ a: 1, client }), { a: 1, client }, 'ancienne commande en clair lue telle quelle');
+  assert.throws(() => K.dechiffrer(`v2.${b.toString('base64url')}`, ctx), 'falsification détectée');
+  assert.throws(() => K.dechiffrer(c, { boutique: 'b2', commande: 'c1' }), 'recopié dans une autre boutique : refusé');
+  assert.throws(() => K.dechiffrer(c, { boutique: 'b1', commande: 'c2' }), 'recopié dans une autre commande : refusé');
+  assert.throws(() => K.dechiffrer(`v2.${b.subarray(0, 20).toString('base64url')}`, ctx), 'étiquette tronquée refusée');
+  assert.throws(() => Pii.creer(crypto.randomBytes(32)).dechiffrer(c, ctx), 'autre clé : illisible');
+  // Trousseau : nouvelle clé courante, l'ancienne déchiffre encore (à renouveler).
+  const K2 = Pii.creer([crypto.randomBytes(32), cle]);
+  assert.deepEqual(K2.dechiffrer(c, ctx), client); assert.equal(K2.aRenouveler(c, ctx), true); assert.equal(K.aRenouveler(c, ctx), false);
+  // Lecture tolérante : client « illisible », chiffré d'origine conservé à l'écriture.
+  const lu = Pii.creer(crypto.randomBytes(32)).depuisStockage({ a: 1, clientChiffre: c }, ctx);
+  assert.equal(lu.client.illisible, true);
+  assert.deepEqual(K.versStockage(lu, ctx), { a: 1, clientChiffre: c }, 'jamais écrasé');
+  // Index : sans casse ni espaces, différent d'une boutique à l'autre.
+  assert.equal(K.index('b1', 'elodie@exemple.fr'), K.index('b1', ' ELODIE@exemple.FR '));
+  assert.notEqual(K.index('b1', 'elodie@exemple.fr'), K.index('b2', 'elodie@exemple.fr'));
+  assert.deepEqual(K.depuisStockage(K.versStockage({ a: 1, client }, ctx), ctx), { a: 1, client });
+  assert.deepEqual(K.depuisStockage({ a: 1, client }, ctx), { a: 1, client }, 'ancienne commande en clair lue telle quelle');
 });
 
 test('serveur : commandes chiffrées, recherche par e-mail, migration au démarrage, effacement', async () => {
@@ -54,6 +66,23 @@ test('serveur : commandes chiffrées, recherche par e-mail, migration au démarr
     const r2 = db.prepare('SELECT donnees, email_index FROM commandes WHERE id = ?').get('c_ancienne');
     assert.ok(!r2.donnees.includes('Ancien Client') && r2.email_index);
     assert.equal((await appel('GET', '/api/admin/etat')).json.commandes.find(x => x.id === 'c_ancienne').client.nom, 'Ancien Client');
+    // Donnée falsifiée : la boutique reste utilisable (client « illisible »), le chiffré n'est pas écrasé.
+    const bid = db.prepare('SELECT id FROM boutiques').get().id;
+    const r3 = db.prepare('SELECT donnees FROM commandes WHERE id = ?').get('c_ancienne'), d3 = JSON.parse(r3.donnees);
+    d3.clientChiffre = d3.clientChiffre.slice(0, -6) + 'AAAAAA'; db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(JSON.stringify(d3), 'c_ancienne');
+    const etat = await appel('GET', '/api/admin/etat'); assert.equal(etat.statut, 200);
+    assert.equal(etat.json.commandes.find(x => x.id === 'c_ancienne').client.illisible, true);
+    assert.equal((await appel('PATCH', '/api/admin/commandes/c_ancienne', { note: 'x' })).statut, 200);
+    assert.equal(JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get('c_ancienne').donnees).clientChiffre, d3.clientChiffre, 'chiffré d’origine conservé');
+    // Lignes abîmées ou client vide : le démarrage ne bloque pas et ne boucle pas.
+    db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run('c_vide', bid, 997, Date.now(), 'livree', 'j', JSON.stringify({ client: '', lignes: [] }));
+    db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, ?, ?, ?, ?, ?, ?)').run('c_abimee', bid, 996, Date.now(), 'livree', 'j', '{abîmé');
+    app = creerApp({ db, env, urlPublique: base, journal: { log() {}, error() {} } });
+    db.prepare('DELETE FROM commandes WHERE id = ?').run('c_abimee');
+    // Nouvelle clé SECRET_CHIFFREMENT (l'ancienne était dans la base) : tout est rechiffré, rien n'est perdu.
+    app = creerApp({ db, env: { ...env, SECRET_CHIFFREMENT: crypto.randomBytes(32).toString('hex') }, urlPublique: base, journal: { log() {}, error() {} } });
+    const apres = await appel('GET', '/api/admin/etat'); assert.equal(apres.statut, 200);
+    assert.equal(apres.json.commandes.find(x => x.id === cmd.json.commandeId).client.nom, 'Élodie Martin');
     // Effacement d'un client : effacé aussi dans le chiffré.
     db.prepare("UPDATE commandes SET statut = 'livree'").run();
     assert.equal((await appel('POST', '/api/admin/clients/effacer', { email: 'elodie@exemple.fr' })).statut, 200);

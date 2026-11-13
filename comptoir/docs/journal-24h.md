@@ -278,3 +278,20 @@ Relecture indépendante du programme de fidélité : 200 000 paniers aléatoires
   
   En France, elles indiquent aussi **les mentions de l'art. L441-10 du Code de commerce** : pas d'escompte pour paiement anticipé, pénalités de retard à trois fois le taux d'intérêt légal, indemnité forfaitaire de 40 € pour frais de recouvrement.
 - Test vérifiant le texte du PDF (numéro de TVA, mentions, devis d'origine) : 142 tests sur 142.
+
+### Cycle 17 (01 h 40) : corrections de la relecture du chiffrement
+
+Relecture indépendante du chiffrement des données clients : changement de clé, données falsifiées, copie d'une commande à l'autre, migration de 200 000 commandes, résidus dans le fichier. Points corrigés :
+- **Grave, changement de clé** : un exploitant qui définissait `SECRET_CHIFFREMENT` après l'ouverture (comme le démarrage le lui conseille) rendait toutes les boutiques inutilisables, sans aucun message. Comptoir utilise désormais un **trousseau** : la clé courante chiffre, et l'ancienne clé, gardée dans la base, déchiffre encore. Au démarrage, tout est rechiffré avec la clé courante (repère d'empreinte de clé dans la base). Une donnée illisible avec toutes les clés connues est signalée clairement dans les journaux du serveur.
+- **Grave, une seule ligne abîmée bloquait tout** : l'espace marchand, les nouvelles commandes et les tâches de fond. La lecture est désormais tolérante : le client s'affiche « (données client illisibles) », la boutique continue de fonctionner, et le chiffré d'origine est **conservé tel quel** à la prochaine écriture (jamais écrasé).
+- **Liaison à la commande** : le chiffré inclut désormais la boutique et la commande dans ses données authentifiées. Recopié dans une autre commande ou une autre boutique, il est refusé. « Mes commandes » vérifie en plus l'adresse déchiffrée, pas seulement l'index.
+- **Index aveugle propre à chaque boutique** : un même client n'est plus reliable d'une boutique à l'autre. L'adresse est normalisée (Unicode NFC, espaces, casse). L'étiquette d'authentification fait obligatoirement 16 octets.
+- **Migration robuste** : par pages, ligne par ligne. Une ligne au JSON abîmé ou un client vide ne bloque plus le démarrage et ne le fait plus tourner en boucle. Après conversion, le fichier est compacté, et les pages libérées pendant la migration et l'effacement d'un client sont remises à zéro (`secure_delete`). Mesure de la relecture : avant, 8 529 clients restaient lisibles dans le fichier après migration.
+- **Performance** :
+  - recherche des réservations de stock et des commandes d'un client par l'index, sans rien déchiffrer ;
+  - cache borné des données déchiffrées, clé couvrant tout le chiffré (un premier essai avec une clé tronquée laissait passer une falsification : le test l'a attrapé, c'est corrigé) ;
+  - pas de rechiffrement d'un client inchangé.
+  
+  Test de charge (1000 boutiques) : 605 requêtes par seconde, contre 690 avant ces protections, sans erreur.
+- **Documentation corrigée** : la liste de ce qui reste en clair a été complétée (file des e-mails, envois de webhooks, devis, avis, newsletter, alertes de stock).
+- 143 tests sur 143, bout en bout 51 sur 51, simulation de 60 jours : 0 anomalie.
