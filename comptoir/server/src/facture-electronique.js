@@ -23,6 +23,9 @@ const tauxDeLigne = (c, l, defaut) => typeof l.tauxTva === 'number' ? l.tauxTva 
 
 /* Ventilation TTC par taux : même calcul que la facture imprimée (js/modules.js, tva()). */
 function ventiler(c, defaut = 0) {
+  // Avoir partiel ou final : ventilation calculée pour compenser la facture taux par taux (js/retours-calcul.js).
+  const imposee = require('../../js/retours-calcul.js').ventilationImposee(c, l => tauxDeLigne(c, l, defaut));
+  if (imposee) { for (const v of imposee) { v.ht = v.taux ? r2(v.ttc / (1 + v.taux)) : v.ttc; v.tva = r2(v.ttc - v.ht); } return imposee.sort((a, b) => b.taux - a.taux); }
   const ttc = c.total, base = c.lignes.reduce((a, l) => a + l.prix * l.qte, 0) || 1;
   const groupes = {};
   for (const l of c.lignes) { const t = tauxDeLigne(c, l, defaut); groupes[t] = (groupes[t] || 0) + ttc * (l.prix * l.qte) / base; }

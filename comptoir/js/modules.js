@@ -162,11 +162,13 @@ function tauxDeLigne(c, l) { return typeof l.tauxTva === 'number' ? l.tauxTva : 
 function tva(c) {
   const r2 = n => Math.round(n * 100) / 100;
   const ttc = c.total, base = c.lignes.reduce((a, l) => a + l.prix * l.qte, 0) || 1;
+  // Avoir partiel ou final : ventilation qui compense la facture taux par taux (même règle que le serveur).
+  const imposee = typeof RetoursCalcul !== 'undefined' ? RetoursCalcul.ventilationImposee(c, l => tauxDeLigne(c, l)) : null;
   const groupes = {};
-  for (const l of c.lignes) { const t = tauxDeLigne(c, l); groupes[t] = (groupes[t] || 0) + ttc * (l.prix * l.qte) / base; }
-  if (!c.lignes.length) groupes[typeof c.tauxTva === 'number' ? c.tauxTva : tauxTvaVente()] = ttc;
-  const parTaux = Object.entries(groupes).map(([t, m]) => ({ taux: Number(t), ttc: r2(m) })).sort((a, b) => b.ttc - a.ttc);
-  if (parTaux.length) parTaux[0].ttc = r2(parTaux[0].ttc + ttc - parTaux.reduce((a, x) => a + x.ttc, 0));   // somme exacte au centime
+  if (!imposee) for (const l of c.lignes) { const t = tauxDeLigne(c, l); groupes[t] = (groupes[t] || 0) + ttc * (l.prix * l.qte) / base; }
+  if (!imposee && !c.lignes.length) groupes[typeof c.tauxTva === 'number' ? c.tauxTva : tauxTvaVente()] = ttc;
+  const parTaux = imposee || Object.entries(groupes).map(([t, m]) => ({ taux: Number(t), ttc: r2(m) })).sort((a, b) => b.ttc - a.ttc);
+  if (!imposee && parTaux.length) parTaux[0].ttc = r2(parTaux[0].ttc + ttc - parTaux.reduce((a, x) => a + x.ttc, 0));   // somme exacte au centime
   for (const x of parTaux) { x.ht = x.taux ? r2(x.ttc / (1 + x.taux)) : x.ttc; x.tva = r2(x.ttc - x.ht); }
   parTaux.sort((a, b) => b.taux - a.taux);
   const ht = r2(parTaux.reduce((a, x) => a + x.ht, 0)), montantTva = r2(parTaux.reduce((a, x) => a + x.tva, 0));

@@ -52,6 +52,14 @@ La feuille de route peut évoluer selon les constats des relectures.
 24. **Fidélité** : expiration des points prise en compte dans les statistiques et le solde affiché.
 25. **Relecture adversariale des nouveautés** (retours partiels, cartes cadeaux, devis, fidélité, emplacements), puis corrections.
 
+**Cinquième phase** (la quatrième est terminée le 13 novembre vers 5 h 10) :
+
+26. **Comptabilité des avoirs partiels** : export pour la fiduciaire et décompte de TVA avec chaque avoir tel qu'émis, ventilé taux par taux.
+27. **API publique** : avoirs et retours partiels lisibles par les intégrations (`/api/v1`).
+28. **Export des cartes cadeaux vendues et utilisées** pour la fiduciaire (bons à usages multiples : encours, utilisations).
+29. **Audit au clavier** des nouveaux formulaires du marchand (retour partiel, geste commercial).
+30. **Démonstration publiée** mise à jour avec les nouveautés.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -595,3 +603,17 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - XSS de la boutique ;
   - en-têtes et cache des nouvelles routes.
 - 170 tests sur 170, bout en bout 51 sur 51. Parcours de fidélité vérifié dans un vrai navigateur : code demandé, code reçu saisi, points appliqués.
+
+### Cycle 35 (04 h 39) : comptabilité des avoirs partiels (chantier 26)
+
+- **Défaut trouvé en préparant la phase 5** : l'export pour la fiduciaire et le décompte de TVA ignoraient les avoirs partiels et les gestes. Ils comptaient l'avoir final pour la facture entière, au lieu du reste. Avec un retour partiel, le décompte de TVA surestimait donc les remboursements.
+- **Calcul partagé** : les calculs des retours (`js/retours-calcul.js`) sont maintenant un module commun au serveur et à l'application, comme les remises et les formules. L'export et le décompte utilisent exactement les montants des documents émis et du journal scellé ; il n'existe plus de copie qui pourrait diverger.
+- **Second défaut, trouvé par le nouveau test** : un avoir partiel qui rembourse la livraison la portait entièrement au taux de TVA de l'article rendu, alors que la facture la répartissait entre les taux. L'avoir final avait le même biais. Les totaux restaient justes, mais pas le décompte par taux (4,31 de travers au taux de 8,1 % dans le test).
+- **Correctif** : chaque avoir porte désormais sa ventilation par taux :
+  - articles rendus à leur taux ;
+  - livraison répartie comme sur la facture ;
+  - avoir final égal à exactement ce qui reste à chaque taux.
+
+  La facture électronique, le PDF et l'application l'utilisent. Les avoirs compensent la facture taux par taux, et chaque facture électronique d'avoir reste conforme.
+- **Vérifié dans l'application** : facture, avoir partiel, avoir de geste et avoir final se compensent au centime dans le décompte de TVA (total 0, TVA 0) et dans l'export CSV (4 lignes, somme 0).
+- 1 nouveau test : 171 tests sur 171.

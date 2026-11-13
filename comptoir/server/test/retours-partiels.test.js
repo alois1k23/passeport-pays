@@ -350,3 +350,25 @@ test('geste : contenu recalculé d’une pièce indépendant de l’heure (même
   assert.throws(() => R.calculer(c, { geste: 1, lignes: [{ index: 0, qte: 1 }] }, { argentPaye: 284 }), /ne se combine pas/);
   assert.throws(() => R.calculer(c, { geste: null }, { argentPaye: 284 }), /invalide/);
 });
+
+test('TVA : avoirs partiels, geste et avoir final compensent exactement la facture, taux par taux (export comptable, décompte)', () => {
+  const F = require('../src/facture-electronique');
+  const c = { id: 'c', numero: 3, facture: 'FA-1', lignes: [{ nom: 'Livre', prix: 24.9, qte: 3, tauxTva: 0.026 }, { nom: 'Lampe', prix: 59.95, qte: 2, tauxTva: 0.081 }], remise: 0, port: 7, total: 0, retoursPartiels: [] };
+  c.total = Math.round((24.9 * 3 + 59.95 * 2 + 7) * 100) / 100;
+  const paye = Math.round(c.total * 100), pousser = (r, extra = {}) => c.retoursPartiels.push({ numero: `AV-${c.retoursPartiels.length + 2}`, date: c.retoursPartiels.length + 1, ...extra, ...r });
+  pousser(R.calculer(c, { lignes: [{ index: 0, qte: 1 }], port: true }, { argentPaye: paye }));
+  pousser(R.calculer(c, { geste: 12.5 }, { argentPaye: paye }), { geste: true });
+  pousser(R.calculer(c, { lignes: [{ index: 1, qte: 1 }] }, { argentPaye: paye }));
+  c.avoir = { numero: 'AV-9', date: 9, montant: R.resteAvoir(c) / 100 };
+  const pieces = R.piecesAvoir(c);
+  assert.deepEqual(pieces.map(p => [p.numero, !!p.final, p.geste]), [['AV-2', false, false], ['AV-3', false, true], ['AV-4', false, false], ['AV-9', true, false]]);
+  const parTaux = {};
+  const ajouter = (v, signe) => { for (const x of F.ventiler(v, 0)) { parTaux[x.taux] = parTaux[x.taux] || { ttc: 0, tva: 0 }; parTaux[x.taux].ttc += signe * Math.round(x.ttc * 100); parTaux[x.taux].tva += signe * Math.round(x.tva * 100); } };
+  ajouter(c, 1); for (const p of pieces) ajouter(p.vue, -1);
+  for (const [t, x] of Object.entries(parTaux)) { assert.equal(x.ttc, 0, `TTC au taux ${t}`); assert.ok(Math.abs(x.tva) <= pieces.length, `TVA au taux ${t} : écart ${x.tva} centimes`); }
+  // Chaque avoir donne une facture électronique cohérente (EN 16931), avec cette ventilation.
+  const config = { boutique: { pays: 'ch', nom: 'B', devise: 'CHF' }, entreprise: { raison: 'B SA', adresse: 'Rue 1, 1003 Lausanne', tvaIntra: 'CHE-123.456.789 TVA', siret: 'CHE-123.456.789' } };
+  for (const p of pieces) assert.deepEqual(F.verifier(F.produire(p.vue, config, { avoir: true, devise: 'CHF' })), [], p.numero);
+  // Sans retour partiel : l'avoir final porte la facture entière (comportement d'avant inchangé).
+  const simple = { ...c, retoursPartiels: [] }; assert.equal(R.piecesAvoir(simple)[0].vue, simple);
+});
