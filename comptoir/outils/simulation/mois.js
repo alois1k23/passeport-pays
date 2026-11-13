@@ -375,14 +375,13 @@ const durees = [];
   const file = db.prepare('SELECT COUNT(*) n, SUM(envoye) e FROM emails').get();
   console.log(JSON.stringify({
     marchands: marchands.length, acheteurs: acheteurs.length, jours: JOURS, desinscriptions: desinscrits.size, effacements: effaces.length, comptesSupprimes: supprimes.length,
-    commandes: bilan.commandes, formulesFinales: bilan.formules, abonnements: bilan.abonnements,
+    commandes: bilan.commandes, retours: statsRetours, formulesFinales: bilan.formules, abonnements: bilan.abonnements,
     revenuMensuelExploitant: `${mrr} (CHF/€ mélangés, ordre de grandeur)`,
     emails: { total: file.n, envoyes: file.e || 0, parSujet: bilan.emails },
     requetes: { nombre: durees.length, medianeMs: tri[Math.floor(tri.length / 2)], p95Ms: tri[Math.floor(tri.length * 0.95)], maxMs: tri[tri.length - 1] },
     erreursJournalServeur: erreursServeur.slice(0, 10), nbErreursJournal: erreursServeur.length,
     anomaliesParType: anomalies.reduce((o, a) => { o[a.quoi] = (o[a.quoi] || 0) + 1; return o; }, {}),
-    anomalies: anomalies.slice(0, 40), nbAnomalies: anomalies.length,
-    parType: anomalies.reduce((o, a) => { o[a.quoi] = (o[a.quoi] || 0) + 1; return o; }, {})
+    anomalies: anomalies.slice(0, 40), nbAnomalies: anomalies.length
   }, null, 1));
   serveur.close(); db.close(); try { require('node:fs').rmSync(fichier); require('node:fs').rmSync(fichier + '-wal', { force: true }); require('node:fs').rmSync(fichier + '-shm', { force: true }); } catch { /* ignoré */ }
   process.exit(0);

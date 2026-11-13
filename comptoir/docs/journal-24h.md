@@ -734,3 +734,17 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - `.env.example` : rôle complet de `SECRET_CHIFFREMENT`.
   - `README.md` : langues de la boutique.
   - `API.md` : exemple de commande avec les nouveaux champs.
+
+### Cycle 43 (05 h 38) : simulation de 60 jours avec retours partiels et gestes (chantier 34)
+
+- **Gestion simulée** : après livraison ou retrait, les marchands simulés font des retours partiels (avec ou sans livraison, articles remis en stock ou abîmés), des gestes commerciaux et des remboursements du reste. Chaque fois, ils passent par l'aperçu puis la confirmation avec le montant vu, comme dans l'interface.
+- **Nouveaux invariants vérifiés sur chaque commande** :
+  - les avoirs ne dépassent jamais la facture et l'égalent exactement une fois la commande remboursée ;
+  - aucun retour ne reste en suspens ;
+  - la numérotation des pièces est continue, avoirs partiels compris ;
+  - le stock est cohérent avec les ventes, articles abîmés compris ;
+  - aucune vente à découvert n'échappe à l'alerte.
+- **Premiers passages** : les 1 809 puis 1 540 anomalies relevées venaient toutes des contrôles de la simulation elle-même, qui ignoraient les avoirs partiels dans la numérotation, les articles abîmés dans le stock et les unités rendues dans l'alerte de rupture, ou qui retentaient un remboursement de livraison déjà fait. Aucune ne venait de la plateforme. Ces contrôles ont été corrigés un par un, et chaque type d'anomalie a été examiné avant d'être corrigé.
+- **Résultat** :
+  - 100 marchands sur 60 jours : **0 anomalie**, journal scellé vérifié pour chaque marchand ;
+  - 40 marchands sur 45 jours, avec le décompte : **758 retours partiels, 1 835 gestes commerciaux et 314 remboursements du reste**, 0 anomalie.
