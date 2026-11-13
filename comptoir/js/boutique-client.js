@@ -275,11 +275,12 @@ async function envoyerCommande(form) {
 /* Facture et avoirs de la commande en PDF (Factur-X), téléchargés avec le jeton personnel de la commande. */
 function documentsCommande(c, id, jeton) {
   const lien = avoir => `/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(id)}/document?jeton=${encodeURIComponent(jeton || '')}${avoir ? `&avoir=${encodeURIComponent(avoir)}` : ''}`;
+  if (!c.documentsDisponibles) return '';
   const liens = [];
-  if (c.facture) liens.push(`<a class="lien" href="${lien(null)}" download>Facture ${esc(c.facture)} (PDF)</a>`);
-  for (const a of c.avoirsPartiels || []) liens.push(`<a class="lien" href="${lien(a.numero)}" download>Avoir ${esc(a.numero)} (PDF, ${euros(a.montant)})</a>`);
-  if (c.avoir) liens.push(`<a class="lien" href="${lien('1')}" download>Avoir ${esc(c.avoir)} (PDF)</a>`);
-  return liens.length ? `<p class="mini documents-commande">${liens.join(' · ')}</p>` : '';
+  if (c.facture) liens.push(`<a class="lien" href="${lien(null)}" data-document download>Facture ${esc(c.facture)} (PDF)</a>`);
+  for (const a of c.avoirsPartiels || []) liens.push(`<a class="lien" href="${lien(a.numero)}" data-document download>Avoir ${esc(a.numero)} (PDF, ${euros(a.montant)})</a>`);
+  if (c.avoir) liens.push(`<a class="lien" href="${lien('1')}" data-document download>Avoir ${esc(c.avoir)} (PDF)</a>`);
+  return liens.length ? `<p class="mini documents-commande">${liens.join(' · ')}</p><p class="erreur-form" role="alert" data-erreur-document hidden></p>` : '';
 }
 async function suivreCommande(id, jeton, annule) {
   vue.ouvert = true;
@@ -663,4 +664,20 @@ document.addEventListener('submit', async e => {
     if (!rep.ok) throw new Error(json.erreur || 'Achat impossible pour l’instant.');
     location.href = json.paiementUrl;
   } catch (x) { err.textContent = x.message; err.hidden = false; b.disabled = false; }
+});
+
+/* Téléchargement d'une facture ou d'un avoir : en cas de refus (boutique incomplète, trop de demandes), le message du
+   serveur est affiché au lieu d'un fichier JSON enregistré par le navigateur. */
+document.addEventListener('click', async e => {
+  const a = e.target.closest('a[data-document]'); if (!a) return;
+  e.preventDefault();
+  const zone = document.querySelector('[data-erreur-document]');
+  try {
+    const rep = await fetch(a.href);
+    if (!rep.ok) { let m = 'Téléchargement impossible pour l’instant.'; try { m = (await rep.json()).erreur || m; } catch { /* ignoré */ } throw new Error(m); }
+    const nom = (/filename="([^"]+)"/.exec(rep.headers.get('Content-Disposition') || '') || [])[1] || 'document.pdf';
+    const url = URL.createObjectURL(await rep.blob()), lienTmp = document.createElement('a');
+    lienTmp.href = url; lienTmp.download = nom; document.body.appendChild(lienTmp); lienTmp.click(); lienTmp.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (zone) zone.hidden = true;
+  } catch (x) { if (zone) { zone.textContent = trad(x.message); zone.hidden = false; } }
 });

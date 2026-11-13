@@ -265,3 +265,17 @@ test('client : facture et avoirs en PDF avec le jeton de sa commande ; demande d
     assert.equal(c.retour.lignes[0].qte, 2, 'plafonné aux unités pas encore rendues');
   } finally { s.close(); }
 });
+
+test('facture QR annulée avant paiement : le PDF dit de ne pas payer, sans montant dû ni IBAN', async () => {
+  const FacturxPdf = require('../src/facturx-pdf');
+  const config = { boutique: { nom: 'B', pays: 'ch', devise: 'CHF' }, entreprise: { raison: 'B Sàrl', adresse: 'Rue 1, 1003 Lausanne', regime: 'ch-non', iban: 'CH93 0076 2011 6238 5295 7', email: 'b@exemple.ch', tvaIntra: '' } };
+  const c = { id: 'c1', numero: 7, date: Date.now(), statut: 'annulee', facture: 'FA-2026-0001', dateFacture: Date.now(), moyen: 'facture', referenceQr: '210000000003139471430009017', echeance: Date.now() + 864e6,
+    client: { nom: 'Lou', adresse: 'Rue 2', npa: '1003', ville: 'Lausanne' }, lignes: [{ nom: 'Vase', prix: 40, qte: 1, tauxTva: 0 }], sousTotal: 40, port: 0, total: 40, tauxTva: 0, avoir: { numero: 'AV-2026-0002', date: Date.now(), montant: 40 } };
+  const pdf = FacturxPdf.produire(c, config, { devise: 'CHF', xml: '<x/>' });
+  // Texte extrait par pdftotext (test ignoré sans poppler).
+  const { execFileSync } = require('node:child_process'), fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  let texte;
+  try { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'qr-')); const f = path.join(d, 'a.pdf'); fs.writeFileSync(f, pdf); texte = execFileSync('pdftotext', [f, '-']).toString(); fs.rmSync(d, { recursive: true, force: true }); } catch { return; }
+  assert.doesNotMatch(texte, /Montant à payer|IBAN/);
+  assert.match(texte, /Facture annulée par l’avoir AV-2026-0002 : ne la payez pas\./);
+});

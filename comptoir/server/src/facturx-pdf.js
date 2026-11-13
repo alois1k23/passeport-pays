@@ -210,11 +210,14 @@ function composer(c, config, { avoir, devise }) {
   const mentions = [];
   if (sansTva) mentions.push(`${franchise}.`);
   if (avoir) mentions.push(paye ? 'Montant remboursé.' : 'Cet avoir solde la facture, qui n’a pas été payée.');
-  else if (paye) mentions.push(ch ? 'Paiement reçu. Merci pour votre achat.' : 'Paiement reçu.');
+  // Facture annulée avant paiement (avoir émis) : jamais de montant à payer ni d'IBAN, l'avoir est cité.
+  else if (!paye && c.avoir && c.avoir.numero) mentions.push(`Facture annulée par l’avoir ${c.avoir.numero} : ne la payez pas.`);
+  else if (paye) mentions.push(`${ch ? 'Paiement reçu. Merci pour votre achat.' : 'Paiement reçu.'}${c.avoir && c.avoir.numero ? ` Remboursée : avoir ${c.avoir.numero}.` : ''}`);
   else {
     mentions.push(`Montant à payer : ${argent(ttc)}${c.echeance ? `, au plus tard le ${dateFr(c.echeance)}` : ''}.`);
     if (e.iban) mentions.push(`IBAN : ${String(e.iban).replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim()}${c.referenceQr ? ` · Référence : ${c.referenceQr}` : ''}`);
   }
+  if (!avoir && (c.retoursPartiels || []).length) mentions.push(`Avoirs partiels émis sur cette facture : ${c.retoursPartiels.map(p => p.numero).join(', ')}.`);
   if (avoir && c.carteCadeau && c.carteCadeau.montant > 0 && c.avoir && c.avoir.libelle) mentions.push(`Dont ${brut(c.carteCadeau.montant)} recrédités sur la carte cadeau ····${c.carteCadeau.fin}.`);
   if (!avoir && c.carteCadeau && c.carteCadeau.montant > 0) mentions.push(`Dont ${brut(c.carteCadeau.montant)} réglés par carte cadeau ····${c.carteCadeau.fin}.`);
   // Vente entre professionnels (commande issue d'un devis) : mentions de l'art. L441-9 du Code de commerce (France).

@@ -2568,7 +2568,11 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (!c.facture || c.canal === 'carte') throw erreur(404, 'Document introuvable.', 'introuvable');
     let doc;
     try { doc = documentStructure(c, lireConfig(b), ctx.query.get('avoir') || null); }
-    catch (e) { if (e.statut === 409) throw erreur(409, 'Ce document n’est pas encore disponible : la boutique complète ses informations. Contactez-la si besoin.', 'indisponible'); throw e; }
+    catch (e) {
+      if (e.statut === 409) throw erreur(409, 'Ce document n’est pas encore disponible : la boutique complète ses informations. Contactez-la si besoin.', 'indisponible');
+      if (e.statut >= 500) throw erreur(500, 'Ce document ne peut pas être produit pour l’instant. Contactez la boutique.', 'indisponible');
+      throw e;
+    }
     ctx.entetes['Cache-Control'] = 'private, no-store';
     ctx.entetes['Content-Disposition'] = `attachment; filename="${doc.nom}.pdf"`;
     return { binaire: FacturxPdf.produire(doc.c, doc.config, { avoir: doc.avoir, devise: doc.devise, xml: doc.xml }), type: 'application/pdf' };
@@ -3585,11 +3589,13 @@ ${bloc}</main></body></html>`;
       }
       row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);
     }
-    const c = lireCommande(row);
-    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map((l, i) => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, rendu: Retours.deja(c).qte[i] })), offreApres: offreApres(b, c),
+    const c = lireCommande(row), rendus = Retours.deja(c).qte;
+    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map((l, i) => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, rendu: rendus[i] })), offreApres: offreApres(b, c),
+      // Liens de téléchargement seulement si la boutique a toutes ses mentions (sinon le document ne peut pas être produit).
+      documentsDisponibles: !!c.facture && c.canal !== 'carte' && !FactureElectronique.manques(c, lireConfig(b)).length,
       facture: c.facture && c.canal !== 'carte' ? c.facture : null, avoir: c.avoir && c.avoir.numero ? c.avoir.numero : null, retour: c.retour ? { statut: c.retour.statut, date: c.retour.date } : null,
       avoirsPartiels: (c.retoursPartiels || []).map(p => ({ numero: p.numero, date: p.date, montant: p.montant / 100 })),
-      retourPossible: delaiRetour(b, c) > Date.now() && !(c.retour && c.retour.statut === 'demande') && !c.avoir && c.statut !== 'remboursee' && Retours.deja(c).qte.some((q, i) => q < c.lignes[i].qte) };
+      retourPossible: delaiRetour(b, c) > Date.now() && !(c.retour && c.retour.statut === 'demande') && !c.avoir && c.statut !== 'remboursee' && rendus.some((q, i) => q < c.lignes[i].qte) };
   });
 
   /* ---------- Webhooks ---------- */

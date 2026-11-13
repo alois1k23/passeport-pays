@@ -521,3 +521,11 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
 - **Demande de retour** : la liste propose seulement les unités pas encore remboursées. Le client peut faire une nouvelle demande après un retour remboursé.
 - Liens et messages traduits en allemand, italien et anglais.
 - 1 nouveau test : 165 tests sur 165. Vérifié dans un vrai navigateur : liens affichés, PDF de l'avoir téléchargé.
+- **Relecture indépendante**, constats corrigés :
+  - **Facture QR annulée avant paiement** : son PDF demandait encore le montant avec l'IBAN et la référence, sans parler de l'annulation, et le client risquait de payer une commande annulée. Le PDF indique désormais « Facture annulée par l'avoir … : ne la payez pas », sans IBAN.
+  - Une facture remboursée cite son avoir, et une facture qui a des avoirs partiels les liste.
+  - Un refus (boutique incomplète, trop de demandes) s'affiche maintenant au client, au lieu d'un fichier JSON enregistré par le navigateur.
+  - Les liens n'apparaissent que si le document peut être produit.
+  - Le message d'erreur interne destiné au marchand est remplacé par un message neutre.
+  - Les unités déjà rendues sont calculées une seule fois.
+  - 1 test de plus : 166 tests sur 166.
