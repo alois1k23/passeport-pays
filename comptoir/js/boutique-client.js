@@ -204,7 +204,7 @@ function rendreBrut() {
               ${donnees.factureQr.enLigne === false ? '' : `<label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>`}
               <label class="case-sf"><input type="radio" name="moyen" value="facture"${donnees.factureQr.enLigne === false ? ' checked' : ''}> Facture QR, payable sous ${donnees.factureQr.echeanceJours} jours (expédition dès réception du paiement)</label></fieldset>` : ''}
             <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
-            <p class="erreur-form" id="erreur" hidden></p>
+            <p class="erreur-form" id="erreur" role="alert" hidden></p>
             ${!adresseVendeur() ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
             <button class="sf-btn plein" ${vue.envoi || !adresseVendeur() || donnees.paiementsActifs === false ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : partCarte && !aPayer ? 'Payer avec la carte cadeau' : `Payer ${euros(aPayer)}`}</button>
             <p class="mini">${donnees.paiement === 'stripe' ? (ch && (!donnees.moyens || donnees.moyens.twint) ? 'Paiement sécurisé par TWINT ou carte.' : donnees.boutique.pays === 'be' && (!donnees.moyens || donnees.moyens.bancontact) ? 'Paiement sécurisé par Bancontact ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
@@ -305,6 +305,17 @@ async function suivreCommande(id, jeton, annule) {
   }
 }
 
+/* Annonce aux lecteurs d'écran (zone « status » hors de l'application, jamais redessinée) : ajout au panier, etc. */
+function annoncer(texte) {
+  const z = document.getElementById('annonces'); if (!z) return;
+  z.textContent = ''; setTimeout(() => { z.textContent = texte; }, 60);
+}
+/* Fermeture du panier : le focus revient sur le bouton qui l'avait ouvert (ou sur le bouton du panier). */
+function fermerTiroir() {
+  vue.ouvert = false; rendre();
+  const cible = (vue.declencheur && document.querySelector(vue.declencheur)) || document.querySelector('[data-sf="panier"]') || document.querySelector('main h1, h1');
+  if (cible) { if (!cible.matches('button, a, input, [tabindex]')) cible.setAttribute('tabindex', '-1'); cible.focus(); }
+}
 document.addEventListener('click', e => {
   const sf = e.target.closest('[data-sf]');
   if (sf) {
@@ -318,8 +329,11 @@ document.addEventListener('click', e => {
       const q = Math.max(1, Number(document.querySelector('[data-sf-qte]')?.value) || 1);
       const max = p.type === 'drop' ? 20 : v ? v.stock : p.stock;
       if (l) l.qte = Math.min(max, l.qte + q); else vue.panier.push(v ? ligneVariante(p, v, Math.min(max, q)) : { produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(max, q) });
+      vue.declencheur = `[data-sf="ajouter"][data-id="${CSS.escape(p.id)}"]`;
       garderPanier(); if (vue.fiche) fermerFiche({ rendu: false }); vue.message = null; vue.ouvert = true; rendre();
-    } else if (sf.dataset.sf === 'panier') { vue.ouvert = true; rendre(); }
+      const n = vue.panier.reduce((a, x) => a + x.qte, 0);
+      annoncer(`${p.nom}${v ? ` (${v.valeurs.join(' / ')})` : ''} ajouté au panier. ${n} article${n > 1 ? 's' : ''} dans le panier.`);
+    } else if (sf.dataset.sf === 'panier') { vue.declencheur = '[data-sf="panier"]'; vue.ouvert = true; rendre(); }
     else if (sf.dataset.sf === 'tout-voir') { vueVitrine.tout = vueVitrine.tout === sf.dataset.id ? null : sf.dataset.id; vueVitrine.cat = ''; rendre(); document.querySelector(`[data-sf="tout-voir"][data-id="${CSS.escape(sf.dataset.id)}"]`)?.closest('.sf-produits')?.scrollIntoView({ block: 'start' }); }
     else if (sf.dataset.sf === 'cat') { vueVitrine.cat = sf.dataset.v; rendre(); }
     else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
@@ -333,7 +347,7 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-c]');
   if (!el) return;
   const c = el.dataset.c;
-  if (c === 'fermer') { vue.ouvert = false; if (vue.message && !vue.panier.length) vue.message = null; if (!vue.fiche) history.replaceState(null, '', racineBoutique); rendre(); }
+  if (c === 'fermer') { if (vue.message && !vue.panier.length) vue.message = null; if (!vue.fiche) history.replaceState(null, '', racineBoutique); fermerTiroir(); }
   else if (c === 'recommander') {
     // Même panier qu'une commande passée : seuls les articles encore en vente, au prix d'aujourd'hui, dans la limite du stock.
     let lignes = []; try { lignes = JSON.parse(el.dataset.lignes); } catch { /* ignoré */ }
@@ -358,6 +372,7 @@ document.addEventListener('click', e => {
     l.qte = Math.min(max, l.qte + Number(el.dataset.d));   // le serveur refuserait au paiement : on borne tout de suite
     if (l.qte <= 0) vue.panier = vue.panier.filter(x => x !== l);
     garderPanier(); rendre();
+    annoncer(l.qte <= 0 ? `${l.nom} retiré du panier.` : `${l.nom} : quantité ${l.qte}.`);
   } else if (c === 'cookies') { try { localStorage.setItem('comptoir-cookies', el.dataset.v); } catch { /* ignoré */ } if (el.dataset.v === 'accord') mesurer('vue'); rendre(); }
   else if (c === 'legal') { vue.legal = el.dataset.v; rendre(); }
   else if (c === 'legal-fermer') { vue.legal = null; rendre(); }
@@ -399,7 +414,7 @@ document.addEventListener('submit', e => {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (vue.legal) { vue.legal = null; e.stopImmediatePropagation(); rendre(); }
-  else if (vue.ouvert) { vue.ouvert = false; e.stopImmediatePropagation(); rendre(); }
+  else if (vue.ouvert) { e.stopImmediatePropagation(); fermerTiroir(); }
 });
 
 /* Fidélité : le client reçoit un code par e-mail, puis voit ses points et choisit de les utiliser. */

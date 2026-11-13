@@ -247,3 +247,23 @@ Relecture indépendante du programme de fidélité : 200 000 paniers aléatoires
   - la file des e-mails (destinataire, contenu) et les comptes marchands restent en clair : ce sont des données d'exploitation, à purger selon la durée de conservation ;
   - changer `SECRET_CHIFFREMENT` rend les données existantes illisibles (documenté dans MISE-EN-LIGNE.md).
 - 2 nouveaux tests : 142 tests sur 142, bout en bout 51 sur 51.
+
+### Cycle 15 (01 h 00) : parcours d'achat entièrement au clavier et au lecteur d'écran
+
+- Nouvel outil, `outils/simulation/clavier.js`. Il fait un achat complet sans souris dans un vrai navigateur :
+  - refus des cookies ;
+  - ajout au panier ;
+  - quantité ;
+  - livraison aux flèches ;
+  - envoi du formulaire vide ;
+  - saisie des coordonnées ;
+  - paiement, confirmation, fermeture avec Échap.
+  
+  À chaque tabulation, il vérifie que le focus est visible. Il vérifie aussi que le focus reste dans la fenêtre ouverte (40 tabulations), qu'il va au bon endroit à l'ouverture comme à la fermeture, et que les changements sont annoncés.
+- **Ce qui marchait déjà** : focus visible partout, piège du focus dans le panier, Échap, focus sur le premier champ requis, passage au paiement et confirmation.
+- **Corrigé** :
+  - l'ajout au panier n'était annoncé à aucun lecteur d'écran. Une zone d'annonce permanente (« status », hors de l'application redessinée) dit maintenant « Vase bleu ajouté au panier. 1 article dans le panier. » ;
+  - les changements de quantité et les retraits sont annoncés de la même façon ;
+  - à la fermeture du panier (bouton, fond ou Échap), le focus revenait sur la page entière. Il revient désormais sur le bouton qui avait ouvert le panier ;
+  - les erreurs de commande (stock, code, paiement indisponible) sont annoncées tout de suite (« alert »).
+- Résultat de l'outil : **aucun problème, aucune erreur JavaScript**. 142 tests sur 142, bout en bout 51 sur 51.
