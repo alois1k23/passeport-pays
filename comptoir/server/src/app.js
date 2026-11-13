@@ -476,7 +476,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
     CREATE INDEX IF NOT EXISTS journal_compte_marchand ON journal_compte(marchand_id, date);
-    CREATE INDEX IF NOT EXISTS journal_compte_type ON journal_compte(type, date);`);
+    CREATE TABLE IF NOT EXISTS signaux_securite (type TEXT NOT NULL, date INTEGER NOT NULL, marchand_id TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS signaux_securite_type ON signaux_securite(type, date, marchand_id);`);
+  // Signaux d'attaque pour la console de l'exploitant : copie sans clé étrangère, pour qu'ils survivent à la suppression du
+  // compte (membre retiré après un vol de cookie, compte supprimé par l'intrus). Gardés 90 jours, sans adresse ni détail.
+  const SIGNAUX = new Set(['session-autre-appareil', 'session-fermee-echecs', 'cle-acces-copiee', 'email-changement-annule', 'mdp-refuse-cle-seule']);
+  const typeSignal = (type, detail) => SIGNAUX.has(type) ? type : type === 'recuperation-annulee' && detail === 'annulée par vous' ? 'recuperation-annulee-titulaire' : null;
   // Rotation de clé : secrets de double authentification chiffrés avec une ancienne clé, rechiffrés avec la courante.
   // Un secret illisible avec toutes les clés connues est signalé (le marchand passera par ses codes de secours).
   {   // à chaque démarrage : aussi quand la clé a été retirée (secrets d'une clé disparue comptés, jamais écrasés)
@@ -531,6 +536,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return null;
   };
   const noterActivite = (marchandId, type, detail, ctx) => {
+    const sig = typeSignal(type, detail);
+    if (sig) db.prepare('INSERT INTO signaux_securite (type, date, marchand_id) VALUES (?, ?, ?)').run(sig, Date.now(), marchandId);
     db.prepare('INSERT INTO journal_compte (marchand_id, date, type, detail, reseau) VALUES (?, ?, ?, ?, ?)').run(marchandId, Date.now(), type, detail ? String(detail).slice(0, 200) : null, ctx ? reseauIp(ctx.ip) : null);
   };
   // Ouvre une session (cookie) et la décrit pour la liste des appareils connectés.
@@ -1692,9 +1699,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const nonConfirmees = n('SELECT COUNT(*) n FROM marchands WHERE email_verifie_le IS NULL AND cree_le < ?', maintenant - 7 * j);
     const echecs2fa = n("SELECT COUNT(*) n FROM journal_compte WHERE type = 'echec-2fa' AND date > ?", maintenant - j);
     // Signaux de vol de session ou de compte (chantiers 62 à 66) : nombre d'événements et de comptes touchés.
-    const signal = (types, depuis) => db.prepare(`SELECT COUNT(*) n, COUNT(DISTINCT marchand_id) c FROM journal_compte WHERE type IN (${types.map(() => '?').join(', ')}) AND date > ?`).get(...types, maintenant - depuis);
-    const fermees = signal(['session-autre-appareil', 'session-fermee-echecs'], 7 * j), fermees24 = signal(['session-autre-appareil', 'session-fermee-echecs'], j);
-    const copiees = signal(['cle-acces-copiee'], 30 * j), annules = signal(['email-changement-annule'], 30 * j);
+    const signal = (types, depuis) => db.prepare(`SELECT COUNT(*) n, COUNT(DISTINCT marchand_id) c FROM signaux_securite WHERE type IN (${types.map(() => '?').join(', ')}) AND date > ?`).get(...types, maintenant - depuis);
+    const FERMEES = ['session-autre-appareil', 'session-fermee-echecs'], FUITES = ['mdp-refuse-cle-seule', 'recuperation-annulee-titulaire'];
+    const fermees = signal(FERMEES, 7 * j), fermees24 = signal(FERMEES, j);
+    // 30 jours affichés ; alerte seulement s'il y en a eu dans les 7 derniers jours (une ligne ne reste pas rouge un mois).
+    const copiees = signal(['cle-acces-copiee'], 30 * j), copiees7 = signal(['cle-acces-copiee'], 7 * j);
+    const annules = signal(['email-changement-annule'], 30 * j), annules7 = signal(['email-changement-annule'], 7 * j);
+    const fuites = signal(FUITES, 30 * j), fuites7 = signal(FUITES, 7 * j);
     const comptesTxt = x => `${x.n} (${x.c} compte${x.c > 1 ? 's' : ''})`;
     return [
       { titre: 'Clé de chiffrement', valeur: etatSecurite.cleHorsBase ? 'hors de la base (SECRET_CHIFFREMENT)' : 'GARDÉE DANS LA BASE', alerte: !etatSecurite.cleHorsBase,
@@ -1709,10 +1720,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       { titre: 'Codes de vérification refusés (24 h)', valeur: echecs2fa, alerte: echecs2fa >= 20, conseil: echecs2fa >= 20 ? 'Beaucoup de codes refusés : une attaque sur des mots de passe connus est possible (les marchands concernés sont prévenus par e-mail).' : '' },
       { titre: 'Sessions fermées par précaution (7 jours : autre appareil, 5 essais refusés)', valeur: comptesTxt(fermees), alerte: fermees24.c >= 5,
         conseil: fermees24.c >= 5 ? `${fermees24.c} comptes touchés en 24 h : des cookies de session circulent peut-être (logiciel espion, fuite). Les marchands sont prévenus ; surveillez les connexions et les changements d’adresse.` : '' },
-      { titre: 'Clés d’accès peut-être copiées (30 jours)', valeur: comptesTxt(copiees), alerte: copiees.n > 0,
-        conseil: copiees.n ? 'Une signature dont le compteur recule a été refusée : la titulaire est prévenue ; si cela se répète, conseillez-lui de supprimer la clé et d’en créer une nouvelle.' : '' },
-      { titre: 'Changements d’adresse annulés par l’ancienne adresse (30 jours)', valeur: comptesTxt(annules), alerte: annules.n > 0,
-        conseil: annules.n ? 'Chaque annulation est une tentative de prise de compte probable : le compte a été remis à sa titulaire, vérifiez s’il y a d’autres signaux (paiements, IBAN modifié).' : '' },
+      { titre: 'Clés d’accès peut-être copiées (30 jours)', valeur: comptesTxt(copiees), alerte: copiees7.n > 0,
+        conseil: copiees7.n ? 'Une signature dont le compteur recule a été refusée : la titulaire est prévenue ; si cela se répète, conseillez-lui de supprimer la clé et d’en créer une nouvelle.' : '' },
+      { titre: 'Changements d’adresse annulés par l’ancienne adresse (30 jours)', valeur: comptesTxt(annules), alerte: annules7.n > 0,
+        conseil: annules7.n ? 'Chaque annulation est une tentative de prise de compte probable : le compte a été remis à sa titulaire, vérifiez s’il y a d’autres signaux (paiements, IBAN modifié).' : '' },
+      { titre: 'Mots de passe ou boîtes e-mail probablement fuités (30 jours : bon mot de passe sur un compte « clé d’accès seule », récupération annulée par la titulaire)', valeur: comptesTxt(fuites), alerte: fuites7.c >= 3,
+        conseil: fuites7.c >= 3 ? `${fuites7.c} comptes en 7 jours : une fuite de mots de passe ou d’accès à des boîtes e-mail touche peut-être vos marchands.` : '' },
       (() => {
         // Sauvegardes : chiffrées, chacune est restaurée à l'essai avant d'être gardée ; sans clé, seulement vérifiée par
         // quick_check (voir sauvegarde.js). Plus de 30 heures sans
@@ -4221,6 +4234,7 @@ ${bloc}</main></body></html>`;
     db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE supprime = 1)').run();   // photos des produits supprimés : sessions et liens expirés, mesures d'audience de plus de 400 jours ; e-mails : voir plus bas (7, 30 et 180 jours)
     db.prepare('DELETE FROM sessions WHERE expire_le < ?').run(maintenant);
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
+    db.prepare('DELETE FROM signaux_securite WHERE date < ?').run(maintenant - 90 * 86400000);   // signaux d'attaque : 90 jours
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
     /* E-mails : le contenu (nom, adresse et commande des clients, en clair le temps de l'envoi) n'est gardé que le temps
        utile, puis effacé ; l'adresse du destinataire ne reste pas indéfiniment non plus.

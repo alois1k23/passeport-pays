@@ -40,6 +40,7 @@ test('cookie rejoué depuis un autre navigateur ou système : session fermée, t
     assert.equal(db.prepare('SELECT COUNT(*) n FROM sessions').get().n, 0);
     assert.ok(db.prepare("SELECT 1 FROM journal_compte WHERE type = 'session-autre-appareil' AND detail LIKE '%Firefox sur Windows%'").get());
     assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet = 'Session fermée : utilisée depuis un autre appareil'").get().n, 1);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM signaux_securite WHERE type = 'session-autre-appareil'").get().n, 1, 'signal pour la console de l’exploitant');
 
     // Safari sur iPad qui se présente tantôt en iPad, tantôt en Mac : toléré.
     const c2 = (await appel('POST', '/api/auth/connexion', { ua: UA.safariIpad, corps: { email: 'app@exemple.ch', motDePasse: 'un mot de passe solide' } })).cookie;

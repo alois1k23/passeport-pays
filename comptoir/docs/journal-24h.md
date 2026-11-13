@@ -1461,7 +1461,15 @@ Les protections de l'après-midi préviennent chaque marchand, mais l'exploitant
 - **Sessions fermées par précaution sur 7 jours** (autre appareil, ou 5 essais refusés). Alerte dès 5 comptes touchés en 24 heures, avec un conseil : des cookies circulent peut-être.
 - **Clés d'accès peut-être copiées sur 30 jours.** Alerte dès la première.
 - **Changements d'adresse annulés par l'ancienne adresse sur 30 jours.** Chaque annulation est une tentative probable de prise de compte : alerte, avec le conseil de chercher d'autres signaux, comme un IBAN modifié.
-- **Index** sur le journal des comptes (type, date), pour que ces comptes restent rapides avec beaucoup de marchands.
+
+Autres changements du chantier :
+
+- **Index** sur le journal des comptes (type, date), pour que ces comptes restent rapides avec beaucoup de marchands. Il a été remplacé après la relecture (voir plus bas).
 - **Test** : rien au départ, puis des fermetures sur 5 comptes en 24 heures (alerte et conseil), une clé copiée, une annulation. Un événement hors période n'est pas compté, et aucune adresse n'apparaît dans la page.
 - 229 tests sur 229, parcours de bout en bout 57/57.
+- **Relecture indépendante** : rien de grave (requêtes paramétrées, rendu échappé, aucune adresse). Améliorations faites :
+  - **Moyen : signaux effacés avec le compte.** Retirer un membre dont le cookie a été volé, ce qui est le bon réflexe, ou un compte supprimé par l'intrus, effaçait ses signaux par cascade. Les signaux sont désormais copiés dans une table à part, sans clé étrangère : identifiant interne du compte, type et date, sans adresse ni détail. Ils sont gardés 90 jours puis purgés. L'index de cette table couvre la requête (type, date, compte) ; celui ajouté au journal des comptes est retiré (testé : 5 comptes supprimés, signaux toujours comptés).
+  - **Signaux ajoutés** : le bon mot de passe essayé sur un compte « clé d'accès seule » (mot de passe fuité) et la récupération annulée par la titulaire elle-même (quelqu'un a accès à sa boîte e-mail). Ils forment une ligne « mots de passe ou boîtes e-mail probablement fuités », en alerte dès 3 comptes en 7 jours. Les autres annulations de récupération ne comptent pas, pour ne pas compter deux fois une annulation de changement d'adresse.
+  - **Alertes** : une clé copiée ou une annulation n'allume plus la ligne pendant 30 jours. Le total sur 30 jours reste affiché, mais l'alerte ne porte que sur les 7 derniers jours (testé).
+- Après corrections : 229 tests sur 229, parcours de bout en bout 57/57.
 
