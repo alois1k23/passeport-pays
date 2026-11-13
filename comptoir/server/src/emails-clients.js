@@ -4,6 +4,8 @@
 'use strict';
 const T = {
   de: {
+    pointsGagnes: n => `Gesammelte Treuepunkte: ${n}`, carteCadeau: (m, f, r) => `  davon ${m} mit Geschenkkarte ····${f}, Rest ${r}`,
+    codeFidelite: s => `${s}: Ihr Code für Ihre Treuepunkte`, codeFideliteCorps: (s, p, v, c) => `Sie haben ${p} Treuepunkte bei ${s} (${v}).\n\nIhr Code, um sie bei Ihrer Bestellung einzulösen: ${c}\nEr ist 15 Minuten gültig.\n\nSie haben nichts angefordert? Ignorieren Sie diese E-Mail: Ohne diesen Code kann niemand Ihre Punkte verwenden.`,
     mesCommandes: s => `Ihre Bestellungen bei ${s}`, mesCommandesCorps: (s, l) => `Hier sind Ihre Bestellungen bei ${s}:\n\n${l}\n\nHaben Sie nichts angefordert? Dann ignorieren Sie diese E-Mail.`, statuts: { payee: 'bezahlt', preparation: 'in Vorbereitung', fournisseur: 'in Vorbereitung', expediee: 'versandt', livree: 'geliefert', prete: 'abholbereit', retiree: 'abgeholt', remboursee: 'erstattet' }, numero: 'Nr.', du: 'vom',
     pageOptin: ['Neuigkeiten der Boutique erhalten', e => `Bestätigen Sie die Anmeldung von ${e}.`, 'Anmeldung bestätigen', 'Erledigt', e => `${e} erhält ab jetzt die Neuigkeiten dieser Boutique. Sie können sich jederzeit über jede E-Mail abmelden.`],
     optin: s => `Bestätigen Sie Ihre Anmeldung bei ${s}`, optinCorps: (s, lien) => `Sie (oder jemand anderes) haben Neuigkeiten und Angebote von ${s} angefordert. Zur Bestätigung klicken Sie hier:\n${lien}\n\nWaren Sie das nicht? Dann ignorieren Sie diese E-Mail: Sie erhalten nichts weiter.`,
@@ -22,6 +24,8 @@ const T = {
     piedContact: 'Kontakt', piedCommande: s => `Sie erhalten diese E-Mail aufgrund Ihrer Bestellung bei ${s}. Um solche Nachrichten nicht mehr zu erhalten`, piedNouvelles: s => `Sie erhalten diese E-Mail, weil Sie Neuigkeiten von ${s} abonniert haben. Zum Abbestellen`,
     legal: 'Rechtliche Hinweise (auf Französisch, massgebende Fassung):', dateLocale: 'de-CH' },
   it: {
+    pointsGagnes: n => `Punti fedeltà guadagnati: ${n}`, carteCadeau: (m, f, r) => `  di cui ${m} con la carta regalo ····${f}, resto ${r}`,
+    codeFidelite: s => `${s}: il suo codice per usare i punti`, codeFideliteCorps: (s, p, v, c) => `Ha ${p} punti fedeltà presso ${s} (${v}).\n\nIl suo codice per usarli nell’ordine: ${c}\nÈ valido 15 minuti.\n\nNon ha richiesto nulla? Ignori questa e-mail: senza questo codice nessuno può usare i suoi punti.`,
     mesCommandes: s => `I tuoi ordini presso ${s}`, mesCommandesCorps: (s, l) => `Ecco i tuoi ordini presso ${s}:\n\n${l}\n\nNon hai chiesto nulla? Ignora questa e-mail.`, statuts: { payee: 'pagato', preparation: 'in preparazione', fournisseur: 'in preparazione', expediee: 'spedito', livree: 'consegnato', prete: 'pronto per il ritiro', retiree: 'ritirato', remboursee: 'rimborsato' }, numero: 'n.', du: 'del',
     pageOptin: ['Ricevere le novità del negozio', e => `Conferma l’iscrizione di ${e}.`, 'Conferma l’iscrizione', 'Fatto', e => `${e} riceverà d’ora in poi le novità di questo negozio. Puoi annullare l’iscrizione in qualsiasi momento da ogni e-mail.`],
     optin: s => `Conferma la tua iscrizione presso ${s}`, optinCorps: (s, lien) => `Tu (o qualcun altro) hai chiesto di ricevere le novità e le offerte di ${s}. Per confermare, clicca qui:\n${lien}\n\nNon sei stato tu? Ignora questa e-mail: non riceverai nient’altro.`,
@@ -40,6 +44,8 @@ const T = {
     piedContact: 'Contatto', piedCommande: s => `Ricevi questa e-mail in seguito al tuo ordine presso ${s}. Per non ricevere più questo tipo di messaggi`, piedNouvelles: s => `Ricevi questa e-mail perché hai accettato le novità di ${s}. Per non riceverle più`,
     legal: 'Informazioni legali (in francese, versione che fa fede):', dateLocale: 'it-CH' },
   en: {
+    pointsGagnes: n => `Loyalty points earned: ${n}`, carteCadeau: (m, f, r) => `  including ${m} paid with gift card ····${f}, remainder ${r}`,
+    codeFidelite: s => `${s}: your code to use your points`, codeFideliteCorps: (s, p, v, c) => `You have ${p} loyalty points at ${s} (${v}).\n\nYour code to use them on your order: ${c}\nIt is valid for 15 minutes.\n\nDidn’t ask for this? Ignore this email: without this code, nobody can use your points.`,
     mesCommandes: s => `Your orders at ${s}`, mesCommandesCorps: (s, l) => `Here are your orders at ${s}:\n\n${l}\n\nDidn’t ask for this? Just ignore this email.`, statuts: { payee: 'paid', preparation: 'being prepared', fournisseur: 'being prepared', expediee: 'shipped', livree: 'delivered', prete: 'ready for pickup', retiree: 'picked up', remboursee: 'refunded' }, numero: 'no.', du: 'of',
     pageOptin: ['Get news from the shop', e => `Confirm the sign-up of ${e}.`, 'Confirm sign-up', 'Done', e => `${e} will now receive news from this shop. You can unsubscribe at any time from any email.`],
     optin: s => `Confirm your sign-up at ${s}`, optinCorps: (s, lien) => `You (or someone else) asked to receive news and offers from ${s}. To confirm, click here:\n${lien}\n\nNot you? Just ignore this email: you will not receive anything else.`,
@@ -65,7 +71,9 @@ function recapitulatif(t, c, { formatMontant, nomLivraison }) {
     ...c.lignes.map(l => `- ${l.qte} × ${l.nom} : ${formatMontant(l.prix * l.qte)}`),
     ...(c.remise ? [`  ${t.remise(c.motifRemise, formatMontant(c.remise))}`] : []),
     c.livraison === 'retrait' ? `- ${t.retraitGratuit}` : `- ${t.livraison} (${nomLivraison}) : ${c.port ? formatMontant(c.port) : t.offerte}`,
-    `${t.totalPaye} : ${formatMontant(c.total)}`
+    `${t.totalPaye} : ${formatMontant(c.total)}`,
+    ...(c.carteCadeau && c.carteCadeau.montant ? [t.carteCadeau(formatMontant(c.carteCadeau.montant), c.carteCadeau.fin, formatMontant(Math.max(0, c.total - c.carteCadeau.montant)))] : []),
+    ...(c.fidelite && c.fidelite.gagnes ? [t.pointsGagnes(c.fidelite.gagnes)] : [])
   ].join('\n');
 }
 function confirmation(c, o) {
@@ -108,6 +116,8 @@ const PAGES = {
 };
 const pages = langue => PAGES[lng(langue) || 'fr'];
 /* Liste des commandes d'une adresse (« Mes commandes ») ; commandes : [{ numero, date, statut, lien }]. */
+/* Code pour utiliser ses points de fidélité, dans la langue du client (null en français : texte d'app.js). */
+function codeFidelite(langue, o) { const t = T[lng(langue)]; if (!t) return null; return { sujet: t.codeFidelite(o.nomBoutique), corps: `${t.salut},\n\n${t.codeFideliteCorps(o.nomBoutique, o.points, o.valeur, o.code)}\n\n${o.nomBoutique}` }; }
 function mesCommandes(langue, o) {
   const l = lng(langue), t = l && T[l]; if (!t) return null;
   const lignes = o.commandes.map(c => `- ${t.numero} ${c.numero} ${t.du} ${new Date(c.date).toLocaleDateString(t.dateLocale)} (${t.statuts[c.statut] || c.statut}): ${c.lien}`).join('\n');
@@ -115,4 +125,4 @@ function mesCommandes(langue, o) {
 }
 const avecLangue = (url, c) => langueDe(c) ? `${url}${url.includes('?') ? '&' : '?'}lang=${c.langue}` : url;
 const textesPied = langue => lng(langue) ? { contact: T[langue].piedContact, commande: T[langue].piedCommande, nouvelles: T[langue].piedNouvelles } : null;
-module.exports = { mesCommandes, pages, pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };
+module.exports = { codeFidelite, mesCommandes, pages, pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, relance, avis, avecLangue, LANGUES: Object.keys(T) };

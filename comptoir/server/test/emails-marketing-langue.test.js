@@ -58,3 +58,17 @@ test('newsletter et reconquête dans la langue du client', async () => {
     assert.ok(mc, 'liste des commandes en allemand'); assert.match(mc.corps, /Nr\. \d+ vom .* \(geliefert\): http/);
   } finally { s.close(); }
 });
+
+test('nouveautés traduites : carte cadeau et points dans le récapitulatif, code de fidélité', () => {
+  const E = require('../src/emails-clients');
+  const c = { numero: 7, langue: 'de', client: { nom: 'Anna' }, lignes: [{ nom: 'Vase', qte: 1, prix: 40 }], total: 40, port: 0, livraison: 'retrait', carteCadeau: { montant: 15, fin: 'AB12' }, fidelite: { gagnes: 25 } };
+  const o = { nomBoutique: 'Atelier', formatMontant: m => `CHF ${m.toFixed(2)}`, nomLivraison: 'Retrait', lienCommande: 'https://x', legal: '' };
+  const m = E.confirmation(c, o);
+  assert.match(m.corps, /davon CHF 15\.00 mit Geschenkkarte ····AB12, Rest CHF 25\.00/);
+  assert.match(m.corps, /Gesammelte Treuepunkte: 25/);
+  for (const [l, motif] of [['de', /Ihr Code/], ['it', /Il suo codice/], ['en', /Your code/]]) {
+    const k = E.codeFidelite(l, { nomBoutique: 'Atelier', points: 120, valeur: 'CHF 6.00', code: '123456' });
+    assert.match(k.corps, motif); assert.match(k.corps, /123456/); assert.match(k.corps, /120/);
+  }
+  assert.equal(E.codeFidelite('fr', { nomBoutique: 'A', points: 1, valeur: '1', code: '1' }), null, 'français : texte d’origine');
+});

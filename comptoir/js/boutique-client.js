@@ -431,7 +431,7 @@ function blocFidelite(reg, remise, gagnes) {
 async function demanderCodeFidelite(email) {
   email = String(email || '').trim().toLowerCase(); if (!email) return;
   try {
-    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/fidelite/code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/fidelite/code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr' }) });
     const json = await rep.json(); if (!rep.ok) throw new Error(json.erreur);
     vue.fid = { email }; vue.fidMessage = `Si cette adresse a des points, un code vient d’y être envoyé (valable 15 minutes).`;
     const champ = document.querySelector('#commande input[name="email"]'); if (champ && !champ.value) champ.value = email;   // relu par rendre()

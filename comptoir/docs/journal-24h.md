@@ -325,3 +325,10 @@ Relecture indépendante du chiffrement des données clients : changement de clé
 - **File d'envoi des webhooks** : chaque événement en attente (commande payée, expédiée…) contenait le nom, l'e-mail et l'adresse du client pendant 30 jours. Il est désormais chiffré, lié à la boutique et à l'envoi, et déchiffré seulement au moment de l'envoi. L'effacement d'un client (RGPD) le retrouve par un index aveugle. Un envoi illisible (clé changée) est marqué en échec, sans bloquer la file.
 - Les devis et envois existants sont chiffrés une fois au démarrage.
 - Tests : rien de lisible en base pour le devis, le signataire et l'envoi de webhook. 144 tests sur 144, bout en bout 51 sur 51.
+
+### Cycle 20 (02 h 05) : e-mails des nouveautés dans la langue du client
+
+- Le récapitulatif des e-mails de commande en allemand, en italien et en anglais indique maintenant la part payée par carte cadeau (avec le reste) et les points de fidélité gagnés, comme en français.
+- L'e-mail du code de fidélité part dans la langue où le client navigue dans la boutique, si la boutique propose cette langue.
+- Les devis restent en français (rédigés par le marchand pour des clients professionnels).
+- 1 nouveau test : 145 tests sur 145.

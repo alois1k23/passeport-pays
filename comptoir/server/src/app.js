@@ -2354,7 +2354,10 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const points = FID.solde(b.id, email);
     if (points > 0) {
       const config = lireConfig(b), code = FID.nouveauCode(b.id, email);
-      envoyerEmail(b.id, email, `${config.boutique.nom} : votre code pour utiliser vos points`, `Bonjour,\n\nVous avez ${points} points de fidélité chez ${config.boutique.nom} (${formatMontant(FID.valeur(reg, points) / 100, config)}).\n\nVotre code pour les utiliser sur votre commande : ${code}\nIl est valable 15 minutes.\n\nVous n'avez rien demandé ? Ignorez cet e-mail : sans ce code, personne ne peut utiliser vos points.\n\n${config.boutique.nom}`);
+      const langue = typeof ctx.corps.langue === 'string' && (config.boutique.langues || []).includes(ctx.corps.langue) ? ctx.corps.langue : null;
+      const traduit = langue && EmailsClients.codeFidelite(langue, { nomBoutique: config.boutique.nom, points, valeur: formatMontant(FID.valeur(reg, points) / 100, config), code });
+      if (traduit) envoyerEmail(b.id, email, traduit.sujet, traduit.corps, { langue });
+      else envoyerEmail(b.id, email, `${config.boutique.nom} : votre code pour utiliser vos points`, `Bonjour,\n\nVous avez ${points} points de fidélité chez ${config.boutique.nom} (${formatMontant(FID.valeur(reg, points) / 100, config)}).\n\nVotre code pour les utiliser sur votre commande : ${code}\nIl est valable 15 minutes.\n\nVous n'avez rien demandé ? Ignorez cet e-mail : sans ce code, personne ne peut utiliser vos points.\n\n${config.boutique.nom}`);
     }
     return { ok: true };
   });
