@@ -38,7 +38,10 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
       body: corps
     });
     const json = await rep.json();
-    if (!rep.ok) throw erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe');
+    if (!rep.ok) {
+      // refuse : Stripe a répondu et refusé (4xx) ; rien n'a été exécuté. Une coupure ou une erreur 5xx laisse un doute.
+      const e = erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe'); e.refuse = rep.status >= 400 && rep.status < 500; throw e;
+    }
     return json;
   };
   return {

@@ -254,7 +254,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code, demande: vue.fid.demande } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     // Code de fidélité expiré ou déjà utilisé : retour à la demande d'un nouveau code (sinon le client resterait bloqué).
@@ -456,14 +456,14 @@ async function demanderCodeFidelite(email) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/fidelite/code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr' }) });
     const json = await rep.json(); if (!rep.ok) throw new Error(json.erreur);
-    vue.fid = { email }; vue.fidMessage = `Si cette adresse a des points, un code vient d’y être envoyé (valable 15 minutes).`;
+    vue.fid = { email, demande: json.demande }; vue.fidMessage = `Si cette adresse a des points, un code vient d’y être envoyé (valable 15 minutes).`;
     const champ = document.querySelector('#commande input[name="email"]'); if (champ && !champ.value) champ.value = email;   // relu par rendre()
   } catch (e) { vue.fidMessage = e.message || 'Envoi impossible pour l’instant.'; }
   rendre();
 }
 async function validerCodeFidelite(code) {
   try {
-    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/fidelite/solde`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: vue.fid.email, code: String(code || '').trim() }) });
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/fidelite/solde`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: vue.fid.email, demande: vue.fid.demande, code: String(code || '').trim() }) });
     const json = await rep.json(); if (!rep.ok) throw new Error(json.erreur);
     vue.fid = { ...vue.fid, code: String(code).trim(), points: json.points, valeur: json.valeur, utiliser: json.utilisable }; vue.fidMessage = '';
   } catch (e) { vue.fidMessage = e.message || 'Code non reconnu.'; }

@@ -565,3 +565,33 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
   - **Webhook** : il indique `geste: true`.
   - **Focus** rendu au bon bouton.
 - `npm run verifier` complet (lancé avant ces corrections) : 6 étapes sur 6. 169 tests sur 169, sur deux passages complets.
+
+### Cycle 34 (04 h 33) : relecture adversariale des nouveautés (chantier 25)
+
+Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, cartes cadeaux, devis, webhooks de paiement), et surface publique et données (fidélité, routes client, emplacements, exports, rôles, XSS, limites). Chaque constat a été reproduit par script avant d'être corrigé.
+
+- **Cartes cadeaux** :
+  - Une carte retenue (risque élevé) pouvait être libérée pendant le remboursement de sa vente : la carte restait active et l'argent était rendu. La libération passe désormais par le même verrou que les remboursements. Elle est refusée en cas de litige, et le remboursement désactive vraiment une carte émise entre-temps.
+  - Une carte dépensée puis bloquée par un litige (gagné ensuite) pouvait être remboursée en entier. Le contrôle « déjà utilisée » compare maintenant toujours le solde au montant initial, que la carte soit bloquée ou non.
+  - Un litige bloque la carte à chaque événement, pas seulement au premier.
+- **Remboursements** :
+  - Réponse de Stripe perdue (coupure) sur un retour partiel : le marqueur « retour en cours » était effacé. Passé 24 h, un nouvel essai aurait remboursé deux fois. Le marqueur n'est plus effacé que sur un refus net de Stripe (réponse 4xx) ; sinon, « Terminer le retour en cours » reprend avec la même clé.
+  - Un remboursement complet dont l'argent était parti pendant qu'un webhook changeait la commande (expédition) s'arrêtait sans avoir enregistré l'avoir, la carte ni le stock. L'avoir est maintenant enregistré quoi qu'il arrive, et l'historique le signale.
+  - Remboursement complet refusé pendant un litige ouvert ou perdu ; Stripe le refuse aussi.
+- **Fidélité** :
+  - Toute personne connaissant l'adresse d'un client pouvait, avec 10 mauvais codes, l'empêcher d'utiliser ses points pendant 24 h, chaque jour. Chaque code est désormais lié à sa demande (identifiant aléatoire remis au seul navigateur qui l'a faite). Les échecs sont comptés par adresse et par réseau (10 par 24 h), avec un plafond de 100 par adresse tous réseaux confondus : la force brute reste impraticable. Les demandes de code sont limitées par réseau (3 par heure) et par adresse (10 par heure).
+  - Le disjoncteur « 300 échecs par heure et par boutique », qui permettait de couper la vérification des codes pour tous les clients, a été retiré.
+  - La réponse à une demande de code a la même forme, que l'adresse ait des points ou non.
+  - Pause du programme : plus aucune expiration pendant la pause, ni au moment du solde. À la reprise, l'inactivité recommence à compter de ce jour.
+- **Adresses e-mail** : forme Unicode unique (NFC) à la validation et dans la fidélité. « ü » composé ou décomposé ne contourne plus les limites, et ne crée plus deux comptes de points. Une adresse déjà saisie sous forme décomposée, cas rarissime, est désormais lue sous sa forme composée.
+- **Test intermittent trouvé** : le test de rejeu du code de double authentification rejouait « le code du moment » au lieu de celui de l'activation. Au passage d'un pas de 30 s, c'était un nouveau code, légitimement accepté. Le test rejoue maintenant le code exact. Le serveur n'était pas en cause.
+- **Vérifiés sains par les audits**, entre autres :
+  - double dépense de carte ;
+  - remboursement supérieur au payé ;
+  - accès entre boutiques ;
+  - rôles de l'équipe ;
+  - rejeu de webhooks ;
+  - énumération ;
+  - XSS de la boutique ;
+  - en-têtes et cache des nouvelles routes.
+- 170 tests sur 170, bout en bout 51 sur 51. Parcours de fidélité vérifié dans un vrai navigateur : code demandé, code reçu saisi, points appliqués.

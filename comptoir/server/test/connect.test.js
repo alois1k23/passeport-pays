@@ -83,6 +83,9 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     assert.equal(avecLitige.litige.statut, 'needs_response');
     assert.ok(db.prepare("SELECT 1 FROM emails WHERE sujet LIKE 'Litige sur la commande%'").get(), 'marchand prévenu');
     assert.equal(await webhook({ type: 'charge.dispute.created', account: 'acct_autre', data: { object: { payment_intent: 'pi_litige', amount: 1, status: 'needs_response' } } }), 200);   // un autre compte ne touche pas cette commande
+    // Litige ouvert : pas de remboursement (Stripe le refuse aussi) ; une fois le litige gagné, remboursement possible.
+    assert.equal((await c('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'remboursee' })).json.code, 'litige');
+    assert.equal(await webhook({ type: 'charge.dispute.closed', account: 'acct_boutique', data: { object: { payment_intent: 'pi_litige', amount: 4700, reason: 'fraudulent', status: 'won' } } }), 200);
         // Remboursement : sur le compte qui a encaissé
     assert.equal((await c('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 200);
     assert.ok(appels.filter(a => a.chemin === 'refunds').every(a => a.compte === 'acct_boutique') && appels.some(a => a.chemin === 'refunds'));

@@ -132,7 +132,8 @@ const valider = {
     return t;
   },
   email(v) {
-    const t = valider.texte(v, 'L’e-mail', { max: 254 }).toLowerCase();
+    // Forme Unicode unique (NFC) : « ü » composé ou décomposé est la même adresse (limites, index, fidélité).
+    const t = valider.texte(v, 'L’e-mail', { max: 254 }).normalize('NFC').toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) throw erreur(400, 'Adresse e-mail invalide.', 'invalide');
     return t;
   },

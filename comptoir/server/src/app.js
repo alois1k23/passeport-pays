@@ -1804,8 +1804,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!transitionsPossibles(c).includes(cible)) throw erreur(409, `Impossible de passer de « ${c.statut} » à « ${cible} ».`, 'transition_invalide');
     const config = lireConfig(ctx.boutique);
     if ((cible === 'remboursee' || cible === 'annulee') && c.retourEnCours) throw erreur(409, 'Un retour partiel remboursé chez Stripe attend son avoir : terminez-le d’abord (fiche de la commande, « Terminer le retour en cours »).', 'retour_en_cours');
+    if (cible === 'remboursee' && c.litige && c.litige.statut !== 'won') throw erreur(409, 'Un litige bancaire est ouvert ou perdu sur cette commande : le remboursement passe par la banque du client.', 'litige');
     // Carte cadeau vendue déjà utilisée : refus AVANT tout remboursement (l'argent ne part pas si la carte reste valable).
-    if ((cible === 'remboursee' || cible === 'annulee') && c.carteEmise && !c.carteEmise.desactivee) {
+    // (même si la carte a été bloquée entre-temps, par exemple par un litige : une carte dépensée n'est jamais remboursée)
+    if ((cible === 'remboursee' || cible === 'annulee') && c.carteEmise) {
       const k = db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(c.carteEmise.id);
       if (k && k.solde < k.initial) throw erreur(409, `La carte cadeau ····${c.carteEmise.fin} a déjà servi (solde ${formatMontant(k.solde / 100, config)}) : elle ne peut plus être remboursée en entier.`, 'carte_utilisee');
       if (k && k.statut === 'active') Cartes.desactiver(ctx.boutique.id, k.id);   // désactivée tout de suite : plus utilisable pendant le remboursement
@@ -1828,7 +1830,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (p) db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(p.id);
       // Pendant le remboursement, un webhook a pu modifier la commande (litige, préparation) : on repart de la version à jour.
       const frais = commandeDeBoutique(ctx.boutique.id, c.id);
-      if (frais.statut !== c.statut && !transitionsPossibles(frais).includes(cible)) throw erreur(409, `La commande est passée à « ${frais.statut} » entre-temps : remboursement effectué, statut à vérifier.`, 'statut_change');
+      // L'argent est parti : l'avoir, la carte cadeau, les points et le stock sont enregistrés quoi qu'il soit arrivé
+      // entre-temps (expédition, litige), sauf si la commande a déjà été remboursée ou annulée par ailleurs.
+      if (['remboursee', 'annulee'].includes(frais.statut)) throw erreur(409, `La commande est déjà « ${frais.statut} » : vérifiez-la.`, 'statut_change');
+      if (frais.statut !== c.statut) historique(frais, `Remboursement effectué alors que la commande passait à « ${frais.statut} » : enregistré quand même`);
       const retourDemande = c.retour && c.retour.statut === 'rembourse';
       Object.assign(c, frais);
       if (retourDemande && c.retour) c.retour.statut = 'rembourse';
@@ -1872,7 +1877,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1, canalStock(c));
     // Carte cadeau vendue : remboursable seulement si elle n'a pas servi ; elle est alors désactivée.
     if ((cible === 'remboursee' || cible === 'annulee') && c.carteEmise && !c.carteEmise.desactivee) {
-      c.carteEmise.desactivee = Date.now();   // (vérifiée et désactivée avant le remboursement, plus haut)
+      // (vérifiée et désactivée avant le remboursement, plus haut ; redésactivée ici si elle a été émise entre-temps)
+      const k = db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(c.carteEmise.id);
+      if (k && k.statut === 'active') Cartes.desactiver(ctx.boutique.id, k.id);
+      c.carteEmise.desactivee = Date.now();
     }
     // Fidélité : points gagnés retirés, points utilisés rendus (une seule fois). Des points gagnés déjà dépensés ne
     // peuvent pas être repris : l'écart est noté dans l'historique (à déduire du remboursement si le marchand le souhaite).
@@ -2011,9 +2019,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         transaction(db, () => { const f = commandeDeBoutique(bid, c.id); f.retourEnCours = en; enregistrerCommande(f); });
         try { await paiement.rembourser({ paiement: p, montant: calcul.argent, cle: en.cle }); }
         catch (e) {
-          // Refusé par Stripe (ou injoignable) : rien n'est enregistré ; un nouvel essai reprend la même clé (même rang).
-          transaction(db, () => { const f = commandeDeBoutique(bid, c.id); delete f.retourEnCours; enregistrerCommande(f); });
-          throw e;
+          // Refus net de Stripe (rien n'a été remboursé) : le marqueur est retiré. Coupure, délai ou erreur 5xx : le remboursement
+          // a peut-être eu lieu ; le marqueur reste, et « Terminer le retour en cours » le reprend avec la même clé d'idempotence.
+          if (e.refuse) { transaction(db, () => { const f = commandeDeBoutique(bid, c.id); delete f.retourEnCours; enregistrerCommande(f); }); throw e; }
+          journal.error('[retour-partiel] réponse de Stripe incertaine', c.id, e.message);
+          throw erreur(502, 'Stripe n’a pas confirmé le remboursement (coupure ou erreur de leur côté). Il a peut-être été fait : cliquez sur « Terminer le retour en cours » dans la commande, sans attendre plus d’un jour, pour l’enregistrer (le client ne sera pas remboursé deux fois).', 'stripe_incertain');
         }
       }
       try { return await finaliserRetour(ctx, bid, config, en); }
@@ -2366,7 +2376,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const reg = FID.reglages(b.id);
       if (!reg.actif) throw erreur(400, 'Le programme de fidélité n’est pas actif.', 'fidelite_inactive');
       auth.limiter(`fidelite-commande:${b.id}:${ctx.ip}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
-      if (!FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''))) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
+      if (!FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''), { demande: String(ctx.corps.fidelite.demande || ''), reseau: reseauIp(ctx.ip) })) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
       // Points réservés par une commande en attente : déjà débités, donc absents du solde (pas de double utilisation).
       const res = Fidelite.appliquerPoints(lignes, reg, FID.solde(b.id, client.email));
       if (!res) throw erreur(400, `Pas assez de points pour une remise (minimum ${reg.seuil} points).`, 'fidelite_insuffisant');
@@ -2406,7 +2416,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const { commande, pmt, payee } = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
-      if (fidelite && !FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''), { consommer: true })) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
+      if (fidelite && !FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''), { demande: String(ctx.corps.fidelite.demande || ''), reseau: reseauIp(ctx.ip), consommer: true })) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
       const motifs = [calcul.motif ? calcul.motif.libelle : null, fidelite ? `${fidelite.points} points de fidélité` : null].filter(Boolean);
       const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
@@ -2596,23 +2606,29 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     if (!reg.actif) throw erreur(404, 'Programme de fidélité inactif.', 'fidelite_inactive');
     const email = valider.email(ctx.corps.email);
     auth.limiter(`fidelite-code:${b.id}:${ctx.ip}`, 5 * facteurLimites, 15 * 60000, 'Trop de demandes de code. Réessayez dans quelques minutes.');
-    auth.limiter(`fidelite-code-email:${b.id}:${email.toLowerCase()}`, 3 * facteurLimites, 3600000, 'Un code a déjà été envoyé à cette adresse : vérifiez vos e-mails.');
+    // Codes demandés pour une adresse : 3 par heure depuis un même réseau, 10 tous réseaux confondus (un tiers ne coupe pas
+    // l'accès du client à ses codes depuis chez lui).
+    const cleEmail = email.normalize('NFC').toLowerCase();
+    auth.limiter(`fidelite-code-email:${b.id}:${cleEmail}:${reseauIp(ctx.ip)}`, 3 * facteurLimites, 3600000, 'Un code a déjà été envoyé à cette adresse : vérifiez vos e-mails.');
+    auth.limiter(`fidelite-code-email-tout:${b.id}:${cleEmail}`, 10 * facteurLimites, 3600000, 'Un code a déjà été envoyé à cette adresse : vérifiez vos e-mails.');
     const points = FID.solde(b.id, email);
+    // Même réponse (une demande) que l'adresse ait des points ou non : rien n'indique qui est client.
+    let demande = crypto.randomBytes(18).toString('base64url');
     if (points > 0) {
-      const config = lireConfig(b), code = FID.nouveauCode(b.id, email);
+      const config = lireConfig(b), nc = FID.nouveauCode(b.id, email), code = nc.code; demande = nc.demande;
       const langue = typeof ctx.corps.langue === 'string' && (config.boutique.langues || []).includes(ctx.corps.langue) ? ctx.corps.langue : null;
       const traduit = langue && EmailsClients.codeFidelite(langue, { nomBoutique: config.boutique.nom, points, valeur: formatMontant(FID.valeur(reg, points) / 100, config), code });
       if (traduit) envoyerEmail(b.id, email, traduit.sujet, traduit.corps, { langue });
       else envoyerEmail(b.id, email, `${config.boutique.nom} : votre code pour utiliser vos points`, `Bonjour,\n\nVous avez ${points} points de fidélité chez ${config.boutique.nom} (${formatMontant(FID.valeur(reg, points) / 100, config)}).\n\nVotre code pour les utiliser sur votre commande : ${code}\nIl est valable 15 minutes.\n\nVous n'avez rien demandé ? Ignorez cet e-mail : sans ce code, personne ne peut utiliser vos points.\n\n${config.boutique.nom}`);
     }
-    return { ok: true };
+    return { ok: true, demande };
   });
   r.post('/api/public/:slug/fidelite/solde', ctx => {
     const b = boutiqueOuverte(ctx.params.slug), reg = FID.reglages(b.id);
     if (!reg.actif) throw erreur(404, 'Programme de fidélité inactif.', 'fidelite_inactive');
     const email = valider.email(ctx.corps.email);
     auth.limiter(`fidelite-solde:${b.id}:${ctx.ip}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
-    if (!FID.verifierCode(b.id, email, String(ctx.corps.code || ''))) { auth.limiter(`fidelite-echecs:${b.id}`, 300 * facteurLimites, 3600000, 'Vérification des codes momentanément indisponible.'); throw erreur(400, 'Code invalide ou expiré : demandez-en un nouveau.', 'fidelite_code'); }
+    if (!FID.verifierCode(b.id, email, String(ctx.corps.code || ''), { demande: String(ctx.corps.demande || ''), reseau: reseauIp(ctx.ip) })) { throw erreur(400, 'Code invalide ou expiré : demandez-en un nouveau.', 'fidelite_code'); }
     const points = FID.solde(b.id, email);
     return { points, valeur: FID.valeur(reg, points) / 100, seuil: reg.seuil, plafondPct: reg.plafondPct, utilisable: points >= reg.seuil };
   });
@@ -2895,12 +2911,14 @@ ${bloc}</main></body></html>`;
     db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
     return { statut: 201, corps: { commandeId: commande.id, jeton: commande.jeton, paiementUrl: session.url } };
   });
-  r.post('/api/admin/commandes/:id/liberer-carte', exigerMarchand, ctx => {
+  // Sous le même verrou que les remboursements : une carte ne peut pas être libérée pendant que la vente est remboursée.
+  r.post('/api/admin/commandes/:id/liberer-carte', exigerMarchand, ctx => avecVerrou(ctx.params.id, async () => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     if (c.canal !== 'carte' || c.statut !== 'payee' || c.carteEmise) throw erreur(409, 'Aucune carte cadeau retenue pour cette commande.', 'rien_a_liberer');
+    if (c.litige) throw erreur(409, 'Le paiement de cette carte est contesté auprès de la banque : la carte ne peut pas être libérée.', 'litige');
     transaction(db, () => { emettreCarteVendue(ctx.boutique.id, c, { liberer: true }); historique(c, 'Carte cadeau libérée par le marchand'); enregistrerCommande(c); });
     return { commande: c };
-  });
+  }));
   r.post('/api/admin/cartes-cadeaux/:id/desactiver', exigerMarchand, ctx => ({ carte: Cartes.desactiver(ctx.boutique.id, ctx.params.id) }));
   // Solde d'une carte, pour le client (boutique) : limité par adresse et par boutique contre l'essai de codes au hasard.
   r.post('/api/public/:slug/carte-cadeau', ctx => {
@@ -3648,7 +3666,8 @@ ${bloc}</main></body></html>`;
           c.litige = { statut: String(objet.status || ''), montant: (Number(objet.amount) || 0) / 100, raison: String(objet.reason || ''), echeance, maj: Date.now() };
           historique(c, ev.type === 'charge.dispute.closed' ? `Litige clos : ${objet.status === 'won' ? 'gagné, le montant reste acquis' : 'perdu, le montant a été repris par la banque du client'}` : nouveau ? `Litige ouvert par le client auprès de sa banque (${c.litige.raison || 'motif non précisé'})` : 'Litige mis à jour');
           // Carte cadeau vendue contestée (carte bancaire volée ?) : la carte est bloquée tout de suite si elle n'a pas servi.
-          if (nouveau && c.carteEmise && !c.carteEmise.desactivee) {
+          // (à chaque événement du litige, pas seulement le premier : une carte émise entre-temps est bloquée aussi)
+          if (c.carteEmise && !c.carteEmise.desactivee) {
             const k = db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(c.carteEmise.id);
             if (k && k.statut === 'active') { Cartes.desactiver(b.id, k.id); c.carteEmise.desactivee = Date.now(); historique(c, `Carte cadeau ····${c.carteEmise.fin} bloquée à cause du litige${k.solde < k.initial ? ` (déjà utilisée pour ${formatMontant((k.initial - k.solde) / 100, config)})` : ''}`); }
           }

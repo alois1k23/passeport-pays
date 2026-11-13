@@ -28,7 +28,8 @@ test('double authentification de bout en bout', async () => {
     assert.ok(!JSON.stringify(db.prepare('SELECT secret FROM deux_facteurs').get()).includes(prep.j.secret), 'secret chiffré en base');
     assert.equal((await a('POST', '/api/admin/compte/2fa/activer', { motDePasse: 'un mot de passe solide', code: '000000' })).s, 400);
     assert.equal((await a('POST', '/api/admin/compte/2fa/activer', { motDePasse: 'faux faux faux', code: totp.code(prep.j.secret, totp.pasActuel()) })).s, 401);
-    const act = await a('POST', '/api/admin/compte/2fa/activer', { motDePasse: 'un mot de passe solide', code: totp.code(prep.j.secret, totp.pasActuel()) });
+    const pasActivation = totp.pasActuel();   // le code exact de l'activation, rejoué plus bas (pas « le code du moment » : à la limite de 30 s, ce serait un nouveau code, légitime)
+    const act = await a('POST', '/api/admin/compte/2fa/activer', { motDePasse: 'un mot de passe solide', code: totp.code(prep.j.secret, pasActivation) });
     assert.equal(act.s, 200); assert.equal(act.j.codesSecours.length, 10);
     // Connexion depuis un autre appareil : mot de passe seul ne suffit plus
     const b = client('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36');
@@ -37,8 +38,7 @@ test('double authentification de bout en bout', async () => {
     assert.equal((await b('GET', '/api/admin/etat')).s, 401, 'aucune session avant le second facteur');
     assert.equal((await b('POST', '/api/auth/connexion/2fa', { defi: c1.j.defi + 'x', code: '123456' })).s, 401, 'défi falsifié refusé');
     // Le code déjà utilisé à l'activation ne sert pas une seconde fois
-    const pas = totp.pasActuel();
-    const deja = await b('POST', '/api/auth/connexion/2fa', { defi: c1.j.defi, code: totp.code(prep.j.secret, pas) });
+    const deja = await b('POST', '/api/auth/connexion/2fa', { defi: c1.j.defi, code: totp.code(prep.j.secret, pasActivation) });
     if (deja.s === 200) assert.fail('code rejoué accepté');
     const ok2 = await b('POST', '/api/auth/connexion/2fa', { defi: c1.j.defi, code: act.j.codesSecours[0] });
     assert.equal(ok2.s, 200, 'code de secours accepté');
