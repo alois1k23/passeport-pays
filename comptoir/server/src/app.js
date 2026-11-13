@@ -2526,8 +2526,14 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
      ou si les montants du XML sont incohérents. */
   const factureStructuree = ctx => {
     const c0 = commandeDeBoutique(ctx.boutique.id, ctx.params.id), config = lireConfig(ctx.boutique);
+    const r0 = documentStructure(c0, config, ctx.query.get('avoir'));
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    return r0;
+  };
+  // Pièce d'une commande (facture, avoir final « 1 », ou avoir partiel « AV-… ») : XML EN 16931 contrôlé avant d'être servi.
+  const documentStructure = (c0, config, q) => {
     // ?avoir=1 : avoir final ; ?avoir=AV-… : un avoir partiel (retour d'une partie des articles).
-    const q = ctx.query.get('avoir'), piece = q && q !== '1' ? (c0.retoursPartiels || []).find(p => p.numero === q) : null;
+    const piece = q && q !== '1' ? (c0.retoursPartiels || []).find(p => p.numero === q) : null;
     if (q && q !== '1' && !piece) throw erreur(404, 'Avoir introuvable pour cette commande.', 'introuvable');
     const avoir = !!q;
     if (q === '1' && !c0.avoir) throw erreur(404, 'Cette commande n’a pas d’avoir.', 'introuvable');
@@ -2538,7 +2544,6 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const xml = FactureElectronique.produire(c, config, { avoir, devise });
     const incoherences = FactureElectronique.verifier(xml);
     if (incoherences.length) { journal.error('[facture-electronique]', c.id, incoherences.join(', ')); throw erreur(500, 'Facture électronique incohérente : elle n’a pas été produite. Signalez-le au support.', 'incoherent'); }
-    ctx.entetes['Cache-Control'] = 'private, no-store';
     return { c, config, avoir, devise, xml, nom: String(avoir ? c.avoir.numero : c.facture).replace(/[^\w.-]/g, '_') };
   };
   r.get('/api/admin/commandes/:id/facture-electronique', exigerMarchand, ctx => {
@@ -2551,6 +2556,22 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const { c, config, avoir, devise, xml, nom } = factureStructuree(ctx);
     ctx.entetes['Content-Disposition'] = `attachment; filename="${nom}.pdf"`;
     return { binaire: FacturxPdf.produire(c, config, { avoir, devise, xml }), type: 'application/pdf' };
+  });
+  /* Pièces de la commande pour le client (facture, avoirs) en PDF Factur-X : avec le jeton personnel de sa commande,
+     comme la page de suivi. Rien pour une carte cadeau vendue (pas de facture : bon à usages multiples). */
+  r.get('/api/public/:slug/commandes/:id/document', ctx => {
+    const b = boutiqueParSlug(ctx.params.slug);
+    auth.limiter('document-client:' + ctx.ip, 60 * facteurLimites, 3600000, 'Trop de téléchargements. Réessayez plus tard.');
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(ctx.params.id, b.id);
+    if (!row || !auth.egal(String(ctx.query.get('jeton') || ''), row.jeton_client)) throw erreur(404, 'Document introuvable.', 'introuvable');
+    const c = lireCommande(row);
+    if (!c.facture || c.canal === 'carte') throw erreur(404, 'Document introuvable.', 'introuvable');
+    let doc;
+    try { doc = documentStructure(c, lireConfig(b), ctx.query.get('avoir') || null); }
+    catch (e) { if (e.statut === 409) throw erreur(409, 'Ce document n’est pas encore disponible : la boutique complète ses informations. Contactez-la si besoin.', 'indisponible'); throw e; }
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    ctx.entetes['Content-Disposition'] = `attachment; filename="${doc.nom}.pdf"`;
+    return { binaire: FacturxPdf.produire(doc.c, doc.config, { avoir: doc.avoir, devise: doc.devise, xml: doc.xml }), type: 'application/pdf' };
   });
   /* ---------- Programme de fidélité ---------- */
   r.get('/api/admin/fidelite', exigerMarchand, ctx => ({ reglages: FID.reglages(ctx.boutique.id), stats: FID.stats(ctx.boutique.id), registreCoherent: !FID.verifier(ctx.boutique.id).length }));
@@ -3565,7 +3586,8 @@ ${bloc}</main></body></html>`;
       row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(row.id);
     }
     const c = lireCommande(row);
-    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix })), offreApres: offreApres(b, c), retour: c.retour ? { statut: c.retour.statut, date: c.retour.date } : null,
+    return { numero: c.numero, statut: c.statut, total: c.total, port: c.port || 0, livraison: c.livraison, date: c.date, prenom: String((c.client && c.client.nom) || '').split(' ')[0], ville: (c.client && c.client.ville) || '', suivi: c.suivi || null, lignes: c.lignes.map((l, i) => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, rendu: Retours.deja(c).qte[i] })), offreApres: offreApres(b, c),
+      facture: c.facture && c.canal !== 'carte' ? c.facture : null, avoir: c.avoir && c.avoir.numero ? c.avoir.numero : null, retour: c.retour ? { statut: c.retour.statut, date: c.retour.date } : null,
       avoirsPartiels: (c.retoursPartiels || []).map(p => ({ numero: p.numero, date: p.date, montant: p.montant / 100 })),
       retourPossible: delaiRetour(b, c) > Date.now() && !(c.retour && c.retour.statut === 'demande') && !c.avoir && c.statut !== 'remboursee' && Retours.deja(c).qte.some((q, i) => q < c.lignes[i].qte) };
   });

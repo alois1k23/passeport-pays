@@ -238,3 +238,30 @@ test('serveur : retour dont l’argent est parti sans avoir enregistré, termin�
     assert.equal(v.ok, true, JSON.stringify(v.anomalies));
   } finally { s.close(); }
 });
+
+test('client : facture et avoirs en PDF avec le jeton de sa commande ; demande de retour limitée au reste', async () => {
+  const { db, s, appel, slug, produits: [vase] } = await boutique();
+  try {
+    const cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: vase, qte: 3 }], livraison: 'colissimo', client }, false);
+    await appel('POST', `/paiement-simule/${cmd.json.paiementUrl.split('/').pop()}/confirmer`, null, false);
+    const id = cmd.json.commandeId, jeton = cmd.json.jeton, base = `/api/admin/commandes/${id}/retour-partiel`;
+    const r1 = await retourner(appel, base, { lignes: [{ index: 0, qte: 1 }] });
+    assert.equal(r1.statut, 200);
+    const doc = q => appel('GET', `/api/public/${slug}/commandes/${id}/document?jeton=${jeton}${q || ''}`, null, false);
+    const f = await doc(); assert.equal(f.statut, 200); assert.match(f.type, /pdf/); assert.ok(f.texte.startsWith('%PDF'));
+    const a = await doc(`&avoir=${r1.json.avoir}`); assert.equal(a.statut, 200); assert.match(a.texte, /factur-x\.xml/);
+    assert.equal((await doc('&avoir=AV-2000-0001')).statut, 404);
+    assert.equal((await doc('&avoir=1')).statut, 404, 'pas encore d’avoir final');
+    assert.equal((await appel('GET', `/api/public/${slug}/commandes/${id}/document?jeton=mauvais`, null, false)).statut, 404);
+    assert.equal((await appel('GET', `/api/public/${slug}/commandes/${id}/document`, null, false)).statut, 404);
+    // Page de suivi : facture, avoir partiel et unités déjà rendues.
+    const suivi = (await appel('GET', `/api/public/${slug}/commandes/${id}?jeton=${jeton}`, null, false)).json;
+    assert.ok(suivi.facture); assert.deepEqual(suivi.avoirsPartiels.map(x => x.numero), [r1.json.avoir]); assert.equal(suivi.lignes[0].rendu, 1);
+    // Livrée : le client demande un retour ; au plus les 2 unités restantes.
+    for (const st of ['preparation', 'expediee', 'livree']) assert.equal((await appel('POST', `/api/admin/commandes/${id}/statut`, { statut: st, suivi: 'X1' })).statut, 200);
+    const dem = await appel('POST', `/api/public/${slug}/commandes/${id}/retour`, { jeton, lignes: [{ ligne: 0, qte: 3 }] }, false);
+    assert.equal(dem.statut, 201, JSON.stringify(dem.json));
+    const c = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(id).donnees);
+    assert.equal(c.retour.lignes[0].qte, 2, 'plafonné aux unités pas encore rendues');
+  } finally { s.close(); }
+});

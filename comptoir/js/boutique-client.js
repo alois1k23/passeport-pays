@@ -272,6 +272,15 @@ async function envoyerCommande(form) {
   }
 }
 
+/* Facture et avoirs de la commande en PDF (Factur-X), téléchargés avec le jeton personnel de la commande. */
+function documentsCommande(c, id, jeton) {
+  const lien = avoir => `/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(id)}/document?jeton=${encodeURIComponent(jeton || '')}${avoir ? `&avoir=${encodeURIComponent(avoir)}` : ''}`;
+  const liens = [];
+  if (c.facture) liens.push(`<a class="lien" href="${lien(null)}" download>Facture ${esc(c.facture)} (PDF)</a>`);
+  for (const a of c.avoirsPartiels || []) liens.push(`<a class="lien" href="${lien(a.numero)}" download>Avoir ${esc(a.numero)} (PDF, ${euros(a.montant)})</a>`);
+  if (c.avoir) liens.push(`<a class="lien" href="${lien('1')}" download>Avoir ${esc(c.avoir)} (PDF)</a>`);
+  return liens.length ? `<p class="mini documents-commande">${liens.join(' · ')}</p>` : '';
+}
 async function suivreCommande(id, jeton, annule) {
   vue.ouvert = true;
   // Paiement annulé : la carte cadeau éventuellement réservée par cette commande est rendue tout de suite (nouvel essai possible).
@@ -298,10 +307,11 @@ async function suivreCommande(id, jeton, annule) {
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
-        ${c.retour ? `<p class="encart">Retour demandé le ${new Date(c.retour.date).toLocaleDateString('fr-CH')}${c.retour.statut === 'rembourse' ? ' : remboursé.' : ' : renvoyez les articles à l’adresse reçue par e-mail.'}</p>` : c.retourPossible ? `<details class="retour-client"><summary>Demander un retour</summary><form data-retour="${esc(id)}" data-jeton="${esc(jeton)}">
-          ${c.lignes.map((l, i) => `<label class="champ"><span data-sans-traduction>${esc(l.nom)}</span><select name="q-${i}" aria-label="Quantité à retourner : ${esc(l.nom)}">${Array.from({ length: l.qte + 1 }, (_, n) => `<option value="${n}">${n}</option>`).join('')}</select></label>`).join('')}
+        ${documentsCommande(c, id, jeton)}
+        ${c.retour && c.retour.statut === 'demande' ? `<p class="encart">Retour demandé le ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : renvoyez les articles à l’adresse reçue par e-mail.</p>` : c.retourPossible ? `${c.retour ? `<p class="encart">Retour du ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : remboursé.</p>` : ''}<details class="retour-client"><summary>Demander un retour</summary><form data-retour="${esc(id)}" data-jeton="${esc(jeton)}">
+          ${c.lignes.map((l, i) => { const reste = l.qte - (l.rendu || 0); return reste > 0 ? `<label class="champ"><span data-sans-traduction>${esc(l.nom)}</span><select name="q-${i}" aria-label="Quantité à retourner : ${esc(l.nom)}">${Array.from({ length: reste + 1 }, (_, n) => `<option value="${n}">${n}</option>`).join('')}</select></label>` : ''; }).join('')}
           <label class="champ"><span>Motif (facultatif)</span><textarea name="motif" maxlength="500" rows="2"></textarea></label>
-          <button class="sf-btn">Envoyer la demande de retour</button></form></details>` : ''}
+          <button class="sf-btn">Envoyer la demande de retour</button></form></details>` : c.retour ? `<p class="encart">Retour du ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : remboursé.</p>` : ''}
         ${['livree', 'retiree', 'expediee'].includes(c.statut) ? `<button class="sf-btn sf-btn-ligne plein" data-c="recommander" data-lignes="${esc(JSON.stringify(c.lignes.map(l => [l.produitId, l.varianteId || '', l.qte])))}">Commander à nouveau</button>` : ''}
         <button class="sf-btn plein" data-c="fermer">Continuer mes achats</button></div>
         ${c.offreApres ? `<div class="offre-apres">${visuelProduit({ nom: c.offreApres.nom, teinte: c.offreApres.teinte, image: c.offreApres.image })}<div><small>Uniquement maintenant</small><strong>${esc(c.offreApres.nom)}</strong><span><s>${euros(c.offreApres.prix)}</s> <b>${euros(c.offreApres.prixOffre)}</b> (−${c.offreApres.remise} %), livré dans le même colis, sans frais de port.</span>

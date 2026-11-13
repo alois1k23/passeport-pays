@@ -502,3 +502,14 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
   - code masqué dans la copie gardée, vérifié pour les trois langues.
 - **Défaut de conformité trouvé pendant l'audit** : une boutique dont le marchand a supprimé la section « Pied de page » n'affichait plus aucun lien vers les mentions légales, les CGV, « Mes commandes » ni la carte cadeau. En ligne, un pied minimal les affiche désormais toujours.
 - 4 nouveaux tests : 164 tests sur 164. Bout en bout : 51 sur 51. Audit au clavier de la boutique : aucun problème.
+
+### Cycle 31 (03 h 51) : facture et avoirs téléchargeables par le client (chantier 22)
+
+- **Page de suivi de la commande** : le client télécharge sa facture et chacun de ses avoirs (partiels et final) en PDF Factur-X, avec le jeton personnel de sa commande. Jusqu'ici, il ne pouvait télécharger que la facture QR.
+  - Même contrôle que côté marchand : XML EN 16931 vérifié avant d'être servi.
+  - Rien pour une carte cadeau vendue (pas de facture).
+  - Téléchargements limités par adresse IP.
+  - Si la boutique n'a pas fini de saisir ses mentions, un message neutre s'affiche, sans détail interne.
+- **Demande de retour** : la liste propose seulement les unités pas encore remboursées. Le client peut faire une nouvelle demande après un retour remboursé.
+- Liens et messages traduits en allemand, italien et anglais.
+- 1 nouveau test : 165 tests sur 165. Vérifié dans un vrai navigateur : liens affichés, PDF de l'avoir téléchargé.

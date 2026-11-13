@@ -26,7 +26,9 @@ const TEXTES = [
   'Vous avez 12 points : utilisables dès 100 points.', 'Utiliser mes 250 points (valeur CHF 2.50)', 'Utiliser mes 250 points (−CHF 2.50)',
   'Carte cadeau inconnue, expirée ou épuisée.', 'Si cette adresse a des points, un code vient d’y être envoyé (valable 15 minutes).',
   'Changer d’adresse ou demander un nouveau code', 'Paiement reçu : la carte cadeau vient de partir par e-mail.',
-  'Pas assez de points pour une remise (minimum 100 points).', 'Vase ajouté au panier. 2 articles dans le panier.', 'Vase retiré du panier.', 'Vase : quantité 3.'
+  'Pas assez de points pour une remise (minimum 100 points).', 'Vase ajouté au panier. 2 articles dans le panier.', 'Vase retiré du panier.', 'Vase : quantité 3.',
+  'Facture FA-2026-0001 (PDF)', 'Avoir AV-2026-0002 (PDF)', 'Avoir AV-2026-0003 (PDF, CHF 36.00)', 'Retour du 13.11.2026 : remboursé.',
+  'Retour demandé le 13.11.2026 : renvoyez les articles à l’adresse reçue par e-mail.', 'Quantité à retourner : Vase'
 ];
 
 for (const langue of ['de', 'it', 'en']) {

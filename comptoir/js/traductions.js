@@ -147,6 +147,8 @@ const Traductions = (() => {
   // Modèles avec montants, nombres ou dates
   const MODELES = {
     de: [
+      [/^Facture (\S+) \(PDF\)$/, m => `Rechnung ${m[1]} (PDF)`], [/^Avoir (\S+) \(PDF\)$/, m => `Gutschrift ${m[1]} (PDF)`], [/^Avoir (\S+) \(PDF, (.+)\)$/, m => `Gutschrift ${m[1]} (PDF, ${m[2]})`],
+      [/^Retour demandé le (.+) : renvoyez les articles à l’adresse reçue par e-mail\.$/, m => `Rücksendung am ${m[1]} angefragt: Senden Sie die Artikel an die per E-Mail erhaltene Adresse.`], [/^Retour du (.+) : remboursé\.$/, m => `Rücksendung vom ${m[1]}: erstattet.`], [/^Quantité à retourner : (.+)$/, m => `Rücksendemenge: ${m[1]}`],
       [/^Valable en ligne et en boutique chez (.+)\. Elle est envoyée par e-mail dès le paiement\.$/, m => `Gültig online und im Geschäft bei ${m[1]}. Er wird nach der Zahlung per E-Mail verschickt.`],
       [/^Cette commande vous rapporte (\d+) points? de fidélité\.$/, m => `Diese Bestellung bringt Ihnen ${m[1]} Treuepunkte.`], [/^Carte cadeau acceptée : solde (.+)\.$/, m => `Geschenkgutschein akzeptiert: Guthaben ${m[1]}.`],
       [/^Carte cadeau ····(\w{4})$/, m => `Geschenkgutschein ····${m[1]}`], [/^Vous avez (\d+) points : utilisables dès (\d+) points\.$/, m => `Sie haben ${m[1]} Punkte: einlösbar ab ${m[2]} Punkten.`],
@@ -163,6 +165,8 @@ const Traductions = (() => {
       [/^Stock insuffisant pour « (.+) »\.$/, m => `Nicht genügend Vorrat für « ${m[1]} ».`], [/^Quantité invalide \((\d+) au maximum par article\)\.$/, m => `Ungültige Menge (höchstens ${m[1]} pro Artikel).`],
       [/^Commande n° (\d+)$/, m => `Bestellung Nr. ${m[1]}`]],
     it: [
+      [/^Facture (\S+) \(PDF\)$/, m => `Fattura ${m[1]} (PDF)`], [/^Avoir (\S+) \(PDF\)$/, m => `Nota di credito ${m[1]} (PDF)`], [/^Avoir (\S+) \(PDF, (.+)\)$/, m => `Nota di credito ${m[1]} (PDF, ${m[2]})`],
+      [/^Retour demandé le (.+) : renvoyez les articles à l’adresse reçue par e-mail\.$/, m => `Reso richiesto il ${m[1]}: rispedisci gli articoli all’indirizzo ricevuto via e-mail.`], [/^Retour du (.+) : remboursé\.$/, m => `Reso del ${m[1]}: rimborsato.`], [/^Quantité à retourner : (.+)$/, m => `Quantità da restituire: ${m[1]}`],
       [/^Valable en ligne et en boutique chez (.+)\. Elle est envoyée par e-mail dès le paiement\.$/, m => `Valida online e in negozio da ${m[1]}. Viene inviata via e-mail appena pagata.`],
       [/^Cette commande vous rapporte (\d+) points? de fidélité\.$/, m => `Questo ordine ti fa guadagnare ${m[1]} punti fedeltà.`], [/^Carte cadeau acceptée : solde (.+)\.$/, m => `Carta regalo accettata: saldo ${m[1]}.`],
       [/^Carte cadeau ····(\w{4})$/, m => `Carta regalo ····${m[1]}`], [/^Vous avez (\d+) points : utilisables dès (\d+) points\.$/, m => `Hai ${m[1]} punti: utilizzabili da ${m[2]} punti.`],
@@ -179,6 +183,8 @@ const Traductions = (() => {
       [/^Stock insuffisant pour « (.+) »\.$/, m => `Scorte insufficienti per « ${m[1]} ».`], [/^Quantité invalide \((\d+) au maximum par article\)\.$/, m => `Quantità non valida (al massimo ${m[1]} per articolo).`],
       [/^Commande n° (\d+)$/, m => `Ordine n. ${m[1]}`]],
     en: [
+      [/^Facture (\S+) \(PDF\)$/, m => `Invoice ${m[1]} (PDF)`], [/^Avoir (\S+) \(PDF\)$/, m => `Credit note ${m[1]} (PDF)`], [/^Avoir (\S+) \(PDF, (.+)\)$/, m => `Credit note ${m[1]} (PDF, ${m[2]})`],
+      [/^Retour demandé le (.+) : renvoyez les articles à l’adresse reçue par e-mail\.$/, m => `Return requested on ${m[1]}: send the items to the address you received by email.`], [/^Retour du (.+) : remboursé\.$/, m => `Return of ${m[1]}: refunded.`], [/^Quantité à retourner : (.+)$/, m => `Quantity to return: ${m[1]}`],
       [/^Valable en ligne et en boutique chez (.+)\. Elle est envoyée par e-mail dès le paiement\.$/, m => `Valid online and in store at ${m[1]}. It is sent by email as soon as it is paid.`],
       [/^Cette commande vous rapporte (\d+) points? de fidélité\.$/, m => `This order earns you ${m[1]} loyalty point${m[1] === '1' ? '' : 's'}.`], [/^Carte cadeau acceptée : solde (.+)\.$/, m => `Gift card accepted: balance ${m[1]}.`],
       [/^Carte cadeau ····(\w{4})$/, m => `Gift card ····${m[1]}`], [/^Vous avez (\d+) points : utilisables dès (\d+) points\.$/, m => `You have ${m[1]} points: usable from ${m[2]} points.`],
