@@ -11,6 +11,89 @@ Méthode, la même que les nuits précédentes. Chaque chantier passe par ces é
 
 Une relance automatique reprend le travail toutes les heures.
 
+## Synthèse (13 novembre 2026, 22 h 30)
+
+En 24 heures : **69 chantiers**, notés en 75 cycles et 134 commits sur la branche `claude/nice-mccarthy-59mfb5` (107 fichiers, environ 11 200 lignes ajoutées). Les tests automatiques passent de **120** (après le premier cycle) **à 231** ; le parcours de bout en bout passe de 51 à 57 contrôles. Chaque chantier de code a eu sa relecture indépendante (les publications de la démonstration n'en ont pas eu), et chaque constat a été corrigé ou, à défaut, écrit noir sur blanc ci-dessous.
+
+### Ce qui a été ajouté
+
+- **Pour vendre** :
+  - cartes cadeaux, vendues aussi en ligne ;
+  - programme de fidélité ;
+  - devis pour les clients professionnels ;
+  - retours partiels et avoirs partiels téléchargeables ;
+  - geste commercial ;
+  - codes promo avec limites (nombre d'utilisations, une fois par client, montant minimum) ;
+  - stock sur plusieurs emplacements.
+- **Pour se relier à d'autres outils** :
+  - API publique avec clés à permissions, durée de validité et adresses IP autorisées ;
+  - webhooks signés, avec ou sans données personnelles ;
+  - export complet de la boutique ;
+  - Factur-X complet.
+- **Pour l'exploitant** :
+  - console avec bilan de sécurité : clés, rotations, sauvegardes, envois d'e-mails, signaux de vol de session ou de compte ;
+  - rapport du lundi ;
+  - sauvegardes restaurées à l'essai ;
+  - une seule commande de vérification.
+
+### Ce qui a été sécurisé
+
+- **Données au repos** :
+  - données personnelles des clients chiffrées (commandes, devis, file des webhooks) ;
+  - index aveugle pour retrouver un client sans e-mail en clair ;
+  - rotation des clés de chiffrement sans interruption ;
+  - contenu des e-mails gardés effacé après 7 jours.
+- **Comptes marchands** :
+  - limites d'essais persistantes ;
+  - inscription sans énumération des comptes ;
+  - adresse e-mail confirmée ;
+  - identité récente exigée pour les actions sensibles, et confirmable par clé d'accès ;
+  - sessions de 90 jours au plus, liées à leur famille d'appareil, fermées au 5e essai refusé ;
+  - changement d'adresse annulable 7 jours par l'ancienne adresse ;
+  - appareils reconnus révocables, requêtes d'autres sites refusées.
+- **Boutique et paiement** :
+  - politique de sécurité sans `unsafe-inline` ;
+  - textes des clients sans lien ;
+  - réservations de stock bornées ;
+  - paiements non conformes remboursés automatiquement ;
+  - journal des ventes inaltérable, repris proprement au redémarrage.
+- **Clés d'API** :
+  - expiration et adresses autorisées ;
+  - alerte au premier usage depuis un réseau inconnu.
+- **Les relectures adversariales ont trouvé, puis fait corriger, plusieurs trous graves**. Exemples de l'après-midi :
+  - lien de réinitialisation qui survivait à l'annulation d'un changement d'adresse ;
+  - règle IPv6 qui ouvrait une clé d'API à toutes les adresses IPv4 ;
+  - annulation qui retirait « clé d'accès seule » à la titulaire ;
+  - et deux faux positifs qui auraient déconnecté de vrais marchands.
+
+### Ce qui a été testé
+
+- **231 tests automatiques**.
+- **Parcours de bout en bout** (57 contrôles), avec faux Stripe et faux Brevo.
+- **Parcours au clavier** de la boutique et de l'espace marchand.
+- **Simulation de 100 marchands sur 60 jours**, avec redémarrage du serveur au milieu.
+- **Fuzzing HTTP** de toutes les routes.
+- **Tests de charge**.
+- **Vérifications dans Chromium**, bureau et mobile : fenêtres de confirmation, authentificateur virtuel pour les clés d'accès, formulaires.
+- **Vérification complète en 7 étapes** relancée après chaque groupe de chantiers. Les résultats de la dernière vérification sont en fin de journal.
+
+### Ce qui reste (limites connues, honnêtement)
+
+- **À vérifier avec du vrai** :
+  - QR-facture avec une vraie application bancaire ;
+  - notifications push sur un vrai téléphone ;
+  - Factur-X avec un validateur PDF/A (veraPDF) ;
+  - envoi réel des e-mails (Brevo ou Postmark) et paiements réels (Stripe en mode test puis réel).
+- **Non certifié** : le journal inaltérable aide à la traçabilité mais n'est pas certifié NF 525 (exigé en France pour une caisse).
+- **Limites assumées des protections** :
+  - la liaison d'une session à son appareil n'arrête pas un voleur qui imite aussi l'en-tête du navigateur ;
+  - une clé d'accès ou une double authentification installée par un intrus plus de 24 heures avant une demande de changement d'adresse survit à l'annulation (l'e-mail d'annulation invite à vérifier) ;
+  - une clé d'API sans aucun réseau appris apprend le premier sans alerte.
+- **Échecs intermittents à surveiller** : un passage du parcours marchand au clavier (chantier 64) et un test du flux en direct sous forte charge (relance finale) ont échoué une fois chacun, puis réussi à chaque nouvel essai. Cause non établie.
+- **Avant d'ouvrir au public** :
+  - `SECRET_CHIFFREMENT` hors de la base, `SAUVEGARDE_CLE`, service d'e-mail, Stripe configurés (voir MISE-EN-LIGNE.md) ;
+  - et idéalement un audit de sécurité externe : ce marathon s'est relu lui-même, avec des relectures indépendantes, mais aucune personne extérieure n'a encore attaqué la plateforme.
+
 ## Feuille de route
 
 Ordre de priorité : la sécurité d'abord, puis ce qui démarque Comptoir des autres plateformes.
@@ -1563,4 +1646,12 @@ Les clés d'avant le chantier 68, et celles qu'on crée sans adresses autorisée
 - **deux faux positifs graves** qui auraient déconnecté de vrais marchands (app iOS installée, Android en mode ordinateur).
 
 État à la fin de la phase : 231 tests sur 231, parcours de bout en bout 57/57. La vérification complète (7 étapes) a réussi sur le code final des chantiers 62, 64, 65 et 66 (ensemble), 67, 68 et 69 ; le chantier 63 n'a pas eu de passage propre, il est couvert par celui du chantier 64. Un passage du chantier 64 a connu un échec intermittent du parcours marchand au clavier, de cause non établie (voir le cycle 69).
+
+### Cycle 76 (22 h 30) : clôture du marathon
+
+- **Tests automatiques** : 231 sur 231. Un premier passage, lancé pendant la simulation de 60 jours, a vu échouer une fois le test du flux en direct. Relancé seul trois fois, puis avec toute la suite une fois la machine libre, il réussit. Échec intermittent sous charge, noté dans la synthèse.
+- **Parcours de bout en bout** : 57 contrôles réussis, 0 anomalie.
+- **Simulation de 100 marchands sur 60 jours**, serveur redémarré au jour 30 : 9 135 commandes, 102 131 requêtes (médiane 2 ms, 95 % sous 10 ms), 0 anomalie, aucune erreur dans le journal du serveur.
+- **Démonstration republiée** (version 27) avec les écrans de l'après-midi. Vérifiée dans Chromium : cinq vues parcourues, aucune erreur de page.
+- **Synthèse** écrite en tête de ce journal.
 
