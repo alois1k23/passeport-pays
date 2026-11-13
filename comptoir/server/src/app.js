@@ -503,9 +503,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     db.prepare('INSERT INTO journal_compte (marchand_id, date, type, detail, reseau) VALUES (?, ?, ?, ?, ?)').run(marchandId, Date.now(), type, detail ? String(detail).slice(0, 200) : null, ctx ? reseauIp(ctx.ip) : null);
   };
   // Ouvre une session (cookie) et la décrit pour la liste des appareils connectés.
-  function ouvrirSession(ctx, m, { nouvelAppareil = false } = {}) {
+  // forte : connexion avec double authentification ou clé d'accès, qui vaut confirmation explicite d'identité (15 minutes) ;
+  // c'est aussi le seul moyen, pour un compte « clé d'accès seule », de confirmer son identité.
+  function ouvrirSession(ctx, m, { nouvelAppareil = false, forte = false } = {}) {
     const jeton = auth.creerSession(db, m.id), maintenant = Date.now(), appareil = decrireAppareil(ctx.req.headers['user-agent']);
-    db.prepare('UPDATE sessions SET cree_le = ?, vu_le = ?, appareil = ?, reseau = ? WHERE jeton_hash = ?').run(maintenant, maintenant, appareil, reseauIp(ctx.ip), auth.sha256(jeton));
+    db.prepare('UPDATE sessions SET cree_le = ?, vu_le = ?, appareil = ?, reseau = ?, identite_le = ? WHERE jeton_hash = ?').run(maintenant, maintenant, appareil, reseauIp(ctx.ip), forte ? maintenant : null, auth.sha256(jeton));
     ctx.entetes['Set-Cookie'] = [auth.cookieSession(jeton, securise), cookieAppareilPour(ctx, m.id, auth.sha256(jeton))];
     noterActivite(m.id, 'connexion', appareil, ctx);
     // Connexion depuis un appareil jamais vu : le marchand est prévenu (un mot de passe volé se voit tout de suite).
@@ -1116,7 +1118,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
      La réponse ne dit jamais si la nouvelle adresse a déjà un compte (pas de repérage d'adresses). */
   db.exec(`CREATE TABLE IF NOT EXISTS changements_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, nouvel_email TEXT NOT NULL, expire_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS annulations_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, ancien_email TEXT NOT NULL, expire_le INTEGER NOT NULL);`);
-  for (const sql of ['ALTER TABLE changements_email ADD COLUMN demande_le INTEGER', 'ALTER TABLE annulations_email ADD COLUMN demande_le INTEGER']) { try { db.exec(sql); } catch { /* déjà là */ } }
+  for (const sql of ['ALTER TABLE changements_email ADD COLUMN demande_le INTEGER', 'ALTER TABLE annulations_email ADD COLUMN demande_le INTEGER', 'ALTER TABLE marchands ADD COLUMN cle_seule_le INTEGER']) { try { db.exec(sql); } catch { /* déjà là */ } }
   // Adresse quittée dont le changement peut encore être annulé : réservée (ni inscription, ni invitation, ni autre
   // changement vers elle), pour que sa titulaire puisse toujours la reprendre.
   const adresseReservee = email => !!db.prepare('SELECT 1 FROM annulations_email WHERE lower(ancien_email) = lower(?) AND expire_le > ?').get(String(email || ''), Date.now());
@@ -1182,8 +1184,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const depuis = (l.demande_le || l.expire_le - 7 * 86400000) - 60000;
       db.prepare('DELETE FROM deux_facteurs WHERE marchand_id = ? AND cree_le >= ?').run(l.marchand_id, depuis);
       db.prepare('DELETE FROM cles_acces WHERE marchand_id = ? AND cree_le >= ?').run(l.marchand_id, depuis);
-      db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ?').run(l.marchand_id);
+      // « Clé d'accès seule » retirée seulement si elle a été activée depuis la demande (par l'intrus) : une protection que la
+      // titulaire avait avant reste en place, et sa réinitialisation passe alors par la récupération différée habituelle.
+      db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ? AND cle_seule = 1 AND COALESCE(cle_seule_le, 0) >= ?').run(l.marchand_id, depuis);
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(l.marchand_id)) {
+        db.prepare('DELETE FROM invitations WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
+        db.prepare('DELETE FROM marchands WHERE id IN (SELECT marchand_id FROM equipe WHERE boutique_id = ? AND cree_le >= ?)').run(b.id, depuis);   // membres arrivés depuis : comptes retirés
         db.prepare('DELETE FROM cles_api WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
         db.prepare('DELETE FROM webhooks WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
       }
@@ -1308,7 +1314,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { noterActivite(mid, 'echec-2fa', null, ctx); if (auth.compteEchecs && auth.compteEchecs(parReseau[0]) >= 3) alerterEchecs2fa(m); throw erreur(401, 'Code incorrect.', 'code_2fa'); }
     auth.oublierEchecs(parReseau);
     if (cleSeule(m.id)) throw erreur(403, 'Ce compte se connecte uniquement avec sa clé d’accès : utilisez « Se connecter avec une clé d’accès ».', 'cle_requise');   // option activée après l'envoi du mot de passe
-    ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
+    ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu, forte: true });
     return { ok: true };
   });
   /* Mot de passe oublié : lien valable 1 heure, réponse identique que le compte existe ou non. */
@@ -1850,7 +1856,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     const actif = !!ctx.corps.actif;
     if (actif && !clesAccesDe(m.id).length) throw erreur(409, 'Ajoutez d’abord une clé d’accès (de préférence deux, sur deux appareils).', 'sans_cle');
-    db.prepare('UPDATE marchands SET cle_seule = ? WHERE id = ?').run(actif ? 1 : 0, m.id);
+    db.prepare('UPDATE marchands SET cle_seule = ?, cle_seule_le = ? WHERE id = ?').run(actif ? 1 : 0, Date.now(), m.id);
     annulerRecuperation(m.id, 'option « Exiger la clé d’accès » modifiée', ctx);
     // Activation : les sessions ouvertes par mot de passe sur d'autres appareils sont fermées (un tiers déjà connecté ne reste pas).
     const fermees = actif ? db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ? AND cle_acces IS NULL').run(m.id, auth.sha256(String(ctx.cookies[auth.COOKIE] || ''))).changes : 0;
@@ -1926,7 +1932,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(cred.marchand_id);
     if (!m) refus('Compte introuvable.');
     const appareilConnu = !!appareilConnuPour(ctx, m.id);
-    const jeton = ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
+    const jeton = ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu, forte: true });
     db.prepare('UPDATE sessions SET cle_acces = ? WHERE jeton_hash = ?').run(cred.id, auth.sha256(jeton));   // révoquée avec la clé
     noterActivite(m.id, 'cle-acces', cred.nom, ctx);
     annulerRecuperation(m.id, 'connexion avec votre clé d’accès', ctx);

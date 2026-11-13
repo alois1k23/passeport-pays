@@ -90,3 +90,59 @@ test('changement en attente : il tombe quand la titulaire change son mot de pass
     assert.equal(db.prepare('SELECT COUNT(*) n FROM changements_email').get().n, 0, 'le lien envoyé à la nouvelle adresse ne vaut plus rien');
   } finally { s.close(); }
 });
+
+test('annulation : « clé d’accès seule » d’avant la demande conservée, équipe ajoutée par l’intrus retirée ; connexion forte = identité confirmée', async () => {
+  const totp = require('../src/totp');
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const client = () => { const jar = {}; return async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { ...(corps ? { 'Content-Type': 'application/json' } : {}), Cookie: Object.values(jar).join('; ') }, body: corps ? JSON.stringify(corps) : undefined }); for (const x of r.headers.getSetCookie()) { const [nv] = x.split(';'); jar[nv.split('=')[0]] = nv; } return { s: r.status, j: await r.json().catch(() => null) }; }; };
+  const lien = (dest, param) => (db.prepare('SELECT corps FROM emails WHERE destinataire = ? ORDER BY id DESC').all(dest).map(x => (x.corps.match(new RegExp(`${param}=([\\w-]+)`)) || [])[1]).find(Boolean));
+  try {
+    // Titulaire avec double authentification : la connexion par code vaut confirmation d'identité.
+    const t = client();
+    await t('POST', '/api/auth/inscription', { email: 'cs@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Cs' } } });
+    await t('POST', '/api/auth/verifier-email', { jeton: lien('cs@exemple.ch', 'verifier-email') });
+    const prep = await t('POST', '/api/admin/compte/2fa/preparer');
+    await t('POST', '/api/admin/compte/2fa/activer', { motDePasse: 'un mot de passe solide', code: totp.code(prep.j.secret, totp.pasActuel()) });
+    const intrus = client();
+    const d = await intrus('POST', '/api/auth/connexion', { email: 'cs@exemple.ch', motDePasse: 'un mot de passe solide' });
+    assert.equal(d.j.deuxFacteurs, true);
+    assert.equal((await intrus('POST', '/api/auth/connexion/2fa', { defi: d.j.defi, code: totp.code(prep.j.secret, totp.pasActuel() + 1) })).s, 200);
+    // (ici l'intrus a les deux facteurs ; on vérifie l'effet de la connexion forte et de l'annulation)
+    assert.equal((await intrus('POST', '/api/admin/compte/email', { email: 'x@pirate.example' })).s, 200, 'connexion forte : pas de confirmation à refaire');
+    // La protection « clé d'accès seule » de la titulaire existait avant la demande.
+    db.prepare('UPDATE marchands SET cle_seule = 1, cle_seule_le = ?').run(Date.now() - 86400000);
+    db.prepare('UPDATE changements_email SET demande_le = ?').run(Date.now());
+    assert.equal((await client()('POST', '/api/auth/changer-email', { jeton: lien('x@pirate.example', 'changer-email') })).s, 200);
+    // L'intrus invite un complice, qui accepte, et en invite un autre.
+    db.prepare('UPDATE sessions SET identite_le = ?').run(Date.now());
+    assert.equal((await intrus('POST', '/api/admin/equipe/inviter', { email: 'complice@pirate.example', role: 'commandes' })).s, 201);
+    assert.equal((await client()('POST', '/api/auth/invitation', { jeton: lien('complice@pirate.example', 'invitation'), motDePasse: 'complice mot de passe sûr' })).s, 201);
+    assert.equal((await intrus('POST', '/api/admin/equipe/inviter', { email: 'autre@pirate.example', role: 'commandes' })).s, 201);
+    // Annulation : l'équipe ajoutée depuis est retirée, la « clé d'accès seule » d'avant reste en place.
+    assert.equal((await client()('POST', '/api/auth/annuler-changement-email', { jeton: lien('cs@exemple.ch', 'annuler-email') })).s, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM equipe').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM invitations').get().n, 0);
+    assert.ok(!db.prepare("SELECT 1 FROM marchands WHERE email = 'complice@pirate.example'").get(), 'compte du complice supprimé');
+    assert.equal(db.prepare("SELECT cle_seule FROM marchands WHERE email = 'cs@exemple.ch'").get().cle_seule, 1, 'protection d’avant conservée');
+  } finally { s.close(); }
+});
+
+test('annulation : « clé d’accès seule » activée par l’intrus après la demande, retirée', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const client = () => { const jar = {}; return async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { ...(corps ? { 'Content-Type': 'application/json' } : {}), Cookie: Object.values(jar).join('; ') }, body: corps ? JSON.stringify(corps) : undefined }); for (const x of r.headers.getSetCookie()) { const [nv] = x.split(';'); jar[nv.split('=')[0]] = nv; } return { s: r.status, j: await r.json().catch(() => null) }; }; };
+  const lien = (dest, param) => (db.prepare('SELECT corps FROM emails WHERE destinataire = ? ORDER BY id DESC').all(dest).map(x => (x.corps.match(new RegExp(`${param}=([\\w-]+)`)) || [])[1]).find(Boolean));
+  try {
+    const i = client();
+    await i('POST', '/api/auth/inscription', { email: 'k@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'K' } } });
+    await i('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'un mot de passe solide' });
+    await i('POST', '/api/admin/compte/email', { email: 'k@pirate.example' });
+    assert.equal((await client()('POST', '/api/auth/changer-email', { jeton: lien('k@pirate.example', 'changer-email') })).s, 200);
+    db.prepare('UPDATE marchands SET cle_seule = 1, cle_seule_le = ?').run(Date.now());   // activée par l'intrus
+    assert.equal((await client()('POST', '/api/auth/annuler-changement-email', { jeton: lien('k@exemple.ch', 'annuler-email') })).s, 200);
+    assert.equal(db.prepare('SELECT cle_seule FROM marchands').get().cle_seule, 0);
+  } finally { s.close(); }
+});

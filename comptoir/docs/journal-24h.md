@@ -1308,3 +1308,22 @@ Les données des clients dans les commandes sont chiffrées, mais le journal des
   - **défaut plus ancien découvert au passage** : la recherche des cartes cadeaux dont l'e-mail n'a pas pu partir lisait les 100 premières commandes de cartes, sans ordre. Au-delà de 100 cartes bien reçues, un envoi abandonné pouvait ne jamais être repéré : l'acheteur a payé et n'a pas son code. Elle ne lit plus que les envois abandonnés (testé avec 120 cartes reçues ; le test échoue sans le correctif) ;
   - la page de confidentialité, d'abord incomplète, est complétée.
 - 218 tests sur 218.
+
+### Cycle 67 (12 h 50) : changement de l'adresse e-mail du compte (chantier 62)
+
+Jusqu'ici, un marchand ne pouvait pas changer l'adresse de son compte. Et une session volée qui l'aurait pu aurait suffi à prendre le compte pour de bon, puisque « mot de passe oublié » passe par l'e-mail. Le changement est donc conçu contre ce cas :
+
+- **Demande** : mot de passe (et code) redemandés même juste après la connexion. Le lien de confirmation part à la nouvelle adresse (24 heures, usage unique) et un avertissement à l'ancienne. Une adresse déjà prise reçoit la même réponse qu'une libre ; seule sa titulaire est prévenue.
+- **Annulation par l'ancienne adresse, 7 jours** :
+  - l'adresse est rendue, et elle reste réservée pendant ce délai (personne ne peut s'inscrire ni être invité avec) ;
+  - un second changement est refusé tant que le premier peut être annulé ;
+  - toutes les sessions et tous les appareils reconnus sont révoqués, et un lien de nouveau mot de passe part à l'ancienne adresse ;
+  - ce que l'intrus a pu installer depuis sa demande est retiré : double authentification, clés d'accès, clés d'API, webhooks.
+- **Trois rondes de relecture indépendante** :
+  - **Première ronde**, six trous corrigés : annulation effaçable par un second changement, ancienne adresse reprenable par inscription, 2FA de l'intrus conservée, lien pendant non révoqué au changement de mot de passe, récupération différée non annulée, liens de vérification restés valides.
+  - **Seconde ronde** :
+    - **Grave** : l'annulation retirait toujours « Exiger la clé d'accès ». Quiconque tenait l'ancienne boîte (boîte piratée, c'est justement le cas que cette option protège) obtenait un compte protégé par le seul mot de passe. L'option n'est plus retirée que si elle a été activée après la demande (date d'activation enregistrée ; testé dans les deux sens).
+    - **Régression** : un compte « clé d'accès seule » ne pouvait plus confirmer son identité (le mot de passe est refusé), donc plus changer d'adresse. Une connexion par clé d'accès ou par double authentification vaut maintenant confirmation pendant 15 minutes (testé).
+    - Les membres et invitations d'équipe ajoutés par l'intrus survivaient à l'annulation : ils sont retirés (comptes des membres compris, comme au retrait d'un membre ; testé).
+- Vérification complète (7 étapes) réussie, 223 tests sur 223, parcours de bout en bout 57/57.
+
