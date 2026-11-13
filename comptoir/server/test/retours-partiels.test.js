@@ -369,6 +369,21 @@ test('TVA : avoirs partiels, geste et avoir final compensent exactement la factu
   // Chaque avoir donne une facture électronique cohérente (EN 16931), avec cette ventilation.
   const config = { boutique: { pays: 'ch', nom: 'B', devise: 'CHF' }, entreprise: { raison: 'B SA', adresse: 'Rue 1, 1003 Lausanne', tvaIntra: 'CHE-123.456.789 TVA', siret: 'CHE-123.456.789' } };
   for (const p of pieces) assert.deepEqual(F.verifier(F.produire(p.vue, config, { avoir: true, devise: 'CHF' })), [], p.numero);
+  // La livraison remboursée est répartie entre les taux comme sur la facture : pas de « frais » ni de « remise » d'arrondi gonflés.
+  const xml1 = F.produire(pieces[0].vue, config, { avoir: true, devise: 'CHF' });
+  for (const m of xml1.matchAll(/<ram:ActualAmount>([\d.]+)<\/ram:ActualAmount>\s*<ram:Reason>Arrondi<\/ram:Reason>/g)) assert.ok(Number(m[1]) <= 0.05, `arrondi ${m[1]}`);
+  // Hasard : 300 commandes à deux taux, prix fractionnaires, livraison ; l'avoir final garde sa ventilation, à 1 centime près par taux.
+  let g = 11; const h = n => { g = (g * 1103515245 + 12345) % 2147483648; return g % n; };
+  for (let k = 0; k < 300; k++) {
+    const lg = [{ nom: 'A', prix: (100 + h(5000)) / 100 * 0.95, qte: 1 + h(4), tauxTva: 0.026 }, { nom: 'B', prix: (100 + h(9000)) / 100 * 0.9, qte: 1 + h(4), tauxTva: 0.081 }];
+    const cc = { facture: 'F', lignes: lg, port: 7.9, remise: 0, retoursPartiels: [] }; cc.total = Math.round((lg.reduce((a, l) => a + l.prix * l.qte, 0) + 7.9) * 100) / 100;
+    const pay = Math.round(cc.total * 100);
+    cc.retoursPartiels.push({ numero: 'P1', date: 1, ...R.calculer(cc, { lignes: [{ index: h(2), qte: 1 }], port: h(2) === 0 }, { argentPaye: pay }) });
+    const vr = R.ventilationReste(cc);
+    assert.ok(vr, `commande ${k} : ventilation finale gardée`);
+    const vf = R.ventilationFacture(cc), vp = R.ventilationPiece(cc, cc.retoursPartiels[0]);
+    for (const t of Object.keys(vf)) assert.ok(Math.abs(vf[t] - (vp[t] || 0) - (vr[t] || 0)) <= 1, `commande ${k}, taux ${t}`);
+  }
   // Sans retour partiel : l'avoir final porte la facture entière (comportement d'avant inchangé).
   const simple = { ...c, retoursPartiels: [] }; assert.equal(R.piecesAvoir(simple)[0].vue, simple);
 });
@@ -410,4 +425,24 @@ test('retour en suspens : abandon déclaré par le marchand, tracé ; plus rien 
     assert.equal(c.retourEnCours, undefined); assert.match(c.historique.at(-1).texte, /abandonné par le marchand/);
     assert.equal((await appel('POST', `/api/admin/commandes/${id}/statut`, { statut: 'remboursee' })).statut, 200, 'remboursement de nouveau possible');
   } finally { s.close(); }
+});
+
+test('API : facture QR annulée avant paiement = avoir « annulation », rien de remboursé', async () => {
+  const db = ouvrir(':memory:');
+  const srv = http.createServer(); await new Promise(ok => srv.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${srv.address().port}`;
+  srv.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const appel = async (m, chemin, corps, avecSession = true) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie && avecSession ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length && avecSession) cookie = sc.map(x => x.split(';')[0]).join('; '); let json = null; try { json = await r.json(); } catch { /* vide */ } return { statut: r.status, json }; };
+  try {
+    const conf = { boutique: { nom: 'QR', pays: 'ch', secteur: 'maison', sections: [] }, reglages: { factureQr: true }, entreprise: { raison: 'QR Sàrl', adresse: 'Rue du Lac 1, 1003 Lausanne', email: 'q@exemple.ch', regime: 'ch-assujetti', iban: 'CH93 0076 2011 6238 5295 7' } };
+    assert.equal((await appel('POST', '/api/auth/inscription', { email: 'qr@exemple.ch', motDePasse: 'un mot de passe solide', config: conf, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] })).statut, 201);
+    const e = (await appel('GET', '/api/admin/etat')).json, slug = e.serveur.slug;
+    const cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: e.produits[0].id, qte: 1 }], livraison: 'poste-eco', moyen: 'facture', client: { nom: 'Lou', email: 'lou@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, false);
+    assert.equal(cmd.statut, 201, JSON.stringify(cmd.json));
+    assert.equal((await appel('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'annulee' })).statut, 200);
+    const cle = (await appel('POST', '/api/admin/integrations/cles', { nom: 'Compta', portees: ['commandes:lecture'] })).json;
+    const c = await (await fetch(`${base}/api/v1/commandes/${cmd.json.numero}`, { headers: { Authorization: `Bearer ${cle.cle}` } })).json();
+    assert.deepEqual(c.avoirs.map(a => a.type), ['annulation']);
+    assert.equal(c.rembourse, 0, 'rien n’a été payé, rien n’est remboursé');
+  } finally { srv.close(); }
 });

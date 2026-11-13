@@ -34,6 +34,7 @@ function creer(db, cle) {
     type TEXT NOT NULL, montant INTEGER NOT NULL, solde INTEGER NOT NULL, commande_id TEXT, texte TEXT)`);
   db.exec('CREATE INDEX IF NOT EXISTS cartes_mouvements_carte ON cartes_mouvements (carte_id, id)');
   db.exec('CREATE INDEX IF NOT EXISTS cartes_cadeaux_boutique ON cartes_cadeaux (boutique_id, cree_le)');
+  db.exec('CREATE INDEX IF NOT EXISTS cartes_mouvements_boutique_le ON cartes_mouvements (boutique_id, le)');   // export par période
   db.exec('CREATE TABLE IF NOT EXISTS cartes_vente (boutique_id TEXT PRIMARY KEY, donnees TEXT NOT NULL)');
 
   const empreinte = (boutiqueId, code) => crypto.createHmac('sha256', cle).update(`carte-cadeau:${boutiqueId}:${normaliser(code)}`).digest('hex');
@@ -118,29 +119,36 @@ function creer(db, cle) {
       }
       return [...new Set(ecarts)];
     },
-    /* Export pour la fiduciaire : tous les mouvements d'une période, puis l'encours à la fin de la période (cartes actives,
-       non expirées : un engagement envers les clients), et les soldes de cartes expirées ou désactivées (à traiter selon
-       le conseil de la fiduciaire). numeros : Map id de commande → numéro. Montants en unités de la devise. */
-    exporter(boutiqueId, { debut, fin, numeros = new Map() }) {
+    /* Export pour la fiduciaire : tous les mouvements d'une période, puis, à la fin de la période :
+       - l'encours (cartes actives, non expirées : un engagement envers les clients) ;
+       - les cartes annulées (vente remboursée ou contestée : l'argent est revenu au client, ce n'est pas un gain) ;
+       - les soldes de cartes expirées ou désactivées par la boutique (à traiter selon le conseil de la fiduciaire).
+       numeros : Map id de commande → numéro ; annulees : Set des cartes dont la vente a été remboursée ou contestée.
+       Montants avec une virgule décimale (tableurs en français). Deux requêtes, quel que soit le nombre de cartes. */
+    exporter(boutiqueId, { debut, fin, numeros = new Map(), annulees = new Set() }) {
       const q = v => { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };   // pas de formule dans un tableur
-      const m2 = c => (c / 100).toFixed(2);
+      const m2 = c => (c / 100).toFixed(2).replace('.', ',');
       const LIB = { emission: 'Émission', utilisation: 'Utilisation', recredit: 'Recrédit', remboursement: 'Recrédit (remboursement)', desactivation: 'Désactivation' };
       const lignes = [['date', 'carte', 'origine', 'mouvement', 'montant', 'solde_apres', 'commande', 'texte'].join(';')];
       for (const m of db.prepare('SELECT m.*, c.fin, c.origine FROM cartes_mouvements m JOIN cartes_cadeaux c ON c.id = m.carte_id WHERE m.boutique_id = ? AND m.le >= ? AND m.le < ? ORDER BY m.le, m.id').all(boutiqueId, debut, fin)) {
         lignes.push([q(new Date(m.le).toISOString()), q(`····${m.fin}`), q(m.origine === 'vente' ? 'vendue' : 'émise par la boutique'), q(LIB[m.type] || m.type), m2(m.montant), m2(m.solde), q(m.commande_id ? (numeros.get(m.commande_id) ?? '') : ''), q(m.texte || '')].join(';'));
       }
-      // Solde de chaque carte à la date de fin : celui du dernier mouvement avant cette date.
-      let encours = 0, perdus = 0, nbEncours = 0;
-      for (const c of db.prepare('SELECT id, statut, expire_le, cree_le FROM cartes_cadeaux WHERE boutique_id = ? AND cree_le < ?').all(boutiqueId, fin)) {
-        const der = db.prepare('SELECT solde, type FROM cartes_mouvements WHERE carte_id = ? AND le < ? ORDER BY le DESC, id DESC LIMIT 1').get(c.id, fin);
-        if (!der || !der.solde) continue;
-        const desactivee = !!db.prepare("SELECT 1 FROM cartes_mouvements WHERE carte_id = ? AND type = 'desactivation' AND le < ?").get(c.id, fin);
-        if (desactivee || (c.expire_le && c.expire_le <= fin)) perdus += der.solde; else { encours += der.solde; nbEncours++; }
+      // Solde de chaque carte à la date de fin : celui du dernier mouvement inscrit (ordre d'inscription, celui du cumul).
+      const etats = db.prepare(`SELECT c.id, c.expire_le, (SELECT solde FROM cartes_mouvements WHERE carte_id = c.id AND le < ? ORDER BY id DESC LIMIT 1) AS solde,
+          EXISTS (SELECT 1 FROM cartes_mouvements WHERE carte_id = c.id AND type = 'desactivation' AND le < ?) AS desactivee
+        FROM cartes_cadeaux c WHERE c.boutique_id = ? AND c.cree_le < ?`).all(fin, fin, boutiqueId, fin);
+      let encours = 0, perdus = 0, annule = 0, nbEncours = 0;
+      for (const c of etats) {
+        if (!c.solde) continue;
+        if (annulees.has(c.id)) annule += c.solde;
+        else if (c.desactivee || (c.expire_le && c.expire_le <= fin)) perdus += c.solde;
+        else { encours += c.solde; nbEncours++; }
       }
       lignes.push('');
       lignes.push([q(`Encours au ${new Date(fin - 1).toISOString().slice(0, 10)}`), q(`${nbEncours} carte(s)`), '', q('Solde des cartes actives non expirées'), m2(encours), '', '', ''].join(';'));
+      lignes.push([q('Cartes annulées'), '', '', q('Vente remboursée ou contestée : solde rendu au client, pas un gain'), m2(annule), '', '', ''].join(';'));
       lignes.push([q('Soldes non utilisables'), '', '', q('Cartes expirées ou désactivées : traitement à voir avec la fiduciaire'), m2(perdus), '', '', ''].join(';'));
-      return '\ufeff' + lignes.join('\n') + '\n';
+      return '﻿' + lignes.join('\n') + '\n';
     },
     publique
   };

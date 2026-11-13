@@ -472,6 +472,11 @@ function fermerCommande() {
   const ligne = id && document.querySelector(`tr[data-action="ouvrir-commande"][data-id="${CSS.escape(id)}"]`);
   if (ligne) ligne.focus();
 }
+/* Avoirs émis d'une commande (module partagé js/retours-calcul.js) ; sans le module (démonstration incomplète), l'avoir final seul. */
+function piecesAvoirDe(c) {
+  if (typeof RetoursCalcul !== 'undefined') return RetoursCalcul.piecesAvoir(c);
+  return c.avoir && c.avoir.numero ? [{ numero: c.avoir.numero, date: c.avoir.date, geste: false, final: true, vue: c }] : [];
+}
 function exporterCommandesCsv(liste) {
   const champs = ['document', 'date_document', 'commande', 'date_commande', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total_ht', 'tva', 'total_ttc', 'detail_tva', 'moyen', 'suivi', 'carte_cadeau', 'points_fidelite', 'devis'];
   const lignes = [];
@@ -484,8 +489,8 @@ function exporterCommandesCsv(liste) {
       csvMontant(signe * (v.carteCadeau && !v.carteCadeau.liberee ? v.carteCadeau.montant || 0 : 0)), String(points && c.fidelite && c.fidelite.debite && !c.fidelite.liberee ? signe * c.fidelite.debite : 0), csvTexte(c.devis ? c.devis.numero : '')].join(';'); };
     lignes.push(base(1, c.facture || '', c.dateFacture || c.date));
     // Avoirs tels qu'émis (partiels, gestes, final pour le reste) : mêmes montants que les documents et le journal scellé.
-    for (const a of RetoursCalcul.piecesAvoir(c)) lignes.push(base(-1, a.numero, a.date, a.vue, a.final));
-    if (!c.avoir && c.statut === 'remboursee') lignes.push(base(-1, 'avoir à émettre', c.date));
+    for (const a of piecesAvoirDe(c)) lignes.push(base(-1, a.numero, a.date, a.vue, a.final));
+    if (!c.avoir && c.statut === 'remboursee') lignes.push(base(-1, 'avoir à émettre', c.date, (c.retoursPartiels || []).length && typeof RetoursCalcul !== 'undefined' ? RetoursCalcul.vueReste(c) : c));
   }
   telechargerTexte(`comptoir-commandes-${new Date().toISOString().slice(0, 10)}.csv`, '\ufeff' + champs.join(';') + '\n' + lignes.join('\n'), 'text/csv;charset=utf-8', `${liste.length} commande${liste.length > 1 ? 's' : ''} exportée${liste.length > 1 ? 's' : ''}.`);
 }

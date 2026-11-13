@@ -376,7 +376,7 @@ function decompteTva(debut, fin) {
     if (c.facture && dateFacture >= debut && dateFacture < fin) ajouter('Facture', c.facture, dateFacture, c, 1);
     // Avoirs tels qu'émis : partiels et gestes avec leurs seules lignes, avoir final pour le reste (mêmes montants que les
     // documents et que le journal scellé). Sans retour partiel, l'avoir final porte toute la facture, comme avant.
-    for (const a of RetoursCalcul.piecesAvoir(c)) if (a.date >= debut && a.date < fin) ajouter(a.final ? 'Avoir' : a.geste ? 'Avoir (geste)' : 'Avoir partiel', a.numero, a.date, a.vue, -1);
+    for (const a of piecesAvoirDe(c)) if (a.date >= debut && a.date < fin) ajouter(a.final ? 'Avoir' : a.geste ? 'Avoir (geste)' : 'Avoir partiel', a.numero, a.date, a.vue, -1);
   }
   const r2 = n => Math.round(n * 100) / 100;
   const taux = Object.values(parTaux).map(x => ({ taux: x.taux, ttc: r2(x.ttc), ht: r2(x.ht), tva: r2(x.tva) })).sort((a, b) => b.taux - a.taux);

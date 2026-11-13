@@ -646,6 +646,24 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - les unités déjà rendues, par ligne.
 - Un logiciel comptable ou un ERP peut ainsi rapprocher chaque remboursement de sa pièce. Documenté dans `docs/API.md`, y compris le champ `geste` du webhook `commande.remboursement_partiel`.
 - 1 nouveau test, par une vraie clé d'API : 173 tests sur 173.
+- **Relecture indépendante des chantiers 26 à 28**, constats corrigés :
+  - **Grave (API)** : une facture QR annulée avant paiement apparaissait « remboursée » de tout son montant, ce qui aurait trompé un logiciel comptable. \`rembourse\` ne compte plus que l'argent réellement rendu, et cet avoir porte le type \`annulation\`.
+  - **Export des cartes** :
+    - une carte dont la vente avait été remboursée ou contestée était comptée comme « soldes non utilisables », donc gain possible ; elle a désormais sa propre ligne, « Cartes annulées ».
+    - le solde en fin de période suit l'ordre d'inscription des mouvements, celui du cumul, et non leur date ;
+    - deux requêtes au lieu de deux par carte, avec un index par période (20 000 cartes : environ 0,8 s de blocage avant) ;
+    - jours civils à l'heure de Suisse et de France, au lieu d'UTC ;
+    - date invalide refusée ;
+    - virgule décimale pour les tableurs en français ;
+    - export toujours accessible à une boutique en lecture seule.
+  - **TVA des avoirs** :
+    - dans la facture électronique, la livraison remboursée est répartie entre les taux comme la ventilation, et une remise « Arrondi » ne vient plus gonfler artificiellement la livraison ;
+    - dans environ 2 % des commandes à plusieurs taux avec prix fractionnaires, l'avoir final perdait sa ventilation pour un centime : ce centime est maintenant repris sur le plus grand taux. Hasard vérifié sur 300 commandes : écart d'au plus 1 centime par taux ;
+    - la ventilation est enregistrée sur chaque avoir à son émission, donc un document émis ne change plus ;
+    - l'export et le décompte fonctionnent même sans le module partagé (démonstration incomplète) ;
+    - la ligne « avoir à émettre » ne compte plus deux fois les retours partiels.
+  - **API** : forme des avoirs uniforme et documentée ; unités rendues calculées une fois par commande.
+  - 3 tests de plus : 176 tests sur 176. Vérifié dans l'application : décompte de TVA et export à zéro sur une commande entièrement remboursée.
 
 ### Cycle 38 (04 h 45) : retour partiel et geste commercial au clavier (chantier 29)
 

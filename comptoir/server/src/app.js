@@ -262,13 +262,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     livraison: c.livraison, canal: c.canal || 'web', moyen: c.moyen || 'en_ligne', facture: c.facture || null, suivi: c.suivi || null, transporteur: c.transporteur || null,
     // Données personnelles du client : seulement avec la permission clients:lecture (sinon le pays de livraison suffit).
     client: !c.client ? null : client ? { nom: c.client.nom, email: c.client.email, adresse: c.client.adresse, npa: c.client.npa, ville: c.client.ville, pays: c.client.pays || null } : { pays: c.client.pays || null },
-    lignes: (c.lignes || []).map((l, i) => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock', rendu: Retours.deja(c).qte[i] || 0 })),
-    // Avoirs émis (partiels, gestes commerciaux, final) et total remboursé : de quoi rapprocher la comptabilité.
-    avoirs: avoirsApi(c), rembourse: Math.round((Retours.deja(c).total + (c.avoir && c.avoir.numero ? Math.round(Number(c.avoir.montant ?? c.total) * 100) : 0))) / 100 });
-  const avoirsApi = c => [
+    ...(() => {
+      // Avoirs émis (partiels, gestes, final ou annulation) et argent réellement rendu : de quoi rapprocher la comptabilité.
+      // Une facture QR annulée avant paiement a un avoir « annulation » mais rien de remboursé.
+      const d = Retours.deja(c), paye = !!(c.payeLe || c.payeManuelLe);
+      const final = c.avoir && c.avoir.numero ? Math.round(Number(c.avoir.montant ?? c.total) * 100) : 0;
+      return { lignes: (c.lignes || []).map((l, i) => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: l.qte, prix: l.prix, type: l.type || 'stock', rendu: d.qte[i] || 0 })),
+        avoirs: avoirsApi(c, paye), rembourse: (d.total + (paye ? final : 0)) / 100 };
+    })() });
+  const avoirsApi = (c, paye) => [
     ...(c.retoursPartiels || []).filter(p => p.numero).map(p => ({ numero: p.numero, date: new Date(p.date).toISOString(), type: p.geste ? 'geste' : 'partiel', montant: p.montant / 100,
       livraison: (p.port || 0) / 100, lignes: p.geste ? [] : p.lignes.map(x => ({ nom: (c.lignes[x.index] || {}).nom, qte: x.qte, montant: x.montant / 100 })) })),
-    ...(c.avoir && c.avoir.numero ? [{ numero: c.avoir.numero, date: new Date(c.avoir.date).toISOString(), type: 'final', montant: Number(c.avoir.montant ?? c.total) }] : [])];
+    ...(c.avoir && c.avoir.numero ? [{ numero: c.avoir.numero, date: new Date(c.avoir.date).toISOString(), type: paye ? 'final' : 'annulation', montant: Number(c.avoir.montant ?? c.total), livraison: null, lignes: null }] : [])];
   /* Journal inaltérable : chaque facture, ticket ou avoir est scellé dès qu'il existe (une seule fois). */
   // Clé de signature dérivée de la clé de chiffrement du serveur (SECRET_CHIFFREMENT) : créé à la première utilisation.
   let journalVentes = null;
@@ -918,7 +923,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
   // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
-  const LECTURE_SEULE = new Set(['GET /api/admin/cartes-cadeaux/vente', 'GET /api/admin/emplacements', 'GET /api/admin/fidelite', 'GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
+  const LECTURE_SEULE = new Set(['GET /api/admin/cartes-cadeaux/export', 'GET /api/admin/cartes-cadeaux/vente', 'GET /api/admin/emplacements', 'GET /api/admin/fidelite', 'GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
     verifierRole(ctx);
@@ -1891,7 +1896,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
     if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
     // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
-    if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: Retours.resteAvoir(c) / 100 };
+    if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) { c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: Retours.resteAvoir(c) / 100 }; if ((c.retoursPartiels || []).length) { const vt = Retours.ventilationReste(c); if (vt) c.avoir.ventilation = vt; } }
     if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1, canalStock(c));   // vendu : le stock baisse comme pour un paiement en ligne
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1, canalStock(c));
     // Carte cadeau vendue : remboursable seulement si elle n'a pas servi ; elle est alors désactivée.
@@ -1988,6 +1993,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
           notePoints = piece.pointsRepris < vises ? ` ; ${vises - piece.pointsRepris} points gagnés déjà utilisés, non repris (valeur ${formatMontant(FID.valeur(FID.reglages(bid), vises - piece.pointsRepris) / 100, config)})` : ` ; ${vises} points de fidélité repris`;
         }
       }
+      // Ventilation par taux figée à l'émission : le document ne changera plus, même si les règles de calcul évoluent.
+      if (piece.numero) { const vt = Retours.ventilationPiece(f, piece); if (vt) piece.ventilation = vt; }
       f.retoursPartiels = [...(f.retoursPartiels || []), piece];
       // Demande de retour du client entièrement couverte par les retours partiels : marquée remboursée.
       if (f.retour && f.retour.statut === 'demande' && (f.retour.lignes || []).every(x => Number.isInteger(x.ligne) && Retours.deja(f).qte[x.ligne] >= x.qte)) f.retour.statut = 'rembourse';
@@ -2896,14 +2903,22 @@ ${bloc}</main></body></html>`;
   };
   // Export pour la fiduciaire : mouvements d'une période (dates AAAA-MM-JJ, fin incluse), encours en fin de période.
   r.get('/api/admin/cartes-cadeaux/export', exigerMarchand, ctx => {
-    const jour = (v, def) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? Date.parse(`${v}T00:00:00Z`) : def;
-    const debut = jour(ctx.query.get('debut'), 0), fin = jour(ctx.query.get('fin'), null);
-    const finExclue = fin === null ? Date.now() + 1 : fin + 86400000;
+    // Jours civils à l'heure de Suisse et de France (Europe/Zurich, même fuseau que Paris et Bruxelles), pas en UTC :
+    // une vente à 0 h 30 le 1er janvier compte dans la nouvelle année.
+    const FMT = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Zurich', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+    const minuit = j => { for (const h of ['+01:00', '+02:00']) { const t = Date.parse(`${j}T00:00:00${h}`); if (FMT.format(t) === `${j} 00`) return t; } return NaN; };
+    const lire = (nom, def) => { const v = ctx.query.get(nom); if (!v) return def; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw erreur(400, 'Période invalide (dates au format AAAA-MM-JJ).', 'invalide'); return v; };
+    const jd = lire('debut', null), jf = lire('fin', null);
+    const debut = jd ? minuit(jd) : 0;
+    const finExclue = jf ? minuit(new Date(Date.parse(`${jf}T12:00:00Z`) + 86400000).toISOString().slice(0, 10)) : Date.now() + 1;
     if (!Number.isFinite(debut) || !Number.isFinite(finExclue) || finExclue <= debut) throw erreur(400, 'Période invalide.', 'invalide');
+    // Cartes dont la vente a été remboursée, annulée ou contestée : leur solde est revenu au client.
+    const annulees = new Set(db.prepare(`SELECT json_extract(donnees, '$.carteEmise.id') AS id FROM commandes WHERE boutique_id = ? AND json_extract(donnees, '$.carteEmise.id') IS NOT NULL
+      AND (statut IN ('remboursee', 'annulee') OR json_extract(donnees, '$.litige.statut') IN ('needs_response', 'under_review', 'lost'))`).all(ctx.boutique.id).map(r => r.id));
     const numeros = new Map(db.prepare("SELECT id, numero FROM commandes WHERE boutique_id = ? AND id IN (SELECT DISTINCT commande_id FROM cartes_mouvements WHERE boutique_id = ? AND commande_id IS NOT NULL)").all(ctx.boutique.id, ctx.boutique.id).map(r => [r.id, r.numero]));
     ctx.entetes['Cache-Control'] = 'private, no-store';
     ctx.entetes['Content-Disposition'] = `attachment; filename="cartes-cadeaux-${ctx.boutique.slug}.csv"`;
-    return { binaire: Buffer.from(Cartes.exporter(ctx.boutique.id, { debut, fin: finExclue, numeros }), 'utf8'), type: 'text/csv; charset=utf-8' };
+    return { binaire: Buffer.from(Cartes.exporter(ctx.boutique.id, { debut, fin: finExclue, numeros, annulees }), 'utf8'), type: 'text/csv; charset=utf-8' };
   });
   r.get('/api/admin/cartes-cadeaux', exigerMarchand, ctx => ({ cartes: Cartes.lister(ctx.boutique.id), registreCoherent: !Cartes.verifier(ctx.boutique.id).length }));
   // Réglages de la vente en ligne : déclarés avant « /:id » (sinon « vente » serait pris pour un identifiant).

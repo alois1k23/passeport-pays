@@ -130,7 +130,9 @@ function vuePartielle(c, piece) {
     : piece.lignes.map(x => ({ ...c.lignes[x.index], qte: x.qte }));
   const articles = lignes.reduce((a, l) => a + l.prix * l.qte, 0);
   const avantGeste = remiseGeste(c, Math.round(articles * 100) + (piece.port || 0) - piece.montant, piece);
-  return { ...c, retoursPartiels: undefined, lignes, sousTotal: Math.round(articles * 100) / 100, ...avantGeste, port: (piece.port || 0) / 100, total: piece.montant / 100, ventilation: ventilationPiece(c, piece),
+  // Ventilation : celle enregistrée sur la pièce à son émission (document figé) ; à défaut, recalculée.
+  return { ...c, retoursPartiels: undefined, lignes, sousTotal: Math.round(articles * 100) / 100, ...avantGeste, port: (piece.port || 0) / 100, total: piece.montant / 100,
+    ventilation: piece.ventilation !== undefined ? piece.ventilation : ventilationPiece(c, piece), portParTaux: portVentile(c, piece.port || 0),
     carteCadeau: piece.carte ? { ...(c.carteCadeau || {}), montant: piece.carte / 100 } : undefined, arrondi: undefined, encaisse: undefined,
     avoir: { numero: piece.numero, date: piece.date, montant: piece.montant / 100, libelle: piece.geste ? `Avoir sur la facture ${c.facture} : geste commercial, sans retour d’article.` : `Avoir partiel sur la facture ${c.facture} : retour de ${piece.lignes.reduce((a, x) => a + x.qte, 0)} article${piece.lignes.reduce((a, x) => a + x.qte, 0) > 1 ? 's' : ''}${piece.port ? ' et livraison' : ''}.` } };
 }
@@ -143,7 +145,8 @@ function vueReste(c) {
   const port = d.port ? 0 : cts(c.port);
   const avoir = c.avoir ? { ...c.avoir, libelle: c.avoir.libelle || `Avoir pour le solde de la facture ${c.facture} (après ${c.retoursPartiels.filter(p => p.numero).map(p => p.numero).join(', ')}).` } : c.avoir;
   const reste = resteAvoir(c), articles = lignes.reduce((a, l) => a + l.prix * l.qte, 0);
-  return { ...c, retoursPartiels: undefined, lignes, sousTotal: Math.round(articles * 100) / 100, ...remiseGeste(c, Math.round(articles * 100) + port - reste), port: port / 100, total: reste / 100, ventilation: ventilationReste(c),
+  return { ...c, retoursPartiels: undefined, lignes, sousTotal: Math.round(articles * 100) / 100, ...remiseGeste(c, Math.round(articles * 100) + port - reste), port: port / 100, total: reste / 100,
+    ventilation: c.avoir && c.avoir.ventilation !== undefined ? c.avoir.ventilation : ventilationReste(c), portParTaux: portVentile(c, port),
     carteCadeau: c.carteCadeau ? { ...c.carteCadeau, montant: Math.max(0, cts(c.carteCadeau.montant) - d.carte) / 100 } : c.carteCadeau, arrondi: undefined, encaisse: undefined, avoir };
 }
 
@@ -192,9 +195,18 @@ function ventilationPiece(c, piece) {
 function ventilationReste(c) {
   const f = ventilationFacture(c); if (!f) return null;
   const v = { ...f };
-  for (const p of c.retoursPartiels || []) { const vp = ventilationPiece(c, p); for (const [t, m] of Object.entries(vp)) v[t] = (v[t] || 0) - m; }
-  return Object.values(v).some(m => m < 0) ? null : v;
+  for (const p of c.retoursPartiels || []) { const vp = p.ventilation || ventilationPiece(c, p); if (!vp) return null; for (const [t, m] of Object.entries(vp)) v[t] = (v[t] || 0) - m; }
+  // Arrondis indépendants (facture par taux, avoirs par ligne) : un centime négatif sur un taux est repris sur le plus
+  // grand taux positif, le total restant exact (écart d'au plus quelques centimes par taux, au lieu d'abandonner).
+  for (const t of Object.keys(v)) if (v[t] < 0) {
+    const plus = Object.keys(v).filter(k => v[k] > 0).sort((a, b) => v[b] - v[a])[0];
+    if (plus === undefined || v[plus] + v[t] < 0) return null;
+    v[plus] += v[t]; v[t] = 0;
+  }
+  return v;
 }
+/* Livraison remboursée par une pièce, par taux (centimes TTC) : comme sur la facture. Avoir final : la part restante. */
+function portVentile(c, centimes) { if (!centimes || !ventilationFacture(c)) return null; return centimes === cts(c.port) ? portParTaux(c) : null; }
 
 /* Pièces d'avoir d'une commande, dans l'ordre d'émission, chacune avec sa « vue » (lignes, total, livraison) : pour le
    décompte de TVA et l'export comptable, avec les mêmes montants que les documents émis et que le journal scellé. */
@@ -216,6 +228,6 @@ function ventilationImposee(c, tauxLigne) {
   return ent.map(([t, m]) => ({ taux: Number(t), ttc: m / 100 }));
 }
 
-return { netsLignes, deja, calculer, vuePartielle, vueReste, resteAvoir, piecesAvoir, ventilationFacture, ventilationImposee, cts };
+return { netsLignes, deja, calculer, vuePartielle, vueReste, resteAvoir, piecesAvoir, ventilationFacture, ventilationPiece, ventilationReste, ventilationImposee, cts };
 
 });

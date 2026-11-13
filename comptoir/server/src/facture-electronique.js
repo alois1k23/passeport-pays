@@ -96,6 +96,7 @@ function produire(c, config, { avoir = false, devise = 'EUR' } = {}) {
   const e = config.entreprise || {}, pays = String(config.boutique.pays || 'fr').toUpperCase();
   const defaut = prix.tauxTva(config);
   const parTaux = ventiler(c, defaut);
+  const imposeeUtilisee = !!require('../../js/retours-calcul.js').ventilationImposee(c, l => tauxDeLigne(c, l, defaut));
   const motif = motifPour(config.boutique.pays);
   const categorie = t => t > 0 ? 'S' : motif.categorie;
   // Catégorie « O » : ni taux ni numéro de TVA (BR-O-02, BR-O-05).
@@ -113,7 +114,9 @@ function produire(c, config, { avoir = false, devise = 'EUR' } = {}) {
   for (const v of parTaux) {
     const lignesHt = r2(lignes.filter(l => l.taux === v.taux).reduce((a, l) => a + l.net, 0));
     const partArticles = c.lignes.filter(l => tauxDeLigne(c, l, defaut) === v.taux).reduce((a, l) => a + l.prix * l.qte, 0) / ttcArticles;
-    let port = c.port ? r2(c.port * partArticles / (1 + v.taux)) : 0;
+    // Livraison d'un avoir ventilé : sa part à ce taux, comme sur la facture (sinon au prorata des lignes présentes).
+    const portTaux = c.portParTaux && imposeeUtilisee ? (c.portParTaux[v.taux] ?? c.portParTaux[String(v.taux)] ?? 0) / 100 : null;
+    let port = portTaux !== null ? r2(portTaux / (1 + v.taux)) : c.port ? r2(c.port * partArticles / (1 + v.taux)) : 0;
     let remise = r2(lignesHt + port - v.ht);
     if (remise < 0) { port = r2(port - remise); remise = 0; }   // arrondi de conversion : ajouté aux frais
     if (port > 0) frais.push({ montant: port, taux: v.taux, motif: c.port ? 'Livraison' : 'Arrondi' });

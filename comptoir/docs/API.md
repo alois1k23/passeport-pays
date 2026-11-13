@@ -53,9 +53,9 @@ La réponse a la forme `{ "donnees": [...], "suite": "<curseur>" | null }`. Pour
 `GET /commandes/:numero` renvoie une commande.
 
 Chaque commande indique aussi :
-- `rembourse` : total remboursé, avoirs compris ;
+- `rembourse` : argent réellement rendu, avoirs compris (une facture QR annulée avant paiement donne 0) ;
 - par ligne, `rendu` : unités déjà rendues (retours partiels) ;
-- `avoirs` : la liste des avoirs émis, avec pour chacun `numero`, `date`, `type` et `montant`. `type` vaut `partiel` (retour d'une partie des articles), `geste` (geste commercial, sans retour d'article) ou `final` (remboursement du reste). Un avoir partiel détaille aussi `lignes` (`nom`, `qte`, `montant`) et `livraison`.
+- `avoirs` : la liste des avoirs émis, avec pour chacun `numero`, `date`, `type` et `montant`. `type` vaut `partiel` (retour d'une partie des articles), `geste` (geste commercial, sans retour d'article), `final` (remboursement du reste) ou `annulation` (facture annulée avant tout paiement : rien n'est remboursé). Chaque avoir a aussi `lignes` et `livraison` : pour un avoir partiel, `lignes` détaille les articles (`nom`, `qte`, `montant`) ; pour un geste, `lignes` est vide ; pour un avoir final ou une annulation, `lignes` et `livraison` valent `null` (l'avoir porte tout ce qui restait).
 
 La somme des avoirs ne dépasse jamais le total de la facture. Elle l'égale exactement quand la commande est entièrement remboursée.
 
