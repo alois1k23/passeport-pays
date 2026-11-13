@@ -47,7 +47,8 @@ function calculer(c, demande, { argentPaye }) {
   const d = deja(c), nets = netsLignes(c), demandees = Array.isArray(demande.lignes) ? demande.lignes : [];
   const vues = new Set(), lignes = [];
   for (const x of demandees) {
-    const i = Number(x.index), q = Number(x.qte);
+    if (!x || typeof x !== 'object' || typeof x.index !== 'number') throw erreur(400, 'Article du retour inconnu.', 'ligne_invalide');
+    const i = x.index, q = Number(x.qte);
     if (!Number.isInteger(i) || i < 0 || i >= c.lignes.length || vues.has(i)) throw erreur(400, 'Article du retour inconnu.', 'ligne_invalide');
     if (!Number.isInteger(q) || q < 0) throw erreur(400, 'Quantité retournée invalide.', 'qte_invalide');
     vues.add(i);
@@ -59,7 +60,9 @@ function calculer(c, demande, { argentPaye }) {
   }
   const port = demande.port === true && cts(c.port) > 0 && !d.port ? cts(c.port) : 0;
   if (demande.port === true && !port && cts(c.port) > 0) throw erreur(409, 'La livraison a déjà été remboursée.', 'port_deja');
-  if (!lignes.length && !port) throw erreur(400, 'Choisissez au moins un article (ou la livraison) à rembourser.', 'retour_vide');
+  // Au moins un article : un avoir porte toujours sur des articles (EN 16931 : une ligne au moins) ; la livraison seule
+  // se rembourse avec le premier article retourné, ou avec la commande entière.
+  if (!lignes.length) throw erreur(400, 'Choisissez au moins un article à rembourser (la livraison se rembourse avec un article).', 'retour_vide');
   // Tous les articles seraient rendus : c'est un remboursement complet (avoir final, points rendus, statut « remboursée »).
   // Il inclut la livraison : en cas de rétractation totale, les frais de livraison standard sont dus au client
   // (directive 2011/83/UE, art. 13).

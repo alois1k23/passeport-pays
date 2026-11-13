@@ -454,3 +454,27 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
 - **Chantier 20** : `npm run verifier` (`outils/verifier.js`) lance à la suite les tests automatiques, le parcours de bout en bout, les audits au clavier de la boutique et de l'espace marchand, la simulation de 60 jours (100 marchands) et un test de charge réduit (100 boutiques, 15 s). Chaque étape a un délai maximum, son verdict est lu dans sa sortie (« 0 anomalie », aucune erreur de charge), et un bilan final sort avec un code d'erreur si une étape échoue : prêt pour une intégration continue le jour où elle sera activée.
 - Premier passage complet : 6 étapes sur 6 réussies.
 - Mentionné dans le `README.md`.
+
+### Cycle 29 (03 h 35) : retours partiels (chantier 17)
+
+- **Retour d'une partie des articles** depuis la fiche commande. Le serveur calcule le montant au centime, et le marchand le voit avant de confirmer. Un avoir partiel numéroté est émis dans la suite des factures, en XML EN 16931 et en PDF Factur-X, et scellé au journal inaltérable (type « avoir-partiel »).
+  - L'argent revient d'abord sur le paiement d'origine (remboursement Stripe partiel, avec une clé d'idempotence), puis sur la carte cadeau utilisée.
+  - Les articles reviennent en stock à leur emplacement d'origine, sauf s'ils sont abîmés.
+  - Les points de fidélité gagnés sont repris au prorata des articles rendus.
+  - Le client reçoit un e-mail dans sa langue, et le webhook `commande.remboursement_partiel` est émis.
+  - Le remboursement complet qui suit ne porte que sur le reste. Les avoirs partiels et l'avoir final font exactement la facture : propriété vérifiée sur 1 000 commandes tirées au hasard.
+  - Chiffre d'affaires, marges, rapport du lundi et statistiques de la plateforme déduisent les retours partiels.
+- **Défaut trouvé dans le vrai navigateur, avant publication** : les prix des lignes sont déjà remisés (`remise` n'est qu'informatif), et le premier calcul déduisait la remise une seconde fois. Un vase payé CHF 36.00 aurait été remboursé CHF 32.00. Le montant de chaque ligne est désormais la part exacte de ce qui a été payé pour les articles (méthode du plus fort reste, prix à fractions de centime compris).
+- **Relecture indépendante**, constats corrigés :
+  - Stripe a remboursé, puis la commande change (litige ouvert pendant l'appel) : l'avoir n'était jamais créé. Un marqueur « retour en cours » est maintenant écrit avant l'appel. Une fois l'argent parti, l'avoir est toujours créé. Si l'enregistrement échoue, « Terminer le retour en cours » le reprend à l'identique, avec la même clé Stripe. Le remboursement complet attend que ce retour soit terminé.
+  - Une confirmation rejouée (réponse perdue, second onglet) refaisait un remboursement. La confirmation porte maintenant le rang et le montant vus à l'aperçu ; tout écart est refusé.
+  - Des articles en dropshipping remboursés avant leur transmission étaient quand même commandés au fournisseur. Seules les unités non remboursées partent désormais.
+  - Un avoir portant seulement sur la livraison ne pouvait pas produire de facture électronique (EN 16931 exige une ligne). Il est refusé : la livraison se rembourse avec un article.
+  - Clé Stripe du remboursement complet : renouvelée toutes les 10 minutes, pour qu'un nouvel essai après correction ne rejoue pas une erreur gardée en cache.
+  - Points déjà dépensés : l'écart est noté dans l'historique. La livraison n'entre plus dans le prorata des points.
+  - Entrées malformées : réponse 400, plus 500.
+  - Focus après une erreur gardé dans le formulaire.
+  - E-mail : libellé de la livraison, et numéro de l'avoir au lieu de « joint ».
+  - Demande de retour du client : plafonnée aux unités pas encore rendues ; une nouvelle demande est possible après un retour remboursé ; les avoirs partiels sont visibles sur la page de commande.
+- 6 nouveaux tests : 160 tests sur 160. Bout en bout : 51 sur 51. `npm run verifier` complet : 6 étapes sur 6, lancé avant les corrections de la relecture. Parcours vérifié dans un vrai navigateur après les corrections : aperçu, confirmation, liste des avoirs, PDF.
+- **Reste ouvert** : la page de commande du client ne propose pas encore le PDF de l'avoir partiel (le numéro y figure). Pas de geste commercial sans article (remise après coup) : à traiter comme un avoir de remise, avec sa propre ligne.

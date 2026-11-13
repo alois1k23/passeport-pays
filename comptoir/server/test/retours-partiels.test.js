@@ -71,6 +71,12 @@ async function boutique() {
   return { db, s, appel, emails, slug: db.prepare('SELECT slug FROM boutiques').get().slug, produits: etat.produits.map(p => p.id) };
 }
 const client = { nom: 'Lou Martin', email: 'lou@exemple.fr', adresse: '3 rue Haute', npa: '69002', ville: 'Lyon' };
+// Comme l'écran : aperçu, puis confirmation avec le rang et le montant vus.
+const retourner = async (appel, base, corps) => {
+  const ap = await appel('POST', base, { ...corps, apercu: true });
+  if (ap.statut !== 200) return ap;
+  return appel('POST', base, { ...corps, attendu: { rang: ap.json.apercu.rang, montant: ap.json.apercu.montant } });
+};
 const lire = (db, id) => { const r = db.prepare('SELECT * FROM commandes WHERE id = ?').get(id); return { statut: r.statut, ...JSON.parse(r.donnees) }; };
 const stock = (db, id) => JSON.parse(db.prepare('SELECT donnees FROM produits WHERE id = ?').get(id).donnees).stock;
 
@@ -93,8 +99,18 @@ test('serveur : deux retours partiels puis remboursement du reste ; avoirs, stoc
     assert.equal(ap.json.apercu.mode, 'simulation');
     assert.equal(lire(db, id).retoursPartiels, undefined); assert.equal(stock(db, vase), stockVase);
     // Retour d'un vase : avoir partiel, stock +1, e-mail au client.
-    const r1 = await appel('POST', base, { lignes: [{ index: 0, qte: 1 }], motif: 'Fêlé à la livraison' });
+    // Sans le montant vu à l'aperçu : refusé.
+    assert.equal((await appel('POST', base, { lignes: [{ index: 0, qte: 1 }] })).json.code, 'deja_enregistre');
+    const r1 = await retourner(appel, base, { lignes: [{ index: 0, qte: 1 }], motif: 'Fêlé à la livraison' });
     assert.equal(r1.statut, 200, JSON.stringify(r1.json));
+    // Même confirmation renvoyée (réponse perdue, second onglet) : refusée, pas de second remboursement.
+    assert.equal((await appel('POST', base, { lignes: [{ index: 0, qte: 1 }], attendu: { rang: 1, montant: attendu } })).json.code, 'deja_enregistre');
+    // Montant différent de celui affiché : refusé.
+    assert.equal((await appel('POST', base, { lignes: [{ index: 0, qte: 1 }], attendu: { rang: 2, montant: attendu + 1 } })).json.code, 'montant_change');
+    // Livraison seule : refusée (un avoir porte sur des articles) ; entrée malformée : 400, pas 500.
+    assert.equal((await appel('POST', base, { lignes: [], port: true, apercu: true })).json.code, 'retour_vide');
+    assert.equal((await appel('POST', base, { lignes: [null], apercu: true })).statut, 400);
+    assert.equal((await appel('POST', base, { lignes: [{ index: null, qte: 1 }], apercu: true })).statut, 400);
     let c = lire(db, id);
     assert.equal(c.retoursPartiels.length, 1); assert.equal(c.retoursPartiels[0].montant, attendu); assert.match(r1.json.avoir, /^AV-\d{4}-\d{4}$/);
     assert.equal(stock(db, vase), stockVase + 1);
@@ -111,11 +127,11 @@ test('serveur : deux retours partiels puis remboursement du reste ; avoirs, stoc
     assert.equal((await appel('GET', `/api/admin/commandes/${id}/facture-pdf?avoir=AV-1999-0001`)).statut, 404);
     // Deuxième retour : une bougie et la livraison, sans remise en stock (abîmée).
     const stockBougie = stock(db, bougie);
-    const r2 = await appel('POST', base, { lignes: [{ index: 1, qte: 1 }], port: true, remettreEnStock: false });
+    const r2 = await retourner(appel, base, { lignes: [{ index: 1, qte: 1 }], port: true, remettreEnStock: false });
     assert.equal(r2.statut, 200, JSON.stringify(r2.json));
     assert.equal(stock(db, bougie), stockBougie, 'article abîmé : pas remis en stock');
     // Tout le reste d'un coup : refus, c'est un remboursement complet.
-    const tout = await appel('POST', base, { lignes: [{ index: 0, qte: 2 }, { index: 1, qte: 1 }] });
+    const tout = await retourner(appel, base, { lignes: [{ index: 0, qte: 2 }, { index: 1, qte: 1 }] });
     assert.equal(tout.statut, 409); assert.equal(tout.json.code, 'retour_complet');
     // Journal : les deux avoirs partiels sont scellés et la chaîne est intacte.
     let v = (await appel('POST', '/api/admin/journal-inalterable/verifier', {})).json;
@@ -138,7 +154,7 @@ test('serveur : deux retours partiels puis remboursement du reste ; avoirs, stoc
     v = (await appel('POST', '/api/admin/journal-inalterable/verifier', {})).json;
     assert.equal(v.ok, true, JSON.stringify(v.anomalies));
     // Plus de retour partiel sur une commande remboursée.
-    assert.equal((await appel('POST', base, { lignes: [{ index: 0, qte: 1 }] })).statut, 409);
+    assert.equal((await retourner(appel, base, { lignes: [{ index: 0, qte: 1 }] })).statut, 409);
     // Un avoir partiel modifié en base est détecté.
     const brut = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(id).donnees);
     brut.retoursPartiels[0].montant += 100;
@@ -159,7 +175,9 @@ test('serveur : carte cadeau recréditée au-delà de l’argent payé, deux dem
     const id = cmd.json.commandeId, c0 = lire(db, id), argent = Math.round(c0.total * 100) - 10000;
     const base = `/api/admin/commandes/${id}/retour-partiel`;
     // Deux demandes en même temps pour 2 vases sur 3 : une seule passe (la seconde dépasserait ce qui reste).
-    const [a, b] = await Promise.all([appel('POST', base, { lignes: [{ index: 0, qte: 2 }] }), appel('POST', base, { lignes: [{ index: 0, qte: 2 }] })]);
+    const vu = (await appel('POST', base, { lignes: [{ index: 0, qte: 2 }], apercu: true })).json.apercu;
+    const corps = { lignes: [{ index: 0, qte: 2 }], attendu: { rang: vu.rang, montant: vu.montant } };
+    const [a, b] = await Promise.all([appel('POST', base, corps), appel('POST', base, corps)]);
     assert.deepEqual([a.statut, b.statut].sort(), [200, 409]);
     let c = lire(db, id);
     assert.equal(c.retoursPartiels.length, 1);
@@ -191,4 +209,32 @@ test('Stripe : remboursement partiel avec montant et clé d’idempotence ; sans
   await st.rembourser({ paiement: { ref_externe: 'cs_1' } });
   const r2 = appels.filter(a => a.methode === 'POST')[1];
   assert.equal(r2.corps.get('amount'), null, 'sans montant : Stripe rembourse ce qui reste');
+});
+
+test('serveur : retour dont l’argent est parti sans avoir enregistré, terminé à l’identique ; remboursement complet bloqué en attendant', async () => {
+  const { db, s, appel, slug, produits: [vase] } = await boutique();
+  try {
+    const cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: vase, qte: 3 }], livraison: 'colissimo', client }, false);
+    await appel('POST', `/paiement-simule/${cmd.json.paiementUrl.split('/').pop()}/confirmer`, null, false);
+    const id = cmd.json.commandeId, base = `/api/admin/commandes/${id}/retour-partiel`;
+    const vu = (await appel('POST', base, { lignes: [{ index: 0, qte: 1 }], apercu: true })).json.apercu;
+    // Situation après une panne entre le remboursement et l'avoir : marqueur posé (comme avant l'appel à Stripe).
+    const brut = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(id).donnees);
+    brut.retourEnCours = { rang: 1, cle: `retour-${id}-1`, calcul: { lignes: vu.lignes.map(({ index, qte, montant }) => ({ index, qte, montant })), port: 0, montant: vu.montant, argent: vu.argent, carte: 0 }, mode: 'simulation', paiementId: null, stock: true, motif: null, le: Date.now() };
+    // Un litige ouvert entre-temps ne doit pas empêcher d'enregistrer un remboursement déjà fait.
+    brut.litige = { statut: 'needs_response', montant: 1, raison: 'fraudulent' };
+    db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(JSON.stringify(brut), id);
+    assert.equal((await appel('POST', `/api/admin/commandes/${id}/statut`, { statut: 'remboursee' })).json.code, 'retour_en_cours');
+    assert.equal((await appel('POST', base, { lignes: [{ index: 0, qte: 1 }], apercu: true })).json.code, 'retour_en_cours');
+    const fin = await appel('POST', base, { reprendre: true });
+    assert.equal(fin.statut, 200, JSON.stringify(fin.json)); assert.equal(fin.json.repris, true);
+    const c = lire(db, id);
+    assert.equal(c.retourEnCours, undefined); assert.equal(c.retoursPartiels.length, 1); assert.equal(c.retoursPartiels[0].montant, vu.montant);
+    assert.match(c.historique.at(-1).texte, /litige bancaire est ouvert/);
+    // Rejoué : rien de plus.
+    assert.equal((await appel('POST', base, { reprendre: true })).statut, 409);
+    assert.equal(lire(db, id).retoursPartiels.length, 1);
+    const v = (await appel('POST', '/api/admin/journal-inalterable/verifier', {})).json;
+    assert.equal(v.ok, true, JSON.stringify(v.anomalies));
+  } finally { s.close(); }
 });

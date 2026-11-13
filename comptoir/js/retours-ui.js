@@ -7,7 +7,7 @@ function blocRetoursPartiels(c) {
   if (typeof connecteAuServeur !== 'function' || !connecteAuServeur()) return '';
   const pieces = c.retoursPartiels || [];
   const peut = rembourseePossible(c) && !(typeof SERVEUR !== 'undefined' && SERVEUR.role === 'commandes');
-  if (!pieces.length && !peut) return '';
+  if (!pieces.length && !peut && !c.retourEnCours) return '';
   const deja = c.lignes.map((l, i) => pieces.reduce((a, p) => a + p.lignes.filter(x => x.index === i).reduce((b, x) => b + x.qte, 0), 0));
   const portRendu = pieces.some(p => p.port);
   const r = ui.retourPartiel && ui.retourPartiel.id === c.id ? ui.retourPartiel : null;
@@ -19,8 +19,9 @@ function blocRetoursPartiels(c) {
     ${pieces.length ? `<ul class="sous">${pieces.map(p => `<li><b>${esc(p.numero)}</b> · ${new Date(p.date).toLocaleDateString('fr-CH')} · ${euros(p.montant / 100)} : ${p.lignes.map(x => `${x.qte} × ${esc(c.lignes[x.index].nom)}`).join(', ')}${p.port ? `${p.lignes.length ? ', ' : ''}livraison` : ''}${p.carte ? ` (dont ${euros(p.carte / 100)} sur la carte cadeau)` : ''}${p.mode === 'manuel' && p.argent ? ' · à rendre par vos soins' : ''}${p.stock ? '' : ' · non remis en stock'}
       <button class="btn petit fantome" data-action="facture-xml" data-format="pdf" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en PDF Factur-X">PDF</button><button class="btn petit fantome" data-action="facture-xml" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en XML EN 16931">XML</button></li>`).join('')}</ul>
       <p class="sous">Total remboursé : ${euros(total)} sur ${euros(c.total)}.</p>` : ''}
-    ${peut && !r ? `<button class="btn petit fantome" data-action="retour-partiel-ouvrir" data-id="${esc(c.id)}">${c.retour && c.retour.statut === 'demande' ? 'Rembourser les articles retournés…' : 'Retour partiel…'}</button>` : ''}
-    ${peut && r ? `<form data-form="retour-partiel" data-id="${esc(c.id)}">
+    ${c.retourEnCours ? `<p class="alerte-texte" role="alert">Un retour partiel de ${euros(c.retourEnCours.calcul.montant / 100)} a été remboursé chez Stripe, mais son avoir n’a pas encore été créé.</p><button class="btn petit" data-action="retour-partiel-terminer" data-id="${esc(c.id)}">Terminer le retour en cours</button>` : ''}
+    ${peut && !r && !c.retourEnCours ? `<button class="btn petit fantome" data-action="retour-partiel-ouvrir" data-id="${esc(c.id)}">${c.retour && c.retour.statut === 'demande' ? 'Rembourser les articles retournés…' : 'Retour partiel…'}</button>` : ''}
+    ${peut && r && !c.retourEnCours ? `<form data-form="retour-partiel" data-id="${esc(c.id)}">
       <table class="table compacte"><caption class="sous">Quantité retournée par article</caption><tbody>
       ${c.lignes.map((l, i) => { const reste = l.qte - deja[i]; return `<tr><td><label for="rp-${esc(c.id)}-${i}">${esc(l.nom)}</label><div class="sous">${l.qte} acheté${l.qte > 1 ? 's' : ''}${deja[i] ? `, ${deja[i]} déjà rendu${deja[i] > 1 ? 's' : ''}` : ''}</div></td>
         <td class="num"><input id="rp-${esc(c.id)}-${i}" name="q-${i}" type="number" min="0" max="${reste}" step="1" value="${Math.max(0, propose(i))}" ${reste ? '' : 'disabled'} class="champ-court"></td></tr>`; }).join('')}
@@ -57,19 +58,30 @@ document.addEventListener('submit', async e => {
   e.preventDefault();
   const action = e.submitter && e.submitter.value === 'confirmer' ? 'confirmer' : 'apercu';
   const saisie = saisieRetour(form), id = form.dataset.id;
-  ui.retourPartiel = { id, saisie, apercu: null, initial: false };
+  const vu = ui.retourPartiel && ui.retourPartiel.apercu;
+  ui.retourPartiel = { id, saisie, apercu: null, apercuVu: action === 'confirmer' ? vu : null, initial: false };
   for (const b of form.querySelectorAll('button')) b.disabled = true;
   try {
     if (action === 'apercu') {
       ui.retourPartiel.apercu = (await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/retour-partiel`, { ...saisie, apercu: true })).apercu;
     } else {
-      const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/retour-partiel`, saisie);
+      const vu = ui.retourPartiel.apercuVu;   // montant et rang vus par le marchand : refusés s'ils ont changé
+      const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/retour-partiel`, { ...saisie, attendu: vu ? { rang: vu.rang, montant: vu.montant } : null });
       ui.retourPartiel = null;
       await rafraichir(`Retour partiel remboursé : avoir ${r.avoir} émis, client prévenu.`);
       return;
     }
   } catch (err) { ui.retourPartiel.erreur = err.message; }
   rendre();
-  const cible = document.querySelector(`[data-form="retour-partiel"] ${ui.retourPartiel && ui.retourPartiel.apercu ? 'button[value="confirmer"]' : '[role="alert"], input:not([disabled])'}`);
+  const f2 = document.querySelector('[data-form="retour-partiel"]');
+  const cible = f2 && (ui.retourPartiel && ui.retourPartiel.apercu ? f2.querySelector('button[value="confirmer"]') : f2.querySelector('[role="alert"]') || f2.querySelector('input:not([disabled])'));
   if (cible) cible.focus();
+});
+
+/* Retour dont l'argent est parti chez Stripe sans avoir enregistré : terminé à l'identique (pas de second remboursement). */
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action="retour-partiel-terminer"]'); if (!el) return;
+  el.disabled = true;
+  try { const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/retour-partiel`, { reprendre: true }); await rafraichir(`Retour partiel terminé : avoir ${r.avoir} émis.`); }
+  catch (err) { toast(err.message); el.disabled = false; }
 });
