@@ -258,6 +258,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Date de dernière modification des commandes (synchronisation incrémentale par l'API).
   try { db.exec('ALTER TABLE commandes ADD COLUMN maj_le INTEGER'); } catch { /* déjà là */ }
   db.exec('CREATE INDEX IF NOT EXISTS commandes_maj ON commandes(boutique_id, maj_le)');
+  // Commandes par statut (en attente surtout : stock réservé, plafond d'impayées) : sans cet index, chaque nouvelle commande
+  // parcourait toutes les commandes des 90 derniers jours (coût qui croissait avec l'historique de la boutique).
+  db.exec('CREATE INDEX IF NOT EXISTS commandes_statut ON commandes(boutique_id, statut, date)');
   // Commande telle qu'envoyée aux intégrations du marchand (API, webhooks) : pas de jeton, pas de coûts internes.
   const commandeApi = (c, devise, { client = true } = {}) => ({ id: c.id, numero: c.numero, date: new Date(c.date).toISOString(), statut: c.statut, total: c.total, sousTotal: c.sousTotal, remise: c.remise || 0, port: c.port || 0, devise,
     livraison: c.livraison, canal: c.canal || 'web', moyen: c.moyen || 'en_ligne', facture: c.facture || null, suivi: c.suivi || null, transporteur: c.transporteur || null,

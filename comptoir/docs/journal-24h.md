@@ -75,6 +75,12 @@ La feuille de route peut évoluer selon les constats des relectures.
 38. **Journaux du serveur sans données personnelles** (adresses e-mail, noms, adresses).
 39. **Performance de l'espace marchand** avec des milliers de commandes, retours compris.
 
+**Huitième phase** (la septième est terminée le 13 novembre vers 6 h 35) :
+
+40. **Création de commande à grande échelle** : son coût augmente avec l'historique de la boutique (4,4 ms à 3 000 commandes, 6 ms à 10 000) ; trouver ce qui grandit et l'indexer.
+41. **Relecture adversariale de l'authentification** : inscription, connexion, double authentification, clés d'accès, réinitialisation, sessions, équipe.
+42. **Test de charge à grande échelle** après les changements de la nuit.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -805,3 +811,11 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - Un profil de performance commis par erreur a été retiré et les profils sont ignorés par Git.
   - La règle des clés ignorées dans les corps JSON est documentée dans `API.md`.
   - 1 test de plus : 182 tests sur 182. Audit au clavier de l'espace marchand : aucun problème.
+
+### Cycle 47 (06 h 18) : création de commande à coût constant (chantier 40)
+
+- **Mesure** : 10 000 vraies commandes créées puis payées. Le coût par commande croissait avec l'historique de la boutique : 4,1 ms pour les 2 000 premières, 6,7 ms pour les 2 000 dernières.
+- **Cause, trouvée par profilage** : à chaque commande, deux requêtes cherchent les commandes en attente (stock réservé, plafond d'impayées). Avec le seul index par date, elles parcouraient toutes les commandes des 90 derniers jours pour n'en garder que quelques-unes. Un index (boutique, statut, date) les limite aux commandes en attente.
+- **Second point** : les compteurs du score de risque gardaient toutes les entrées d'un même réseau sur 24 h, que chaque commande filtrait. Ils sont plafonnés aux 200 plus récentes, bien au-delà des seuils du score (2 ou 3 valeurs distinctes).
+- **Résultat** : coût constant, 3,3 ms par commande de la première à la dix-millième. Ouverture de l'espace marchand à 10 000 commandes : médiane de 0,3 s.
+- **Vérificateur** : l'échec de l'étape de fuzzing venait du fuzzer lui-même, qui ne savait pas écrire dans l'adresse ses nouvelles valeurs piégées (`{ toString: 1 }`). Il est corrigé : 3 graines, 3 768 requêtes, 0 constat.

@@ -14,6 +14,7 @@ const ESSAIS = Number(process.argv[2]) || 20;
 let graine = Number(process.argv[3]) || 1;
 const hasard = () => { graine = (graine * 1103515245 + 12345) % 2147483648; return graine / 2147483648; };
 const choisir = l => l[Math.floor(hasard() * l.length)];
+const enTexte = v => { try { return String(v); } catch { return JSON.stringify(v); } };   // { toString: 1 } ne se convertit pas avec String()
 
 const CHAMPS = ['lignes', 'client', 'email', 'montant', 'code', 'statut', 'qte', 'index', 'geste', 'attendu', 'apercu', 'port', 'motif', 'jeton', 'demande', 'fidelite',
   'carteCadeau', 'config', 'produits', 'motDePasse', 'nom', 'prix', 'stock', 'livraison', 'moyen', 'langue', 'montants', 'validiteMois', 'actif', 'suivi', 'produitId',
@@ -67,7 +68,7 @@ const corps = () => { const r = hasard(); if (r < 0.06) return '{"cassé":'; if 
   let requetes = 0; const statuts = {};
   for (const r of routes) {
     for (let i = 0; i < ESSAIS; i++) {
-      const chemin = r.chemin.replace(/:(\w+)/g, (_, n) => param(n)) + (hasard() < 0.4 ? `?${choisir(CHAMPS)}=${encodeURIComponent(String(valeur()))}&jeton=${encodeURIComponent(String(choisir(VALEURS())))}` : '');
+      const chemin = r.chemin.replace(/:(\w+)/g, (_, n) => param(n)) + (hasard() < 0.4 ? `?${choisir(CHAMPS)}=${encodeURIComponent(enTexte(valeur()))}&jeton=${encodeURIComponent(enTexte(choisir(VALEURS())))}` : '');
       const avecSession = hasard() < 0.75, avecCle = /^\/api\/v1/.test(r.chemin) && hasard() < 0.8;
       const avant = erreursServeur.length;
       let rep;

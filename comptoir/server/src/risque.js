@@ -23,7 +23,11 @@ function creerCompteurs() {
     ajouter(cle, valeur, t = Date.now()) {
       nettoyer(t);
       const k = h(cle), l = (m.get(k) || []).filter(x => t - x.t < 86400000);
-      l.push({ t, v: h(valeur) }); m.delete(k); m.set(k, l);   // réinsérée : l'éviction touche la clé la moins récente
+      l.push({ t, v: h(valeur) });
+      // Au plus 200 entrées par clé (les plus récentes) : le score ne regarde que quelques valeurs distinctes, et un réseau
+      // qui passe des milliers de commandes ne rend pas chaque nouvelle commande plus coûteuse.
+      if (l.length > 200) l.splice(0, l.length - 200);
+      m.delete(k); m.set(k, l);   // réinsérée : l'éviction touche la clé la moins récente
       if (m.size > 50000) m.delete(m.keys().next().value);
     },
     // Nombre de valeurs distinctes vues pour « cle » dans la fenêtre, sans compter « sauf » (le client actuel).
