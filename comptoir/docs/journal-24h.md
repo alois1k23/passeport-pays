@@ -672,3 +672,11 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - le geste commercial : ouverture, puis « Annuler ».
 - **Défaut trouvé** : après la confirmation d'un retour, le détail était redessiné et le focus perdu ; un utilisateur de lecteur d'écran repartait du haut de la page. Le focus va désormais au titre « Retours partiels », juste au-dessus du nouvel avoir, avec un contour visible.
 - Audit : toutes les étapes passent, aucune erreur JavaScript. 173 tests sur 173.
+
+### Cycle 39 (04 h 58) : démonstration publiée mise à jour (chantier 30)
+
+- Démonstration (artefact) republiée en **version 24**. Elle contient le module de calcul partagé (`js/retours-calcul.js`), l'interface des retours partiels et du geste commercial, et les nouvelles traductions.
+- Avant publication :
+  - les fichiers déjà en ligne ont été relus et comparés à l'historique Git. Tous étaient d'anciennes versions du dépôt : rien d'extérieur n'a été écrasé ;
+  - le paquet a été vérifié dans un vrai navigateur (servi en UTF-8). Écrans Tableau de bord, Commandes, Analyse (onglet TVA), Magasin, Clients et Produits parcourus, aucune erreur JavaScript. La seule réponse 404 est `/api/session`, normale sans serveur.
+- Pas de relecture indépendante pour ce chantier : il republie du code déjà relu, et la vérification ci-dessus en tient lieu.
