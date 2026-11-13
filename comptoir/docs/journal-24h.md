@@ -68,6 +68,13 @@ La feuille de route peut évoluer selon les constats des relectures.
 34. **Simulation de 60 jours avec retours partiels et gestes** : invariants comptables et journal à grande échelle.
 35. **Documentation relue** contre le code (fonctionnalités, API, mise en ligne).
 
+**Septième phase** (la sixième est terminée le 13 novembre vers 5 h 40) :
+
+36. **Fuzzing HTTP** de toutes les routes (publiques, marchand, API) : corps aléatoires et hostiles, jamais d'erreur 500, de pile exposée ni d'exception non gérée.
+37. **Routes coûteuses** (PDF, exports) limitées par compte.
+38. **Journaux du serveur sans données personnelles** (adresses e-mail, noms, adresses).
+39. **Performance de l'espace marchand** avec des milliers de commandes, retours compris.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -748,3 +755,11 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
 - **Résultat** :
   - 100 marchands sur 60 jours : **0 anomalie**, journal scellé vérifié pour chaque marchand ;
   - 40 marchands sur 45 jours, avec le décompte : **758 retours partiels, 1 835 gestes commerciaux et 314 remboursements du reste**, 0 anomalie.
+- **Relecture indépendante des contrôles assouplis** : aucun des trois ne masque un défaut de stock ou de numérotation. En revanche, deux nouveaux contrôles ne pouvaient jamais échouer : « avoirs = facture » est vrai par construction, et aucun « retour en suspens » n'est possible avec le prestataire simulé. Ajoutés, sans dépendre des formules du serveur :
+  - pour chaque avoir partiel : lignes + livraison = montant, et argent + carte = montant ;
+  - un numéro présent si et seulement si le montant est positif ;
+  - par ligne, jamais plus remboursé que le prix payé (recalculé), ni plus d'unités rendues que vendues ;
+  - un compte « retiré du stock » jamais négatif ni supérieur aux unités encore vendues ;
+  - un avoir final jamais négatif ;
+  - de nouveaux parcours : confirmation rejouée (refusée) et geste mêlé à un retour (refusé).
+- Nouveau passage (40 marchands, 45 jours) : 757 retours partiels, 1 913 gestes, 271 remboursements du reste, 504 confirmations rejouées toutes refusées, **0 anomalie**. Les retours en suspens, qui supposent des pannes de Stripe, restent couverts par les tests automatiques.

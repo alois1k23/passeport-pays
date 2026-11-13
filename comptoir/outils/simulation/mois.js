@@ -22,6 +22,7 @@ const S = path.join(__dirname, '../../server/src/');
 const { ouvrir } = require(S + 'db');
 const { creerApp } = require(S + 'app');
 const Pii = require(S + 'pii');
+const RetoursCalcul = require(path.join(__dirname, '../../js/retours-calcul.js'));
 
 const N = Number(process.argv[2] || 100), JOURS = Number(process.argv[3] || 60);
 const anomalies = [];
@@ -140,7 +141,7 @@ const durees = [];
     if (hasard() < 0.5) { const st = await a.c('GET', `/api/public/${m.slug}/commandes/${r.j.commandeId}?jeton=${r.j.jeton}`); if (st.s !== 200) note(`boutique ${m.i}`, 'suivi de commande inaccessible au client', st.s); }
   }
 
-  const statsRetours = { partiels: 0, gestes: 0, soldes: 0 };
+  const statsRetours = { partiels: 0, gestes: 0, sansMontant: 0, rejeux: 0, soldes: 0 };
   async function gestion(m) {
     const e = await m.c('GET', '/api/admin/etat');
     if (e.s === 402) { if (!m.resilie) note(`marchand ${m.i}`, 'espace bloqué (402) sans résiliation', ''); return; }
@@ -161,11 +162,15 @@ const durees = [];
           const ap = await m.c('POST', base, { ...corps, apercu: true });
           if (ap.s !== 200) { if (!['retour_complet', 'depasse', 'qte_trop', 'abonnement_requis'].includes(ap.j && ap.j.code)) note(`marchand ${m.i}`, 'aperçu de retour refusé', JSON.stringify(ap.j)); return; }
           const x = await m.c('POST', base, { ...corps, attendu: { rang: ap.j.apercu.rang, montant: ap.j.apercu.montant } });
-          if (x.s !== 200) note(`marchand ${m.i}`, 'retour partiel refusé après aperçu', JSON.stringify(x.j)); else statsRetours[corps.geste ? 'gestes' : 'partiels']++;
+          if (x.s !== 200) { note(`marchand ${m.i}`, 'retour partiel refusé après aperçu', JSON.stringify(x.j)); return; }
+          statsRetours[corps.geste ? 'gestes' : x.j.avoir ? 'partiels' : 'sansMontant']++;
+          // Même confirmation rejouée (double clic, onglet) : refusée, rien de plus.
+          if (hasard() < 0.2) { const y = await m.c('POST', base, { ...corps, attendu: { rang: ap.j.apercu.rang, montant: ap.j.apercu.montant } }); if (y.s === 200) note(`marchand ${m.i}`, 'confirmation rejouée acceptée', `n° ${c.numero}`); else statsRetours.rejeux++; }
         };
         const unites = c.lignes.reduce((s2, l) => s2 + l.qte, 0);
         if (r < 0.06 && unites >= 2) { const i = c.lignes.findIndex(l => l.qte > 0); await operer({ lignes: [{ index: i, qte: 1 }], port: !(c.retoursPartiels || []).some(p => p.port) && hasard() < 0.3, remettreEnStock: hasard() < 0.8 }); }
         else if (r < 0.09) await operer({ geste: Math.max(1, Math.round(c.total * 0.1)) });
+        else if (r < 0.095) { const x = await m.c('POST', base, { geste: 1, lignes: [{ index: 0, qte: 1 }], apercu: true }); if (x.s !== 400) note(`marchand ${m.i}`, 'geste mêlé à un retour accepté', JSON.stringify(x.j)); }
         else if (r < 0.11 && (c.retoursPartiels || []).length) { const x = await m.c('POST', `/api/admin/commandes/${c.id}/statut`, { statut: 'remboursee' }); if (x.s !== 200) note(`marchand ${m.i}`, 'remboursement du reste refusé', JSON.stringify(x.j)); else statsRetours.soldes++; }
       }
     }
@@ -284,6 +289,21 @@ const durees = [];
         if (avoirs > cts(c.total)) note(`boutique ${m.i}`, 'avoirs supérieurs à la facture', `n° ${c.numero} : ${avoirs / 100} > ${c.total}`);
         if (c.statut === 'remboursee' && c.avoir && avoirs !== cts(c.total)) note(`boutique ${m.i}`, 'avoirs différents de la facture remboursée', `n° ${c.numero} : ${avoirs / 100} ≠ ${c.total}`);
         if (c.retourEnCours) note(`boutique ${m.i}`, 'retour resté en suspens', `n° ${c.numero}`);
+        // Contrôles indépendants des formules du serveur : chaque pièce s'additionne, chaque ligne reste dans ses limites.
+        const nets = RetoursCalcul.netsLignes(c), cumulM = {}, cumulQ = {};
+        for (const pc of c.retoursPartiels || []) {
+          const somme = pc.lignes.reduce((t, x) => t + x.montant, 0) + (pc.port || 0);
+          if (somme !== pc.montant) note(`boutique ${m.i}`, 'avoir partiel incohérent (lignes + livraison ≠ montant)', `n° ${c.numero} ${pc.numero}`);
+          if ((pc.argent || 0) + (pc.carte || 0) !== pc.montant) note(`boutique ${m.i}`, 'avoir partiel incohérent (argent + carte ≠ montant)', `n° ${c.numero} ${pc.numero}`);
+          if (!!pc.numero !== (pc.montant > 0)) note(`boutique ${m.i}`, 'numéro d’avoir et montant incohérents', `n° ${c.numero} ${pc.numero} ${pc.montant}`);
+          for (const x of pc.lignes) { cumulM[x.index] = (cumulM[x.index] || 0) + x.montant; cumulQ[x.index] = (cumulQ[x.index] || 0) + x.qte; }
+        }
+        c.lignes.forEach((l, i) => {
+          if ((cumulM[i] || 0) > nets[i]) note(`boutique ${m.i}`, 'ligne remboursée au-delà de son prix payé', `n° ${c.numero} ligne ${i}`);
+          if ((cumulQ[i] || 0) > l.qte) note(`boutique ${m.i}`, 'plus d’unités rendues que vendues', `n° ${c.numero} ligne ${i}`);
+          if (l.type !== 'drop' && typeof l.retireStock === 'number' && (l.retireStock < 0 || l.retireStock + (cumulQ[i] || 0) > l.qte)) note(`boutique ${m.i}`, 'compte « retiré du stock » incohérent', `n° ${c.numero} ligne ${i} : ${l.retireStock} + ${cumulQ[i] || 0} rendus > ${l.qte}`);
+        });
+        if (c.avoir && Number(c.avoir.montant) < 0) note(`boutique ${m.i}`, 'avoir final négatif', `n° ${c.numero}`);
       }
       const sousTotal = Math.round(c.lignes.reduce((s, l) => s + l.prix * l.qte, 0) * 100) / 100;
       if (c.canal !== 'magasin' && Math.abs(sousTotal + (c.port || 0) - c.total) > 0.011) note(`boutique ${m.i}`, 'total de commande incohérent', `n° ${c.numero} : lignes ${sousTotal} + port ${c.port} ≠ ${c.total}`);
