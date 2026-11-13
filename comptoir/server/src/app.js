@@ -1673,6 +1673,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   });
   /* Suppression définitive d'un compte marchand et de tout ce qui lui appartient (demande du marchand, ou fin de conservation). */
   async function supprimerCompte(m) {
+    for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) oublierCommandes(b.id);
     await abo.arreterDefinitivement(m.id);   // sinon Stripe continuerait de prélever un compte supprimé
     transaction(db, () => {
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
@@ -1723,21 +1724,31 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   /* État complet de l'espace marchand. Les commandes en sont l'essentiel (des milliers) : le JSON de chacune est gardé en
      mémoire, repéré par l'empreinte de sa ligne en base. Une commande inchangée n'est ni relue, ni déchiffrée, ni
      resérialisée (10 000 commandes : environ 0,7 s de calcul bloquant auparavant, à chaque ouverture de l'espace). */
-  const JSON_COMMANDES = new Map(), JSON_COMMANDES_MAX = 30000;
-  const jsonCommande = row => {
-    const cle = `${row.statut}|${row.numero}|${row.date}|${crypto.createHash('sha1').update(row.donnees).digest('base64')}`;
-    const m = JSON_COMMANDES.get(row.id);
-    if (m && m.cle === cle) { JSON_COMMANDES.delete(row.id); JSON_COMMANDES.set(row.id, m); return m.json; }   // récemment servi : gardé
-    const json = JSON.stringify(lireCommande(row));
-    JSON_COMMANDES.set(row.id, { cle, json });
-    if (JSON_COMMANDES.size > JSON_COMMANDES_MAX) JSON_COMMANDES.delete(JSON_COMMANDES.keys().next().value);
-    return json;
+  // Un cache par boutique, entier ou rien : il contient des données de clients déchiffrées, donc il est effacé avec
+  // les données (effacement d'un client, suppression du compte) et après 30 minutes sans ouverture de l'espace.
+  // Au plus 30 000 commandes en tout ; une boutique plus grande n'est pas mise en cache (pas d'évictions en boucle).
+  const JSON_COMMANDES = new Map(), JSON_COMMANDES_MAX = 30000, JSON_COMMANDES_DUREE = 30 * 60000;
+  const oublierCommandes = boutiqueId => { JSON_COMMANDES.delete(boutiqueId); };
+  const jsonCommandes = (boutiqueId, rows) => {
+    if (rows.length > JSON_COMMANDES_MAX) { oublierCommandes(boutiqueId); return rows.map(r => JSON.stringify(lireCommande(r))); }
+    const avant = JSON_COMMANDES.get(boutiqueId), ancien = avant ? avant.parId : new Map(), parId = new Map();
+    const sortie = rows.map(row => {
+      const cle = `${row.statut}|${row.numero}|${row.date}|${crypto.createHash('sha1').update(row.donnees).digest('base64')}`;
+      const m = ancien.get(row.id);
+      const e = m && m.cle === cle ? m : { cle, json: JSON.stringify(lireCommande(row)) };
+      parId.set(row.id, e);   // commandes disparues : non reprises
+      return e.json;
+    });
+    JSON_COMMANDES.delete(boutiqueId); JSON_COMMANDES.set(boutiqueId, { parId, le: Date.now() });   // boutique la plus récente en dernier
+    // Budget total : les boutiques ouvertes le moins récemment sortent en premier ; expirées après 30 minutes.
+    let total = 0; for (const v of JSON_COMMANDES.values()) total += v.parId.size;
+    for (const [bid, v] of JSON_COMMANDES) { if (total <= JSON_COMMANDES_MAX && Date.now() - v.le < JSON_COMMANDES_DUREE) break; if (bid === boutiqueId) continue; total -= v.parId.size; JSON_COMMANDES.delete(bid); }
+    return sortie;
   };
-  const MARQUE_COMMANDES = '\u0000commandes\u0000';
   r.get('/api/admin/etat', exigerMarchand, async ctx => {
     const config = lireConfig(ctx.boutique);
-    const commandesJson = '[' + db.prepare('SELECT * FROM commandes WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(jsonCommande).join(',') + ']';
-    const commandes = MARQUE_COMMANDES;   // remplacé par les JSON gardés, à l'envoi
+    const commandesJson = '[' + jsonCommandes(ctx.boutique.id, db.prepare('SELECT * FROM commandes WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id)).join(',') + ']';
+    const commandes = [];   // ajoutées à la fin du JSON, depuis les fragments gardés
     const publications = db.prepare('SELECT * FROM publications WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(social.lire);
     const abonnes = db.prepare('SELECT COUNT(*) AS n FROM abonnes WHERE boutique_id = ?').get(ctx.boutique.id).n;
     const envois = Object.fromEntries(db.prepare("SELECT substr(cle, 1, instr(cle, ':') - 1) AS type, COUNT(*) AS n FROM envois_auto WHERE boutique_id = ? GROUP BY type").all(ctx.boutique.id).map(x => [x.type, x.n]));
@@ -1751,7 +1762,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
     let final = etatComplet;
     if (ctx.role === 'commandes') { const { iban, ...entreprise } = etatComplet.entreprise || {}; final = { ...etatComplet, entreprise, desinscrits: [], abonnes: [], envois: [] }; }
-    const texte = JSON.stringify(final).replace(JSON.stringify(MARQUE_COMMANDES), () => commandesJson);
+    // Pas de recherche dans le texte (une valeur de configuration pourrait contenir n'importe quoi) : l'objet est sérialisé
+    // sans ses commandes, puis elles sont ajoutées comme dernier champ.
+    const { commandes: _c, ...sansCommandes } = final; void _c;
+    const tete = JSON.stringify(sansCommandes);
+    const texte = `${tete.slice(0, -1)}${tete.length > 2 ? ',' : ''}"commandes":${commandesJson}}`;
     ctx.entetes['Cache-Control'] = 'no-store';
     // Compression hors du fil principal, comme pour toute grande réponse JSON.
     if (/\bgzip\b/.test(ctx.req.headers['accept-encoding'] || '')) {
@@ -2314,6 +2329,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     };
   });
   r.post('/api/admin/clients/effacer', exigerMarchand, ctx => {
+    oublierCommandes(ctx.boutique.id);   // plus de copie déchiffrée de ses commandes en mémoire
     const email = valider.email(ctx.corps.email).toLowerCase();
     const commandes = commandesDuClient(ctx.boutique.id, email);
     const ouvertes = commandes.filter(c => ['attente', 'payee', 'preparation', 'fournisseur', 'prete'].includes(c.statut));
@@ -3524,6 +3540,8 @@ ${bloc}</main></body></html>`;
     }
   }
   function entretien(maintenant = Date.now()) {
+    // Copies déchiffrées des commandes (état de l'espace marchand) : effacées après 30 minutes sans ouverture.
+    for (const [bid, v] of JSON_COMMANDES) if (maintenant - v.le >= JSON_COMMANDES_DUREE) JSON_COMMANDES.delete(bid);
     // Fournisseur de démonstration : expéditions en attente (redémarrage, webhook en échec)
     if (delaiExpeditionDemo >= 0) for (const r of db.prepare("SELECT ref FROM demo_fournisseur_commandes WHERE statut = 'recue' AND cree_le < ?").all(maintenant - delaiExpeditionDemo - 60000)) expedierDemo(r.ref).catch(e => journal.error('[demo-fournisseur]', e.message));
     libererCartes(maintenant);

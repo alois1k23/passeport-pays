@@ -799,3 +799,9 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - résultat : médiane de 0,3 s par ouverture, et blocage maximal du fil principal de 170 ms au lieu de 700 ms ;
   - les autres routes étaient déjà rapides : API (100 commandes) 6 ms, export des cartes 39 ms. La vérification complète du journal prend 0,8 s pour 10 000 commandes ; elle travaille par lots et rend la main entre deux lots.
 - 2 tests de plus : 181 tests sur 181.
+- **Relecture indépendante de ces changements**, constats corrigés :
+  - **Collision reproduite** : l'état complet glissait les commandes à la place d'un marqueur dans le texte JSON. Un marchand qui écrivait ce marqueur dans un champ de configuration (son slogan, par exemple) y envoyait les commandes, et son espace devenait inutilisable. Il n'y a plus de recherche dans le texte : l'objet est sérialisé sans ses commandes, puis elles sont ajoutées comme dernier champ. Un test vérifie le cas avec le marqueur et avec un nom de boutique piégé.
+  - **Données déchiffrées en mémoire** : le cache des commandes n'était purgé ni à l'effacement d'un client, ni à la suppression d'un compte, et il pouvait tourner à vide au-delà de 30 000 commandes. Il fonctionne maintenant par boutique, entier ou rien. Il est effacé avec les données (effacement d'un client, suppression du compte) et après 30 minutes sans ouverture de l'espace, contrôlées par la maintenance. Une boutique de plus de 30 000 commandes n'est pas mise en cache.
+  - Un profil de performance commis par erreur a été retiré et les profils sont ignorés par Git.
+  - La règle des clés ignorées dans les corps JSON est documentée dans `API.md`.
+  - 1 test de plus : 182 tests sur 182. Audit au clavier de l'espace marchand : aucun problème.

@@ -3,3 +3,6 @@ server/donnees/
 *.db-wal
 *.db-shm
 .env
+
+# Profils de performance (outils de mesure)
+*.cpuprofile

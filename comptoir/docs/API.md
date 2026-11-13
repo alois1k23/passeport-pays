@@ -61,6 +61,8 @@ La somme des avoirs ne dépasse jamais le total de la facture. Elle l'égale exa
 
 `POST /commandes/:numero/expedier` marque une commande payée comme expédiée et envoie l'e-mail d'expédition au client. Le corps est `{ "suivi": "99.00.123456.12345678", "transporteur": "Poste" }`. Une commande en dropshipping ou en retrait en magasin ne s'expédie pas par l'API : l'API répond `409`.
 
+Les corps de requête sont des objets JSON. Les clés `__proto__`, `constructor`, `prototype`, `toString`, `valueOf`, `toJSON`, `toLocaleString` et `hasOwnProperty` y sont ignorées, à toute profondeur : n'en utilisez pas comme noms de champs.
+
 Exemple de commande :
 
 ```json
