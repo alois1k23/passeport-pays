@@ -232,3 +232,17 @@ test('codes : réseau sûr exempté des plafonds tous réseaux ; 30 échecs aill
   assert.equal(K2.solde('b', 'a@exemple.fr', t0 + 270 * j), 50, '183 j d’inactivité + 100 j de pause : pas encore expiré');
   assert.equal(K2.solde('b', 'a@exemple.fr', t0 + 290 * j), 0, 'expiré 100 jours plus tard qu’à l’origine');
 });
+
+test('ménage : codes, échecs et réseaux sûrs périmés effacés, les récents gardés', () => {
+  const db = ouvrir(':memory:'), K = Fid.creer(db, crypto.randomBytes(32)), j = 86400000, t0 = Date.UTC(2026, 0, 1);
+  K.ecrireReglages('b', { actif: true });
+  K.crediter('b', 'a@exemple.fr', 100, { maintenant: t0 });
+  const d = K.nouveauCode('b', 'a@exemple.fr', t0);
+  K.verifierCode('b', 'a@exemple.fr', d.code === '000000' ? '111111' : '000000', { demande: d.demande, reseau: 'r1', maintenant: t0 });
+  const d2 = K.nouveauCode('b', 'a@exemple.fr', t0); K.verifierCode('b', 'a@exemple.fr', d2.code, { demande: d2.demande, reseau: 'maison', maintenant: t0 });
+  const n = t => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n;
+  assert.equal(K.menage(t0 + j / 2), 0, 'rien de périmé au bout de 12 h');
+  assert.ok(K.menage(t0 + 2 * j) >= 2); assert.equal(n('fidelite_codes_demandes'), 0); assert.equal(n('fidelite_echecs'), 0);
+  assert.equal(n('fidelite_reseaux_surs'), 1, 'réseau sûr gardé un an');
+  K.menage(t0 + 366 * j); assert.equal(n('fidelite_reseaux_surs'), 0);
+});

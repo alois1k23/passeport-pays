@@ -703,3 +703,14 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - registres des cartes et de la fidélité cohérents ;
   - la boutique continue de vivre : remboursement du reste, journal toujours intact.
 - 1 nouveau test.
+
+### Cycle 41 (05 h 14) : ménage planifié et rapport du lundi (chantiers 32 et 33)
+
+- **Ménage quotidien** des données temporaires de la fidélité :
+  - codes expirés depuis un jour ;
+  - échecs de plus de 24 h ;
+  - réseaux sûrs inutilisés depuis un an ;
+  - anciens codes.
+  Jusqu'ici, ce ménage n'avait lieu qu'à la demande d'un nouveau code, et les réseaux sûrs n'étaient jamais effacés. Rien n'est gardé plus longtemps que nécessaire.
+- **Rapport du lundi** : nouvelle ligne « Remboursements » avec les avoirs émis dans la semaine (retours partiels, gestes commerciaux, remboursements complets), quelle que soit la date de la commande, gestes à part. Les annulations de factures jamais payées n'y figurent pas, puisqu'aucun argent n'a été rendu.
+- 2 tests de plus : 178 tests sur 178.

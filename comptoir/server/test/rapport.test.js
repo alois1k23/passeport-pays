@@ -18,10 +18,17 @@ test('rapport hebdomadaire du marchand', async () => {
     // Commandes datées de la semaine passée ; le lundi suivant à 8 h, le rapport part
     const maintenant = new Date(); const lundi = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + ((8 - maintenant.getDay()) % 7 || 7), 8, 0);
     db.prepare('UPDATE commandes SET date = ?').run(lundi.getTime() - 3 * 86400000);
+    // Avoirs de la semaine sur une commande : un retour partiel (12,00) et un geste commercial (3,00).
+    const row = db.prepare('SELECT id, donnees FROM commandes ORDER BY numero LIMIT 1').get(), d = JSON.parse(row.donnees);
+    d.facture = d.facture || 'FA-2026-0099'; d.payeLe = d.payeLe || lundi.getTime() - 3 * 86400000;
+    d.retoursPartiels = [{ numero: 'AV-2026-0101', date: lundi.getTime() - 2 * 86400000, lignes: [{ index: 0, qte: 1, montant: 1200 }], port: 0, montant: 1200, argent: 1200, carte: 0 },
+      { numero: 'AV-2026-0102', date: lundi.getTime() - 86400000, geste: true, lignes: [{ index: 0, qte: 0, montant: 300 }], port: 0, montant: 300, argent: 300, carte: 0 }];
+    db.prepare('UPDATE commandes SET donnees = ?, maj_le = ? WHERE id = ?').run(JSON.stringify(d), lundi.getTime() - 86400000, row.id);
     gerer.automatisationsEcheances(lundi.getTime());
     const r = db.prepare("SELECT sujet, corps FROM emails WHERE destinataire = 'lundi@exemple.ch' AND sujet LIKE 'Votre semaine%'").all();
     assert.equal(r.length, 1, 'un rapport');
     assert.match(r[0].sujet, /3 commandes/); assert.match(r[0].corps, /Meilleurs produits :\n- Vase : 3 vendus/); assert.match(r[0].corps, /3 commandes à préparer et expédier/);
+    assert.match(r[0].corps, /- Remboursements : CHF 15\.00 \(2 avoirs, dont 1 geste commercial pour CHF 3\.00\)/);
     assert.doesNotMatch(r[0].corps, /undefined|NaN/);
     gerer.automatisationsEcheances(lundi.getTime() + 3600000);
     assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet LIKE 'Votre semaine%'").get().n, 1, 'une seule fois par semaine');

@@ -140,6 +140,7 @@ const durees = [];
     if (hasard() < 0.5) { const st = await a.c('GET', `/api/public/${m.slug}/commandes/${r.j.commandeId}?jeton=${r.j.jeton}`); if (st.s !== 200) note(`boutique ${m.i}`, 'suivi de commande inaccessible au client', st.s); }
   }
 
+  const statsRetours = { partiels: 0, gestes: 0, soldes: 0 };
   async function gestion(m) {
     const e = await m.c('GET', '/api/admin/etat');
     if (e.s === 402) { if (!m.resilie) note(`marchand ${m.i}`, 'espace bloqué (402) sans résiliation', ''); return; }
@@ -153,6 +154,20 @@ const durees = [];
         else { const x = await m.c('POST', `/api/admin/commandes/${c.id}/statut`, { statut: 'expediee', suivi: `99.00.${100000 + c.numero}.12345678` }); if (x.s !== 200) note(`marchand ${m.i}`, 'expédition refusée', JSON.stringify(x.j)); }
       } else if (c.statut === 'prete' && r < 0.7) await m.c('POST', `/api/admin/commandes/${c.id}/statut`, { statut: 'retiree' });
       else if (c.statut === 'expediee' && r < 0.5) await m.c('POST', `/api/admin/commandes/${c.id}/statut`, { statut: 'livree' });
+      // Après livraison : retour d'une partie des articles (aperçu puis confirmation), geste commercial, ou remboursement du reste.
+      else if (['livree', 'retiree'].includes(c.statut) && c.facture && !c.avoir && c.canal !== 'carte' && !m.resilie) {
+        const base = `/api/admin/commandes/${c.id}/retour-partiel`;
+        const operer = async corps => {
+          const ap = await m.c('POST', base, { ...corps, apercu: true });
+          if (ap.s !== 200) { if (!['retour_complet', 'depasse', 'qte_trop', 'abonnement_requis'].includes(ap.j && ap.j.code)) note(`marchand ${m.i}`, 'aperçu de retour refusé', JSON.stringify(ap.j)); return; }
+          const x = await m.c('POST', base, { ...corps, attendu: { rang: ap.j.apercu.rang, montant: ap.j.apercu.montant } });
+          if (x.s !== 200) note(`marchand ${m.i}`, 'retour partiel refusé après aperçu', JSON.stringify(x.j)); else statsRetours[corps.geste ? 'gestes' : 'partiels']++;
+        };
+        const unites = c.lignes.reduce((s2, l) => s2 + l.qte, 0);
+        if (r < 0.06 && unites >= 2) { const i = c.lignes.findIndex(l => l.qte > 0); await operer({ lignes: [{ index: i, qte: 1 }], port: !(c.retoursPartiels || []).some(p => p.port) && hasard() < 0.3, remettreEnStock: hasard() < 0.8 }); }
+        else if (r < 0.09) await operer({ geste: Math.max(1, Math.round(c.total * 0.1)) });
+        else if (r < 0.11 && (c.retoursPartiels || []).length) { const x = await m.c('POST', `/api/admin/commandes/${c.id}/statut`, { statut: 'remboursee' }); if (x.s !== 200) note(`marchand ${m.i}`, 'remboursement du reste refusé', JSON.stringify(x.j)); else statsRetours.soldes++; }
+      }
     }
     // Caisse (Pro) : une vente en personne
     if ((m.formuleActuelle || m.formule) === 'pro' && hasard() < 0.5) {
@@ -234,7 +249,7 @@ const durees = [];
   }
 
   /* ---------- Vérifications de fin de mois ---------- */
-  const bilan = { formules: {}, commandes: {}, emails: {}, abonnements: {} };
+  const bilan = { formules: {}, commandes: {}, emails: {}, abonnements: {}, retours: statsRetours };
   const lireC = r => ({ ...lireDonnees(r), id: r.id, numero: r.numero, statut: r.statut, date: r.date });
   for (const m of marchands.filter(x => !x.supprime)) {
     const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(m.slug);
@@ -260,6 +275,14 @@ const durees = [];
       if (c.facture && c.dateFacture && !String(c.facture).includes(`-${new DateReelle(c.dateFacture).getFullYear()}-`)) note(`boutique ${m.i}`, 'année de la facture différente de sa date', `${c.facture} du ${new DateReelle(c.dateFacture).toISOString().slice(0, 10)}`);
       if (c.facture && c.dateFacture && c.dateFacture < c.date) note(`boutique ${m.i}`, 'facture datée avant la commande', `n° ${c.numero}`);
       if (c.statut === 'remboursee' && c.facture && !c.avoir) note(`boutique ${m.i}`, 'remboursement sans avoir', `n° ${c.numero}`);
+      // Avoirs : jamais plus que la facture ; exactement la facture une fois la commande remboursée.
+      if (c.facture) {
+        const cts = n => Math.round(Number(n) * 100);
+        const avoirs = (c.retoursPartiels || []).reduce((s2, p) => s2 + p.montant, 0) + (c.avoir ? cts(c.avoir.montant ?? c.total) : 0);
+        if (avoirs > cts(c.total)) note(`boutique ${m.i}`, 'avoirs supérieurs à la facture', `n° ${c.numero} : ${avoirs / 100} > ${c.total}`);
+        if (c.statut === 'remboursee' && c.avoir && avoirs !== cts(c.total)) note(`boutique ${m.i}`, 'avoirs différents de la facture remboursée', `n° ${c.numero} : ${avoirs / 100} ≠ ${c.total}`);
+        if (c.retourEnCours) note(`boutique ${m.i}`, 'retour resté en suspens', `n° ${c.numero}`);
+      }
       const sousTotal = Math.round(c.lignes.reduce((s, l) => s + l.prix * l.qte, 0) * 100) / 100;
       if (c.canal !== 'magasin' && Math.abs(sousTotal + (c.port || 0) - c.total) > 0.011) note(`boutique ${m.i}`, 'total de commande incohérent', `n° ${c.numero} : lignes ${sousTotal} + port ${c.port} ≠ ${c.total}`);
       if (formuleFinale === 'lancement' && m.formule === 'lancement' && (c.remise || 0) > 0) note(`boutique ${m.i}`, 'remise appliquée avec la formule Lancement', `n° ${c.numero}`);

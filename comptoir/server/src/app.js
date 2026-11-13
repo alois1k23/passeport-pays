@@ -3509,6 +3509,7 @@ ${bloc}</main></body></html>`;
       if (mch) envoyerEmail(null, mch.email, `Commande n° ${row.numero} : toujours pas expédiée par le fournisseur`, `Bonjour,\n\nLa commande n° ${row.numero} a été transmise au fournisseur il y a plus de 7 jours et n'a pas encore de numéro de suivi. Contactez le fournisseur, ou remboursez le client depuis Commandes si le colis ne part pas.\n\nComptoir`);
     }
     // Purge quotidienne
+    try { FID.menage(maintenant); } catch (e) { journal.error('[fidelite] ménage', e.message); }   // codes, échecs, réseaux sûrs périmés
     db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE supprime = 1)').run();   // photos des produits supprimés : sessions et liens expirés, mesures d'audience de plus de 400 jours, corps des e-mails envoyés de plus de 180 jours
     db.prepare('DELETE FROM sessions WHERE expire_le < ?').run(maintenant);
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
@@ -3554,12 +3555,19 @@ ${bloc}</main></body></html>`;
         const periode = Math.max(7, Math.min(28, (maintenant - premiere) / 86400000));   // même calcul que le tableau de bord
         return v >= 2 ? { p, jours: Math.floor(p.stock / (v / periode)) } : null;
       }).filter(x => x && x.jours <= 14).sort((a, b2) => a.jours - b2.jours).slice(0, 5);
+      // Remboursements de la semaine : avoirs émis (retours partiels, gestes, remboursements complets), quelle que soit la
+      // date de la commande ; pas les annulations de factures jamais payées (aucun argent rendu).
+      const debutSem = lundi - 7 * 86400000;
+      const avoirsSem = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND maj_le >= ? AND (json_extract(donnees, '$.retoursPartiels') IS NOT NULL OR json_extract(donnees, '$.avoir.date') >= ?)").all(b.id, debutSem, debutSem).map(lireCommande)
+        .flatMap(c => Retours.piecesAvoir(c).filter(a => a.date >= debutSem && a.date < lundi && !(a.final && !(c.payeLe || c.payeManuelLe))));
+      const totalAvoirs = avoirsSem.reduce((x, a) => x + Math.round(a.vue.total * 100), 0) / 100, gestesSem = avoirsSem.filter(a => a.geste);
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
       if (!mch) continue;
       const lignes = [
         `Bonjour,`, '', `Votre semaine sur ${config.boutique.nom} (du ${new Date(lundi - 7 * 86400000).toLocaleDateString('fr-CH')} au ${new Date(lundi - 86400000).toLocaleDateString('fr-CH')}) :`, '',
         `- Chiffre d’affaires : ${f(ca(sem))} (${evol(ca(sem), ca(avant))})`,
         `- Commandes : ${sem.length}${sem.length ? ` · panier moyen ${f(ca(sem) / sem.length)}` : ''}`,
+        ...(avoirsSem.length ? [`- Remboursements : ${f(totalAvoirs)} (${avoirsSem.length} avoir${avoirsSem.length > 1 ? 's' : ''}${gestesSem.length ? `, dont ${gestesSem.length} geste${gestesSem.length > 1 ? 's' : ''} commercia${gestesSem.length > 1 ? 'ux' : 'l'} pour ${f(gestesSem.reduce((x, a) => x + Math.round(a.vue.total * 100), 0) / 100)}` : ''})`] : []),
         ...(tops.length ? ['', 'Meilleurs produits :', ...tops.map(([nom, x]) => `- ${nom} : ${x.q} vendu${x.q > 1 ? 's' : ''}, ${f(x.m)}`)] : []),
         '', 'À faire cette semaine :',
         aExpedier.length ? `- ${aExpedier.length} commande${aExpedier.length > 1 ? 's' : ''} à préparer et expédier` : '- Aucune commande en retard d’expédition',

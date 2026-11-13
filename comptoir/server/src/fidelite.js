@@ -121,6 +121,14 @@ function creer(db, cle) {
         .run(bid, emp, hashDemande(demande), hashCode(bid, emp, code).toString('hex'), maintenant + 15 * 60000);
       return { code, demande };
     },
+    /* Ménage (maintenance) : codes expirés depuis un jour, échecs de plus de 24 h, réseaux sûrs inutilisés depuis un an.
+       Rien de personnel n'est gardé plus longtemps que nécessaire (minimisation des données). Renvoie le nombre de lignes. */
+    menage(maintenant = Date.now()) {
+      return db.prepare('DELETE FROM fidelite_codes_demandes WHERE expire < ?').run(maintenant - 86400000).changes
+        + db.prepare('DELETE FROM fidelite_echecs WHERE depuis < ?').run(maintenant - 86400000).changes
+        + db.prepare('DELETE FROM fidelite_reseaux_surs WHERE le < ?').run(maintenant - 365 * 86400000).changes
+        + db.prepare('DELETE FROM fidelite_codes WHERE expire < ?').run(maintenant - 86400000).changes;   // ancienne table des codes
+    },
     /* Réseau « sûr » pour une adresse : un code juste y a déjà été saisi (le client, chez lui). Les plafonds tous réseaux
        confondus ne s'y appliquent pas : un tiers ne peut pas bloquer le client depuis ailleurs. */
     reseauSur(bid, email, reseau, maintenant = Date.now()) {
