@@ -392,7 +392,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Sous-clés dédiées (HKDF) : chaque usage a la sienne, dérivée de chaque clé du trousseau.
   const sousCle = (k, etiquette) => Buffer.from(crypto.hkdfSync('sha256', k, Buffer.alloc(0), etiquette, 32));
   // Constats du démarrage, montrés dans la console de l'exploitant (données illisibles avec les clés connues).
-  const etatSecurite = { commandesIllisibles: 0, secrets2faIllisibles: 0, cleHorsBase: /^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || ''), anciennesCles: trousseau.length - 1 - (cleBase.equals(cleChiffrement) ? 0 : 1) };
+  const etatSecurite = { commandesIllisibles: 0, secrets2faIllisibles: 0, cleHorsBase: !cleChiffrement.equals(cleBase), anciennesCles: trousseau.length - 1 - (cleBase.equals(cleChiffrement) ? 0 : 1) };
   const Cartes = CartesCadeaux.creer(db, trousseau.map(k => sousCle(k, 'comptoir:cartes-cadeaux')));
   const DV = Devis.creer(db, () => PII);
   const FID = Fidelite.creer(db, trousseau.map(k => sousCle(k, 'comptoir:fidelite')));   // fidélité : empreinte HMAC, jamais en clair
@@ -463,7 +463,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     CREATE INDEX IF NOT EXISTS journal_compte_marchand ON journal_compte(marchand_id, date);`);
   // Rotation de clé : secrets de double authentification chiffrés avec une ancienne clé, rechiffrés avec la courante.
   // Un secret illisible avec toutes les clés connues est signalé (le marchand passera par ses codes de secours).
-  if (trousseau.length > 1) {
+  {   // à chaque démarrage : aussi quand la clé a été retirée (secrets d'une clé disparue comptés, jamais écrasés)
     let n = 0, illisibles = 0;
     for (const r of db.prepare('SELECT marchand_id, secret FROM deux_facteurs').all()) {
       let lu; try { lu = dechiffrerSecret2fa(r.secret); } catch { illisibles++; continue; }
@@ -926,10 +926,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (sessionConforme(objet, p)) return false;
     // Le client a payé, mais pas ce qui était attendu : l'argent est à rendre, la commande n'est pas validée, le marchand le voit.
     if (objet.payment_status === 'paid' && ['cree', 'annule'].includes(p.statut)) transaction(db, () => {
-      db.prepare("UPDATE paiements SET statut = 'a_rembourser', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(objet.id ? String(objet.id) : null, p.id);
+      db.prepare("UPDATE paiements SET statut = 'a_rembourser', ref_externe = COALESCE(?, ref_externe), intent = COALESCE(?, intent) WHERE id = ?").run(objet.id ? String(objet.id) : null, objet.payment_intent ? String(objet.payment_intent) : null, p.id);
       const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(p.commande_id);
       if (row) { const c = lireCommande(row); historique(c, 'Paiement reçu qui ne correspond pas à la commande (montant ou devise) : à rembourser, commande non validée.'); enregistrerCommande(c); }
     });
+    // Remboursement automatique (Stripe), comme pour un paiement reçu sur une commande annulée ; en cas d'échec, il reste signalé.
+    const aRendre = db.prepare("SELECT * FROM paiements WHERE id = ? AND statut = 'a_rembourser'").get(p.id);
+    if (aRendre && aRendre.fournisseur === 'stripe') paiement.rembourser({ paiement: aRendre }).then(() => db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ? AND statut = 'a_rembourser'").run(aRendre.id)).catch(e => journal.error('[paiement] remboursement automatique', e.message));
     journal.error(`[paiement] session ${String(objet.id || '').slice(0, 40)} non conforme au paiement ${p.id} (montant ${objet.amount_total} au lieu de ${p.montant_centimes}, devise ${objet.currency || '?'} au lieu de ${p.devise}) : ignorée`);
     return true;
   };
@@ -1509,8 +1512,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   function bilanSecuriteExploitant(maintenant = Date.now()) {
     const n = (sql, ...a) => db.prepare(sql).get(...a).n, j = 86400000;
     const etatJ = JV().etat(''), rotations = (() => { try { return JSON.parse((db.prepare("SELECT valeur FROM journal_meta WHERE cle = 'rotations'").get() || {}).valeur || '[]'); } catch { return []; } })();
-    const comptes = n('SELECT COUNT(*) n FROM marchands');
-    const proteges = n("SELECT COUNT(*) n FROM marchands m WHERE EXISTS (SELECT 1 FROM deux_facteurs d WHERE d.marchand_id = m.id AND d.actif = 1) OR m.cle_seule = 1");
+    // Comptes de propriétaires seulement (comme la ligne « Comptes marchands » au-dessus), comptes de l'exploitant exclus.
+    const horsEquipe = `id NOT IN (SELECT marchand_id FROM equipe)${operateurs.length ? ` AND lower(email) NOT IN (${operateurs.map(() => '?').join(', ')})` : ''}`;
+    const comptes = n(`SELECT COUNT(*) n FROM marchands WHERE ${horsEquipe}`, ...operateurs);
+    const proteges = n(`SELECT COUNT(*) n FROM marchands m WHERE ${horsEquipe} AND (EXISTS (SELECT 1 FROM deux_facteurs d WHERE d.marchand_id = m.id AND d.actif = 1) OR m.cle_seule = 1)`, ...operateurs);
     const webhooksIllisibles = integ.secretsIllisibles();
     const illisibles = etatSecurite.commandesIllisibles + etatSecurite.secrets2faIllisibles + webhooksIllisibles;
     const aRembourser = n("SELECT COUNT(*) n FROM paiements WHERE statut = 'a_rembourser'");
@@ -1521,7 +1526,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         conseil: etatSecurite.cleHorsBase ? '' : 'Une copie volée de la base suffirait à lire les données des clients : définissez SECRET_CHIFFREMENT (rotation décrite dans MISE-EN-LIGNE.md).' },
       { titre: 'Anciennes clés et rotations', valeur: `${etatSecurite.anciennesCles} ancienne${etatSecurite.anciennesCles > 1 ? 's' : ''} clé${etatSecurite.anciennesCles > 1 ? 's' : ''} · ${rotations.length} rotation${rotations.length > 1 ? 's' : ''}${rotations.length ? ` (dernière le ${new Date(rotations.at(-1).le).toLocaleDateString('fr-CH', { timeZone: 'Europe/Zurich' })})` : ''}`, alerte: etatJ.cleChangee,
         conseil: etatJ.cleChangee ? 'La clé qui signe les journaux des ventes a changé sans que l’ancienne soit gardée : remettez-la dans SECRET_CHIFFREMENT_ANCIENNES.' : '' },
-      { titre: 'Données illisibles avec les clés connues', valeur: illisibles ? `${etatSecurite.commandesIllisibles} commande(s) · ${etatSecurite.secrets2faIllisibles} secret(s) de double authentification · ${webhooksIllisibles} secret(s) de webhook` : 'aucune', alerte: illisibles > 0,
+      { titre: 'Données illisibles avec les clés connues (commandes et double authentification : au démarrage)', valeur: illisibles ? `${etatSecurite.commandesIllisibles} commande(s) · ${etatSecurite.secrets2faIllisibles} secret(s) de double authentification · ${webhooksIllisibles} secret(s) de webhook` : 'aucune', alerte: illisibles > 0,
         conseil: illisibles ? 'Une ancienne clé manque : ajoutez-la à SECRET_CHIFFREMENT_ANCIENNES et redémarrez (rien n’a été écrasé).' : '' },
       { titre: 'Comptes marchands protégés (double authentification ou clé d’accès exigée)', valeur: `${proteges} / ${comptes}${comptes ? ` (${Math.round(proteges / comptes * 100)} %)` : ''}`, alerte: false },
       { titre: 'Adresses e-mail non confirmées depuis plus de 7 jours', valeur: nonConfirmees, alerte: false },
@@ -4039,6 +4044,13 @@ ${bloc}</main></body></html>`;
     try { return await traiterEvenementStripe(ev); }
     catch (e) { if (ev.id) db.prepare('DELETE FROM evenements_stripe WHERE id = ?').run(String(ev.id)); throw e; }   // échec (Stripe injoignable…) : Stripe réessaiera, l'événement n'est pas perdu
   });
+  function marquerRembourseChezStripe(intent, compte) {
+    const p = db.prepare("SELECT * FROM paiements WHERE intent = ? AND statut = 'a_rembourser' AND COALESCE(compte, '') = ?").get(intent, compte || '');
+    if (!p) return;
+    db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(p.id);
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ?').get(p.commande_id);
+    if (row) { const c = lireCommande(row); historique(c, 'Paiement à rendre : remboursé depuis Stripe.'); enregistrerCommande(c); }
+  }
   async function traiterEvenementStripe(ev) {
     // Événement d'un compte connecté (boutique) : jamais un abonnement Comptoir ; seuls l'état du compte et ses ventes comptent.
     if (ev.account) {
@@ -4052,6 +4064,8 @@ ${bloc}</main></body></html>`;
           if (objet.payment_intent) db.prepare('UPDATE paiements SET intent = ? WHERE id = ?').run(String(objet.payment_intent), String(objet.metadata.paiement_id));
         }
       }
+      // Remboursement fait directement chez Stripe (tableau de bord) d'un paiement « à rembourser » : il n'est plus signalé.
+      if (ev.type === 'charge.refunded' && objet.refunded === true && objet.payment_intent) marquerRembourseChezStripe(String(objet.payment_intent), ev.account);
       // Litige (rétrofacturation) : le client conteste le paiement auprès de sa banque. Le marchand doit répondre dans Stripe
       // avant l'échéance, sinon il perd le montant et des frais : il est prévenu, et la commande le montre.
       if (/^charge\.dispute\.(created|updated|closed|funds_withdrawn)$/.test(ev.type) && objet.payment_intent) {
@@ -4080,6 +4094,7 @@ ${bloc}</main></body></html>`;
     const evAbo = await abo.evenementStripe(ev);
     if (evAbo) { if (evAbo.marchandId) emailAbonnement(evAbo.marchandId, evAbo.evenement); return { recu: true }; }
     const objet = (ev.data && ev.data.object) || {};
+    if (ev.type === 'charge.refunded' && objet.refunded === true && objet.payment_intent) marquerRembourseChezStripe(String(objet.payment_intent), null);
     if (((ev.type === 'checkout.session.completed' && objet.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') && objet.metadata && objet.metadata.paiement_id) {
       // Webhook de la plateforme : seulement pour un paiement encaissé par la plateforme (pas celui d'une boutique connectée).
       const p = db.prepare('SELECT * FROM paiements WHERE id = ?').get(String(objet.metadata.paiement_id));

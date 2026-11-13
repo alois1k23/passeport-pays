@@ -1035,3 +1035,27 @@ Un relecteur indépendant a attaqué `/api/v1` et les webhooks avec deux boutiqu
 - le relecteur a vu une fois une erreur `UNIQUE` dans la reprise du journal au redémarrage, sur une base manipulée par ses scripts. Elle n'a pas été reproduite dans un parcours normal (ventes puis redémarrage) : à surveiller.
 
 203 tests sur 203. Parcours de bout en bout : 57 contrôles, 0 anomalie. Fuzzing HTTP : 3 200 requêtes, 0 constat.
+
+### Cycle 56 (09 h 40) : bilan de sécurité dans la console de l'exploitant (chantier 49)
+
+La console `/operateur` (réservée à l'exploitant, double authentification et lien de confirmation exigés) a maintenant une section **Sécurité**. Chaque ligne dit si une action est nécessaire, et laquelle :
+- clé de chiffrement hors de la base ou non ;
+- anciennes clés gardées, rotations notées par le journal des ventes, alerte si sa clé a changé sans l'ancienne ;
+- données illisibles avec les clés connues : commandes et secrets de double authentification comptés au démarrage, secrets de webhook à chaque ouverture ;
+- part des comptes marchands protégés (double authentification ou clé d'accès exigée) ;
+- adresses e-mail non confirmées depuis plus de 7 jours ;
+- codes de vérification refusés en 24 heures (alerte à partir de 20) ;
+- paiements reçus encore à rembourser.
+
+Aucune donnée de client final ni aucun secret : seulement des comptes et des dates. Les lignes d'alerte sont vérifiées par les tests.
+
+**Relecture indépendante**, constats corrigés :
+- **Moyen** : le compteur « à rembourser » ne pouvait que monter. Rien ne sortait un paiement de cet état, et un paiement non conforme n'était jamais remboursé, donc l'exploitant aurait vite appris à ignorer la ligne.
+  - Une session non conforme est maintenant remboursée automatiquement chez Stripe, sur le compte de la boutique.
+  - Un remboursement fait à la main dans Stripe (événement `charge.refunded`) solde la ligne, et une autre boutique ne peut pas la solder à sa place (testé).
+- Les comptes protégés comptaient les membres d'équipe et le compte de l'exploitant, en désaccord avec la ligne « Comptes marchands » : ils comptent maintenant les propriétaires seulement.
+- Les secrets de double authentification illisibles n'étaient pas comptés quand la clé avait été retirée : ils sont contrôlés à chaque démarrage.
+- La clé était annoncée « hors de la base » quand `SECRET_CHIFFREMENT` valait la clé de la base. C'est maintenant comparé aux octets près.
+- Le libellé précise que les commandes et les secrets de double authentification sont comptés au démarrage.
+
+203 tests sur 203 ; parcours de bout en bout : 57 contrôles, 0 anomalie.

@@ -84,9 +84,17 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     // Paiement d'une boutique connectée annoncé par le webhook de la plateforme : ignoré.
     assert.equal(await webhook(avec({ amount_total: pay.montant_centimes }, null), 'whsec_plateforme'), 200);
     assert.equal(db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cmd.json.commandeId).statut, 'attente', 'aucune de ces sessions ne valide la commande');
-    // Le client a payé un montant inattendu : paiement à rembourser, noté dans la commande pour le marchand.
-    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pay.id).statut, 'a_rembourser');
-    db.prepare("UPDATE paiements SET statut = 'cree' WHERE id = ?").run(pay.id);   // la suite du test reprend le paiement attendu
+    // Le client a payé un montant inattendu : remboursé automatiquement chez Stripe, noté dans la commande.
+    await new Promise(ok => setTimeout(ok, 100));
+    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pay.id).statut, 'rembourse');
+    assert.ok(appels.some(x => x.chemin === 'refunds' && x.compte === 'acct_boutique'), 'remboursement demandé sur le compte de la boutique');
+    // Remboursement fait par le marchand dans Stripe (le remboursement automatique avait échoué) : plus signalé.
+    db.prepare("UPDATE paiements SET statut = 'a_rembourser', intent = 'pi_mal' WHERE id = ?").run(pay.id);
+    assert.equal(await webhook({ type: 'charge.refunded', account: 'acct_autre', data: { object: { payment_intent: 'pi_mal', refunded: true } } }), 200);
+    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pay.id).statut, 'a_rembourser', 'une autre boutique ne peut pas le solder');
+    assert.equal(await webhook({ type: 'charge.refunded', account: 'acct_boutique', data: { object: { payment_intent: 'pi_mal', refunded: true } } }), 200);
+    assert.equal(db.prepare('SELECT statut FROM paiements WHERE id = ?').get(pay.id).statut, 'rembourse');
+    db.prepare("UPDATE paiements SET statut = 'cree', intent = NULL WHERE id = ?").run(pay.id);   // la suite du test reprend le paiement attendu
     // La page de paiement Stripe se ferme avant la fin de la réservation du stock (35 minutes).
     const sess = appels.find(x => x.chemin === 'checkout/sessions');
     const fin = Number(sess.corps.get('expires_at'));
