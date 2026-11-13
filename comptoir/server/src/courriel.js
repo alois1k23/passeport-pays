@@ -57,6 +57,13 @@ function creerTables(db) {
    du service (429, 5xx) de quelques heures ne perd aucune confirmation de commande. */
 const ESSAIS_MAX = 12;
 let envoiEnCours = false;
+/* Secrets contenus dans les e-mails (liens de réinitialisation, d'invitation, de devis, de commande, codes de
+   fidélité et de cartes cadeaux) : masqués dès l'envoi dans la copie gardée en base, et dans la liste de l'espace
+   marchand. Une copie de la base ne permet ainsi ni de prendre un compte ni d'utiliser un code. */
+const masquerSecrets = texte => String(texte || '')
+  .replace(/([?&](?:reinitialiser|invitation|verifier|jeton|j|reprendre|code|cle)=)[^\s&"'<>]+/g, '$1…')
+  .replace(/\b[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){3}\b/g, '••••-••••-••••-••••')
+  .replace(/((?:code|Code|codice|Codice)[^\n]{0,80}?:\s*)\d{6}\b/g, '$1••••••');
 async function envoyerFile(db, p, { lot = 20, journal = console } = {}) {
   if (!p || envoiEnCours) return 0;   // un lot lent ne doit pas être relu et renvoyé par l'appel suivant
   envoiEnCours = true;
@@ -73,7 +80,7 @@ async function envoyerLot(db, p, { lot, journal }) {
     const repondreA = conf && conf.entreprise && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(conf.entreprise.email || '') ? conf.entreprise.email : null;
     try {
       await p.envoyer({ destinataire: e.destinataire, sujet: e.sujet, corps: e.corps, nomBoutique, desinscription: e.desinscription || null, repondreA });
-      db.prepare('UPDATE emails SET envoye = 1, erreur = NULL WHERE id = ?').run(e.id);
+      db.prepare('UPDATE emails SET envoye = 1, erreur = NULL, corps = ? WHERE id = ?').run(masquerSecrets(e.corps), e.id);   // envoyé : secrets retirés de la copie
       n++;
     } catch (err) {
       // Adresse refusée (4xx sauf 429) : rien ne sert d'insister longtemps ; sinon (panne, 429, délai dépassé) on réessaie.
@@ -87,4 +94,4 @@ async function envoyerLot(db, p, { lot, journal }) {
   return n;
 }
 
-module.exports = { prestataire, creerTables, envoyerFile };
+module.exports = { prestataire, creerTables, envoyerFile, masquerSecrets };

@@ -958,9 +958,14 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Limites : par compte et par réseau (5), et globale par compte (50) sauf sur un appareil déjà connu :
     // quelqu'un qui connaît le mot de passe ne peut pas bloquer le vrai propriétaire chez lui.
     const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(String(m.email).toLowerCase());
-    const parReseau = [`2fa:${mid}|${reseauIp(ctx.ip)}`], global = ['2fa:' + mid];
+    // Réseau : l'adresse, et pour IPv4 tout son /24 (un attaquant ne multiplie pas les essais en changeant d'adresse voisine).
+    const ip = reseauIp(ctx.ip), bloc = /^\d+\.\d+\.\d+\.\d+$/.test(ip) ? ip.replace(/\.\d+$/, '.0/24') : ip;
+    const parReseau = [`2fa:${mid}|${ip}`, `2fa:${mid}|${bloc}`], global = ['2fa:' + mid];
     auth.verifierEchecs(parReseau, 5);
-    if (!appareilConnu) auth.verifierEchecs(global, 50);
+    if (!appareilConnu) {
+      auth.verifierEchecs(global, 10);   // 10 erreurs par quart d'heure pour le compte…
+      auth.limiter(`2fa-jour:${mid}`, 30, 86400000, 'Trop d’essais de code aujourd’hui pour ce compte : réessayez demain, ou utilisez un code de secours depuis un appareil déjà connu.');   // …et 30 essais par jour
+    }
     auth.noterEchec([...parReseau, ...global]);   // compté avant la vérification (essais parallèles)
     if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { noterActivite(mid, 'echec-2fa', null, ctx); if (auth.compteEchecs && auth.compteEchecs(parReseau[0]) >= 3) alerterEchecs2fa(m); throw erreur(401, 'Code incorrect.', 'code_2fa'); }
     auth.oublierEchecs(parReseau);
@@ -2026,6 +2031,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     try {
     transaction(db, () => {
       FID.effacer(ctx.boutique.id, email);   // points de fidélité de ce client
+      DV.anonymiser(ctx.boutique.id, email, PII.normEmail);   // devis de ce client professionnel
       for (const c of commandes) {
         c.client = { nom: 'Client effacé', email: '', adresse: '', npa: '', ville: '', consentement: null };
         // Texte libre écrit par le client (motif de retour, repris dans l'historique) : effacé aussi.
@@ -2050,7 +2056,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   });
   // Liens personnels des clients (confirmation d'inscription, désinscription) masqués : le marchand voit l'e-mail, pas le jeton.
   r.get('/api/admin/emails', exigerMarchand, ctx => db.prepare('SELECT destinataire, sujet, corps, cree_le FROM emails WHERE boutique_id = ? ORDER BY id DESC LIMIT 50').all(ctx.boutique.id)
-    .map(e => ({ ...e, corps: String(e.corps || '').replace(/(\/(?:reinscription|desinscription)\?j=)[^\s"'<>]+/g, '$1…').replace(/([?&]jeton=)[^\s"'<>&]+/g, '$1…') })));   // liens personnels (devis, commandes) masqués
+    .map(e => ({ ...e, corps: courriel.masquerSecrets(String(e.corps || '').replace(/(\/(?:reinscription|desinscription)\?j=)[^\s"'<>]+/g, '$1…')) })));   // liens personnels et codes masqués
 
   /* ---------- Boutique publique ---------- */
   r.get('/api/public/:slug', ctx => {
@@ -2134,6 +2140,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       consentement: cl.consentement === true || cl.consentement === 'on' ? Date.now() : null
     };
     if (config.boutique.pays === 'ch' && client.npa && !/^\d{4}$/.test(client.npa)) throw erreur(400, 'Le NPA suisse compte 4 chiffres.', 'npa_invalide');
+    // Commandes impayées : elles réservent le stock (30 minutes). Au plus 3 en cours par adresse e-mail et par réseau
+    // (empreinte, jamais l'adresse IP en clair) : un visiteur ne garde pas un produit « épuisé » en enchaînant des
+    // commandes jamais payées. Les commandes payées ne comptent pas.
+    const empreinteReseau = crypto.createHmac('sha256', cleChiffrement).update(`reseau:${b.id}:${reseauIp(ctx.ip)}`).digest('hex').slice(0, 24);
+    const impayees = db.prepare("SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ? AND (email_index = ? OR json_extract(donnees, '$.reseau') = ?)").get(b.id, Date.now() - 30 * 60000, PII.index(b.id, client.email) || '', empreinteReseau).n;
+    if (impayees >= 3 * facteurLimites) throw erreur(429, 'Plusieurs commandes attendent déjà leur paiement : terminez un paiement en cours, ou réessayez dans 30 minutes.', 'trop_impayees');
     const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
     if (ctx.corps.code && calcul.codeValide === false) throw erreur(400, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
     // Le code de bienvenue est annoncé « sur votre première commande » : refusé à une adresse qui a déjà commandé ici.
@@ -2193,7 +2205,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const now = Date.now();
       if (fidelite && !FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''), { consommer: true })) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
       const motifs = [calcul.motif ? calcul.motif.libelle : null, fidelite ? `${fidelite.points} points de fidélité` : null].filter(Boolean);
-      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
@@ -2536,7 +2548,7 @@ ${bloc}</main></body></html>`;
       return { c, frais };
     });
     const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
-    if (mch) envoyerEmail(null, mch.email, `Devis ${res.frais.numero} accepté : ${formatMontant(res.frais.total, config)}`, `Bonjour,\n\n${res.frais.client.raison} a accepté le devis ${res.frais.numero} (signataire : ${nom}).\nCommande n° ${res.c.numero} créée, en attente de paiement (en ligne ou par virement). Marquez-la payée à réception d'un virement.${res.frais.manques && res.frais.manques.length ? `\n\nAttention, stock insuffisant : ${res.frais.manques.join(', ')}.` : ''}\n\nVoir la commande : ${urlPublique}/app#commandes\n\nComptoir`);
+    if (mch) envoyerEmail(null, mch.email, `Devis ${res.frais.numero} accepté : ${formatMontant(res.frais.total, config)}`, `Bonjour,\n\n${res.frais.client.raison} a accepté le devis ${res.frais.numero}.\nCommande n° ${res.c.numero} créée, en attente de paiement (en ligne ou par virement). Marquez-la payée à réception d'un virement.${res.frais.manques && res.frais.manques.length ? `\n\nAttention, stock insuffisant : ${res.frais.manques.join(', ')}.` : ''}\n\nVoir la commande : ${urlPublique}/app#commandes\n\nComptoir`);
     envoyerEmail(b.id, res.frais.client.email, `Devis ${res.frais.numero} accepté : commande n° ${res.c.numero}`, `Bonjour,\n\nNous avons bien reçu votre accord pour le devis ${res.frais.numero} (${formatMontant(res.frais.total, config)}). Votre commande n° ${res.c.numero} est enregistrée.\n\nPaiement en ligne ou coordonnées de virement : ${urlPublique}/devis/${encodeURIComponent(b.slug)}/${res.frais.id}?jeton=${encodeURIComponent(f.jeton)}\n\n${(config.entreprise || {}).raison || config.boutique.nom}`);
     return { redirection: `/devis/${encodeURIComponent(b.slug)}/${encodeURIComponent(d.id)}?jeton=${encodeURIComponent(f.jeton)}&ok=accepte` };
   };
@@ -3709,6 +3721,12 @@ ${FEUILLE_4}</head>
     try {
       // Domaine personnalisé : la boutique est servie à la racine de son propre domaine.
       const hote = String(req.headers.host || '').split(':')[0].toLowerCase();
+      // Sur le domaine d'un marchand, seule sa boutique est servie : ni espace marchand, ni connexion, ni console
+      // (un cookie de session posé pour ce domaine pourrait sinon partir chez son propriétaire).
+      if (hote && hote !== hotePrincipal && /^\/(app|operateur|devis|facture|paiement-simule|abonnement-simule)(\/|$)|^\/api\/(auth|admin|abonnement|v1|session|webhooks)(\/|$)/.test(chemin)
+        && db.prepare("SELECT 1 FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote)) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Introuvable'); return;
+      }
       if (hote && hote !== hotePrincipal && req.method === 'GET' && (chemin === '/' || chemin === '/index.html' || /^\/p\/[\w-]+$/.test(chemin) || chemin === '/sitemap.xml' || chemin === '/robots.txt')) {
         const b = db.prepare("SELECT * FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote);
         if (b) {

@@ -140,10 +140,13 @@ function verifierEchecs(cles, max) {
 function oublierEchecs(cles) { for (const c of cles) { const k = empreinteCle(c); echecs.delete(k); marquer('echecs', k); } }
 /* Essai de mot de passe compté AVANT le calcul (asynchrone) : des requêtes parallèles ne passent pas toutes la limite
    avant qu'un seul échec soit noté. Un essai réussi est ensuite décompté. */
+// Empreinte factice au bon format : le calcul scrypt a lieu, la comparaison échoue toujours.
+const HASH_FACTICE = ['scrypt', crypto.randomBytes(16).toString('base64'), crypto.randomBytes(64).toString('base64')].join('$');
 async function essayerMotDePasse(cles, max, mdp, stocke) {
   verifierEchecs(cles, max);
   noterEchec(cles);
-  const ok = !!stocke && await verifierMotDePasse(mdp, stocke);
+  // Compte inexistant : un calcul factice de même durée, pour ne pas révéler par le temps de réponse qu'il n'existe pas.
+  const ok = stocke ? await verifierMotDePasse(mdp, stocke) : (await verifierMotDePasse(mdp, HASH_FACTICE), false);
   if (ok) for (const c of cles) { const k = empreinteCle(c), e = echecs.get(k); if (e && e.n > 0) { e.n--; marquer('echecs', k); } }
   return ok;
 }

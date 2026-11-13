@@ -39,10 +39,10 @@ test('module : code, empreinte, saisie tolérante, débit atomique, registre', (
   assert.deepEqual(K.verifier('b1'), [exp.carte.id]);
 });
 
-async function boutique() {
+async function boutique(envPlus = {}) {
   const db = ouvrir(':memory:');
   const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
-  const app = creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } });
+  const app = creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non', ...envPlus }, urlPublique: base, journal: { log() {}, error() {} } });
   s.on('request', app);
   let cookie = '';
   const appel = async (m, chemin, corps, avecSession = true) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && avecSession ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length && avecSession) cookie = sc.map(x => x.split(';')[0]).join('; '); let json = null; try { json = await r.clone().json(); } catch { /* pas du JSON */ } return { statut: r.status, json }; };
@@ -156,7 +156,7 @@ test('caisse : carte puis reste en espèces, hors ligne refusé ; droits et limi
 });
 
 test('relecture : payée à la main après libération, abandon du paiement, minimum de 0,50, vérification en caisse', async () => {
-  const { db, s, appel, slug, produit, app } = await boutique();
+  const { db, s, appel, slug, produit, app } = await boutique({ LIMITES_FACTEUR: '5' });   // nombreuses commandes impayées depuis une même adresse
   try {
     // Marquée payée à la main après la libération : la carte est débitée à nouveau (sinon sa part serait offerte).
     let { code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 20 })).json;
@@ -193,7 +193,7 @@ test('relecture : payée à la main après libération, abandon du paiement, min
     // Caisse : vérification du solde avant d'encaisser ; seuls les échecs sont limités.
     ({ code } = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 12 })).json);
     for (let i = 0; i < 40; i++) assert.equal((await appel('POST', '/api/admin/caisse/carte', { code })).json.solde, 12);
-    let dernier = 0; for (let i = 0; i < 32; i++) dernier = (await appel('POST', '/api/admin/caisse/carte', { code: 'AAAA-BBBB-CCCC-DDDD' })).statut;
+    let dernier = 0; for (let i = 0; i < 152; i++) dernier = (await appel('POST', '/api/admin/caisse/carte', { code: 'AAAA-BBBB-CCCC-DDDD' })).statut;
     assert.equal(dernier, 429);
   } finally { s.close(); }
 });

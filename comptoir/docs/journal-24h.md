@@ -351,3 +351,26 @@ Relecture indépendante du stock sur plusieurs emplacements, six scénarios rejo
   - un retour partiel remet en stock toute la commande (comportement antérieur à ce chantier) ;
   - l'export complet de la boutique ne contient pas encore la répartition.
 - 1 nouveau test de régression : 146 tests sur 146, bout en bout 51 sur 51, vérifié dans un vrai navigateur.
+
+### Cycle 22 (02 h 25) : audit de sécurité global et corrections
+
+Chantier 12 de la deuxième phase. Un relecteur indépendant a audité tout le serveur, pas fonctionnalité par fonctionnalité mais sur l'ensemble de la surface d'attaque : comptes et sessions, rôles de l'équipe (chaque route essayée avec chaque rôle), CSRF, isolation entre boutiques, injections, SSRF des webhooks, fuites d'informations, déni de service. Il n'a trouvé **aucune faille critique**. Points corrigés :
+- **E-mails gardés en base** : la copie de chaque e-mail contenait en clair les liens de réinitialisation de mot de passe, d'invitation, de devis et de suivi, ainsi que les codes de fidélité. Une copie de la base permettait donc de prendre un compte (démontré par le relecteur). Dès l'envoi, la copie gardée a désormais ses secrets masqués, et la liste des e-mails de l'espace marchand les masque aussi. Le nom du signataire ne figure plus dans l'e-mail au marchand.
+- **Double authentification** : avec le mot de passe, environ 35 % de chances de deviner un code en un mois. Les limites sont maintenant de 10 erreurs par quart d'heure et 30 essais par jour pour le compte (hors appareil connu), comptées aussi par bloc d'adresses IPv4 (/24).
+- **Stock bloqué par des commandes jamais payées** : au plus 3 commandes impayées en cours par adresse e-mail et par réseau. Le réseau est noté par empreinte HMAC, jamais en clair. Les commandes payées ne comptent pas (un premier essai qui les comptait bloquait un vrai client ; le parcours de bout en bout l'a révélé).
+- **Domaine personnalisé d'un marchand** : l'espace marchand, la connexion et la console y étaient servis, et un cookie de session pouvait être posé pour ce domaine. Sur ce domaine, seule la boutique est maintenant servie.
+- **Énumération des comptes par le temps de réponse** : la connexion fait le même calcul scrypt, que le compte existe ou non. L'inscription répond toujours « adresse déjà utilisée » (limite connue, à revoir dans le parcours d'inscription).
+- **Droit à l'effacement** : les devis du client sont désormais anonymisés (montants gardés pour la comptabilité) et leur lien est coupé.
+- **Empreinte du devis accepté** : elle se recalcule de nouveau à l'identique, car le signataire n'en fait plus partie.
+- **Vérifié correct par l'audit** :
+  - rôles et mode lecture seule ;
+  - sessions (jeton de 256 bits haché, `__Host-`, révocations) ;
+  - CSRF ;
+  - absence de pollution de prototype ;
+  - isolation entre boutiques sur toutes les tables ;
+  - requêtes SQL paramétrées ;
+  - échappement HTML ;
+  - SSRF des webhooks (adresses privées sous toutes leurs formes, DNS épinglé) ;
+  - aucun prix d'achat dans les données publiques.
+- **Restent ouverts** : l'historique en clair de quelques commandes et devis créés avant le chiffrement (données de développement), et le motif de retour saisi par le client.
+- 4 nouveaux tests : 150 tests sur 150, bout en bout 51 sur 51, simulation de 60 jours : 0 anomalie.

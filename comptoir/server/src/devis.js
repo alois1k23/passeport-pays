@@ -82,7 +82,9 @@ function preparer(saisie, produits, config) {
 const ventiler = (d, config) => FactureElectronique.ventiler({ lignes: d.lignes, total: d.total, tauxTva: d.tauxTva }, prix.tauxTva(config));
 
 /* Empreinte du contenu accepté (client, lignes, montants, conditions) : preuve de ce qui a été accepté. */
-const empreinteContenu = (numero, d) => crypto.createHash('sha256').update(JSON.stringify([numero, d.client, d.lignes.map(l => [l.nom, l.qte, l.prix, l.tauxTva]), d.port, d.total, d.conditions, d.valableJusquau])).digest('hex');
+// Le signataire (ajouté à l'acceptation) ne fait pas partie du contenu accepté : l'empreinte se recalcule à l'identique.
+const sansSignataire = c => { if (!c) return c; const { signataire, ...reste } = c; return reste; };
+const empreinteContenu = (numero, d) => crypto.createHash('sha256').update(JSON.stringify([numero, sansSignataire(d.client), d.lignes.map(l => [l.nom, l.qte, l.prix, l.tauxTva]), d.port, d.total, d.conditions, d.valableJusquau])).digest('hex');
 
 function creer(db, chiffrement = () => null) {
   // Coordonnées du client professionnel chiffrées au repos (même chiffrement que les commandes, lié au devis).
@@ -106,7 +108,7 @@ function creer(db, chiffrement = () => null) {
     db.prepare('UPDATE devis SET statut = ?, maj_le = ?, donnees = ? WHERE id = ?').run(statut, maintenant, versStockage({ id, boutique_id: b ? b.boutique_id : '' }, donnees), id);
   };
   const hash = j => crypto.createHash('sha256').update(String(j)).digest('hex');
-  return {
+  const api = {
     lire, ecrire, STATUTS,
     /* Devis d'avant le chiffrement : coordonnées du client chiffrées une fois (appelé au démarrage). */
     chiffrerAnciens() {
@@ -130,6 +132,19 @@ function creer(db, chiffrement = () => null) {
       if (!d) throw erreur(404, 'Devis introuvable.', 'introuvable');
       return d;
     },
+    /* Effacement d'un client (RGPD) : ses devis sont anonymisés (montants et lignes gardés pour la comptabilité). */
+    anonymiser(boutiqueId, email, normaliser = e => String(e || '').trim().toLowerCase()) {
+      let n = 0;
+      for (const row of db.prepare('SELECT * FROM devis WHERE boutique_id = ?').all(boutiqueId)) {
+        const d = lire(row);
+        if (!d.client || d.client.illisible || normaliser(d.client.email) !== normaliser(email)) continue;
+        d.client = { raison: 'Client effacé', contact: '', email: '', adresse: '', npa: '', ville: '', pays: d.client.pays, tva: '' };
+        if (d.acceptation) d.acceptation = { ...d.acceptation, nom: undefined };
+        d.historique.push({ date: Date.now(), texte: 'Coordonnées du client effacées (demande du client)' });
+        api.ecrire(d); db.prepare('UPDATE devis SET jeton_hash = NULL WHERE id = ?').run(d.id); n++;
+      }
+      return n;
+    },
     lister(boutiqueId) { return db.prepare('SELECT * FROM devis WHERE boutique_id = ? ORDER BY cree_le DESC LIMIT 500').all(boutiqueId).map(lire); },
     /* Nouveau lien : l'ancien ne fonctionne plus. Renvoie le jeton en clair (à mettre dans le lien, jamais stocké). */
     nouveauJeton(id) { const j = crypto.randomBytes(32).toString('base64url'); db.prepare('UPDATE devis SET jeton_hash = ? WHERE id = ?').run(hash(j), id); return j; },
@@ -143,6 +158,7 @@ function creer(db, chiffrement = () => null) {
     expire: (d, maintenant = Date.now()) => d.statut === 'envoye' && d.valableJusquau && d.valableJusquau < maintenant,
     empreinteContenu
   };
+  return api;
 }
 
 module.exports = { creer, preparer, ventiler, empreinteContenu };
