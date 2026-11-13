@@ -260,13 +260,15 @@ const durees = [];
     for (const c of cmds) bilan.commandes[c.statut] = (bilan.commandes[c.statut] || 0) + 1;
     // Stock : initial − quantités réellement retirées par les ventes non annulées / non remboursées
     for (const p of prods.filter(x => x.type !== 'drop')) {
-      const retire = cmds.filter(c => !['attente', 'annulee', 'remboursee'].includes(c.statut)).flatMap(c => c.lignes).filter(l => l.produitId === p.id).reduce((s, l) => s + (l.retireStock ?? l.qte), 0);
+      // (+ unités rendues abîmées lors d'un retour partiel : sorties du stock pour de bon, quelle que soit la suite de la commande)
+      const abimes = cmds.flatMap(c => (c.retoursPartiels || []).filter(pc => pc.stock === false).flatMap(pc => pc.lignes.map(x => ({ l: c.lignes[x.index], q: x.qte })))).filter(x => x.l && x.l.produitId === p.id).reduce((s, x) => s + x.q, 0);
+      const retire = abimes + cmds.filter(c => !['attente', 'annulee', 'remboursee'].includes(c.statut)).flatMap(c => c.lignes).filter(l => l.produitId === p.id).reduce((s, l) => s + (l.retireStock ?? l.qte), 0);
       if (p.stock < 0) note(`boutique ${m.i}`, 'stock négatif', `${p.nom} : ${p.stock}`);
       const initial = /^Pièce unique/.test(p.nom) ? 1 : STOCK_INITIAL;
       if (p.stock !== initial - retire) note(`boutique ${m.i}`, 'stock incohérent avec les ventes', `${p.nom} : stock ${p.stock}, attendu ${initial - retire}`);
     }
     // Factures et avoirs : une seule suite continue (exigence comptable), numéros uniques et sans trou
-    const factures = [...cmds.filter(c => c.facture).map(c => c.facture), ...cmds.filter(c => c.avoir).map(c => c.avoir.numero)];
+    const factures = [...cmds.filter(c => c.facture).map(c => c.facture), ...cmds.filter(c => c.avoir).map(c => c.avoir.numero), ...cmds.flatMap(c => (c.retoursPartiels || []).filter(pc => pc.numero).map(pc => pc.numero))];
     if (new Set(factures).size !== factures.length) note(`boutique ${m.i}`, 'numéro de facture en double');
     const nums = factures.map(f => Number(String(f).match(/(\d+)$/)?.[1])).sort((x, y) => x - y);
     for (let k = 1; k < nums.length; k++) if (nums[k] !== nums[k - 1] + 1) { note(`boutique ${m.i}`, 'trou dans la numérotation des factures', `${nums[k - 1]} → ${nums[k]}`); break; }
