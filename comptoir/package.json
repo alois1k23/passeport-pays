@@ -6,6 +6,7 @@
   "engines": { "node": ">=22.13" },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server/server.js",
-    "test": "node --disable-warning=ExperimentalWarning --test server/test/*.test.js"
+    "test": "node --disable-warning=ExperimentalWarning --test server/test/*.test.js",
+    "verifier": "node outils/verifier.js"
   }
 }

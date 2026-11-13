@@ -448,3 +448,9 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
 - **Divers** : montants comme 19,99 acceptés, virgule décimale reconnue, adresse légale de la boutique exigée comme pour toute vente, devise fixée à l'achat, réglages consultables abonnement terminé, langue du client gardée.
 - **Restent ouverts** : traduction du formulaire d'achat et de l'e-mail de la carte (français seulement), et un export des cartes vendues pour le comptable (elles figurent déjà dans l'export complet).
 - 1 nouveau test : 154 tests sur 154, bout en bout 51 sur 51, simulation de 60 jours : 0 anomalie, vérifié dans un vrai navigateur.
+
+### Cycle 28 (03 h 07) : une seule commande de vérification
+
+- **Chantier 20** : `npm run verifier` (`outils/verifier.js`) lance à la suite les tests automatiques, le parcours de bout en bout, les audits au clavier de la boutique et de l'espace marchand, la simulation de 60 jours (100 marchands) et un test de charge réduit (100 boutiques, 15 s). Chaque étape a un délai maximum, son verdict est lu dans sa sortie (« 0 anomalie », aucune erreur de charge), et un bilan final sort avec un code d'erreur si une étape échoue : prêt pour une intégration continue le jour où elle sera activée.
+- Premier passage complet : 6 étapes sur 6 réussies.
+- Mentionné dans le `README.md`.

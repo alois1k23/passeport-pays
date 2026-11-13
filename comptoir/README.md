@@ -8,6 +8,8 @@ Deux démos sont incluses : **Lacustre**, une boutique de dropshipping à Lausan
 
 **Version réelle (serveur)** : `cd comptoir && npm start`, puis ouvrir http://localhost:3000. On y crée un compte et une boutique publique (`/s/<nom>`). Les commandes, paiements (TWINT/cartes via Stripe, ou simulation), fournisseurs et factures sont gérés en base. Il faut Node 22.13 ou plus récent ; rien d'autre à installer. Détails dans [`server/README.md`](server/README.md).
 
+**Tout vérifier d'un coup** : `npm run verifier` enchaîne les tests automatiques, le parcours de bout en bout, les deux audits au clavier (boutique et espace marchand), la simulation de 60 jours sur 100 marchands et un test de charge réduit, puis affiche un bilan. Compter une dizaine de minutes. `npm run verifier -- --rapide` s'arrête après le parcours de bout en bout.
+
 **Site public** : avec le serveur, `/` affiche la page d'accueil commerciale (`accueil.html`) avec les formules. Le client choisit sa formule, crée son compte, paie l'abonnement, puis accède à `/app` : son site, ses modifications, ses commandes et son tableau de bord, uniquement les siens. `/demo` montre une boutique fictive, sans accès à aucun compte.
 
 **Démo sans serveur** : ouvrir `comptoir/index.html` dans un navigateur. Les données restent dans le navigateur (localStorage). Le bouton « Réinitialiser la démo » remet la boutique d'exemple.
