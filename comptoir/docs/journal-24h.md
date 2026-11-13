@@ -125,6 +125,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 
 63. **Confirmation d'identité par clé d'accès** : les actions sensibles se confirment aussi avec une clé d'accès du compte (visage, empreinte), sans mot de passe ; c'est le seul moyen pour un compte « clé d'accès seule », qui devait jusqu'ici se déconnecter. Aucune connexion ne vaut plus confirmation.
 64. **Essais refusés dans une session** : au 5e mot de passe (ou code, ou clé) refusé dans une même session, celle-ci est fermée et la titulaire prévenue ; un voleur de cookie ne peut plus bloquer les confirmations du compte.
+65. **Session liée à son appareil** : un cookie rejoué depuis un autre navigateur ou système ferme la session et prévient la titulaire.
 
 ## Cycles
 
@@ -1400,4 +1401,27 @@ La relecture du chantier 63 laissait un défaut. Un voleur de cookie qui tapait 
   - deuxième passage, sur le code final : 6 sur 7. Le parcours « espace marchand au clavier » a échoué une fois, sans que le vérificateur affiche la cause (il ne gardait que les lignes à mots-clés). Relancé seul trois fois, il réussit sans aucun problème. Échec intermittent, cause non établie ;
   - le vérificateur affiche désormais la liste complète des problèmes d'un parcours au clavier ;
   - troisième passage : 7 étapes sur 7.
+
+### Cycle 70 (17 h 30) : session liée à son appareil (chantier 65)
+
+Le vol de cookie de session (logiciel espion qui vide les profils de navigateur, ordinateur partagé) est aujourd'hui la manière la plus courante de prendre un compte protégé par double authentification : le cookie suffit, sans mot de passe ni code. Désormais :
+
+- **Comparaison à chaque requête** : la session garde la description de l'appareil où elle a été ouverte (famille du navigateur et du système, déjà affichée dans la liste des appareils). À chaque requête authentifiée (espace marchand, état de session, console de l'exploitant), elle est comparée à l'appareil courant.
+- **Si elle diffère** :
+  - la session est fermée pour tout le monde, navigateur d'origine compris ;
+  - l'appareil n'est plus « reconnu » ;
+  - l'événement va au journal du compte ;
+  - la titulaire est prévenue par e-mail : au plus un toutes les 6 heures, seulement à une adresse confirmée.
+- **Faux positifs évités** :
+  - les versions ne comptent pas (mise à jour du navigateur) ;
+  - iPad et Mac sont confondus (Safari sur iPad se présente parfois comme un Mac) ;
+  - les sessions d'avant la règle reçoivent leur appareil au premier passage.
+- **Limite, écrite dans la documentation** : un voleur qui recopie aussi l'en-tête User-Agent passe. C'est une barrière contre le rejeu naïf, pas une preuve d'appareil. La liaison cryptographique de la session à l'appareil (DBSC) n'est pas encore disponible partout dans les navigateurs.
+- **Tests** :
+  - mise à jour de Chrome : la session continue ;
+  - cookie rejoué sous Firefox/Windows : refusé, session fermée, e-mail et journal ;
+  - iPad et Mac : tolérés ;
+  - autre navigateur sur le même système : refusé, sans second e-mail ;
+  - session ancienne : appareil noté au premier passage.
+- 228 tests sur 228, parcours de bout en bout 57/57, parcours marchand au clavier sans problème.
 

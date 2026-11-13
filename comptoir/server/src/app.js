@@ -499,6 +499,28 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const os = /iPhone|iPad/.test(u) ? 'iPhone / iPad' : /Android/.test(u) ? 'Android' : /Mac OS X/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : /Linux/.test(u) ? 'Linux' : 'appareil';
     return `${nav} sur ${os}`;
   };
+  // Session liée à son appareil : un cookie rejoué depuis un autre navigateur ou un autre système (vol par logiciel espion,
+  // copie de profil) ferme la session. Seules la famille du navigateur et celle du système comptent, pas les versions
+  // (mises à jour) ; iPad et Mac sont confondus (Safari sur iPad se présente parfois comme un Mac). Un voleur qui recopie
+  // aussi l'en-tête User-Agent passe : c'est une barrière contre le rejeu naïf, pas une preuve d'appareil.
+  const familleAppareil = a => String(a || '').replace('iPhone / iPad', 'Apple').replace(/sur Mac$/, 'sur Apple');
+  const marchandDeRequete = ctx => {
+    const m = auth.marchandDepuisRequete(db, ctx.cookies);
+    if (!m) return null;
+    const h = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
+    const sess = db.prepare('SELECT appareil FROM sessions WHERE jeton_hash = ?').get(h);
+    const actuel = decrireAppareil(ctx.req.headers['user-agent']);
+    if (!sess || !sess.appareil) { if (sess) db.prepare('UPDATE sessions SET appareil = ? WHERE jeton_hash = ?').run(actuel, h); return m; }
+    if (familleAppareil(sess.appareil) === familleAppareil(actuel)) return m;
+    if (!db.prepare('DELETE FROM sessions WHERE jeton_hash = ? RETURNING 1').get(h)) return null;
+    db.prepare('DELETE FROM appareils_connus WHERE marchand_id = ? AND session = ?').run(m.id, h);
+    noterActivite(m.id, 'session-autre-appareil', `ouverte sur ${sess.appareil}, utilisée depuis ${actuel}`, ctx);
+    if (emailVerifie(m.id)) try {
+      auth.limiter('alerte-appareil:' + m.id, 1, 6 * 3600000, '');
+      envoyerEmail(null, m.email, 'Session fermée : utilisée depuis un autre appareil', `Bonjour,\n\nUne session de votre compte Comptoir ouverte sur ${sess.appareil} vient d’être utilisée depuis ${actuel}. Par précaution, elle a été fermée.\n\nSi vous avez simplement changé de navigateur, reconnectez-vous. Sinon, le cookie de cette session a pu être copié (logiciel espion, ordinateur partagé) : changez votre mot de passe et vérifiez les appareils connectés dans Paramètres > Sécurité.\n${urlPublique}/app\n\nL’équipe Comptoir`);
+    } catch { /* déjà prévenue récemment */ }
+    return null;
+  };
   const noterActivite = (marchandId, type, detail, ctx) => {
     db.prepare('INSERT INTO journal_compte (marchand_id, date, type, detail, reseau) VALUES (?, ?, ?, ?, ?)').run(marchandId, Date.now(), type, detail ? String(detail).slice(0, 200) : null, ctx ? reseauIp(ctx.ip) : null);
   };
@@ -1011,7 +1033,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   /* ---------- Garde d'authentification ---------- */
   // Compte connecté (sans exiger l'abonnement) : paiement de l'abonnement, suppression du compte.
   const exigerCompte = ctx => {
-    ctx.marchand = auth.marchandDepuisRequete(db, ctx.cookies);
+    ctx.marchand = marchandDeRequete(ctx);
     if (!ctx.marchand) throw erreur(401, 'Connectez-vous pour continuer.', 'non_connecte');
     renouvelerCookie(ctx, ctx.marchand);
     const h = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
@@ -1227,7 +1249,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return { ok: true };
   });
   r.get('/api/session', ctx => {
-    const m = auth.marchandDepuisRequete(db, ctx.cookies);
+    const m = marchandDeRequete(ctx);
     renouvelerCookie(ctx, m);
     const acces = m && accesDe(m.id), b = acces && acces.boutique;
     const df = m && deuxFacteursDe(m.id);
@@ -1686,7 +1708,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     ];
   }
   r.get('/operateur', ctx => {
-    const m = auth.marchandDepuisRequete(db, ctx.cookies);
+    const m = marchandDeRequete(ctx);
     const df = m && deuxFacteursDe(m.id);
     // Double authentification exigée (une clé d'accès seule laisserait la connexion par mot de passe sans second facteur)
     const fort = m && df && df.actif;
