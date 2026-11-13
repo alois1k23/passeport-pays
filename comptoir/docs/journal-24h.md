@@ -121,6 +121,10 @@ La feuille de route peut évoluer selon les constats des relectures.
 61. **Minimisation des e-mails gardés** : le contenu des e-mails envoyés (noms et adresses des clients, en clair) effacé après 7 jours au lieu de 180, la trace entière (destinataire compris) supprimée après 180 jours.
 62. **Changement de l'adresse e-mail du compte** : identité récente, confirmation par la nouvelle adresse, avertissement et annulation (7 jours) par l'ancienne, sans révéler les adresses déjà prises.
 
+**Seizième phase** (la quinzième est terminée le 13 novembre vers 13 h) :
+
+63. **Confirmation d'identité par clé d'accès** : les actions sensibles se confirment aussi avec une clé d'accès du compte (visage, empreinte), sans mot de passe ; c'est le seul moyen pour un compte « clé d'accès seule », qui devait jusqu'ici se déconnecter. Aucune connexion ne vaut plus confirmation.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -1332,4 +1336,26 @@ Jusqu'ici, un marchand ne pouvait pas changer l'adresse de son compte. Et une se
     - Membres : jugés par la date de leur invitation (un membre invité avant, arrivé pendant, reste) ; chaque retrait est noté dans le journal du compte, listé dans l'e-mail, et ses e-mails sont effacés comme au retrait d'un membre.
     - Non corrigé : une double authentification d'avant la demande que l'intrus aurait désactivée ne peut pas être rétablie (le secret est détruit). Le mot de passe invalidé et toutes les sessions fermées couvrent le risque ; la titulaire la réactive.
 - Vérification complète (7 étapes) réussie après la troisième ronde, avec 224 tests sur 224 et le parcours de bout en bout à 57/57.
+
+### Cycle 68 (13 h 50) : confirmation d'identité par clé d'accès (chantier 63)
+
+La relecture du chantier 62 l'a montré : un compte « clé d'accès seule » ne pouvait confirmer son identité qu'en se déconnectant et en se reconnectant, et le correctif provisoire (la connexion par clé d'accès valait confirmation) ouvrait une fenêtre de 15 minutes à un cookie volé juste après. Désormais :
+
+- **Deux nouvelles routes** :
+  - la première délivre un défi propre à ce compte et à cet usage (type « identite »), avec la liste de ses seules clés et la vérification de l'utilisateur exigée ;
+  - la seconde vérifie la signature : défi consommé une fois, clé qui appartient au compte, origine, compteur (une clé clonée est refusée).
+  - Chaque échec compte dans la limite quotidienne des confirmations et va au journal du compte ; la réussite y est notée avec le nom de la clé.
+- **Aucune connexion ne vaut plus confirmation explicite**, même par clé d'accès.
+- **Fenêtre de confirmation** :
+  - bouton « Confirmer avec ma clé d'accès » en premier quand le compte a une clé et que l'appareil sait l'utiliser ;
+  - pour un compte « clé d'accès seule », plus de champ de mot de passe ;
+  - sur un appareil sans clé utilisable, un message explique quoi faire.
+- **Tests** :
+  - clé d'un autre compte, défi de connexion, défi d'un autre compte : refusés ;
+  - réponse rejouée : refusée ;
+  - la connexion par clé ne suffit pas pour changer d'adresse ;
+  - la confirmation par clé ouvre aussi l'action « explicite » (changement d'adresse) ;
+  - compte « clé d'accès seule » : mot de passe refusé, clé acceptée.
+- **Vérifié dans Chromium avec un authentificateur virtuel**, bureau et mobile : enregistrement d'une clé, puis fenêtre ouverte par la création d'une clé d'API. Le focus est sur le bouton de la clé, Entrée confirme et la clé d'API s'affiche. En mode « clé seule », aucun champ de mot de passe. Aucune erreur de page.
+- 225 tests sur 225, parcours de bout en bout 57/57.
 

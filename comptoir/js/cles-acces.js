@@ -16,5 +16,12 @@ const ClesAcces = (() => {
     const cred = await navigator.credentials.create({ publicKey: { ...publicKey, challenge: vers(publicKey.challenge), user: { ...publicKey.user, id: vers(publicKey.user.id) }, excludeCredentials: publicKey.excludeCredentials.map(c => ({ ...c, id: vers(c.id) })) } });
     return api('POST', '/api/admin/compte/cles-acces', { nom, reponse: { id: cred.id, clientDataJSON: depuis(cred.response.clientDataJSON), attestationObject: depuis(cred.response.attestationObject) } });
   }
-  return { disponible, connexion, enregistrer, messageErreur };
+  // Confirmation d'identité (actions sensibles) : seules les clés de ce compte sont proposées.
+  async function confirmerIdentite() {
+    const { publicKey } = await api('POST', '/api/admin/compte/confirmer-identite/cle/options');
+    const cred = await navigator.credentials.get({ publicKey: { ...publicKey, challenge: vers(publicKey.challenge), allowCredentials: publicKey.allowCredentials.map(c => ({ ...c, id: vers(c.id) })) } });
+    const r = cred.response;
+    return api('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: { id: cred.id, clientDataJSON: depuis(r.clientDataJSON), authenticatorData: depuis(r.authenticatorData), signature: depuis(r.signature), userHandle: r.userHandle ? depuis(r.userHandle) : null } });
+  }
+  return { disponible, connexion, enregistrer, confirmerIdentite, messageErreur };
 })();

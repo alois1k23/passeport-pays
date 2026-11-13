@@ -503,12 +503,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     db.prepare('INSERT INTO journal_compte (marchand_id, date, type, detail, reseau) VALUES (?, ?, ?, ?, ?)').run(marchandId, Date.now(), type, detail ? String(detail).slice(0, 200) : null, ctx ? reseauIp(ctx.ip) : null);
   };
   // Ouvre une session (cookie) et la décrit pour la liste des appareils connectés.
-  // forte : connexion par clé d'accès d'un compte « clé d'accès seule », qui vaut confirmation explicite d'identité
-  // (15 minutes) : le mot de passe y est refusé, c'est le seul moyen de la donner. Pour les autres comptes, une connexion
-  // ne vaut jamais confirmation explicite (un cookie volé juste après ne doit pas suffire).
-  function ouvrirSession(ctx, m, { nouvelAppareil = false, forte = false } = {}) {
+  // Une connexion ne vaut jamais confirmation explicite d'identité (un cookie volé juste après ne doit pas suffire) : elle
+  // se donne par mot de passe (et code), ou par clé d'accès (/api/admin/compte/confirmer-identite/cle).
+  function ouvrirSession(ctx, m, { nouvelAppareil = false } = {}) {
     const jeton = auth.creerSession(db, m.id), maintenant = Date.now(), appareil = decrireAppareil(ctx.req.headers['user-agent']);
-    db.prepare('UPDATE sessions SET cree_le = ?, vu_le = ?, appareil = ?, reseau = ?, identite_le = ? WHERE jeton_hash = ?').run(maintenant, maintenant, appareil, reseauIp(ctx.ip), forte ? maintenant : null, auth.sha256(jeton));
+    db.prepare('UPDATE sessions SET cree_le = ?, vu_le = ?, appareil = ?, reseau = ? WHERE jeton_hash = ?').run(maintenant, maintenant, appareil, reseauIp(ctx.ip), auth.sha256(jeton));
     ctx.entetes['Set-Cookie'] = [auth.cookieSession(jeton, securise), cookieAppareilPour(ctx, m.id, auth.sha256(jeton))];
     noterActivite(m.id, 'connexion', appareil, ctx);
     // Connexion depuis un appareil jamais vu : le marchand est prévenu (un mot de passe volé se voit tout de suite).
@@ -1233,7 +1232,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const acces = m && accesDe(m.id), b = acces && acces.boutique;
     const df = m && deuxFacteursDe(m.id);
     const protege = !!m && (!!(df && df.actif) || cleSeule(m.id));   // une clé d'accès seule (sans « exiger ») laisse la connexion par mot de passe ouverte
-    return { connecte: !!m, email: m ? m.email : null, emailVerifie: m ? emailVerifie(m.id) : null, deuxFacteurs: !!(df && df.actif), slug: b ? b.slug : null, role: acces ? acces.role : null, compteProtege: protege, recuperationEnAttente: m ? recuperationEnAttente(m.id) : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
+    return { connecte: !!m, email: m ? m.email : null, emailVerifie: m ? emailVerifie(m.id) : null, deuxFacteurs: !!(df && df.actif), clesAcces: m ? clesAccesDe(m.id).length : 0, cleSeule: m ? cleSeule(m.id) : false, slug: b ? b.slug : null, role: acces ? acces.role : null, compteProtege: protege, recuperationEnAttente: m ? recuperationEnAttente(m.id) : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
   });
   r.post('/api/auth/inscription', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
@@ -1949,7 +1948,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(cred.marchand_id);
     if (!m) refus('Compte introuvable.');
     const appareilConnu = !!appareilConnuPour(ctx, m.id);
-    const jeton = ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu, forte: !!m.cle_seule });
+    const jeton = ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
     db.prepare('UPDATE sessions SET cle_acces = ? WHERE jeton_hash = ?').run(cred.id, auth.sha256(jeton));   // révoquée avec la clé
     noterActivite(m.id, 'cle-acces', cred.nom, ctx);
     annulerRecuperation(m.id, 'connexion avec votre clé d’accès', ctx);
@@ -2013,7 +2012,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/compte/confirmer-identite', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     // Compte qui n'accepte que sa clé d'accès : le mot de passe ne suffit pas ; il se reconnecte avec sa clé.
-    if (m.cle_seule) throw erreur(403, 'Votre compte n’accepte que votre clé d’accès : reconnectez-vous avec elle pour continuer.', 'cle_seule');
+    if (m.cle_seule) throw erreur(403, 'Votre compte n’accepte que votre clé d’accès : confirmez avec elle.', 'cle_seule');
     auth.verifierEchecs(['identite-jour:' + m.id], 30);   // au plus 30 échecs par jour, en plus de la limite par quart d'heure
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) {
       auth.noterEchec(['identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'mot de passe', ctx); throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
@@ -2025,6 +2024,32 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     db.prepare('UPDATE sessions SET identite_le = ? WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
     noterActivite(m.id, 'identite-confirmee', null, ctx);
+    return { ok: true, valableJusqua: new Date(Date.now() + IDENTITE_DUREE).toISOString() };
+  });
+  // Par clé d'accès : le navigateur signe un défi lié à ce compte (seules ses clés sont proposées), avec vérification de
+  // l'utilisateur (visage, empreinte, code de l'appareil). Vaut mot de passe et code : c'est un facteur fort à lui seul,
+  // et le seul possible pour un compte « clé d'accès seule ».
+  r.post('/api/admin/compte/confirmer-identite/cle/options', exigerCompte, ctx => {
+    const cles = clesAccesDe(ctx.marchand.id);
+    if (!cles.length) throw erreur(404, 'Aucune clé d’accès sur ce compte.', 'aucune_cle');
+    auth.limiter('identite-cle-options:' + ctx.marchand.id, 20 * facteurLimites, 15 * 60000, 'Trop de demandes : réessayez dans quelques minutes.');
+    return { publicKey: { challenge: nouveauDefi('identite', ctx.marchand.id), rpId, userVerification: 'required', timeout: 300000, allowCredentials: cles.map(c => ({ type: 'public-key', id: c.id })) } };
+  });
+  r.post('/api/admin/compte/confirmer-identite/cle', exigerCompte, ctx => {
+    const m = ctx.marchand;
+    auth.verifierEchecs(['identite-jour:' + m.id], 30);
+    const rep = ctx.corps.reponse || {};
+    const d = consommerDefi(rep, 'identite');
+    const refus = msg => { auth.noterEchec(['identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'clé d’accès', ctx); throw erreur(401, msg, 'cle_acces_refusee'); };
+    if (d.marchand_id !== m.id) refus('Demande expirée : recommencez.');
+    const cred = db.prepare('SELECT * FROM cles_acces WHERE id = ? AND marchand_id = ?').get(String(rep.id || ''), m.id);
+    if (!cred) refus('Cette clé d’accès n’appartient pas à ce compte.');
+    let v;
+    try { v = WebAuthn.verifierConnexion(rep, { defi: d.defi, origine: origineRp, rpId, cle: JSON.parse(cred.cle), compteur: cred.compteur }); }
+    catch (e) { journal.error('[cle-acces]', e.message); refus('Clé d’accès refusée.'); }
+    db.prepare('UPDATE cles_acces SET compteur = ?, utilisee_le = ? WHERE id = ?').run(v.compteur, Date.now(), cred.id);
+    db.prepare('UPDATE sessions SET identite_le = ? WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
+    noterActivite(m.id, 'identite-confirmee', `clé d’accès « ${cred.nom} »`, ctx);
     return { ok: true, valableJusqua: new Date(Date.now() + IDENTITE_DUREE).toISOString() };
   });
   r.post('/api/admin/compte/deconnecter-autres', exigerCompte, ctx => {

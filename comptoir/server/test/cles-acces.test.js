@@ -104,3 +104,59 @@ test('clés d’accès de bout en bout : enregistrement, connexion sans mot de p
     assert.equal((await client()('POST', '/api/auth/cle-acces/connexion', { reponse: tel.signer(o5) })).s, 401, 'clé supprimée');
   } finally { s.close(); }
 });
+
+test('confirmation d’identité par clé d’accès : vaut mot de passe et code, seulement avec une clé de ce compte', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const client = () => { const jar = {}; return async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', Cookie: Object.values(jar).join('; ') }, body: corps ? JSON.stringify(corps) : undefined }); for (const c of r.headers.getSetCookie()) { const [nv] = c.split(';'); jar[nv.split('=')[0]] = nv; } return { s: r.status, j: await r.json().catch(() => null) }; }; };
+  const vieillir = () => db.prepare('UPDATE sessions SET cree_le = cree_le - 1200000, identite_le = NULL').run();
+  try {
+    const a = client(), tel = authentificateur(base, '127.0.0.1');
+    await a('POST', '/api/auth/inscription', { email: 'conf@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Conf' } } });
+    const lien = db.prepare("SELECT corps FROM emails WHERE sujet LIKE 'Confirmez%'").get().corps.match(/verifier-email=([\w-]+)/)[1];
+    await a('POST', '/api/auth/verifier-email', { jeton: lien });
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle/options')).j.code, 'aucune_cle');
+    const opt = (await a('POST', '/api/admin/compte/cles-acces/options', { motDePasse: 'un mot de passe solide' })).j.publicKey;
+    assert.equal((await a('POST', '/api/admin/compte/cles-acces', { nom: 'Téléphone', reponse: tel.creer(opt) })).s, 201);
+    assert.equal((await a('GET', '/api/session')).j.clesAcces, 1);
+    // Un autre compte, avec sa propre clé.
+    const b = client(), telB = authentificateur(base, '127.0.0.1');
+    await b('POST', '/api/auth/inscription', { email: 'autre@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Autre' } } });
+    const optB = (await b('POST', '/api/admin/compte/cles-acces/options', { motDePasse: 'un mot de passe solide' })).j.publicKey;
+    await b('POST', '/api/admin/compte/cles-acces', { reponse: telB.creer(optB) });
+
+    // Connexion par clé d'accès : ne vaut pas confirmation explicite (changement d'adresse refusé sans confirmation).
+    const c = client();
+    const oc = (await c('POST', '/api/auth/cle-acces/options')).j.publicKey;
+    assert.equal((await c('POST', '/api/auth/cle-acces/connexion', { reponse: tel.signer(oc) })).s, 200);
+    assert.equal((await c('POST', '/api/admin/compte/email', { email: 'neuf@exemple.ch' })).j.code, 'identite_a_confirmer');
+
+    vieillir();
+    assert.equal((await a('POST', '/api/admin/equipe/inviter', { email: 'x@exemple.ch', role: 'commandes' })).j.code, 'identite_a_confirmer');
+    const o = (await a('POST', '/api/admin/compte/confirmer-identite/cle/options')).j.publicKey;
+    assert.deepEqual(o.allowCredentials.map(x => x.id), [tel.credId], 'seules les clés de ce compte sont proposées');
+    assert.equal(o.userVerification, 'required');
+    // La clé d'un autre compte : refusée.
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: telB.signer(o) })).s, 401);
+    // Un défi de connexion (autre usage) ne sert pas à confirmer.
+    const og = (await a('POST', '/api/auth/cle-acces/options')).j.publicKey;
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: tel.signer(og) })).s, 400);
+    // Le défi d'un autre compte non plus.
+    const oB = (await b('POST', '/api/admin/compte/confirmer-identite/cle/options')).j.publicKey;
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: tel.signer(oB) })).s, 401);
+    // Bonne clé, bon défi : identité confirmée, l'action passe, et c'est noté.
+    const o2 = (await a('POST', '/api/admin/compte/confirmer-identite/cle/options')).j.publicKey;
+    const r = tel.signer(o2);
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: r })).s, 200);
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: r })).s, 400, 'réponse à usage unique');
+    assert.equal((await a('POST', '/api/admin/equipe/inviter', { email: 'x@exemple.ch', role: 'commandes' })).s, 201);
+    assert.equal((await a('POST', '/api/admin/compte/email', { email: 'neuf@exemple.ch' })).s, 200, 'vaut aussi confirmation explicite');
+    assert.ok((await a('GET', '/api/admin/compte/securite')).j.journal.some(x => x.type === 'identite-confirmee' && /Téléphone/.test(x.detail)));
+    // Compte « clé d'accès seule » : le mot de passe est refusé, la clé passe.
+    db.prepare("UPDATE marchands SET cle_seule = 1 WHERE email = 'conf@exemple.ch'").run(); vieillir();
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'un mot de passe solide' })).j.code, 'cle_seule');
+    const o3 = (await a('POST', '/api/admin/compte/confirmer-identite/cle/options')).j.publicKey;
+    assert.equal((await a('POST', '/api/admin/compte/confirmer-identite/cle', { reponse: tel.signer(o3) })).s, 200);
+  } finally { s.close(); }
+});
