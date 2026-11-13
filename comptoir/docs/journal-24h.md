@@ -405,3 +405,12 @@ Chantier 12 de la deuxième phase. Un relecteur indépendant a audité tout le s
   - à l'ouverture d'une commande, le focus restait sur la ligne. Il entre maintenant dans la fiche (son titre), ce que le lecteur d'écran annonce ;
   - à la fermeture (bouton ou Échap), le focus revient sur la ligne de cette commande.
 - Résultat de l'outil : aucun problème, aucune erreur JavaScript. 151 tests sur 151, bout en bout 51 sur 51.
+
+### Cycle 25 (02 h 45) : export complet avec les nouveautés
+
+- Chantier 16. L'export complet de la boutique (portabilité, reprise ; propriétaire seulement, mot de passe et code redemandés) contient désormais aussi :
+  - les **devis**, déchiffrés et avec leur historique ;
+  - les **cartes cadeaux**, avec leurs réglages de vente, leurs soldes et le registre des mouvements, mais jamais le code des cartes, que seul le client connaît ;
+  - les **emplacements de stock**, avec la répartition et les mouvements ;
+  - le **programme de fidélité** : réglages et soldes, anonymes, car seule une empreinte de l'e-mail est connue.
+- Test étendu (vérifie notamment que le code d'une carte n'apparaît pas dans le fichier) : 151 tests sur 151.

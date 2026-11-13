@@ -2013,6 +2013,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       avis: db.prepare('SELECT produit_id, commande_id, note, texte, prenom, ville, cree_le, reponse FROM avis WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
       abonnes: db.prepare('SELECT email, cree_le, langue FROM abonnes WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
       desinscriptions: db.prepare('SELECT email, cree_le FROM desinscriptions WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
+      // Nouveautés : devis (déchiffrés), cartes cadeaux (sans code : il n'est connu que du client), stock par emplacement,
+      // programme de fidélité (soldes anonymes : seule une empreinte de l'e-mail est connue).
+      devis: DV.lister(b.id).map(d => { const { historique, ...reste } = d; return { ...reste, creeLe: iso(d.creeLe), majLe: iso(d.majLe), historique }; }),
+      cartesCadeaux: { vente: Cartes.reglagesVente(b.id), cartes: Cartes.lister(b.id, 100000).map(k => ({ ...k, creeLe: iso(k.creeLe), expireLe: iso(k.expireLe) })), mouvements: db.prepare('SELECT carte_id, le, type, montant, solde, commande_id FROM cartes_mouvements WHERE boutique_id = ? ORDER BY id').all(b.id).map(m2 => ({ ...m2, montant: m2.montant / 100, solde: m2.solde / 100, le: iso(m2.le) })) },
+      emplacements: { liste: EMP.lister(b.id), repartition: EMP.repartition(b.id), mouvements: EMP.mouvements(b.id, 100000).map(m2 => ({ ...m2, le: iso(m2.le) })) },
+      fidelite: { reglages: FID.reglages(b.id), comptes: db.prepare('SELECT points, actif_le FROM fidelite_comptes WHERE boutique_id = ? AND points > 0').all(b.id).map(c2 => ({ points: c2.points, actifLe: iso(c2.actif_le) })) },
       alertesStock: db.prepare('SELECT produit_id, variante_id, email, langue, cree_le FROM alertes_stock WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
       journalVentes: db.prepare('SELECT seq, type, ref, commande_id, le, contenu, empreinte FROM journal_inalterable WHERE boutique_id = ? ORDER BY seq').all(b.id).map(e => ({ ...e, le: iso(e.le), contenu: JSON.parse(e.contenu) }))
     };

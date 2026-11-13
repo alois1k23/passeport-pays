@@ -20,6 +20,11 @@ test('export complet', async () => {
     await fetch(cmd.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
     const ancien = (await (await c('GET', '/api/admin/etat')).json()).produits.find(x => x.nom === 'Ancien');
     assert.equal((await c('DELETE', `/api/admin/produits/${ancien.id}`)).status, 200);
+    // Nouveautés à exporter : un devis, une carte cadeau, un emplacement, le programme de fidélité.
+    assert.equal((await c('POST', '/api/admin/devis', { client: { raison: 'Hôtel SA', email: 'h@exemple.ch' }, lignes: [{ nom: 'Pose', qte: 1, prixHt: 100 }] })).status, 201);
+    const carte = await (await c('POST', '/api/admin/cartes-cadeaux', { montant: 30 })).json();
+    assert.equal((await c('POST', '/api/admin/emplacements', { nom: 'Entrepôt', type: 'entrepot' })).status, 201);
+    assert.equal((await c('PUT', '/api/admin/fidelite', { actif: true })).status, 200);
     assert.equal((await c('POST', '/api/admin/export-complet', { motDePasse: 'faux mot de passe' })).status, 401);
     const r = await c('POST', '/api/admin/export-complet', { motDePasse: mdp });
     assert.equal(r.status, 200);
@@ -30,6 +35,10 @@ test('export complet', async () => {
     assert.equal(d.photos, 'dans le fichier'); assert.equal(d.commandes.length, 1);
     assert.equal(d.clients[0].email, 'lea@exemple.ch'); assert.equal(d.configuration.boutique.nom, 'Export');
     assert.ok(d.journalVentes.length >= 1, 'journal des ventes inclus');
+    assert.equal(d.devis[0].client.raison, 'Hôtel SA', 'devis déchiffré');
+    assert.equal(d.cartesCadeaux.cartes[0].solde, 30); assert.ok(!texte.includes(carte.code.replace(/-/g, '')) && !texte.includes(carte.code), 'code de carte jamais exporté');
+    assert.equal(d.emplacements.liste[0].nom, 'Entrepôt'); assert.ok(d.emplacements.mouvements.length >= 1);
+    assert.equal(d.fidelite.reglages.actif, true);
     const jeton = db.prepare('SELECT jeton_client FROM commandes').get().jeton_client;
     assert.ok(!texte.includes(jeton), 'jeton du client absent'); assert.doesNotMatch(texte, /mot_de_passe|scrypt\$/);
     assert.ok(db.prepare("SELECT 1 FROM emails WHERE sujet = 'Export complet de votre boutique Comptoir'").get(), 'propriétaire prévenu');
