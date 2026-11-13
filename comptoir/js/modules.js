@@ -113,6 +113,7 @@ function vueMagasin() {
           : '<p class="sous">Aucun retrait en attente.</p>'}
       </section>
       ${vueCartesCadeaux()}
+      ${typeof carteEmplacements === 'function' ? carteEmplacements() : ''}
       <section class="carte">
         <div class="carte-tete"><h2>QR code de vitrine</h2></div>
         <div class="qr-ligne"><div id="qr" class="qr" data-url="${esc(url)}"></div>

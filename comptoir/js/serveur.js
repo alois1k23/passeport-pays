@@ -451,6 +451,7 @@ function installerModeConnecte() {
         }
         ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; ui.carteCaisse = ''; ui.carteCaisseInfo = null; ui.cleTicketCarte = null;
         if (r.carteCadeau) ui.cartesCadeaux = null;   // soldes à recharger
+        ui.emplacements = null;   // répartition du stock à recharger
         await rafraichir(r.carteCadeau ? `Vente de ${r.total} : ${r.carteCadeau} sur la carte cadeau (solde restant ${r.soldeCarte})${r.reste ? `, ${r.reste} à encaisser` : ', rien d’autre à encaisser'}. Facture ${r.facture}.` : `Vente de ${r.total} encaissée. Facture ${r.facture}.`);
       } else if (action === 'as-creer') {
         bloquer();

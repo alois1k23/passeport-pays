@@ -295,3 +295,17 @@ Relecture indépendante du chiffrement des données clients : changement de clé
   Test de charge (1000 boutiques) : 605 requêtes par seconde, contre 690 avant ces protections, sans erreur.
 - **Documentation corrigée** : la liste de ce qui reste en clair a été complétée (file des e-mails, envois de webhooks, devis, avis, newsletter, alertes de stock).
 - 143 tests sur 143, bout en bout 51 sur 51, simulation de 60 jours : 0 anomalie.
+
+### Cycle 18 (01 h 50) : stock sur plusieurs emplacements
+
+- Nouvelle section « Emplacements de stock » dans Magasin et caisse : magasins, entrepôts et dépôts (20 au plus), transferts, tableau de répartition par article et par variante.
+- **Le total ne change pas de rôle** : le stock de la fiche produit reste celui de la boutique, de la caisse et des réservations. Les emplacements en donnent la répartition, et la somme des emplacements est toujours égale au total, ce que vérifie un contrôle.
+  - Le premier emplacement créé reçoit tout le stock actuel et devient l'emplacement principal.
+  - Une vente en caisse prend d'abord dans un magasin, une vente en ligne (ou issue d'un devis) d'abord dans un entrepôt.
+  - Une annulation ou un remboursement remet les articles là d'où ils venaient (la répartition est notée sur la ligne de commande).
+  - Un stock corrigé dans la fiche produit (inventaire, API) : l'écart va à l'emplacement principal ; une baisse prend ensuite ailleurs.
+  - Un transfert ne change pas le total et refuse de prendre plus que l'emplacement n'en contient.
+  - Un emplacement ne se supprime que vide, et le principal en dernier.
+- Registre des mouvements (stock initial, vente, retour, correction, transfert) et entrée dans le journal d'activité. Sans emplacement déclaré, rien ne change.
+- Vérifié dans un vrai navigateur (deux emplacements, transfert de 5 articles, répartition affichée). 2 tests : module et parcours complet (transfert, caisse au magasin, vente en ligne à l'entrepôt, remboursement, correction de fiche). 144 tests sur 144, bout en bout 51 sur 51, simulation de 60 jours : 0 anomalie.
+- **Toute la feuille de route du marathon est réalisée.** Chaque chantier a été relu, sauf celui-ci, dont la relecture est en cours.

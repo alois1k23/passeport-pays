@@ -106,6 +106,15 @@ function creer(db) {
       poser(bid, produitId, varianteId, de, dispo - n); noter(bid, produitId, varianteId, de, -n, 'transfert', ref, maintenant);
       poser(bid, produitId, varianteId, vers, qte(produitId, varianteId, vers) + n); noter(bid, produitId, varianteId, vers, n, 'transfert', ref, maintenant);
     },
+    /* Après une écriture de la fiche produit (création, modification, API) : l'écart entre la fiche et les emplacements
+       est porté à l'emplacement principal (une baisse prend ensuite ailleurs). */
+    reconcilier(bid, p, maintenant = Date.now()) {
+      if (!p || p.type === 'drop' || !api.actif(bid)) return;
+      for (const [pid, vid, q] of unites(p)) {
+        const somme = db.prepare('SELECT COALESCE(SUM(quantite), 0) n FROM stock_emplacements WHERE produit_id = ? AND variante_id = ?').get(pid, cleVariante(vid)).n;
+        if (somme !== q) api.ajusterTotal(bid, pid, vid, q - somme, { maintenant });
+      }
+    },
     /* Contrôle : pour chaque produit, somme des emplacements = stock de la fiche. Renvoie les écarts. */
     verifier(bid, produits) {
       if (!api.actif(bid)) return [];

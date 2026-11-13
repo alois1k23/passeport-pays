@@ -45,3 +45,39 @@ test('module : répartition, ventes par canal, retours, transferts, corrections,
   assert.equal(E.lister('b').length, 1);
   assert.ok(E.mouvements('b').some(m => m.type === 'transfert'));
 });
+
+test('serveur : emplacements, transfert, caisse au magasin, vente en ligne à l’entrepôt, remboursement, fiche corrigée', async () => {
+  const http = require('node:http');
+  const { creerApp } = require('../src/app');
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const appel = async (m, chemin, corps, session = true) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && session ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length && session) cookie = sc.map(x => x.split(';')[0]).join('; '); let json = null; try { json = await r.json(); } catch { /* vide */ } return { statut: r.status, json }; };
+  try {
+    await appel('POST', '/api/auth/inscription', { email: 'emp@exemple.fr', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Emp', pays: 'fr', secteur: 'maison', sections: [] }, entreprise: { raison: 'E SAS', adresse: '5 rue Neuve, 69001 Lyon', regime: 'normal' } }, produits: [{ nom: 'Vase', prix: 40, stock: 10, type: 'stock' }] });
+    const etat = (await appel('GET', '/api/admin/etat')).json, produit = etat.produits[0].id, slug = db.prepare('SELECT slug FROM boutiques').get().slug;
+    const ent = (await appel('POST', '/api/admin/emplacements', { nom: 'Entrepôt', type: 'entrepot' })).json.emplacement;
+    const mag = (await appel('POST', '/api/admin/emplacements', { nom: 'Boutique', type: 'magasin' })).json.emplacement;
+    const rep = async () => (await appel('GET', '/api/admin/emplacements')).json;
+    assert.deepEqual((await rep()).repartition[produit][''], { [ent.id]: 10 });
+    assert.equal((await appel('POST', '/api/admin/emplacements/transferts', { produitId: produit, de: ent.id, vers: mag.id, quantite: 3 })).statut, 200);
+    assert.equal((await appel('POST', '/api/admin/emplacements/transferts', { produitId: produit, de: mag.id, vers: ent.id, quantite: 9 })).statut, 409);
+    // Caisse : au magasin.
+    assert.equal((await appel('POST', '/api/admin/caisse', { lignes: [{ produitId: produit, qte: 2 }], moyen: 'carte', cle: 'e1' })).statut, 201);
+    let r = await rep(); assert.deepEqual(r.repartition[produit][''], { [ent.id]: 7, [mag.id]: 1 });
+    // En ligne : à l'entrepôt ; remboursement : remis à l'entrepôt.
+    const cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: produit, qte: 2 }], livraison: 'colissimo', client: { nom: 'L', email: 'l@exemple.fr', adresse: 'R 1', npa: '69002', ville: 'Lyon' } }, false);
+    await appel('POST', `/paiement-simule/${cmd.json.paiementUrl.split('/').pop()}/confirmer`, null, false);
+    r = await rep(); assert.deepEqual(r.repartition[produit][''], { [ent.id]: 5, [mag.id]: 1 });
+    assert.equal((await appel('POST', `/api/admin/commandes/${cmd.json.commandeId}/statut`, { statut: 'remboursee' })).statut, 200);
+    r = await rep(); assert.deepEqual(r.repartition[produit][''], { [ent.id]: 7, [mag.id]: 1 });
+    // Fiche produit corrigée (inventaire) : l'écart va à l'emplacement principal.
+    const p = (await appel('GET', '/api/admin/etat')).json.produits[0];
+    assert.equal((await appel('PUT', `/api/admin/produits/${produit}`, { produit: { ...p, stock: 12, stockSaisi: true } })).statut, 200);
+    r = await rep(); assert.deepEqual(r.repartition[produit][''], { [ent.id]: 11, [mag.id]: 1 }); assert.deepEqual(r.ecarts, []);
+    // Suppression : refusée tant que l'emplacement contient du stock.
+    assert.equal((await appel('DELETE', `/api/admin/emplacements/${mag.id}`)).statut, 409);
+    assert.equal((await appel('GET', '/api/admin/emplacements', null, false)).statut, 401);
+  } finally { s.close(); }
+});

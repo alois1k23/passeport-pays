@@ -18,6 +18,7 @@ const CartesCadeaux = require('./cartes-cadeaux');
 const Devis = require('./devis');
 const Fidelite = require('./fidelite');
 const Pii = require('./pii');
+const Emplacements = require('./emplacements');
 const JournalInalterable = require('./journal-inalterable');
 const WebPush = require('./webpush');
 const { AsyncLocalStorage } = require('node:async_hooks');
@@ -288,7 +289,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const b = db.prepare('UPDATE boutiques SET compteur_facture = compteur_facture + 1 WHERE id = ? RETURNING compteur_facture').get(boutiqueId);
     return `${prefixe}-${new Date(date).getFullYear()}-${String(b.compteur_facture).padStart(4, '0')}`;
   };
-  const ajusterStock = (boutiqueId, lignes, sens) => {
+  /* Stock sur plusieurs emplacements : chaque mouvement du total (vente, retour) est réparti ; canal 'magasin' (caisse)
+     prend d'abord dans les magasins, la vente en ligne d'abord dans les entrepôts. */
+  const EMP = Emplacements.creer(db);
+  const reconcilierProduit = (boutiqueId, id) => { try { const r = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ?').get(id, boutiqueId); if (r) EMP.reconcilier(boutiqueId, { ...JSON.parse(r.donnees), id }); } catch (e) { journal.error('[emplacements]', e.message); } };
+  const ajusterStock = (boutiqueId, lignes, sens, canal = 'web') => {
+    const emplacements = EMP.actif(boutiqueId);
     for (const l of lignes) {
       if (l.type === 'drop') continue;
       const p = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ?').get(l.produitId, boutiqueId);
@@ -298,8 +304,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const v = l.varianteId && Array.isArray(d.variantes) ? d.variantes.find(x => x.id === l.varianteId) : null;
       if (l.varianteId && Array.isArray(d.variantes) && !v) { if (sens < 0) l.retireStock = 0; continue; }   // variante supprimée depuis : rien à rendre ni à retirer, la somme reste juste
       if (v) {
-        if (sens < 0) { const retire = Math.min(l.qte, Math.max(0, v.stock || 0)); l.retireStock = retire; v.stock = (v.stock || 0) - retire; }
-        else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; v.stock = (v.stock || 0) + remis; l.retireStock = 0; }
+        if (sens < 0) { const retire = Math.min(l.qte, Math.max(0, v.stock || 0)); l.retireStock = retire; v.stock = (v.stock || 0) - retire; if (emplacements) l.emplacements = EMP.retirer(boutiqueId, l.produitId, v.id, retire, { canal }); }
+        else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; v.stock = (v.stock || 0) + remis; l.retireStock = 0; if (emplacements) { EMP.remettre(boutiqueId, l.produitId, v.id, remis, l.emplacements); delete l.emplacements; } }
         const avantTotal = d.stock || 0;
         d.stock = d.variantes.reduce((a, x) => a + (x.stock || 0), 0);
         if (sens < 0 && avantTotal > 0 && d.stock <= 0) integ.emettre(boutiqueId, 'produit.rupture', { id: l.produitId, nom: d.nom, stock: 0 });
@@ -310,9 +316,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // d'annulation ou de remboursement (sinon une commande vendue en rupture recréerait du stock fantôme).
       if (sens < 0) {
         const retire = Math.min(l.qte, Math.max(0, d.stock || 0)); l.retireStock = retire; d.stock = (d.stock || 0) - retire;
+        if (emplacements) l.emplacements = EMP.retirer(boutiqueId, l.produitId, '', retire, { canal });
         if (retire > 0 && d.stock <= 0 && d.type !== 'drop') integ.emettre(boutiqueId, 'produit.rupture', { id: l.produitId, nom: d.nom, stock: 0 });   // passage à zéro (vente en ligne, caisse, paiement manuel)
       }
-      else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; d.stock = (d.stock || 0) + remis; l.retireStock = 0; }
+      else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; d.stock = (d.stock || 0) + remis; l.retireStock = 0; if (emplacements) { EMP.remettre(boutiqueId, l.produitId, '', remis, l.emplacements); delete l.emplacements; } }
       db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(d), l.produitId);
     }
   };
@@ -621,6 +628,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     (Array.isArray(produits) ? produits : []).filter(p => p && typeof p === 'object').slice(0, 200).forEach((p, i) => {
       const id = auth.nouvelId('p_');
       db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, boutiqueId, serialiserProduit(id, produitDuNavigateur(p)), i);
+      reconcilierProduit(boutiqueId, id);
     });
   }
 
@@ -847,7 +855,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Espace marchand : uniquement sa propre boutique (boutique_id du compte), et seulement si l'abonnement est payé.
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
   // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
-  const LECTURE_SEULE = new Set(['GET /api/admin/fidelite', 'GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
+  const LECTURE_SEULE = new Set(['GET /api/admin/emplacements', 'GET /api/admin/fidelite', 'GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
     verifierRole(ctx);
@@ -1670,6 +1678,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const id = auth.nouvelId('p_');
     const ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) + 1 AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
     db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, serialiserProduit(id, produitDuNavigateur(ctx.corps.produit || {})), ordre);
+    reconcilierProduit(ctx.boutique.id, id);   // emplacements : le stock de départ va à l'emplacement principal
     return { statut: 201, corps: { id } };
   });
   r.put('/api/admin/produits/:id', exigerMarchand, ctx => {
@@ -1685,6 +1694,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Photo inchangée (renvoyée telle quelle par le navigateur) : celle enregistrée reste.
     if (avant.image === IMG && fusion.image === imageDe(ctx.params.id)) fusion.image = IMG;
     db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id);
+    reconcilierProduit(ctx.boutique.id, ctx.params.id);   // stock corrigé dans la fiche : l'écart va à l'emplacement principal
     return { ok: true };
   });
   r.delete('/api/admin/produits/:id', exigerMarchand, ctx => {
@@ -1784,8 +1794,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
     // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
     if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
-    if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1);   // vendu : le stock baisse comme pour un paiement en ligne
-    if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1);
+    if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1, c.canal);   // vendu : le stock baisse comme pour un paiement en ligne
+    if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1, c.canal);
     // Fidélité : points gagnés retirés, points utilisés rendus (une seule fois). Des points gagnés déjà dépensés ne
     // peuvent pas être repris : l'écart est noté dans l'historique (à déduire du remboursement si le marchand le souhaite).
     if ((cible === 'remboursee' || cible === 'annulee') && c.fidelite && !c.fidelite.annule && c.client && c.client.email) {
@@ -1871,7 +1881,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       insererCommande(id, ctx.boutique.id, numero, now, 'retiree', auth.nouvelId(), donnees);
       if (carte && !Cartes.debiter(carte.id, centimesCarte, { commandeId: id, texte: `Ticket n° ${numero}`, maintenant: Date.now() })) throw erreur(409, 'Le solde de la carte cadeau vient de changer : vérifiez-le et réessayez.', 'carte_solde');
       sceller(ctx.boutique.id, { id, numero, date: now, statut: 'retiree', ...donnees });   // ticket de caisse scellé à l'encaissement
-      ajusterStock(ctx.boutique.id, lignes, -1);
+      ajusterStock(ctx.boutique.id, lignes, -1, 'magasin');
       if (horsLigne) {
         const manque = lignes.filter(l => typeof l.retireStock === 'number' && l.retireStock < l.qte);
         const c2 = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id));
@@ -2547,6 +2557,26 @@ ${bloc}</main></body></html>`;
     return { redirection: (await ouvrirPaiement(b, row)).paiementUrl };
   };
   r.post('/devis/:slug/:id/payer', ctx => repondreDevis(ctx, () => payerDevis(ctx)));
+  /* ---------- Stock sur plusieurs emplacements ---------- */
+  r.get('/api/admin/emplacements', exigerMarchand, ctx => {
+    const produits = listerProduits(ctx.boutique.id);
+    return { emplacements: EMP.lister(ctx.boutique.id), repartition: EMP.repartition(ctx.boutique.id), ecarts: EMP.verifier(ctx.boutique.id, produits), mouvements: EMP.mouvements(ctx.boutique.id, 50), types: Emplacements.TYPES };
+  });
+  r.post('/api/admin/emplacements', exigerMarchand, ctx => {
+    const e = transaction(db, () => EMP.creer(ctx.boutique.id, { nom: ctx.corps.nom, type: ctx.corps.type }, listerProduits(ctx.boutique.id)));
+    noterActivite(ctx.marchand.id, 'emplacement', `Emplacement créé : ${e.nom}`, ctx);
+    return { statut: 201, corps: { emplacement: e } };
+  });
+  r.delete('/api/admin/emplacements/:id', exigerMarchand, ctx => { transaction(db, () => EMP.supprimer(ctx.boutique.id, ctx.params.id)); return { ok: true }; });
+  r.post('/api/admin/emplacements/transferts', exigerMarchand, ctx => {
+    const b = ctx.corps, p = listerProduits(ctx.boutique.id).find(x => x.id === b.produitId);
+    if (!p || p.type === 'drop') throw erreur(404, 'Produit introuvable.', 'produit_introuvable');
+    const aVar = Array.isArray(p.variantes) && p.variantes.length;
+    if (aVar && !p.variantes.some(v => v.id === b.varianteId)) throw erreur(400, 'Choisissez une variante.', 'variante_requise');
+    transaction(db, () => EMP.transferer(ctx.boutique.id, { produitId: p.id, varianteId: aVar ? b.varianteId : '', de: b.de, vers: b.vers, quantite: b.quantite }));
+    return { repartition: EMP.repartition(ctx.boutique.id)[p.id] || {} };
+  });
+
   /* ---------- Cartes cadeaux ---------- */
   // Carte vide parce que son solde est réservé par une commande en attente de paiement : message distinct (le client
   // qui vient d'annuler son paiement comprend pourquoi, et sait que le montant revient).
@@ -2776,6 +2806,7 @@ ${bloc}</main></body></html>`;
     if (c.prix !== undefined && (typeof c.prix !== 'number' || !(c.prix > 0) || c.prix > 1e6)) throw erreur(400, '« prix » doit être un nombre positif.', 'prix');
     const propre = nettoyerProduit({ ...maj, type: avant.type, source: avant.source, codeFournisseur: avant.codeFournisseur, image: avant.image, options: avant.options, variantes: maj.variantes || avant.variantes }, avant.historiquePrix || []);
     db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, propre), ctx.params.id);
+    reconcilierProduit(ctx.boutique.id, ctx.params.id);
     if (avant.type !== 'drop' && (avant.stock || 0) > 0 && propre.stock <= 0) integ.emettre(ctx.boutique.id, 'produit.rupture', { id: ctx.params.id, nom: propre.nom, stock: 0 });
     return produitApi({ ...propre, id: ctx.params.id }, ctx.boutique.slug);
   });
