@@ -60,6 +60,14 @@ La feuille de route peut évoluer selon les constats des relectures.
 29. **Audit au clavier** des nouveaux formulaires du marchand (retour partiel, geste commercial).
 30. **Démonstration publiée** mise à jour avec les nouveautés.
 
+**Sixième phase** (la cinquième est terminée le 13 novembre vers 5 h 05) :
+
+31. **Sauvegarde et restauration** : toutes les nouvelles tables survivent, et le journal reste vérifiable après restauration.
+32. **Ménage planifié** des données temporaires (codes, échecs, réseaux sûrs, demandes).
+33. **Rapport du lundi** : retours partiels et gestes de la semaine.
+34. **Simulation de 60 jours avec retours partiels et gestes** : invariants comptables et journal à grande échelle.
+35. **Documentation relue** contre le code (fonctionnalités, API, mise en ligne).
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -680,3 +688,18 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - les fichiers déjà en ligne ont été relus et comparés à l'historique Git. Tous étaient d'anciennes versions du dépôt : rien d'extérieur n'a été écrasé ;
   - le paquet a été vérifié dans un vrai navigateur (servi en UTF-8). Écrans Tableau de bord, Commandes, Analyse (onglet TVA), Magasin, Clients et Produits parcourus, aucune erreur JavaScript. La seule réponse 404 est `/api/session`, normale sans serveur.
 - Pas de relecture indépendante pour ce chantier : il republie du code déjà relu, et la vérification ci-dessus en tient lieu.
+
+### Cycle 40 (04 h 59) : sauvegarde et restauration d'une boutique active (chantier 31)
+
+- Les sauvegardes copient toute la base (`VACUUM INTO`) : les nouvelles tables y sont par construction. Le nouveau test vérifie surtout qu'une copie restaurée est **utilisable et vérifiable**, et pas seulement lisible.
+- **Scénario** :
+  1. Boutique active : carte cadeau utilisée au paiement, programme de fidélité, retour partiel, geste commercial.
+  2. Sauvegarde du jour chiffrée, puis restauration par la commande du serveur (`--restaurer`).
+  3. Application relancée sur la copie, avec la même clé du serveur.
+- **Résultat sur la copie** :
+  - connexion du marchand ;
+  - journal scellé vérifié (facture et avoirs) ;
+  - données du client déchiffrées ;
+  - registres des cartes et de la fidélité cohérents ;
+  - la boutique continue de vivre : remboursement du reste, journal toujours intact.
+- 1 nouveau test.
