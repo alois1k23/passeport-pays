@@ -85,19 +85,28 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     if (brut.length > 10) throw erreur(400, '10 réseaux au plus.', 'reseaux');
     return brut.map(r => {
       const [adr, pre, reste] = r.split('/');
+      if (r.includes('%')) throw erreur(400, `Réseau invalide : « ${r.slice(0, 50)} » (identifiant de zone non accepté).`, 'reseaux');
       const v = net.isIP(ipNette(adr));
       const max = v === 4 ? 32 : 128;
       const n = pre === undefined ? max : /^\d{1,3}$/.test(pre) ? Number(pre) : NaN;
       if (!v || reste !== undefined || !(n >= (v === 4 ? 8 : 16) && n <= max)) throw erreur(400, `Réseau invalide : « ${r.slice(0, 50)} ». Exemples : 203.0.113.7, 203.0.113.0/24, 2001:db8::/48.`, 'reseaux');
-      // IPv6 : le serveur ne connaît le client qu'à son réseau /64 près (adresse temporaire qui change) : précision bornée au /64.
-      return `${ipNette(adr)}/${v === 6 ? Math.min(n, 64) : n}`;
+      // IPv6 qui recouvre des adresses IPv4 (::/80 dont ::1 et ::, ::ffff:0:0/96, 64:ff9b::/96) : refusée, elle autoriserait
+      // des adresses IPv4 sans que la liste le montre. Une adresse IPv4 s'écrit sous sa forme IPv4.
+      if (v === 6) {
+        const entree = new net.BlockList(); entree.addSubnet(ipNette(adr), n, 'ipv6');
+        const plages = [['::', 80], ['::ffff:0:0', 96], ['64:ff9b::', 96]];
+        if (plages.some(([base, p]) => { const pl = new net.BlockList(); pl.addSubnet(base, p, 'ipv6'); return entree.check(base, 'ipv6') || pl.check(ipNette(adr), 'ipv6'); }))
+          throw erreur(400, `Réseau refusé : « ${r.slice(0, 50)} » recouvre des adresses IPv4 ; écrivez l’adresse IPv4 elle-même (ex. 203.0.113.7).`, 'reseaux');
+      }
+      return `${ipNette(adr)}/${n}`;
     });
   }
+  // Adresse exacte du client (pas son réseau /64) ; seules les règles de sa famille (IPv4 ou IPv6) sont consultées.
   const dansReseaux = (ip, reseaux) => {
-    const a = ipNette(String(ip || '').replace(/\/\d+$/, '')), v = net.isIP(a);   // IPv6 : réseau /64 du client (voir reseauIp)
+    const a = ipNette(String(ip || '').replace(/%.*$/, '')), v = net.isIP(a);
     if (!v) return false;
     const bl = new net.BlockList();
-    for (const r of reseaux) { const [adr, n] = r.split('/'); const t = net.isIP(adr) === 4 ? 'ipv4' : 'ipv6'; bl.addSubnet(adr, Number(n), t); }
+    for (const r of reseaux) { const [adr, n] = r.split('/'); if (net.isIP(adr) === v) bl.addSubnet(adr, Number(n), v === 4 ? 'ipv4' : 'ipv6'); }
     return bl.check(a, v === 4 ? 'ipv4' : 'ipv6');
   };
   function creerCle(boutiqueId, { nom, portees, expireJours, reseaux }) {

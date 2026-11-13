@@ -1595,7 +1595,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const echeances = db.prepare('SELECT nom, expire_le FROM cles_api WHERE boutique_id = ? AND revoquee = 0 AND expire_le IS NOT NULL AND expire_le < ?').all(b.id, maintenant + 14 * JOUR);
       if (echeances.length) ajouter(false, 'conseil', 'Clés d’API à renouveler', `${echeances.map(x => `« ${x.nom} » ${x.expire_le < maintenant ? 'a expiré' : `expire le ${new Date(x.expire_le).toLocaleDateString('fr-CH', { timeZone: 'Europe/Zurich' })}`}`).slice(0, 3).join(', ')} : créez une nouvelle clé, mettez-la dans votre outil, puis révoquez l’ancienne.`, 'integrations');
       const sansLimite = db.prepare('SELECT COUNT(*) n FROM cles_api WHERE boutique_id = ? AND revoquee = 0 AND expire_le IS NULL AND reseaux IS NULL').get(b.id).n;
-      if (actives) ajouter(!sansLimite, 'conseil', 'Clés d’API limitées', sansLimite ? `${sansLimite} clé${sansLimite > 1 ? 's' : ''} d’API sans date d’expiration ni adresse IP autorisée : une clé volée servirait indéfiniment, de partout. Remplacez-la par une clé limitée.` : 'Chaque clé d’API a une date d’expiration ou des adresses IP autorisées.', sansLimite ? 'integrations' : null);
+      if (actives) ajouter(!sansLimite, 'conseil', 'Clés d’API limitées', sansLimite ? `${sansLimite} clé${sansLimite > 1 ? 's' : ''} d’API sans date d’expiration ni adresse IP autorisée : une clé volée servirait indéfiniment, de partout. ${sansLimite > 1 ? 'Remplacez-les par des clés limitées' : 'Remplacez-la par une clé limitée'}.` : 'Chaque clé d’API a une date d’expiration ou des adresses IP autorisées.', sansLimite ? 'integrations' : null);
       const webhooks = db.prepare('SELECT url, actif, echecs_suite FROM webhooks WHERE boutique_id = ?').all(b.id), enPanne = webhooks.filter(w => !w.actif || w.echecs_suite > 0);
       if (webhooks.length) ajouter(!enPanne.length, 'conseil', 'Webhooks en état de marche', enPanne.length ? `${enPanne.length} webhook${enPanne.length > 1 ? 's' : ''} en échec ou en pause : vos outils ne reçoivent plus les commandes.` : 'Tous vos webhooks reçoivent les événements.', enPanne.length ? 'integrations' : null);
       const v = db.prepare('SELECT resultat FROM journal_verifications WHERE boutique_id = ?').get(b.id);
@@ -3756,7 +3756,7 @@ ${bloc}</main></body></html>`;
   function exigerCle(portee) {
     return ctx => {
       let c;
-      try { c = integ.authentifier(ctx.req.headers.authorization, ctx.ip); }
+      try { c = integ.authentifier(ctx.req.headers.authorization, ctx.ipBrute); }
       catch (e) { auth.limiter('api-refus:' + ctx.ip, 30 * facteurLimites, 60000, 'Trop de clés refusées : réessayez dans une minute.'); throw e; }
       auth.limiter('api:' + c.id, 300 * facteurLimites, 60000, 'Limite de 300 requêtes par minute dépassée.');
       auth.limiter('api-boutique:' + c.boutiqueId, 600 * facteurLimites, 60000, 'Limite de 600 requêtes par minute dépassée pour cette boutique.');
@@ -4913,7 +4913,7 @@ ${FEUILLE_4}</head>
         }
         throw erreur(404, 'Page introuvable.', 'introuvable');
       }
-      const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: reseauIp(ipClient(req)), corps: {}, corpsBrut: '' };
+      const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: reseauIp(ipClient(req)), ipBrute: ipClient(req), corps: {}, corpsBrut: '' };
       entetesRequete = ctx.entetes;   // cookie de session renouvelé : envoyé même avec une réponse d'erreur
       // HTTPS : seule la session « __Host- » compte ; un cookie de session sans préfixe (posé par un sous-domaine, en HTTP) est ignoré.
       if (securise) { const h = ctx.cookies[`__Host-${auth.COOKIE}`]; delete ctx.cookies[auth.COOKIE]; if (h) ctx.cookies[auth.COOKIE] = h; }

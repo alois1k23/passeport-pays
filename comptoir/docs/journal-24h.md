@@ -1481,7 +1481,7 @@ Une clé d'API de Comptoir valait jusqu'ici pour toujours et depuis n'importe o�
 
 - **Durée de validité** choisie à la création : 30 jours, 90 jours (proposé par défaut), 1 an, ou sans limite. Une clé expirée est refusée (`401`, code `cle_expiree`) avec un message qui dit quoi faire. Les clés d'avant cette règle restent sans limite.
 - **Adresses IP autorisées**, facultatives : jusqu'à 10 adresses ou réseaux, IPv4 ou IPv6. Les saisies invalides ou trop larges (moins de /8 en IPv4, moins de /16 en IPv6) sont refusées avec un exemple. Ailleurs, la clé est refusée (`403`, code `reseau_refuse`). L'adresse du client est celle que le serveur connaît déjà : l'en-tête X-Forwarded-For n'est lu que depuis un proxy de confiance.
-- **Précision IPv6** : le serveur ne garde de l'adresse IPv6 que son réseau /64, car les adresses temporaires changent. Une adresse IPv6 précise est donc élargie à son /64, et c'est écrit dans le formulaire et dans la documentation de l'API. Le premier essai l'a révélé : le test d'une adresse IPv6 autorisée échouait.
+- **Précision IPv6** : le premier essai a montré qu'une adresse IPv6 autorisée était refusée. Le serveur ne passait que le réseau /64 du client, celui qui sert aux limites d'essais. Une adresse IPv6 précise a d'abord été élargie à son /64 ; la relecture a fait corriger ce choix (voir plus bas).
 - **Écran Intégrations** : la liste montre la validité (date, « Expirée », « sans limite ») et les réseaux de chaque clé.
 - **Bilan de sécurité du marchand** : clés expirées ou qui expirent dans les 14 jours (à renouveler), et clés sans date ni adresse (à remplacer).
 - **Tests** :
@@ -1494,4 +1494,21 @@ Une clé d'API de Comptoir valait jusqu'ici pour toujours et depuis n'importe o�
   - création d'une clé limitée à 30 jours et à un réseau : la ligne affiche la date et le réseau ;
   - saisie invalide : message clair.
 - Au passage, la capture mobile a montré deux défauts plus anciens de l'écran des webhooks, corrigés : l'événement « remboursement partiel » n'avait pas de libellé (son code brut s'affichait), et la case « données personnelles des clients » se cassait en colonne étroite (texte d'aide sorti du libellé, case alignée en haut).
-
+- **Relecture indépendante** :
+  - **Grave** : une règle IPv6 pouvait autoriser toutes les adresses IPv4 du monde, alors que l'écran montrait la clé comme limitée. Les formes `::1`, `::`, `::ffff:cb00:7107` ou `::/16`, élargies au /64, recouvrent la plage où Node range les adresses IPv4 ; un marchand qui testait avec `::1` obtenait une clé valable partout. Corrections :
+    - une adresse n'est plus comparée qu'aux règles de sa propre famille (IPv4 ou IPv6) ;
+    - les entrées IPv6 qui recouvrent des adresses IPv4 (`::/80`, `::ffff:0:0/96`, `64:ff9b::/96`) sont refusées, avec un message qui demande l'adresse IPv4 elle-même ;
+    - testé : `8.8.8.8` refusée malgré les règles IPv6, et la forme mappée d'une adresse IPv4 autorisée acceptée.
+  - **Moyen** : l'élargissement au /64 pouvait ouvrir la clé aux voisins d'un hébergeur qui partage un /64 entre clients. La vérification utilise désormais l'adresse exacte du client, et la précision saisie est gardée (testé : une voisine du même /64 est refusée).
+  - **Bas** :
+    - identifiant de zone (`fe80::1%eth0`) refusé ;
+    - la documentation de l'API précise que « 90 jours » est le choix proposé par l'écran, et que l'API sans précision crée une clé sans limite ;
+    - accord au pluriel du conseil du bilan.
+  - **Vérifié sans problème** :
+    - X-Forwarded-For non falsifiable hors proxy de confiance ;
+    - zéros en tête refusés ;
+    - aucune saisie ne provoque d'erreur 500 ;
+    - la limite des clés refusées s'applique aussi aux clés expirées et aux adresses non autorisées ;
+    - le dernier usage n'est noté qu'après les deux contrôles ;
+    - affichage échappé.
+- Après corrections : 230 tests sur 230, parcours de bout en bout 57/57, fuzzing sans constat.
