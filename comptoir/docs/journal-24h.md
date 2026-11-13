@@ -776,3 +776,12 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
 - **Résultat** : 6 280 requêtes, **0 constat**. Le détail des réponses montre que les traitements sont bien atteints (1 423 réponses 200, 1 597 refus de validation, 144 refus métier, 1 834 introuvables, 1 111 sans session, quelques limites de débit et de taille), et non arrêtés à l'entrée. Le flux en direct (connexion sans fin) est exclu. Un passage court fait désormais partie de `npm run verifier`.
 - **Journaux du serveur** : l'échec d'envoi d'un e-mail inscrivait l'adresse du client et le sujet en clair, et le message du prestataire peut lui aussi répéter l'adresse. Les adresses y sont maintenant masquées (« l•••@exemple.fr », domaine gardé pour diagnostiquer un refus), avec le numéro de l'e-mail pour le retrouver dans la base. Même chose pour la trace de débogage `LOG_EMAILS`. Les autres journaux ont été relus : ils ne contiennent ni adresse, ni nom, ni adresse postale.
 - 1 test de plus : 179 tests sur 179.
+
+### Cycle 45 (05 h 56) : routes coûteuses limitées par boutique (chantier 37)
+
+- **Quota par boutique**, équipe comprise, pour les routes qui coûtent au serveur :
+  - génération de factures et d'avoirs en PDF Factur-X ou en XML : 300 par 10 minutes ;
+  - exports (clients, journal des ventes, cartes cadeaux, export complet) : 30 par heure.
+
+  C'est large pour un usage normal, une fiduciaire qui télécharge un trimestre par exemple, mais une session volée ou un script ne peut plus monopoliser le serveur. Le reste de l'espace marchand reste ouvert. La vérification complète du journal garde sa limite propre (6 par heure), et le téléchargement des pièces par le client garde la sienne (60 par heure et par réseau).
+- 1 test de plus : 180 tests sur 180.

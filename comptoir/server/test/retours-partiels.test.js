@@ -446,3 +446,13 @@ test('API : facture QR annulée avant paiement = avoir « annulation », rien de
     assert.equal(c.rembourse, 0, 'rien n’a été payé, rien n’est remboursé');
   } finally { srv.close(); }
 });
+
+test('routes coûteuses : quota par boutique (exports : 30 par heure)', async () => {
+  const { s, appel } = await boutique();
+  try {
+    for (let i = 0; i < 30; i++) assert.notEqual((await appel('GET', '/api/admin/clients/export?email=lou@exemple.fr')).statut, 429);
+    const r = await appel('GET', '/api/admin/clients/export?email=lou@exemple.fr');
+    assert.equal(r.statut, 429); assert.match(r.json.erreur, /réessayez/);
+    assert.equal((await appel('GET', '/api/admin/etat')).statut, 200, 'le reste de l’espace marchand reste ouvert');
+  } finally { s.close(); }
+});

@@ -924,9 +924,21 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Abonnement terminé ou impayé, après au moins un paiement : consultation et export de ses données, suivi des commandes
   // déjà passées et effacement d'un client (obligation légale) restent possibles ; tout le reste attend un nouvel abonnement.
   const LECTURE_SEULE = new Set(['GET /api/admin/cartes-cadeaux/export', 'GET /api/admin/cartes-cadeaux/vente', 'GET /api/admin/emplacements', 'GET /api/admin/fidelite', 'GET /api/admin/cartes-cadeaux', 'GET /api/admin/devis', 'GET /api/admin/journal-inalterable', 'POST /api/admin/journal-inalterable/verifier', 'GET /api/admin/journal-inalterable/export', 'GET /api/admin/etat', 'GET /api/admin/clients/export', 'GET /api/admin/emails', 'POST /api/admin/clients/effacer', 'GET /api/admin/integrations']);
+  // Routes coûteuses (génération de PDF et de XML, exports) : quota par boutique,
+  // équipe comprise. Large pour un usage normal (une fiduciaire qui télécharge un trimestre), mais une session volée ou
+  // un script ne peut pas monopoliser le serveur.
+  const COUTEUSES = [
+    [/^GET \/api\/admin\/commandes\/[^/]+\/(facture-pdf|facture-electronique)$/, 'documents', 300, 10 * 60000],
+    [/^(GET|POST) \/api\/admin\/(export-complet|clients\/export|journal-inalterable\/export|cartes-cadeaux\/export)$/, 'exports', 30, 3600000]
+  ];   // (vérification complète du journal : déjà limitée à 6 par heure dans sa route)
+  const limiterCouteuse = ctx => {
+    const route = `${ctx.req.method} ${new URL(ctx.req.url, 'http://x').pathname}`;
+    for (const [motif, cle, n, duree] of COUTEUSES) if (motif.test(route)) auth.limiter(`couteux:${cle}:${ctx.boutique.id}`, n * facteurLimites, duree, 'Beaucoup de téléchargements en peu de temps : réessayez dans quelques minutes.');
+  };
   const exigerMarchand = ctx => {
     exigerCompte(ctx);
     verifierRole(ctx);
+    limiterCouteuse(ctx);
     const e = abo.etat(ctx.boutique.marchand_id);   // abonnement du propriétaire, aussi pour son équipe
     if (e.actif) return;
     const route = `${ctx.req.method} ${new URL(ctx.req.url, 'http://x').pathname}`;
