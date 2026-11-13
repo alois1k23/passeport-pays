@@ -463,14 +463,16 @@ function csvTexte(v) { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = 
   return `"${t.replace(/"/g, '""')}"`; }
 /* Export pour la fiduciaire : une ligne par facture, et une ligne négative par avoir. */
 function exporterCommandesCsv(liste) {
-  const champs = ['document', 'date_document', 'commande', 'date_commande', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total_ht', 'tva', 'total_ttc', 'detail_tva', 'moyen', 'suivi'];
+  const champs = ['document', 'date_document', 'commande', 'date_commande', 'statut', 'client', 'email', 'ville', 'canal', 'livraison', 'articles', 'remise', 'port', 'total_ht', 'tva', 'total_ttc', 'detail_tva', 'moyen', 'suivi', 'carte_cadeau', 'points_fidelite', 'devis'];
   const lignes = [];
   // Seulement des documents comptables : commandes facturées (les commandes en attente ou annulées n'ont pas de facture).
   for (const c of [...liste].filter(x => x.facture).sort((a, b) => (a.dateFacture || a.date) - (b.dateFacture || b.date))) {
     const t = tva(c);
     const base = (signe, doc, date) => [csvTexte(doc), csvTexte(csvDate(date)), String(c.numero), csvTexte(csvDate(c.date)), csvTexte(STATUTS[c.statut] ? STATUTS[c.statut].nom : c.statut), csvTexte(c.client.nom), csvTexte(c.client.email), csvTexte(c.client.ville), csvTexte(c.canal), csvTexte(c.livraison),
       csvTexte(c.lignes.map(l => `${l.qte}× ${l.nom}`).join(' | ')), csvMontant(signe * (c.remise || 0)), csvMontant(signe * (c.port || 0)), csvMontant(signe * t.ht), csvMontant(signe * t.tva), csvMontant(signe * t.ttc),
-      csvTexte(t.parTaux.map(x => `${pctTva(x.taux)} : ${csvMontant(signe * x.tva)}`).join(' | ')), csvTexte(c.moyen || ''), csvTexte(c.suivi || '')].join(';');
+      csvTexte(t.parTaux.map(x => `${pctTva(x.taux)} : ${csvMontant(signe * x.tva)}`).join(' | ')), csvTexte(c.moyen || ''), csvTexte(c.suivi || ''),
+      // Part payée par carte cadeau (moyen de paiement, à rapprocher de la caisse), points utilisés, devis d'origine.
+      csvMontant(signe * (c.carteCadeau && !c.carteCadeau.liberee ? c.carteCadeau.montant || 0 : 0)), String(c.fidelite && c.fidelite.debite && !c.fidelite.liberee ? signe * c.fidelite.debite : 0), csvTexte(c.devis ? c.devis.numero : '')].join(';');
     lignes.push(base(1, c.facture || '', c.dateFacture || c.date));
     if (c.avoir) lignes.push(base(-1, c.avoir.numero, c.avoir.date));
     else if (c.statut === 'remboursee') lignes.push(base(-1, 'avoir à émettre', c.date));
