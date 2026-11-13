@@ -138,6 +138,7 @@ async function rechargerEtat() {
   if (ENREGISTREMENT.minuterie || ENREGISTREMENT.enCours) return;
   etat = completerEtat(e);
   SERVEUR.slug = e.serveur.slug;
+  SERVEUR.utilisationsCodes = e.serveur.utilisationsCodes || null;
   // Adresse confirmée entre-temps (lien ouvert sur un autre appareil) : le rappel disparaît sans recharger la page.
   if (e.serveur.emailVerifie && SERVEUR.emailVerifie === false) { SERVEUR.emailVerifie = true; document.querySelector('.bandeau-verif-email')?.remove(); }
   SERVEUR.paiement = e.serveur.paiement;

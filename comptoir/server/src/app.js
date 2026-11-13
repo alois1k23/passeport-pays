@@ -399,6 +399,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const dechiffrerSecret2fa = enveloppe => { for (const k of trousseau) { try { return { secret: totp.dechiffrer(k, enveloppe), ancien: !k.equals(cleChiffrement) }; } catch { /* clé suivante */ } } throw new Error('secret de double authentification illisible'); };
   try { db.exec('ALTER TABLE commandes ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
   db.exec('CREATE INDEX IF NOT EXISTS commandes_email_index ON commandes (boutique_id, email_index)');
+  // Utilisations d'un code promo (comptées à chaque commande qui en porte un, dans la transaction) : sans parcourir toute la boutique.
+  // Colonne calculée (virtuelle, rien de stocké en double) : tolère une ligne au JSON abîmé, que l'index n'accepterait pas.
+  if (!db.prepare('PRAGMA table_xinfo(commandes)').all().some(c => c.name === 'code_promo')) db.exec("ALTER TABLE commandes ADD COLUMN code_promo TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(donnees) THEN json_extract(donnees, '$.codePromo') END) VIRTUAL");
+  db.exec('CREATE INDEX IF NOT EXISTS commandes_code_promo ON commandes (boutique_id, code_promo) WHERE code_promo IS NOT NULL');
   // Adresses e-mail enregistrées avant la normalisation Unicode (NFC) : remises sous leur forme unique, pour que connexion
   // et désinscriptions continuent de les trouver (cas rares : adresses avec accents saisies sous forme décomposée).
   for (const [table, cle] of [['marchands', 'id'], ['desinscriptions', 'rowid'], ['invitations', 'id']]) {
@@ -949,6 +953,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         }
         historique(c1, 'Réservations reprises au paiement'); enregistrerCommande(c1);
       }
+      // Paiement arrivé tard (webhook retardé, lien payé après l'abandon) alors que la dernière utilisation du code a été
+      // prise entre-temps : la vente est faite et le client a payé ; le dépassement est signalé au marchand, pas caché.
+      if (c1.codePromo) { const b1 = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id); const refus = limiteCode(row.boutique_id, configVente(b1), c1.codePromo, c1.client.email, c1.id);
+        if (refus) { c1.codeDepasse = true; historique(c1, `Paiement reçu tard : ${refus.message} La remise est accordée quand même (le client a payé).`); enregistrerCommande(c1); } }
       db.prepare("UPDATE paiements SET statut = 'paye', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
       // Les autres liens de paiement encore ouverts pour cette commande ne servent plus.
       db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND id <> ? AND statut = 'cree'").run(p.commande_id, p.id);
@@ -1897,7 +1905,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), utilisationsCodes: Object.fromEntries(Remises.offresDe(config).codes.map(x => [x.code, utilisationsCode(ctx.boutique.id, x.code)])), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
     etatComplet.attentesStock = Object.fromEntries(db.prepare("SELECT produit_id || '|' || variante_id AS k, COUNT(*) AS n FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id").all(ctx.boutique.id).map(x => [x.k, x.n]));   // « clients en attente » par produit et variante
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
     let final = etatComplet;
@@ -3527,8 +3535,8 @@ ${bloc}</main></body></html>`;
     const bv = ((configVente(b).automatisations || {}).bienvenue || {});
     const m = Remises.offresDe(configVente(b)).codes.find(x => x.code === c.code);
     if (m && m.max && utilisationsCode(b.id, c.code) >= m.max) throw erreur(404, `Le code ${c.code} a atteint son nombre d’utilisations.`, 'code_epuise');
-    const conditions = [bv.code && String(bv.code).toUpperCase() === c.code ? 'Valable sur une première commande.' : null, m && m.minimum ? `Dès ${formatMontant(m.minimum, configVente(b))} d’achat.` : null, m && m.unParClient ? 'Une fois par client.' : null].filter(Boolean);
-    return { code: c.code, remise: c.remise, ...(m && m.minimum ? { minimum: m.minimum } : {}), ...(conditions.length ? { condition: conditions.join(' ') } : {}) };
+    const conditions = [bv.code && String(bv.code).toUpperCase() === c.code ? { type: 'premiere', texte: 'Valable sur une première commande.' } : null, m && m.minimum ? { type: 'minimum', texte: `Dès ${formatMontant(m.minimum, configVente(b))} d’achat.` } : null, m && m.unParClient ? { type: 'client', texte: 'Une fois par adresse e-mail.' } : null].filter(Boolean);
+    return { code: c.code, remise: c.remise, ...(m && m.minimum ? { minimum: m.minimum } : {}), ...(conditions.length ? { conditions, condition: conditions.map(x => x.texte).join(' ') } : {}) };
   });
   /* Mes commandes : les liens de suivi des commandes de cette adresse (12 derniers mois) envoyés à cette adresse seule.
      Réponse identique que l'adresse soit connue ou non : le formulaire ne révèle pas qui est client. */
@@ -3660,7 +3668,7 @@ ${bloc}</main></body></html>`;
      possible : lien ouvert depuis moins de 35 minutes, facture QR). Une commande annulée ou dont le client a quitté le
      paiement rend son utilisation. Avec index : celles de ce client seulement. */
   function utilisationsCode(bid, code, { index = null, saufId = '' } = {}) {
-    return db.prepare(`SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND id <> ? AND json_extract(donnees, '$.codePromo') = ? ${index ? 'AND email_index = ?' : ''}
+    return db.prepare(`SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND id <> ? AND code_promo = ? ${index ? 'AND email_index = ?' : ''}
       AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?))`)
       .get(bid, saufId, code, ...(index ? [index] : []), Date.now() - 35 * 60000).n;
   }

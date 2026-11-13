@@ -119,7 +119,8 @@
     const saisi = String(code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     const valable = saisi ? codesValables(config, maintenant).find(c => c.code === saisi) : null;
     // Code avec un montant minimum : pas appliqué en dessous (le panier dit combien il manque).
-    const sousMinimum = !!(valable && valable.minimum && sousTotal < valable.minimum);
+    const baseMinimum = arrondi(lignes.reduce((a, l) => a + (l.prixOffre || l.prix) * l.qte, 0));   // lignes d'offre à leur prix d'offre
+    const sousMinimum = !!(valable && valable.minimum && baseMinimum < valable.minimum);
     const trouve = sousMinimum ? null : valable;
     let taux = 0, motif = null;
     if (palier) { taux = palier.remise; motif = { type: 'palier', libelle: `${palier.remise} % dès ${palier.qte} articles` }; }

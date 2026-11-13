@@ -28,7 +28,8 @@ test('codes promo : minimum, utilisations maximales, une fois par client', async
     // Montant minimum : 40 < 50 refusé avec le montant ; 80 accepté. La saisie du code annonce ses conditions.
     assert.equal((await commander('a@exemple.ch', 'ETE', 1)).j.code, 'code_minimum');
     const info = (await appel('POST', `/api/public/${slug}/code`, { code: 'ete' })).j;
-    assert.equal(info.minimum, 50); assert.match(info.condition, /Dès .*50.*Une fois par client/);
+    assert.equal(info.minimum, 50); assert.deepEqual(info.conditions.map(x => x.type), ['minimum', 'client']);
+    assert.match(info.conditions[0].texte, /^Dès CHF 50\.00 d’achat\.$/);
     const a1 = await commander('a@exemple.ch', 'ETE'); assert.equal(a1.s, 201, JSON.stringify(a1.j)); await payer(a1);
     // Une fois par client : même adresse refusée, autre adresse acceptée.
     assert.equal((await commander('A@Exemple.ch', 'ETE')).j.code, 'code_deja_utilise');
@@ -47,9 +48,29 @@ test('codes promo : minimum, utilisations maximales, une fois par client', async
     const [x, y] = await Promise.all([commander('x@exemple.ch', 'UNIQUE'), commander('y@exemple.ch', 'UNIQUE')]);
     assert.deepEqual([x.s, y.s].sort(), [201, 400]);
     assert.equal([x, y].find(r => r.s === 400).j.code, 'code_epuise');
+    // Paiement arrivé tard : X avait pris la dernière utilisation de UNIQUE ; son lien a plus de 35 minutes et Z prend
+    // l'utilisation libérée ; le paiement de X arrive ensuite : la vente est faite, le dépassement est signalé.
+    const gagnant = [x, y].find(r => r.s === 201);
+    db.prepare("UPDATE paiements SET cree_le = cree_le - 40 * 60000 WHERE commande_id = ?").run(gagnant.j.commandeId);
+    const z = await commander('z@exemple.ch', 'UNIQUE'); assert.equal(z.s, 201, JSON.stringify(z.j));
+    await payer(gagnant);
+    const tard = (await appel('GET', '/api/admin/etat', null, cookie)).j.commandes.find(c => c.id === gagnant.j.commandeId);
+    assert.equal(tard.statut, 'payee'); assert.equal(tard.codeDepasse, true);
+    assert.ok(tard.historique.some(h => /Paiement reçu tard/.test(h.texte)));
+    // Le marchand voit le nombre d'utilisations calculé par le serveur.
+    assert.equal((await appel('GET', '/api/admin/etat', null, cookie)).j.serveur.utilisationsCodes.UNIQUE, 2);
     // Le code utilisé est noté sur la commande (statistiques du marchand).
     const cmds = (await appel('GET', '/api/admin/etat', null, cookie)).j.commandes;
     assert.equal(cmds.filter(c => c.codePromo === 'ETE').length, 3);
-    assert.equal(cmds.filter(c => c.codePromo === 'UNIQUE').length, 1);
+    assert.equal(cmds.filter(c => c.codePromo === 'UNIQUE').length, 2);
   } finally { s.close(); }
+});
+
+test('montant minimum comparé au panier avec les prix d’offre', () => {
+  const R = require('../../js/remises.js');
+  const cfg = { offres: { paliersActifs: false, codes: [{ code: 'MIN', remise: 10, minimum: 50 }] } };
+  // 40 + article offert à 15 au lieu de 30 : 55 au prix affiché, 55 > 50 : le code s'applique.
+  assert.equal(R.appliquer([{ produitId: 'a', prix: 40, qte: 1 }, { produitId: 'b', prix: 30, prixOffre: 15, qte: 1 }], cfg, 'MIN').codeMinimum, null);
+  // 30 + offre à 15 (au lieu de 30) : 45 < 50 : pas appliqué, même si le prix plein ferait 60.
+  assert.equal(R.appliquer([{ produitId: 'a', prix: 30, qte: 1 }, { produitId: 'b', prix: 30, prixOffre: 15, qte: 1 }], cfg, 'MIN').codeMinimum, 50);
 });

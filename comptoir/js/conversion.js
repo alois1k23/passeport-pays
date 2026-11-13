@@ -119,7 +119,9 @@ function blocAvis() {
    (commandes payées, ou en attente de paiement). */
 function limitesCode(c, manuels) {
   const m = c.source === 'Code manuel' ? manuels.find(x => x.code === c.code) : null;
-  const servi = (etat.commandes || []).filter(x => x.codePromo === c.code && x.statut !== 'annulee').length;
+  // Compté par le serveur (commandes payées, ou en attente avec un paiement encore possible) ; démo : commandes chargées.
+  const parServeur = typeof SERVEUR !== 'undefined' && SERVEUR.utilisationsCodes;
+  const servi = parServeur ? (SERVEUR.utilisationsCodes[c.code] || 0) : (etat.commandes || []).filter(x => x.codePromo === c.code && !['annulee', 'attente'].includes(x.statut)).length;
   const parts = [m && m.minimum ? `dès ${euros(m.minimum)}` : null, m && m.max ? `${servi} / ${m.max} utilisation${m.max > 1 ? 's' : ''}` : servi ? `utilisé ${servi} fois` : null, m && m.unParClient ? 'une fois par client' : null].filter(Boolean);
   return parts.length ? ` · ${esc(parts.join(' · '))}` : '';
 }

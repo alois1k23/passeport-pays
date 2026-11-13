@@ -254,7 +254,8 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code ? vue.code.code : undefined, carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code, demande: vue.fid.demande } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
+        carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code, demande: vue.fid.demande } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     // Code de fidélité expiré ou déjà utilisé : retour à la demande d'un nouveau code (sinon le client resterait bloqué).
@@ -493,7 +494,8 @@ async function appliquerCode(code) {
     if (!rep.ok) throw new Error(json.erreur);
     vue.code = json;
     const calc = calculPanier();
-    vue.codeMessage = calc.codeMinimum ? `Code ${json.code} : −${json.remise} % dès ${euros(calc.codeMinimum)} d’achat.${json.condition ? ' ' + json.condition.replace(/Dès [^.]*\. ?/, '') : ''}` : calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.${json.condition ? ' ' + json.condition : ''}` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
+    const autres = (json.conditions || []).filter(x => x.type !== 'minimum').map(x => x.texte).join(' ');
+    vue.codeMessage = calc.codeMinimum ? `Code ${json.code} : −${json.remise} % dès ${euros(calc.codeMinimum)} d’achat.${autres ? ' ' + autres : ''}` : calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.${json.condition ? ' ' + json.condition : ''}` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
   } catch (e) { vue.code = null; vue.codeMessage = e.message || 'Code non reconnu.'; }
   rendre();
 }

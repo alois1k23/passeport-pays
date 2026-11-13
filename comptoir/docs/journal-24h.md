@@ -970,3 +970,29 @@ Un relecteur indépendant a attaqué la boutique publique et le paiement : prix,
 - les codes promo n'ont pas encore de limite d'usage par code ou par client.
 
 200 tests sur 200. Vérificateur complet : 6 étapes sur 7, puis la simulation de 60 jours relancée seule après le correctif du plancher : 0 anomalie sur plus de 7 000 commandes.
+
+### Cycle 54 (09 h 05) : codes promo avec limites (chantier 47)
+
+- **Nouvelles règles pour un code manuel**, toutes facultatives et contrôlées par le serveur :
+  - un montant minimum du panier, compté avec les prix d'offre ;
+  - un nombre maximum d'utilisations ;
+  - « une fois par adresse e-mail ».
+- **Ce qui compte comme une utilisation** : une commande payée, une facture QR en attente, ou une commande en attente dont le lien de paiement a moins de 35 minutes. Une commande abandonnée ou annulée rend son utilisation.
+- **Points de contrôle** :
+  - dans la transaction qui crée la commande : deux clients simultanés ne prennent pas la même dernière utilisation (testé) ;
+  - à la reprise d'un vieux lien de paiement ;
+  - à la saisie du code, qui annonce ses conditions.
+- **Espace marchand** : champs dans le formulaire des codes, et nombre d'utilisations calculé par le serveur. Vérifié dans Chromium, sur bureau et sur mobile ; la mise en page mobile a été corrigée (champs superposés).
+- **Boutique** : sous le minimum, le panier dit combien il faut atteindre, et la commande reste possible sans le code.
+- **Relecture indépendante**, constats corrigés :
+  - **Paiement arrivé tard** (webhook retardé, lien payé après un abandon) alors que la dernière utilisation a été prise entre-temps : la limite pouvait être dépassée d'une utilisation, sans que personne le sache. Le client a payé, donc la vente est faite, mais le dépassement est maintenant signalé dans la commande (testé). Ce qui est garanti : deux commandes simultanées ne prennent pas la même dernière utilisation. Un paiement très tardif reste un cas signalé, pas bloqué.
+  - Message de la boutique illisible en CHF : un texte était découpé au point décimal. Le serveur envoie maintenant les conditions en liste.
+  - Commande impossible tant qu'un code restait sous son minimum : le code n'est plus envoyé dans ce cas.
+  - Minimum calculé avec le prix plein des articles en offre.
+  - Comptage des utilisations sur toute la boutique, sous le verrou d'écriture : 130 ms à 200 000 commandes. Il passe maintenant par une colonne calculée indexée (le plan de requête utilise l'index) ; une ligne au JSON abîmé ne bloque rien.
+  - Compteur de l'espace marchand différent de celui du serveur : il vient maintenant du serveur.
+- **Limites connues** :
+  - « une fois par client » se juge par adresse e-mail (lou+1@… et lou@… sont deux adresses) ;
+  - une commande remboursée compte encore comme une utilisation ;
+  - recréer un code du même nom reprend ses utilisations passées.
+- 202 tests sur 202 ; parcours de bout en bout : 57 contrôles, 0 anomalie.
