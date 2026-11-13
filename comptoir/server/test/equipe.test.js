@@ -16,6 +16,11 @@ test('équipe de bout en bout', async () => {
     const p = client();
     const ins = await p('POST', '/api/auth/inscription', { email: 'patronne@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Équipe', pays: 'ch', secteur: 'maison', sections: [] }, entreprise: { raison: 'E', adresse: 'Rue 1, 1003 Lausanne' } }, produits: [{ nom: 'Vase', prix: 40, stock: 9, type: 'stock' }] });
     const { url } = (await p('POST', '/api/abonnement/commencer', { formule: 'croissance' })).j; await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
+    // Adresse pas encore confirmée : pas d'invitation (personne n'écrit à des tiers au nom d'une adresse non prouvée).
+    const nonVerifie = await p('POST', '/api/admin/equipe/inviter', { email: 'leo@exemple.ch', role: 'commandes' });
+    assert.equal(nonVerifie.s, 403); assert.equal(nonVerifie.j.code, 'email_non_verifie');
+    const lien = db.prepare("SELECT corps FROM emails WHERE destinataire = 'patronne@exemple.ch' AND sujet LIKE 'Confirmez%'").get().corps.match(/verifier-email=([\w-]+)/)[1];
+    assert.equal((await p('POST', '/api/auth/verifier-email', { jeton: lien })).s, 200);
     assert.equal((await p('POST', '/api/admin/equipe/inviter', { email: 'patronne@exemple.ch', role: 'commandes' })).s, 409, 'adresse déjà utilisée');
     assert.equal((await p('POST', '/api/admin/equipe/inviter', { email: 'leo@exemple.ch', role: 'commandes' })).s, 201);
     assert.equal((await p('POST', '/api/admin/equipe/inviter', { email: 'mia@exemple.ch', role: 'complet' })).s, 201);
@@ -26,7 +31,7 @@ test('équipe de bout en bout', async () => {
     assert.equal((await leo('POST', '/api/auth/invitation', { jeton: jl, motDePasse: 'un autre mot de passe solide' })).s, 201);
     assert.equal((await client()('POST', '/api/auth/invitation', { jeton: jl, motDePasse: 'un autre mot de passe solide' })).s, 404, 'invitation à usage unique');
     const sess = (await leo('GET', '/api/session')).j;
-    assert.equal(sess.role, 'commandes'); assert.equal(sess.slug, ins.j.slug); assert.equal(sess.abonnement.actif, true, 'abonnement du propriétaire');
+    assert.equal(sess.role, 'commandes'); assert.equal(sess.slug, ins.j.slug); assert.equal(sess.emailVerifie, true, 'le lien d’invitation prouve l’adresse'); assert.equal(sess.abonnement.actif, true, 'abonnement du propriétaire');
     assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'patronne@exemple.ch' AND sujet LIKE '%a rejoint votre équipe'").get());
     // Une commande payée
     const pub = (await p('GET', `/api/public/${ins.j.slug}`)).j;

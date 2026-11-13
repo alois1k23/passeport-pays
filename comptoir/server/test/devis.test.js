@@ -41,6 +41,9 @@ async function monter() {
   const api = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie(); if (sc.length) cookie = sc.map(x => x.split(';')[0]).join('; '); let json = null; try { json = await r.json(); } catch { /* vide */ } return { statut: r.status, json }; };
   const formulaire = (chemin, champs) => fetch(base + chemin, { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(champs).toString() });
   assert.equal((await api('POST', '/api/auth/inscription', { email: 'dv@exemple.fr', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Atelier', pays: 'fr', secteur: 'maison', sections: [] }, entreprise: { raison: 'Atelier SAS', adresse: '5 rue Neuve, 69001 Lyon', regime: 'normal', iban: 'FR7630006000011234567890189' } }, produits: [{ nom: 'Vase', prix: 60, stock: 100, type: 'stock' }] })).statut, 201);
+  // Adresse confirmée par le lien reçu (envoyer un devis l'exige).
+  const lienVerif = db.prepare("SELECT corps FROM emails WHERE destinataire = 'dv@exemple.fr' AND sujet LIKE 'Confirmez%'").get().corps.match(/verifier-email=([\w-]+)/)[1];
+  assert.equal((await api('POST', '/api/auth/verifier-email', { jeton: lienVerif })).statut, 200);
   const etat = (await api('GET', '/api/admin/etat')).json;
   return { db, s, base, api, formulaire, emails, produit: etat.produits[0].id };
 }

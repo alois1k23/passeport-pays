@@ -988,13 +988,60 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   };
 
   /* ---------- Comptes ---------- */
+  /* Vérification de l'adresse e-mail : un lien envoyé à l'inscription prouve que le marchand reçoit bien ses e-mails
+     (réinitialisation, alertes de sécurité, commandes). Sans elle, quelqu'un pourrait ouvrir un compte au nom d'une
+     adresse qui n'est pas la sienne et s'en servir pour écrire à des tiers. Les comptes antérieurs à cette règle
+     (valeur 0) sont considérés comme vérifiés ; une réinitialisation de mot de passe ou une invitation acceptée prouve
+     aussi l'adresse. L'exigent : inviter l'équipe, envoyer un devis (à une adresse saisie par le marchand) et activer
+     les versements. Les autres e-mails partent vers des clients qui ont commandé ou se sont inscrits eux-mêmes. */
+  // Ajout de la colonne et reprise des comptes existants d'un seul tenant : un arrêt entre les deux ne laisse pas tous
+  // les comptes existants « non vérifiés » (la colonne serait là, la reprise jamais refaite).
+  if (!db.prepare('PRAGMA table_info(marchands)').all().some(c => c.name === 'email_verifie_le')) transaction(db, () => {
+    db.exec('ALTER TABLE marchands ADD COLUMN email_verifie_le INTEGER');
+    db.exec('UPDATE marchands SET email_verifie_le = 0');
+  });
+  db.exec('CREATE TABLE IF NOT EXISTS verifications_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, email TEXT NOT NULL, expire_le INTEGER NOT NULL)');
+  const emailVerifie = mid => { const r = db.prepare('SELECT email_verifie_le FROM marchands WHERE id = ?').get(mid); return !!r && r.email_verifie_le !== null; };
+  const marquerEmailVerifie = mid => {
+    db.prepare('UPDATE marchands SET email_verifie_le = ? WHERE id = ? AND email_verifie_le IS NULL').run(Date.now(), mid);
+    db.prepare('DELETE FROM verifications_email WHERE marchand_id = ?').run(mid);
+  };
+  const envoyerVerificationEmail = (mid, email) => {
+    const jeton = crypto.randomBytes(32).toString('base64url');
+    db.prepare('DELETE FROM verifications_email WHERE marchand_id = ?').run(mid);   // un seul lien valable à la fois
+    db.prepare('INSERT INTO verifications_email (jeton_hash, marchand_id, email, expire_le) VALUES (?, ?, ?, ?)').run(auth.sha256(jeton), mid, email, Date.now() + 7 * 86400000);
+    envoyerEmail(null, email, 'Confirmez votre adresse e-mail Comptoir', `Bonjour,\n\nPour confirmer que cette adresse est bien la vôtre, ouvrez ce lien (valable 7 jours) :\n${urlPublique}/app?verifier-email=${jeton}\n\nTant qu’elle n’est pas confirmée, vous pouvez préparer votre boutique, mais pas inviter d’équipe ni activer les versements.\n\nSi vous n’avez pas créé de compte Comptoir, ignorez cet e-mail : sans confirmation, l’adresse ne sert à rien.\n\nL’équipe Comptoir`);
+  };
+  const exigerEmailVerifie = (ctx, quoi) => { if (!emailVerifie(ctx.marchand.id)) throw erreur(403, `Confirmez d’abord votre adresse e-mail (lien reçu à l’inscription) pour ${quoi}.`, 'email_non_verifie'); };
+  // Lien du message : utilisable sans session (ouvert sur le téléphone, par exemple). Le lien prouve l'adresse à laquelle il a été envoyé.
+  r.post('/api/auth/verifier-email', ctx => {
+    // Compteur à part (pas celui des connexions : un réseau partagé ne perd pas ses essais de connexion).
+    auth.limiter('verif-lien:' + reseauIp(ctx.ip), 30 * facteurLimites, 15 * 60000, 'Trop d’essais : réessayez dans quelques minutes.');
+    // Lien retiré en le lisant : deux requêtes simultanées avec le même lien n'aboutissent pas toutes les deux.
+    const v = transaction(db, () => {
+      const l = db.prepare('DELETE FROM verifications_email WHERE jeton_hash = ? RETURNING *').get(auth.sha256(String(ctx.corps.jeton || '')));
+      const m = l && db.prepare('SELECT email FROM marchands WHERE id = ?').get(l.marchand_id);
+      if (!l || !m || l.expire_le < Date.now() || l.email.toLowerCase() !== m.email.toLowerCase()) return null;
+      marquerEmailVerifie(l.marchand_id);
+      return l;
+    });
+    if (!v) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Demandez-en un nouveau depuis votre espace.', 'lien_expire');
+    noterActivite(v.marchand_id, 'email-verifie', v.email, ctx);
+    return { ok: true, email: v.email };
+  });
+  r.post('/api/admin/compte/verifier-email/renvoyer', exigerCompte, ctx => {
+    if (emailVerifie(ctx.marchand.id)) return { ok: true, deja: true };
+    auth.limiter('verif-email:' + ctx.marchand.id, 3 * facteurLimites, 3600000, 'Un lien vient déjà d’être envoyé. Vérifiez votre boîte de réception (et les indésirables), ou réessayez dans une heure.');
+    envoyerVerificationEmail(ctx.marchand.id, ctx.marchand.email);
+    return { ok: true };
+  });
   r.get('/api/session', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     renouvelerCookie(ctx, m);
     const acces = m && accesDe(m.id), b = acces && acces.boutique;
     const df = m && deuxFacteursDe(m.id);
     const protege = !!m && (!!(df && df.actif) || cleSeule(m.id));   // une clé d'accès seule (sans « exiger ») laisse la connexion par mot de passe ouverte
-    return { connecte: !!m, email: m ? m.email : null, slug: b ? b.slug : null, role: acces ? acces.role : null, compteProtege: protege, recuperationEnAttente: m ? recuperationEnAttente(m.id) : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
+    return { connecte: !!m, email: m ? m.email : null, emailVerifie: m ? emailVerifie(m.id) : null, slug: b ? b.slug : null, role: acces ? acces.role : null, compteProtege: protege, recuperationEnAttente: m ? recuperationEnAttente(m.id) : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
   });
   r.post('/api/auth/inscription', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
@@ -1023,6 +1070,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       for (const src of fournisseurs.CATALOGUE_DEMO.filter(x => sources.includes(x.id))) importerProduit(boutiqueId, src, 'demo');
     });
     ouvrirSession(ctx, { id: marchandId, email });
+    envoyerVerificationEmail(marchandId, email);
     return { statut: 201, corps: { ok: true, slug } };
   });
   r.post('/api/auth/connexion', async ctx => {
@@ -1136,6 +1184,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, ligne.marchand_id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
       oublierAppareils(ligne.marchand_id);
+      marquerEmailVerifie(ligne.marchand_id);   // le lien reçu prouve l'adresse ; un compte ouvert par un tiers avec elle lui est repris
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(ligne.marchand_id);
       // Compte peut-être compromis : une clé d'accès ajoutée par un tiers ne doit pas survivre à la réinitialisation.
       db.prepare('DELETE FROM cles_acces WHERE marchand_id = ?').run(ligne.marchand_id);
@@ -1238,6 +1287,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const activationsEnCours = new Set();
   r.post('/api/admin/paiements/activer', exigerMarchand, async ctx => {
     if (paiement.nom !== 'stripe') return { pret: true, simulation: true };
+    exigerEmailVerifie(ctx, 'activer les versements');
     const bid = ctx.boutique.id;
     if (activationsEnCours.has(bid)) throw erreur(409, 'Activation déjà en cours : patientez quelques secondes.', 'activation_en_cours');
     activationsEnCours.add(bid);
@@ -1335,6 +1385,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/equipe/inviter', exigerProprietaire, ctx => {
     const email = valider.email(ctx.corps.email).toLowerCase(), role = String(ctx.corps.role || '');
     if (!ROLES[role]) throw erreur(400, 'Rôle inconnu.', 'role');
+    exigerEmailVerifie(ctx, 'inviter votre équipe');
     { const e = abo.etat(ctx.marchand.id); if (e.obligatoire && !e.actif) throw erreur(402, 'Inviter une équipe demande un abonnement actif.', 'abonnement_requis'); }
     auth.limiter('invitation-ip:' + ctx.ip, 30 * facteurLimites, 86400000, 'Trop d’invitations aujourd’hui.');
     auth.limiter('invitation:' + ctx.boutique.id, 20, 86400000, 'Trop d’invitations aujourd’hui.');
@@ -1377,7 +1428,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     transaction(db, () => {
       if (!db.prepare('DELETE FROM invitations WHERE id = ? RETURNING id').get(i.id)) throw erreur(404, 'Invitation déjà utilisée.', 'invitation');   // usage unique
       if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(i.email)) throw erreur(409, 'Cette adresse a déjà un compte Comptoir.', 'email_pris');
-      db.prepare('INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES (?, ?, ?, ?)').run(id, i.email, hash, Date.now());
+      db.prepare('INSERT INTO marchands (id, email, mot_de_passe, cree_le, email_verifie_le) VALUES (?, ?, ?, ?, ?)').run(id, i.email, hash, Date.now(), Date.now());   // le lien d'invitation prouve l'adresse
       db.prepare('INSERT INTO equipe (marchand_id, boutique_id, role, cree_le) VALUES (?, ?, ?, ?)').run(id, i.boutique_id, i.role, Date.now());
     });
     const proprio = db.prepare('SELECT m.id, m.email FROM boutiques b JOIN marchands m ON m.id = b.marchand_id WHERE b.id = ?').get(i.boutique_id);
@@ -1804,7 +1855,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
     etatComplet.attentesStock = Object.fromEntries(db.prepare("SELECT produit_id || '|' || variante_id AS k, COUNT(*) AS n FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id").all(ctx.boutique.id).map(x => [x.k, x.n]));   // « clients en attente » par produit et variante
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
     let final = etatComplet;
@@ -2812,6 +2863,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #1F5F8B;outline-offse
     return { devis: resumeDevis(d) };
   });
   r.post('/api/admin/devis/:id/envoyer', exigerMarchand, ctx => {
+    exigerEmailVerifie(ctx, 'envoyer un devis');
     const d = DV.deBoutique(ctx.boutique.id, ctx.params.id);
     if (!['brouillon', 'envoye'].includes(d.statut)) throw erreur(409, 'Ce devis n’est plus modifiable ni envoyable.', 'fige');
     const config = lireConfig(ctx.boutique), maintenant = Date.now();

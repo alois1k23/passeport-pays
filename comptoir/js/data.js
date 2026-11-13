@@ -368,6 +368,8 @@ function completerEtat(e) {
   if (typeof Remises !== 'undefined' && Remises.migrerBannieres && e.boutique) Remises.migrerBannieres(e);   // anciennes bannières rattachées à leur campagne
   e.version = 2;
   e.boutique.devise = e.boutique.devise || (e.boutique.pays === 'ch' ? 'CHF' : 'EUR');
+  // Secteur absent ou inconnu (boutique créée par l'API, ancien secteur retiré) : celui par défaut, sinon le tableau de bord ne s'affiche pas.
+  if (!SECTEURS[e.boutique.secteur]) e.boutique.secteur = 'maison';
   e.boutique.modele = e.boutique.modele || 'stock';
   e.boutique.langues = e.boutique.langues || ['fr'];
   e.reglages = e.reglages || { autoTransmission: true, cpa: 8 };

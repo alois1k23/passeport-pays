@@ -853,3 +853,35 @@ Un relecteur indépendant a audité la connexion des marchands : mot de passe, d
   - seule la dernière session d'un appareil lui est liée : révoquer une session plus ancienne du même appareil le laisse connu (« déconnecter les autres appareils » couvre ce cas) ;
   - un ancien cookie d'appareil (chemin `/api/auth`) reste dans le navigateur jusqu'à son expiration, sans effet.
 - **Point ouvert** : l'inscription ne vérifie pas encore l'adresse e-mail avant d'ouvrir l'espace. Le paiement de l'abonnement fait office de filtre en production, mais une vérification par lien reste à ajouter.
+
+### Cycle 50 (07 h 10) : adresse e-mail confirmée à l'inscription (chantier 43)
+
+Le point ouvert du cycle 49 est fermé. Jusqu'ici, n'importe qui pouvait ouvrir un compte avec l'adresse d'autrui. La titulaire ne pouvait plus s'inscrire, et le compte servait à écrire à des tiers sous son nom.
+
+- **Lien de confirmation** envoyé à l'inscription :
+  - valable 7 jours, à usage unique ; seule son empreinte est en base ;
+  - ouvert sans session (sur le téléphone, par exemple) ;
+  - un renvoi remplace l'ancien lien (3 renvois par heure).
+  Le lien est retiré au moment même où il est lu, si bien que deux requêtes simultanées n'aboutissent pas toutes les deux (testé).
+- **Ce que la confirmation débloque** : inviter l'équipe, envoyer un devis (à une adresse saisie par le marchand) et activer les versements Stripe. Le reste de l'espace marche sans elle. Les autres e-mails partent vers des clients qui ont commandé, ou qui se sont inscrits eux-mêmes avec double confirmation.
+- **Adresse prouvée autrement** :
+  - une réinitialisation de mot de passe prouve l'adresse. Un compte ouvert par un tiers avec l'adresse d'autrui revient donc à sa titulaire par « mot de passe oublié », et le tiers est déconnecté (testé) ;
+  - un membre qui accepte son invitation est confirmé par le lien d'invitation.
+- **Comptes existants** : ils sont considérés comme confirmés. La colonne et cette reprise sont ajoutées d'un seul tenant, et un redémarrage ne confirme jamais un compte récent (testé).
+- **Espace marchand** :
+  - un rappel sous la barre du haut, avec « Renvoyer le lien » ;
+  - il disparaît dès que l'état est relu, même si le lien a été ouvert sur un autre appareil ;
+  - un lien déjà consommé par l'antivirus de la messagerie s'affiche comme une réussite si l'adresse est confirmée.
+  Vérifié dans Chromium, sur bureau et sur mobile. La section Paiements indique aussi la marche à suivre avant le bouton d'activation.
+- **Parcours de bout en bout** : il activait les versements sans confirmer l'adresse, et il a échoué dès la règle en place. Il suit maintenant le vrai parcours : refus avec la marche à suivre, e-mail reçu, lien ouvert, puis activation chez Stripe. 57 contrôles, 0 anomalie. Le vérificateur complet est vert pour le reste (simulation de 60 jours, fuzzing, charge, audits au clavier).
+- **Défaut trouvé au passage** : une boutique créée par l'API sans secteur, ou avec un secteur inconnu, empêchait l'affichage du tableau de bord (erreur JavaScript). Elle prend désormais le secteur par défaut.
+- **Relecture indépendante** : aucun défaut bloquant ; sept points corrigés :
+  - l'envoi de devis n'était pas soumis à la règle ;
+  - le rappel restait affiché jusqu'au rechargement de la page ;
+  - le lien d'un autre compte, ouvert dans ce navigateur, marquait à tort le compte ouvert comme confirmé ;
+  - un lien consommé par un antivirus donnait un message d'erreur ;
+  - la reprise des comptes existants ne se faisait pas d'un seul tenant ;
+  - deux requêtes simultanées avec le même lien aboutissaient toutes les deux ;
+  - le lien consommait les essais de connexion du réseau.
+- 4 tests de plus, et les tests de l'équipe, des devis et de Stripe Connect confirment l'adresse par le vrai lien : 189 tests sur 189.
+- **Limite connue** : quand la titulaire reprend un compte ouvert par un tiers, elle reprend aussi la boutique qu'il y avait préparée. Rien n'a pu être envoyé en son nom, mais elle doit la vider ou supprimer le compte.

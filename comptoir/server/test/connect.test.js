@@ -41,6 +41,9 @@ test('Stripe Connect : commandes fermées avant activation, vente et rembourseme
     assert.equal(db.prepare('SELECT COUNT(*) n FROM commandes').get().n, 0);
     assert.equal((await c('GET', '/api/admin/etat')).json.serveur.paiementsBoutique.pret, false);
     // Activation : compte créé, lien vers Stripe ; une seconde demande réutilise le même compte
+    assert.equal((await c('POST', '/api/admin/paiements/activer')).json.code, 'email_non_verifie', 'versements : adresse confirmée exigée');
+    const lien = db.prepare("SELECT corps FROM emails WHERE destinataire = 'connect@exemple.ch' AND sujet LIKE 'Confirmez%'").get().corps.match(/verifier-email=([\w-]+)/)[1];
+    assert.equal((await c('POST', '/api/auth/verifier-email', { jeton: lien })).statut, 200);
     const [act, act2] = await Promise.all([c('POST', '/api/admin/paiements/activer'), c('POST', '/api/admin/paiements/activer')]);   // deux onglets
     assert.equal(act.json.url, 'https://connect.stripe.com/setup/e/xyz');
     assert.equal(act2.statut, 409);

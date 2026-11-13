@@ -48,6 +48,8 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 ### Comptes
 
 - **Clés d'accès** (Face ID, Touch ID, Windows Hello) et **double authentification**, avec codes de secours. Option **« Exiger la clé d'accès »** : le mot de passe seul ne suffit plus, et une tentative avec le bon mot de passe est signalée.
+- **Adresse e-mail confirmée** : un lien (valable 7 jours, à usage unique) est envoyé à l'inscription. Sans confirmation, le marchand prépare sa boutique mais ne peut ni inviter son équipe, ni envoyer de devis, ni activer les versements. Quelqu'un qui ouvre un compte avec l'adresse d'autrui ne peut donc écrire à personne en son nom, et la vraie titulaire reprend le compte par « mot de passe oublié ».
+- **Appareils reconnus révocables** et **requêtes d'autres sites refusées** : chaque appareil a son propre jeton, révoqué avec sa session, à l'activation de la double authentification ou au changement de mot de passe. Toute action venue d'un autre site est refusée, même sans corps de requête.
 - Alerte à chaque nouvel appareil, déconnexion à distance, journal d'activité.
 - **Bilan de sécurité** : ce qui protège le compte et ce qui reste à faire (tentatives suspectes, appareils oubliés, équipe sans protection, clés d'API dormantes).
 - Mots de passe courants ou parus dans des fuites de données refusés (anonymat k).

@@ -43,6 +43,7 @@ function vueParametres() {
         return pb.pret
           ? '<p class="sous">Votre compte Stripe est actif : chaque vente est versée directement sur votre compte (Comptoir ne prend aucune commission ; seuls les frais de Stripe s’appliquent). Les remboursements partent depuis la fiche commande.</p>'
           : `<div class="alerte"><strong>Activez vos paiements pour ouvrir les commandes.</strong> Les ventes sont versées sur votre propre compte Stripe : Stripe vérifie votre identité et l’IBAN de votre entreprise (quelques minutes). Tant que ce n’est pas fait, la boutique est visible mais n’accepte pas de commande.</div>
+             ${SERVEUR.emailVerifie === false ? '<p class="sous">Confirmez d’abord votre adresse e-mail avec le lien reçu à l’inscription (bouton « Renvoyer le lien » en haut de page) : les versements l’exigent.</p>' : ''}
              <div class="rangee"><button class="btn" data-action="activer-paiements">${pb.compte ? 'Terminer l’activation chez Stripe' : 'Activer les paiements avec Stripe'}</button></div>`;
       })() : ''}
       <p class="sous">${stripe ? '' : 'Le paiement en ligne n’est pas encore branché sur cette installation : il est simulé et aucun montant n’est débité. Il s’active quand l’exploitant de la plateforme relie Stripe (cartes, TWINT en Suisse, Bancontact en Belgique).'}</p></section>`;
@@ -251,7 +252,7 @@ document.addEventListener('submit', async e => {
 
 /* ---------- Sécurité du compte (mode connecté) ---------- */
 const SECURITE = { donnees: null, chargement: false, mise: null, codes: null, erreur: '' };
-const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-acces': 'Connexion par clé d’accès', 'cle-acces-ajoutee': 'Clé d’accès ajoutée', 'cle-acces-supprimee': 'Clé d’accès supprimée', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé', 'membre-invite': 'Membre invité', 'membre-arrive': 'Membre arrivé dans l’équipe', 'membre-retire': 'Membre retiré', 'carte-cadeau': 'Carte cadeau émise' };
+const LIBELLES_ACTIVITE = { connexion: 'Connexion', 'echec-2fa': 'Code de vérification refusé', 'code-secours': 'Code de secours utilisé', '2fa-activee': 'Double authentification activée', '2fa-desactivee': 'Double authentification désactivée', 'session-revoquee': 'Appareil déconnecté', 'autres-deconnectes': 'Autres appareils déconnectés', 'mot-de-passe': 'Mot de passe modifié', 'cle-acces': 'Connexion par clé d’accès', 'cle-acces-ajoutee': 'Clé d’accès ajoutée', 'cle-acces-supprimee': 'Clé d’accès supprimée', 'cle-api': 'Clé d’API créée', 'cle-api-revoquee': 'Clé d’API révoquée', 'import-camt': 'Relevé bancaire importé', 'membre-invite': 'Membre invité', 'membre-arrive': 'Membre arrivé dans l’équipe', 'membre-retire': 'Membre retiré', 'carte-cadeau': 'Carte cadeau émise', 'email-verifie': 'Adresse e-mail confirmée' };
 function chargerSecurite() {
   if (SECURITE.chargement) return;
   SECURITE.chargement = true;

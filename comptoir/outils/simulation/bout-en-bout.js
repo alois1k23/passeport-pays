@@ -68,7 +68,17 @@ async function jusqua(f, ms = 8000) { const fin = Date.now() + ms; while (Date.n
     verifier(await bouton.isVisible(), `bouton « Activer les paiements » proposé (${nom})`);
     const pub0 = await api('GET', `/api/public/${ins.j.slug}`);
     verifier(pub0.j && pub0.j.paiementsActifs === false, `boutique annoncée « paiements bientôt » avant activation (${nom})`);
-    await bouton.click();
+    // Adresse pas encore confirmée : les versements sont refusés, avec la marche à suivre ; puis le marchand ouvre le lien reçu.
+    await bouton.click(); await p.waitForTimeout(500);
+    verifier(/Confirmez d’abord votre adresse/.test(await p.textContent('#toast')), `versements refusés tant que l’adresse n’est pas confirmée (${nom})`, await p.textContent('#toast'));
+    await jusqua(() => emailsA(email, /^Confirmez/).length, 5000);
+    const lienVerif = (emailsA(email, /^Confirmez/).at(-1).texte.match(/https?:\S+verifier-email=[\w-]+/) || [])[0];
+    verifier(!!lienVerif, `e-mail de confirmation de l’adresse reçu (${nom})`);
+    await p.goto(lienVerif); await p.waitForTimeout(1200);
+    verifier((await api('GET', '/api/session')).j.emailVerifie === true, `adresse confirmée par le lien (${nom})`);
+    await p.evaluate(() => { location.hash = 'parametres'; }); await p.waitForTimeout(300);
+    await p.evaluate(() => { ui.sectionParam = 'paiements'; rendre(); });
+    await p.locator('[data-action="activer-paiements"]').click();
     await p.waitForURL(/\/connect\//, { timeout: 8000 });
     await p.click('#valider');
     await p.waitForURL(/section=paiements/, { timeout: 8000 });

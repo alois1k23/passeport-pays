@@ -48,6 +48,21 @@ async function initServeur() {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/app' }).catch(() => { /* facultatif */ });
   }
   const params = new URLSearchParams(location.search);
+  // Lien de confirmation de l'adresse e-mail : traité avant tout (avec ou sans session), puis retiré de l'adresse.
+  const jetonVerif = params.get('verifier-email');
+  if (jetonVerif) {
+    params.delete('verifier-email');
+    history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : '') + location.hash);
+    try {
+      const r = await api('POST', '/api/auth/verifier-email', { jeton: jetonVerif });
+      // Le lien peut appartenir à un autre compte que celui ouvert dans ce navigateur : seul le bon est marqué.
+      if (SERVEUR.connecte && String(r.email || '').toLowerCase() === String(SERVEUR.email || '').toLowerCase()) SERVEUR.emailVerifie = true;
+      setTimeout(() => toast(`Adresse ${r.email || 'e-mail'} confirmée. Merci !`), 300);
+    } catch (err) {
+      // Lien déjà consommé (par exemple par l'antivirus de la messagerie, qui ouvre les liens) alors que l'adresse est confirmée : c'est réussi.
+      setTimeout(() => toast(SERVEUR.connecte && SERVEUR.emailVerifie ? 'Votre adresse e-mail est confirmée.' : (err.message || 'Ce lien n’a pas pu être utilisé.')), 300);
+    }
+  }
   const formuleUrl = params.get('formule');
   if (formuleUrl) { try { sessionStorage.setItem('comptoir-formule', formuleUrl); } catch { /* ignoré */ } }
   // Retour de Stripe Checkout : le paiement est vérifié tout de suite (le webhook peut arriver quelques secondes plus tard).
@@ -123,6 +138,8 @@ async function rechargerEtat() {
   if (ENREGISTREMENT.minuterie || ENREGISTREMENT.enCours) return;
   etat = completerEtat(e);
   SERVEUR.slug = e.serveur.slug;
+  // Adresse confirmée entre-temps (lien ouvert sur un autre appareil) : le rappel disparaît sans recharger la page.
+  if (e.serveur.emailVerifie && SERVEUR.emailVerifie === false) { SERVEUR.emailVerifie = true; document.querySelector('.bandeau-verif-email')?.remove(); }
   SERVEUR.paiement = e.serveur.paiement;
   SERVEUR.emails = e.serveur.emails || null; SERVEUR.creeLe = e.serveur.creeLe || null; SERVEUR.abonnement = e.serveur.abonnement || null; SERVEUR.jetonDomaine = e.serveur.jetonDomaine || null; SERVEUR.paiementsBoutique = e.serveur.paiementsBoutique || null;
   // Lien d'activation Stripe expiré (?relancer=1) : un nouveau lien est demandé et ouvert directement.
@@ -337,6 +354,16 @@ function installerModeConnecte() {
   // Fermeture de l’onglet juste après une modification : on l’envoie quand même.
   addEventListener('pagehide', () => { if (ENREGISTREMENT.minuterie) { clearTimeout(ENREGISTREMENT.minuterie); fetch('/api/admin/config', { method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: configActuelle() }) }); } });
 
+  // Adresse e-mail pas encore confirmée : rappel discret, avec renvoi du lien (inviter l'équipe et activer les versements l'exigent).
+  if (SERVEUR.emailVerifie === false && !document.querySelector('.bandeau-verif-email')) {
+    document.querySelector('.barre-haut').insertAdjacentHTML('afterend', `<div class="encart bandeau-verif-email" role="status"><span>Confirmez votre adresse <b>${esc(SERVEUR.email)}</b> avec le lien reçu par e-mail : il faut une adresse confirmée pour inviter votre équipe et activer les versements.</span> <button class="btn" data-action="renvoyer-verif-email">Renvoyer le lien</button></div>`);
+    document.addEventListener('click', async e => {
+      const b = e.target.closest('[data-action="renvoyer-verif-email"]'); if (!b) return;
+      b.disabled = true;
+      try { const r = await api('POST', '/api/admin/compte/verifier-email/renvoyer'); toast(r.deja ? 'Votre adresse est déjà confirmée.' : `Lien envoyé à ${SERVEUR.email}.`); if (r.deja) document.querySelector('.bandeau-verif-email')?.remove(); }
+      catch (err) { toast(err.message); b.disabled = false; }
+    });
+  }
   // Pied de la barre latérale : compte, boutique en ligne, déconnexion.
   const pied = document.querySelector('.cote-pied');
   pied.innerHTML = `<span class="sous compte">${esc(SERVEUR.email)}</span>
