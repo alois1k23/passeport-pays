@@ -1395,4 +1395,9 @@ La relecture du chantier 63 laissait un défaut. Un voleur de cookie qui tapait 
   - **Bas** : la documentation disait que tous les codes refusés comptaient ; elle est corrigée (voir plus haut).
   - **Bas** : l'export complet, qui n'utilise pas le client commun, renvoie maintenant aussi à la connexion.
 - Après corrections : 227 tests sur 227, parcours de bout en bout 57/57.
+- **Vérification complète** :
+  - premier passage (avant corrections) : 7 étapes sur 7 ;
+  - deuxième passage, sur le code final : 6 sur 7. Le parcours « espace marchand au clavier » a échoué une fois, sans que le vérificateur affiche la cause (il ne gardait que les lignes à mots-clés). Relancé seul trois fois, il réussit sans aucun problème. Échec intermittent, cause non établie ;
+  - le vérificateur affiche désormais la liste complète des problèmes d'un parcours au clavier ;
+  - troisième passage : 7 étapes sur 7.
 
