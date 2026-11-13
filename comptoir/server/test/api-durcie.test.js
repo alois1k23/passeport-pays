@@ -70,6 +70,16 @@ test('API v1 et webhooks : pagination des clients, file bornée, ruptures, prix,
     assert.equal((await c('PATCH', `/api/v1/produits/${produit}`, { prix: 0.01 }, cle)).s, 200);
 
     assert.equal((await c('PATCH', `/api/v1/produits/${produit}`, { stock: 10 }, cle)).s, 200);
+    // Un secret illisible (clé changée sans l'ancienne) ne bloque pas les autres webhooks, et rien ne part sans signature.
+    const wh2 = (await c('POST', '/api/admin/integrations/webhooks', { url: `http://127.0.0.1:${rec.address().port}/autre`, evenements: ['commande.payee'] })).j;
+    db.prepare("UPDATE webhooks SET secret = 'v2.casse' WHERE id = ?").run(wh2.id);
+    { const o = (await fetch(`${base}/api/public/${ins.j.slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: produit, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Client', email: 'eli@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }) }).then(r => r.json()));
+      await fetch(o.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' }); }
+    recus.length = 0; await gerer.envoyerWebhooks();
+    assert.equal(recus.length, 1, 'le webhook sain reçoit, celui au secret illisible n’envoie rien');
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente'").get(wh2.id).n, 1, 'son envoi reste en file');
+    assert.equal((await c('POST', '/api/admin/integrations/webhooks/tester')).s, 200);
+    await c('POST', `/api/admin/integrations/webhooks/${wh2.id}/supprimer`);
     // File bornée, tous statuts : au plus 5 000 lignes par webhook, les plus anciennes supprimées.
     const ins2 = db.prepare("INSERT INTO webhook_envois (id, webhook_id, evenement, corps, statut, prochain_essai, cree_le) VALUES (?, ?, 'commande.payee', '', 'envoye', 0, ?)");
     for (let i = 0; i < 5010; i++) ins2.run(`evt_vieux_${i}`, wh.id, i);

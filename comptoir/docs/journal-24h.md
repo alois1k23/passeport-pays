@@ -996,3 +996,42 @@ Un relecteur indépendant a attaqué la boutique publique et le paiement : prix,
   - une commande remboursée compte encore comme une utilisation ;
   - recréer un code du même nom reprend ses utilisations passées.
 - 202 tests sur 202 ; parcours de bout en bout : 57 contrôles, 0 anomalie.
+
+### Cycle 55 (09 h 35) : relecture adversariale de l'API publique et des webhooks sortants (chantier 48)
+
+Un relecteur indépendant a attaqué `/api/v1` et les webhooks avec deux boutiques et un récepteur local. Il a prouvé chaque constat par un script, sans faille critique.
+
+**Ce qui tient** :
+- clés de 192 bits, gardées en empreinte seulement, révoquées dès la requête suivante ;
+- toutes les routes refusées sans la bonne portée ;
+- aucune lecture ni écriture d'une autre boutique ;
+- champs non prévus ignorés à l'écriture ;
+- protection SSRF complète : formes IPv4, IPv6 et mappées, rebinding DNS, redirections non suivies ;
+- signature, nouveaux essais, limites par clé et par boutique ;
+- effacement d'un client jusque dans la file.
+
+**Constats corrigés** :
+- **Moyen** : la liste des clients de l'API déchiffrait toutes les commandes de la boutique à chaque appel (0,8 s de calcul bloquant à 20 000 commandes). Dix appels en parallèle bloquaient une autre boutique pendant 8 secondes.
+  - Elle est maintenant regroupée par l'index aveugle, sans rien déchiffrer pour compter, et paginée (`limite`, `apres`, `suite`), avec 60 lectures par minute.
+  - Seule la dernière commande de chaque client de la page est déchiffrée, par un index (boutique, client, date) qui remplace l'ancien.
+- **Moyen** : la file des webhooks ne faisait que marquer les envois en trop. Une clé pouvait ajouter des millions de lignes par jour, gardées 30 jours.
+  - Au plus 5 000 lignes par webhook, tous statuts confondus ; les plus anciennes sont supprimées.
+  - Un envoi livré ne garde que ses métadonnées : les données du client sont effacées.
+  - Une seule rupture de stock par produit toutes les 10 minutes.
+- **Faible** : un prix de 0,004 était accepté puis arrondi à 0 (produit gratuit). Le prix est maintenant contrôlé après l'arrondi.
+- **Faible** : le secret d'un webhook ne pouvait pas changer sans supprimer le webhook et sa file, et il était gardé en clair.
+  - Il est maintenant chiffré comme les données des clients, et rechiffré à une rotation de clé du serveur.
+  - Le bouton « Nouveau secret » garde l'ancien valable 24 heures, avec deux signatures : l'ancienne d'abord, la nouvelle en dernier, si bien qu'un vérificateur qui ne garde que la dernière marche dès qu'il a le nouveau secret.
+  - L'exemple de `API.md` accepte l'une ou l'autre.
+- **Info** : deux plages réseau mineures sont ajoutées aux adresses refusées (relais 6to4, NAT64 local).
+
+**Seconde vérification** : les correctifs sont confirmés, avec une régression corrigée.
+- Un seul secret illisible (clé du serveur changée sans l'ancienne) arrêtait l'envoi des webhooks de toutes les boutiques.
+- Désormais, ce webhook seul n'envoie rien (aucun envoi sans signature valable), sa file est gardée, l'erreur est journalisée une fois, et chaque webhook est traité à part (testé).
+
+**Limites et points ouverts** :
+- le dédoublonnage des ruptures vit en mémoire (un redémarrage le remet à zéro), et une vraie deuxième rupture dans les 10 minutes n'est pas envoyée ;
+- les webhooks portent toujours les données complètes du client, comme le documente `API.md` (seul le propriétaire en crée) ;
+- le relecteur a vu une fois une erreur `UNIQUE` dans la reprise du journal au redémarrage, sur une base manipulée par ses scripts. Elle n'a pas été reproduite dans un parcours normal (ventes puis redémarrage) : à surveiller.
+
+203 tests sur 203. Parcours de bout en bout : 57 contrôles, 0 anomalie. Fuzzing HTTP : 3 200 requêtes, 0 constat.

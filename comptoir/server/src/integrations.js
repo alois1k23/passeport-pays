@@ -150,9 +150,14 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
      une rotation, l'ancien secret signe aussi : l'en-tête porte deux « v1= », le destinataire accepte l'un ou l'autre
      le temps de mettre à jour sa configuration. */
   const fermerSecret = (bid, id, secret) => { const P = chiffrement(); return P ? P.chiffrer({ secret }, { boutique: bid, commande: `webhook-secret:${id}` }) : secret; };
-  const ouvrirSecret = (bid, id, texte) => { if (!texte) return null; const P = chiffrement(); if (!P || !/^v[12]\./.test(texte)) return texte; return P.dechiffrer(texte, { boutique: bid, commande: `webhook-secret:${id}` }).secret; };
+  // Secret illisible (clé SECRET_CHIFFREMENT changée sans l'ancienne) : null, jamais une exception qui arrêterait l'envoi des
+  // autres boutiques ; ce webhook n'envoie rien (aucun envoi non signé) et c'est journalisé.
+  const secretsSignales = new Set();
+  const ouvrirSecret = (bid, id, texte) => { if (!texte) return null; const P = chiffrement(); if (!P || !/^v[12]\./.test(texte)) return texte;
+    try { return P.dechiffrer(texte, { boutique: bid, commande: `webhook-secret:${id}` }).secret; } catch { if (secretsSignales.has(id)) return null; secretsSignales.add(id); journal.error(`[webhooks] secret du webhook ${id} illisible : envois suspendus (recréez le webhook, ou remettez l'ancienne clé)`); return null; } };
   // Ordre : l'ancien secret d'abord, le nouveau en dernier (un vérificateur qui ne garde que le dernier « v1= » marche avec le nouveau secret).
-  const secretsDe = w => [w.secret_ancien && w.secret_ancien_jusqu > Date.now() ? ouvrirSecret(w.boutique_id, w.id, w.secret_ancien) : null, ouvrirSecret(w.boutique_id, w.id, w.secret)].filter(Boolean);
+  const secretsDe = w => { const courant = ouvrirSecret(w.boutique_id, w.id, w.secret); if (!courant) return [];
+    return [w.secret_ancien && w.secret_ancien_jusqu > Date.now() ? ouvrirSecret(w.boutique_id, w.id, w.secret_ancien) : null, courant].filter(Boolean); };
   const entetesSignes = (secrets, id, type, corps) => { const t = Math.floor(Date.now() / 1000); return { 'Content-Type': 'application/json', 'User-Agent': 'Comptoir-Webhooks/1', 'Comptoir-Signature': `t=${t},${(Array.isArray(secrets) ? secrets : [secrets]).map(x => `v1=${signer(x, t, corps)}`).join(',')}`, 'Comptoir-Evenement': type, 'Comptoir-Id': id }; };
 
   async function creerWebhook(boutiqueId, { url, evenements }) {
@@ -227,7 +232,8 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     for (const w of db.prepare('SELECT * FROM webhooks WHERE boutique_id = ?').all(boutiqueId)) {
       const id = 'evt_test_' + crypto.randomBytes(6).toString('hex');
       const corps = JSON.stringify({ id, type: 'test', cree: new Date().toISOString(), donnees: { message: 'Événement de test envoyé depuis Comptoir.' } });
-      const code = await poster(w.url, corps, entetesSignes(secretsDe(w), id, 'test', corps), 5000);
+      const secrets = secretsDe(w);
+      const code = secrets.length ? await poster(w.url, corps, entetesSignes(secrets, id, 'test', corps), 5000) : 0;   // secret illisible : rien n'est envoyé
       res.push({ id: w.id, url: w.url, code, ok: code >= 200 && code < 300 });
     }
     return res;
@@ -244,7 +250,9 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
       const maintenant = Date.now();
       const hooks = db.prepare(`SELECT DISTINCT w.* FROM webhooks w JOIN webhook_envois e ON e.webhook_id = w.id WHERE w.actif = 1 AND e.statut = 'attente' AND e.prochain_essai <= ? LIMIT 500`).all(maintenant);
       let budget = lot;
-      const traiter = async w => {
+      const traiter = async w => { try { await traiterUn(w); } catch (x) { journal.error(`[webhooks] envoi du webhook ${w.id}`, x.message); } };   // une erreur d'un webhook n'arrête pas les autres
+      const traiterUn = async w => {
+        if (!secretsDe(w).length) return;   // secret illisible : file gardée, rien d'envoyé sans signature valable
         if (!permis(w.boutique_id)) { db.prepare("UPDATE webhook_envois SET statut = 'echec' WHERE webhook_id = ? AND statut = 'attente'").run(w.id); return; }
         const envois = db.prepare("SELECT * FROM webhook_envois WHERE webhook_id = ? AND statut = 'attente' AND prochain_essai <= ? ORDER BY cree_le LIMIT ?").all(w.id, maintenant, parWebhook);
         for (const e of envois) {

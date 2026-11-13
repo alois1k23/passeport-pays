@@ -398,7 +398,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Secrets de double authentification : déchiffrés avec la première clé du trousseau qui convient.
   const dechiffrerSecret2fa = enveloppe => { for (const k of trousseau) { try { return { secret: totp.dechiffrer(k, enveloppe), ancien: !k.equals(cleChiffrement) }; } catch { /* clé suivante */ } } throw new Error('secret de double authentification illisible'); };
   try { db.exec('ALTER TABLE commandes ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
-  db.exec('CREATE INDEX IF NOT EXISTS commandes_email_index ON commandes (boutique_id, email_index)');
+  // Index du client avec la date : la dernière commande d'un client (liste des clients de l'API) sans parcourir la boutique.
+  // Il remplace l'ancien index (boutique, client), dont il couvre aussi les recherches.
+  db.exec('CREATE INDEX IF NOT EXISTS commandes_client_date ON commandes (boutique_id, email_index, date)');
+  db.exec('DROP INDEX IF EXISTS commandes_email_index');
   // Utilisations d'un code promo (comptées à chaque commande qui en porte un, dans la transaction) : sans parcourir toute la boutique.
   // Colonne calculée (virtuelle, rien de stocké en double) : tolère une ligne au JSON abîmé, que l'index n'accepterait pas.
   if (!db.prepare('PRAGMA table_xinfo(commandes)').all().some(c => c.name === 'code_promo')) db.exec("ALTER TABLE commandes ADD COLUMN code_promo TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(donnees) THEN json_extract(donnees, '$.codePromo') END) VIRTUAL");
