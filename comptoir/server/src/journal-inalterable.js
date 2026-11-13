@@ -46,7 +46,17 @@ function contenuPiece(type, c, ref) {
   });
 }
 
-function creer(db, cle) {
+/* cle : une clé, ou un trousseau [courante, ...anciennes] (rotation de SECRET_CHIFFREMENT). Les nouvelles entrées sont
+   signées avec la courante ; la vérification accepte les anciennes, sous deux conditions, quel que soit l'ordre dans
+   lequel l'exploitant les a listées :
+   - le long de la chaîne, une clé remplacée ne revient jamais (chaque clé couvre une seule suite d'entrées, et la clé
+     courante, une fois apparue, couvre tout le reste) ;
+   - une entrée signée avec une ancienne clé ne peut pas être datée d'après la rotation qui l'a remplacée.
+   Les anciennes clés doivent donc être gardées tant que le journal l'est. Limite : quelqu'un qui détient une ancienne clé
+   ET peut écrire dans la base pourrait re-signer toute la chaîne avec elle ; seules les empreintes envoyées chaque
+   semaine au marchand (ancres) le révèlent. Après une fuite de clé, ce sont elles qui font foi. */
+function creer(db, cles) {
+  const trousseau = (Array.isArray(cles) ? cles : [cles]).filter(Boolean), cle = trousseau[0];
   db.exec(`CREATE TABLE IF NOT EXISTS journal_inalterable (
       boutique_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL, ref TEXT NOT NULL, commande_id TEXT, le INTEGER NOT NULL,
       contenu TEXT NOT NULL, empreinte TEXT NOT NULL, cloture_seq INTEGER, PRIMARY KEY (boutique_id, seq), UNIQUE (boutique_id, type, ref));
@@ -56,7 +66,8 @@ function creer(db, cle) {
   try { db.exec('ALTER TABLE journal_inalterable ADD COLUMN cloture_seq INTEGER'); } catch { /* déjà là */ }
   db.exec('CREATE TABLE IF NOT EXISTS journal_meta (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)');
   const meta = k => (db.prepare('SELECT valeur FROM journal_meta WHERE cle = ?').get(k) || {}).valeur;
-  const signer = (prec, e) => crypto.createHmac('sha256', cle).update(`${prec}|${e.seq}|${e.type}|${e.ref}|${e.le}|${e.contenu}`).digest('hex');
+  const signerAvec = (k, prec, e) => crypto.createHmac('sha256', k).update(`${prec}|${e.seq}|${e.type}|${e.ref}|${e.le}|${e.contenu}`).digest('hex');
+  const signer = (prec, e) => signerAvec(cle, prec, e);
   // Version 1 (empreintes SHA-256 simples, quelques minutes de développement, jamais en production) : mise de côté
   // telle quelle dans journal_inalterable_v1, puis les pièces sont rescellées en version 2 (reprise).
   if (!meta('version')) {
@@ -70,8 +81,16 @@ function creer(db, cle) {
   }
   // Empreinte de la clé de signature : une clé changée (SECRET_CHIFFREMENT modifié) est signalée comme telle,
   // et non comme une falsification de chaque pièce.
-  const empreinteCle = crypto.createHmac('sha256', cle).update('comptoir:journal:cle').digest('hex').slice(0, 16);
+  const empreinteDe = k => crypto.createHmac('sha256', k).update('comptoir:journal:cle').digest('hex').slice(0, 16);
+  const empreinteCle = empreinteDe(cle), empreintesConnues = trousseau.map(empreinteDe);
   if (!meta('cle')) db.prepare("INSERT INTO journal_meta (cle, valeur) VALUES ('cle', ?)").run(empreinteCle);
+  // Rotation : la clé enregistrée est une ancienne clé du trousseau. La nouvelle devient la référence, et le changement
+  // est noté (date, empreintes, jamais les clés).
+  else if (meta('cle') !== empreinteCle && empreintesConnues.includes(meta('cle'))) {
+    const rotations = JSON.parse(meta('rotations') || '[]'); rotations.push({ le: Date.now(), de: meta('cle'), vers: empreinteCle });
+    db.prepare("INSERT INTO journal_meta (cle, valeur) VALUES ('rotations', ?) ON CONFLICT (cle) DO UPDATE SET valeur = excluded.valeur").run(JSON.stringify(rotations));
+    db.prepare("UPDATE journal_meta SET valeur = ? WHERE cle = 'cle'").run(empreinteCle);
+  }
   const cleChangee = () => meta('cle') !== empreinteCle;
 
   function ajouter(boutiqueId, type, ref, commandeId, contenu, le) {
@@ -174,7 +193,7 @@ function creer(db, cle) {
     let resume = {}; try { const { seqs, ...r } = cl ? JSON.parse(cl.contenu) : {}; void seqs; resume = r; } catch { /* entrée illisible : signalée à la vérification */ }
     return { pieces: n.pieces || 0, clotures: n.clotures || 0, empreinte: der ? der.empreinte : null,
       derniereCloture: cl ? { jour: cl.ref, empreinte: cl.empreinte, ...resume } : null,
-      derniereVerification: v ? { le: v.le, ...JSON.parse(v.resultat) } : null, cleChangee: cleChangee() };
+      derniereVerification: v ? { le: v.le, ...JSON.parse(v.resultat) } : null, cleChangee: cleChangee(), rotationsCle: JSON.parse(meta('rotations') || '[]').length };
   }
 
   /* Vérification complète, par lots (le serveur reste disponible). lireCommandes(ids) → Map id → commande.
@@ -185,7 +204,11 @@ function creer(db, cle) {
     const sansSignature = cleChangee();
     if (sansSignature) noter('La clé de signature du serveur a changé (SECRET_CHIFFREMENT) : les empreintes ne peuvent plus être contrôlées. Remettez l’ancienne clé, ou contactez le support.');
     const lire = (e) => { try { return JSON.parse(e.contenu); } catch { noter(`Entrée n° ${e.seq} (${e.ref}) illisible.`); return null; } };
-    let prec = ORIGINE, attendu = 1, apres = 0, pieces = 0, clotures = 0, dernier = null, grandTotal = 0;
+    let prec = ORIGINE, attendu = 1, apres = 0, pieces = 0, clotures = 0, dernier = null, grandTotal = 0, cleEnCours = -1;
+    const clesVues = new Set();
+    // Date à partir de laquelle chaque ancienne clé ne signe plus (rotation notée vers une clé plus récente).
+    const empreintesTrousseau = trousseau.map(empreinteDe), rotations = JSON.parse(meta('rotations') || '[]');
+    const finDe = i => { const r = rotations.find(x => x.de === empreintesTrousseau[i]); return r ? r.le : Infinity; };
     const empreintes = new Set(), numeros = new Set(), couverture = new Map(), totaux = new Map(), agees = new Map();
     for (;;) {
       const entrees = db.prepare('SELECT * FROM journal_inalterable WHERE boutique_id = ? AND seq > ? ORDER BY seq LIMIT ?').all(boutiqueId, apres, lot);
@@ -194,7 +217,16 @@ function creer(db, cle) {
       for (const e of entrees) {
         if (e.seq !== attendu) noter(`Entrées n° ${attendu} à ${e.seq - 1} manquantes (suppression).`);
         attendu = e.seq + 1; apres = e.seq;
-        if (!sansSignature && signer(prec, e) !== e.empreinte) noter(`Entrée n° ${e.seq} (${e.ref}) modifiée : son empreinte ne correspond plus.`);
+        if (!sansSignature) {
+          // Clé de l'entrée : celle de l'entrée précédente d'abord, sinon une autre du trousseau.
+          let i = cleEnCours >= 0 && signerAvec(trousseau[cleEnCours], prec, e) === e.empreinte ? cleEnCours : trousseau.findIndex(k => signerAvec(k, prec, e) === e.empreinte);
+          if (i < 0) noter(`Entrée n° ${e.seq} (${e.ref}) modifiée : son empreinte ne correspond plus.`);
+          else {
+            if (i !== cleEnCours && (clesVues.has(i) || cleEnCours === 0)) noter(`Entrée n° ${e.seq} (${e.ref}) signée avec une clé déjà remplacée plus haut dans le journal : ajout suspect.`);
+            else if (i !== 0 && e.le > finDe(i) + 60000) noter(`Entrée n° ${e.seq} (${e.ref}) signée avec une ancienne clé mais datée d’après sa rotation : ajout suspect.`);
+            clesVues.add(i); cleEnCours = i;
+          }
+        }
         prec = e.empreinte; dernier = e; empreintes.add(e.empreinte);
         if (e.type === 'cloture') {
           clotures++;

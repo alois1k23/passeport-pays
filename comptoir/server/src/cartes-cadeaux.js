@@ -23,7 +23,10 @@ function genererCode() {
   return code;
 }
 
-function creer(db, cle) {
+/* cle : une clé, ou un trousseau [courante, ...anciennes]. Les empreintes faites avec une ancienne clé (avant une
+   rotation de SECRET_CHIFFREMENT) sont retrouvées, puis refaites avec la clé courante à la première utilisation de la carte. */
+function creer(db, cles) {
+  const trousseau = (Array.isArray(cles) ? cles : [cles]).filter(Boolean), cle = trousseau[0];
   db.exec(`CREATE TABLE IF NOT EXISTS cartes_cadeaux (
     id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, fin TEXT NOT NULL,
     initial INTEGER NOT NULL, solde INTEGER NOT NULL CHECK (solde >= 0), devise TEXT NOT NULL,
@@ -37,7 +40,8 @@ function creer(db, cle) {
   db.exec('CREATE INDEX IF NOT EXISTS cartes_mouvements_boutique_le ON cartes_mouvements (boutique_id, le)');   // export par période
   db.exec('CREATE TABLE IF NOT EXISTS cartes_vente (boutique_id TEXT PRIMARY KEY, donnees TEXT NOT NULL)');
 
-  const empreinte = (boutiqueId, code) => crypto.createHmac('sha256', cle).update(`carte-cadeau:${boutiqueId}:${normaliser(code)}`).digest('hex');
+  const empreinteAvec = (k, boutiqueId, code) => crypto.createHmac('sha256', k).update(`carte-cadeau:${boutiqueId}:${normaliser(code)}`).digest('hex');
+  const empreinte = (boutiqueId, code) => empreinteAvec(cle, boutiqueId, code);
   const inscrire = (carte, type, montant, solde, commandeId, texte, le) => db.prepare('INSERT INTO cartes_mouvements (carte_id, boutique_id, le, type, montant, solde, commande_id, texte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(carte.id, carte.boutique_id, le, type, montant, solde, commandeId || null, texte ? String(texte).slice(0, 200) : null);
   const publique = row => row && ({ id: row.id, fin: row.fin, initial: row.initial / 100, solde: row.solde / 100, devise: row.devise, statut: row.statut, creeLe: row.cree_le, expireLe: row.expire_le, destinataire: row.destinataire, note: row.note, origine: row.origine });
 
@@ -74,7 +78,13 @@ function creer(db, cle) {
     /* Carte d'après son code (null si inconnue). */
     trouver(boutiqueId, code) {
       if (normaliser(code).length !== 16) return null;
-      return db.prepare('SELECT * FROM cartes_cadeaux WHERE boutique_id = ? AND empreinte = ?').get(boutiqueId, empreinte(boutiqueId, code)) || null;
+      const r = db.prepare('SELECT * FROM cartes_cadeaux WHERE boutique_id = ? AND empreinte = ?').get(boutiqueId, empreinte(boutiqueId, code));
+      if (r || trousseau.length < 2) return r || null;
+      for (const k of trousseau.slice(1)) {
+        const ancienne = db.prepare('SELECT * FROM cartes_cadeaux WHERE boutique_id = ? AND empreinte = ?').get(boutiqueId, empreinteAvec(k, boutiqueId, code));
+        if (ancienne) { const e = empreinte(boutiqueId, code); db.prepare('UPDATE cartes_cadeaux SET empreinte = ? WHERE id = ?').run(e, ancienne.id); return { ...ancienne, empreinte: e }; }
+      }
+      return null;
     },
     /* Montant utilisable maintenant, en centimes (0 si désactivée, expirée ou épuisée). */
     disponible(row, maintenant = Date.now()) {

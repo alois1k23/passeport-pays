@@ -32,7 +32,9 @@ function lireReglages(saisie, actuels = DEFAUT) {
   return r;
 }
 
-function creer(db, cle) {
+/* cle : une clé, ou un trousseau [courante, ...anciennes] (voir cartes-cadeaux.js). */
+function creer(db, cles) {
+  const trousseau = (Array.isArray(cles) ? cles : [cles]).filter(Boolean), cle = trousseau[0];
   db.exec(`CREATE TABLE IF NOT EXISTS fidelite_reglages (boutique_id TEXT PRIMARY KEY, donnees TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS fidelite_comptes (boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, points INTEGER NOT NULL CHECK (points >= 0), actif_le INTEGER NOT NULL, PRIMARY KEY (boutique_id, empreinte));
     CREATE TABLE IF NOT EXISTS fidelite_mouvements (id INTEGER PRIMARY KEY AUTOINCREMENT, boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, le INTEGER NOT NULL, type TEXT NOT NULL, points INTEGER NOT NULL, solde INTEGER NOT NULL, commande_id TEXT);
@@ -40,7 +42,27 @@ function creer(db, cle) {
     CREATE TABLE IF NOT EXISTS fidelite_codes (boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, code_hash TEXT NOT NULL, expire INTEGER NOT NULL, essais INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (boutique_id, empreinte));`);
   // Échecs par adresse sur 24 heures, conservés quand un nouveau code est envoyé : pas d'essais illimités en redemandant des codes.
   try { db.exec('ALTER TABLE fidelite_codes ADD COLUMN echecs INTEGER NOT NULL DEFAULT 0'); db.exec('ALTER TABLE fidelite_codes ADD COLUMN echecs_depuis INTEGER NOT NULL DEFAULT 0'); } catch { /* déjà là */ }
-  const empreinte = (bid, email) => crypto.createHmac('sha256', cle).update(`fidelite:${bid}:${normEmail(email)}`).digest('hex');
+  const empreinteAvec = (k, bid, email) => crypto.createHmac('sha256', k).update(`fidelite:${bid}:${normEmail(email)}`).digest('hex');
+  const TABLES_EMPREINTE = ['fidelite_comptes', 'fidelite_mouvements', 'fidelite_reseaux_surs', 'fidelite_codes', 'fidelite_codes_demandes', 'fidelite_echecs'];
+  /* Empreinte courante d'un client. Après une rotation de clé, un client connu sous une ancienne empreinte est repris :
+     ses points, son historique et ses réseaux de confiance passent sous la nouvelle (les codes en cours sont abandonnés). */
+  const empreinte = (bid, email) => {
+    const e = empreinteAvec(cle, bid, email);
+    if (trousseau.length < 2 || db.prepare('SELECT 1 FROM fidelite_mouvements WHERE boutique_id = ? AND empreinte = ? LIMIT 1').get(bid, e)) return e;
+    for (const k of trousseau.slice(1)) {
+      const a = empreinteAvec(k, bid, email);
+      if (!db.prepare('SELECT 1 FROM fidelite_mouvements WHERE boutique_id = ? AND empreinte = ? LIMIT 1').get(bid, a) && !db.prepare('SELECT 1 FROM fidelite_comptes WHERE boutique_id = ? AND empreinte = ?').get(bid, a)) continue;
+      db.exec('SAVEPOINT fid_cle');
+      try {
+        for (const t of ['fidelite_codes', 'fidelite_codes_demandes', 'fidelite_echecs']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ? AND empreinte = ?`).run(bid, a);
+        for (const t of ['fidelite_comptes', 'fidelite_mouvements', 'fidelite_reseaux_surs']) db.prepare(`UPDATE OR IGNORE ${t} SET empreinte = ? WHERE boutique_id = ? AND empreinte = ?`).run(e, bid, a);
+        for (const t of TABLES_EMPREINTE) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ? AND empreinte = ?`).run(bid, a);   // restes en conflit
+        db.exec('RELEASE fid_cle');
+      } catch (x) { db.exec('ROLLBACK TO fid_cle'); db.exec('RELEASE fid_cle'); throw x; }
+      break;
+    }
+    return e;
+  };
   // Codes liés à leur demande (identifiant aléatoire remis au seul navigateur qui l'a faite) ; échecs comptés par adresse
   // ET par réseau : quelqu'un qui connaît l'adresse d'un client ne peut pas épuiser ses essais à sa place.
   db.exec(`CREATE TABLE IF NOT EXISTS fidelite_codes_demandes (boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, demande TEXT NOT NULL, code_hash TEXT NOT NULL, expire INTEGER NOT NULL, essais INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (boutique_id, empreinte, demande));

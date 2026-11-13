@@ -110,6 +110,18 @@ function creer(db, chiffrement = () => null) {
   const hash = j => crypto.createHash('sha256').update(String(j)).digest('hex');
   const api = {
     lire, ecrire, STATUTS,
+    /* Rotation de clé : coordonnées chiffrées avec une ancienne clé, rechiffrées avec la courante (appelé au démarrage).
+       Un chiffré illisible est laissé tel quel. */
+    renouvelerCle() {
+      const P = chiffrement(); if (!P) return 0;
+      let n = 0;
+      for (const row of db.prepare("SELECT * FROM devis WHERE json_valid(donnees) AND json_extract(donnees, '$.clientChiffre') IS NOT NULL").all()) {
+        const d0 = JSON.parse(row.donnees);
+        try { if (!P.aRenouveler(d0.clientChiffre, ctx(row))) continue; } catch { continue; }
+        db.prepare('UPDATE devis SET donnees = ? WHERE id = ?').run(versStockage(row, P.depuisStockage(d0, ctx(row))), row.id); n++;
+      }
+      return n;
+    },
     /* Devis d'avant le chiffrement : coordonnées du client chiffrées une fois (appelé au démarrage). */
     chiffrerAnciens() {
       if (!chiffrement()) return 0;

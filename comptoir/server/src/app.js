@@ -282,7 +282,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   /* Journal inaltérable : chaque facture, ticket ou avoir est scellé dès qu'il existe (une seule fois). */
   // Clé de signature dérivée de la clé de chiffrement du serveur (SECRET_CHIFFREMENT) : créé à la première utilisation.
   let journalVentes = null;
-  const JV = () => journalVentes || (journalVentes = JournalInalterable.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir journal inalterable', 32))));
+  const JV = () => journalVentes || (journalVentes = JournalInalterable.creer(db, trousseau.map(k => sousCle(k, 'comptoir journal inalterable'))));
   const sceller = (boutiqueId, c) => {
     try { const r = JV().sceller(boutiqueId, c); if (r.conflits.length) journal.error('[journal-inalterable] second numéro refusé', c.id, r.conflits.join(', ')); }
     catch (e) { journal.error('[journal-inalterable]', c.id, e.message); }   // une pièce non scellée est signalée à la vérification et reprise au démarrage
@@ -378,15 +378,25 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'chiffrement'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('chiffrement', ?)").run(crypto.randomBytes(32).toString('hex'));
   // Clé de chiffrement des secrets (TOTP) : SECRET_CHIFFREMENT (64 caractères hexadécimaux) si l'exploitant la garde hors de la base.
   const cleChiffrement = Buffer.from(/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '') ? env.SECRET_CHIFFREMENT : db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
-  // Sous-clé dédiée (HKDF) : les empreintes des cartes ne dépendent pas directement de la clé des autres usages.
-  // Changer SECRET_CHIFFREMENT rend les cartes en cours introuvables : la clé ne se change pas sans migration.
-  const Cartes = CartesCadeaux.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:cartes-cadeaux', 32)));
-  const DV = Devis.creer(db, () => PII);
-  const FID = Fidelite.creer(db, Buffer.from(crypto.hkdfSync('sha256', cleChiffrement, Buffer.alloc(0), 'comptoir:fidelite', 32)));   // fidélité : empreinte HMAC, jamais en clair
-  // Trousseau : la clé courante chiffre ; la clé gardée dans la base (avant que SECRET_CHIFFREMENT soit défini) déchiffre
-  // encore. Ainsi définir SECRET_CHIFFREMENT après l'ouverture rechiffre tout, au lieu de rendre les données illisibles.
+  /* Trousseau : la clé courante chiffre et signe ; les anciennes déchiffrent et vérifient encore. Anciennes clés :
+     SECRET_CHIFFREMENT_ANCIENNES (rotation : la clé remplacée y passe) et la clé gardée dans la base (avant que
+     SECRET_CHIFFREMENT soit défini). Au démarrage, tout ce qui peut l'être est rechiffré avec la courante (données des
+     clients, devis, webhooks en attente, secrets de double authentification) ; les empreintes des cartes cadeaux et de la
+     fidélité, qu'on ne peut pas recalculer sans le code ou l'adresse, sont refaites à leur première utilisation. Le
+     journal inaltérable garde ses signatures : ses anciennes clés restent nécessaires pour le vérifier. */
   const cleBase = Buffer.from(db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
-  PII = Pii.creer(cleBase.equals(cleChiffrement) ? [cleChiffrement] : [cleChiffrement, cleBase]);
+  const anciennesSaisies = String(env.SECRET_CHIFFREMENT_ANCIENNES || '').split(',').map(x => x.trim()).filter(Boolean);
+  if (anciennesSaisies.some(x => !/^[0-9a-f]{64}$/i.test(x))) journal.error('[securite] SECRET_CHIFFREMENT_ANCIENNES : chaque clé doit faire 64 caractères hexadécimaux (séparées par des virgules) ; les autres sont ignorées.');
+  const trousseau = [];
+  for (const k of [cleChiffrement, ...anciennesSaisies.filter(x => /^[0-9a-f]{64}$/i.test(x)).map(x => Buffer.from(x, 'hex')), cleBase]) if (!trousseau.some(t => t.equals(k))) trousseau.push(k);
+  // Sous-clés dédiées (HKDF) : chaque usage a la sienne, dérivée de chaque clé du trousseau.
+  const sousCle = (k, etiquette) => Buffer.from(crypto.hkdfSync('sha256', k, Buffer.alloc(0), etiquette, 32));
+  const Cartes = CartesCadeaux.creer(db, trousseau.map(k => sousCle(k, 'comptoir:cartes-cadeaux')));
+  const DV = Devis.creer(db, () => PII);
+  const FID = Fidelite.creer(db, trousseau.map(k => sousCle(k, 'comptoir:fidelite')));   // fidélité : empreinte HMAC, jamais en clair
+  PII = Pii.creer(trousseau);
+  // Secrets de double authentification : déchiffrés avec la première clé du trousseau qui convient.
+  const dechiffrerSecret2fa = enveloppe => { for (const k of trousseau) { try { return { secret: totp.dechiffrer(k, enveloppe), ancien: !k.equals(cleChiffrement) }; } catch { /* clé suivante */ } } throw new Error('secret de double authentification illisible'); };
   try { db.exec('ALTER TABLE commandes ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
   db.exec('CREATE INDEX IF NOT EXISTS commandes_email_index ON commandes (boutique_id, email_index)');
   // Adresses e-mail enregistrées avant la normalisation Unicode (NFC) : remises sous leur forme unique, pour que connexion
@@ -424,13 +434,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       });
     }
     db.exec('PRAGMA secure_delete = OFF');
-    db.prepare("INSERT INTO cles (nom, valeur) VALUES ('pii-cle', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(PII.empreinteCle);
+    // Repère posé seulement si tout a pu être relu : une commande illisible (ancienne clé oubliée dans
+    // SECRET_CHIFFREMENT_ANCIENNES) sera rechiffrée et réindexée au prochain démarrage, une fois la clé remise.
+    if (!illisibles) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('pii-cle', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(PII.empreinteCle);
     if (faits) {
       journal.log(`[donnees-clients] ${faits} commande(s) chiffrée(s) ou rechiffrée(s)`);
       // Anciennes pages en clair effacées du fichier (SQLite réutilise les pages libérées sans les remettre à zéro).
       try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); db.exec('VACUUM'); db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) { journal.error('[donnees-clients] compactage', e.message); }
     }
     try { const n = DV.chiffrerAnciens() + integ.chiffrerFile(); if (n) journal.log(`[donnees-clients] ${n} devis ou envoi(s) de webhook chiffré(s)`); } catch (e) { journal.error('[donnees-clients] devis et webhooks', e.message); }
+    if (trousseau.length > 1) try { const n = DV.renouvelerCle() + integ.renouvelerCleFile(); if (n) journal.log(`[donnees-clients] ${n} devis ou envoi(s) de webhook rechiffré(s) avec la clé courante`); } catch (e) { journal.error('[donnees-clients] rotation devis et webhooks', e.message); }
     if (illisibles) journal.error(`[donnees-clients] ATTENTION : ${illisibles} commande(s) dont les données client sont illisibles avec les clés connues. SECRET_CHIFFREMENT a-t-il changé ? Remettez l'ancienne valeur.`);
     if (abimees) journal.error(`[donnees-clients] ${abimees} commande(s) aux données illisibles (JSON abîmé), laissées telles quelles`);
   }
@@ -438,6 +451,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
     CREATE INDEX IF NOT EXISTS journal_compte_marchand ON journal_compte(marchand_id, date);`);
+  // Rotation de clé : secrets de double authentification chiffrés avec une ancienne clé, rechiffrés avec la courante.
+  // Un secret illisible avec toutes les clés connues est signalé (le marchand passera par ses codes de secours).
+  if (trousseau.length > 1) {
+    let n = 0, illisibles = 0;
+    for (const r of db.prepare('SELECT marchand_id, secret FROM deux_facteurs').all()) {
+      let lu; try { lu = dechiffrerSecret2fa(r.secret); } catch { illisibles++; continue; }
+      if (lu.ancien) { db.prepare('UPDATE deux_facteurs SET secret = ? WHERE marchand_id = ? AND secret = ?').run(totp.chiffrer(cleChiffrement, lu.secret), r.marchand_id, r.secret); n++; }
+    }
+    if (n) journal.log(`[securite] ${n} secret(s) de double authentification rechiffré(s) avec la clé courante`);
+    if (illisibles) journal.error(`[securite] ATTENTION : ${illisibles} secret(s) de double authentification illisible(s) avec les clés connues. Une ancienne clé manque-t-elle dans SECRET_CHIFFREMENT_ANCIENNES ?`);
+  }
   for (const sql of ['ALTER TABLE sessions ADD COLUMN cree_le INTEGER', 'ALTER TABLE sessions ADD COLUMN vu_le INTEGER', 'ALTER TABLE sessions ADD COLUMN appareil TEXT', 'ALTER TABLE sessions ADD COLUMN reseau TEXT', 'ALTER TABLE sessions ADD COLUMN cle_acces TEXT']) { try { db.exec(sql); } catch { /* déjà là */ } }
   // Description sobre de l'appareil (navigateur et système), sans empreinte détaillée.
   const decrireAppareil = ua => {
@@ -472,7 +496,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const df = deuxFacteursDe(dfAncien.marchand_id);
     if (!df || !df.actif) return false;
     const s = String(saisi || '').trim();
-    const pas = totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), s, { dernierPas: df.dernier_pas });
+    const pas = totp.verifier(dechiffrerSecret2fa(df.secret).secret, s, { dernierPas: df.dernier_pas });
     if (pas !== null) return db.prepare('UPDATE deux_facteurs SET dernier_pas = ? WHERE marchand_id = ? AND dernier_pas < ?').run(pas, df.marchand_id, pas).changes === 1;
     const secours = JSON.parse(df.secours), i = secours.indexOf(totp.empreinteSecours(s));
     if (i >= 0 && s.replace(/[^a-z0-9]/gi, '').length === 10) {
@@ -1727,7 +1751,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!df || df.actif) throw erreur(409, 'Recommencez la mise en place.', 'etat_2fa');
     if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
     auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
-    const pas = totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), ctx.corps.code);
+    const pas = totp.verifier(dechiffrerSecret2fa(df.secret).secret, ctx.corps.code);
     if (pas === null) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect : vérifiez l’heure de votre téléphone et saisissez le code affiché maintenant.', 'code_2fa'); }
     const { codes, empreintes } = totp.codesSecours();
     db.prepare('UPDATE deux_facteurs SET actif = 1, dernier_pas = ?, secours = ? WHERE marchand_id = ?').run(pas, JSON.stringify(empreintes), m.id);

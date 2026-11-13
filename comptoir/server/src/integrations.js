@@ -250,12 +250,25 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     }
     return n;
   }
+  /* Rotation de clé : envois en attente rechiffrés avec la clé courante et réindexés (l'index de l'ancienne clé ne
+     retrouverait plus le client pour l'effacement de ses données). */
+  function renouvelerCleFile() {
+    const P = chiffrement(); if (!P) return 0;
+    let n = 0;
+    for (const e of db.prepare("SELECT e.id, e.corps, w.boutique_id FROM webhook_envois e JOIN webhooks w ON w.id = e.webhook_id WHERE e.corps LIKE 'v_.%'").all()) {
+      const ctxE = { boutique: e.boutique_id, commande: `webhook:${e.id}` };
+      let corps; try { if (!P.aRenouveler(e.corps, ctxE)) continue; corps = P.dechiffrer(e.corps, ctxE).corps; } catch { continue; }
+      let email = null; try { const d = JSON.parse(corps).donnees; email = d && d.client && d.client.email; } catch { /* corps illisible */ }
+      db.prepare('UPDATE webhook_envois SET corps = ?, email_index = ? WHERE id = ?').run(fermer(e.boutique_id, e.id, corps), email ? P.index(e.boutique_id, email) : null, e.id); n++;
+    }
+    return n;
+  }
   function effacerClient(boutiqueId, email) {
     const P = chiffrement(), ix = P ? P.index(boutiqueId, email) : null;
     return db.prepare("DELETE FROM webhook_envois WHERE webhook_id IN (SELECT id FROM webhooks WHERE boutique_id = ?) AND (email_index = ? OR instr(lower(corps), ?) > 0)").run(boutiqueId, ix, JSON.stringify(String(email).toLowerCase())).changes;
   }
 
-  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, signer, verifierUrl, poster };
+  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, signer, verifierUrl, poster };
 }
 
 module.exports = { creerIntegrations, ipInterne, PORTEES, EVENEMENTS };

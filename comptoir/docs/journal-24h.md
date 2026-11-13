@@ -81,6 +81,12 @@ La feuille de route peut évoluer selon les constats des relectures.
 41. **Relecture adversariale de l'authentification** : inscription, connexion, double authentification, clés d'accès, réinitialisation, sessions, équipe.
 42. **Test de charge à grande échelle** après les changements de la nuit.
 
+**Neuvième phase** (la huitième est terminée le 13 novembre vers 7 h 20, avec un chantier 43 ajouté en cours de route : adresse e-mail confirmée à l'inscription) :
+
+44. **Rotation des clés de chiffrement** (données personnelles, index de recherche, secrets de double authentification) sans interruption de service ni perte de données.
+45. **Relecture adversariale de la boutique publique et du paiement** : prix, stock, jetons de commande, documents, cartes cadeaux, fidélité, puis corrections.
+46. **Démonstration publiée** mise à jour avec les nouveautés de la matinée.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -885,3 +891,30 @@ Le point ouvert du cycle 49 est fermé. Jusqu'ici, n'importe qui pouvait ouvrir 
   - le lien consommait les essais de connexion du réseau.
 - 4 tests de plus, et les tests de l'équipe, des devis et de Stripe Connect confirment l'adresse par le vrai lien : 189 tests sur 189.
 - **Limite connue** : quand la titulaire reprend un compte ouvert par un tiers, elle reprend aussi la boutique qu'il y avait préparée. Rien n'a pu être envoyé en son nom, mais elle doit la vider ou supprimer le compte.
+
+### Cycle 51 (07 h 40) : rotation des clés de chiffrement (chantier 44)
+
+`SECRET_CHIFFREMENT` ne pouvait pas changer. Le remplacer rendait illisibles les données des clients, les secrets de double authentification, les cartes cadeaux et les comptes de fidélité, et invérifiable le journal des ventes. Il peut désormais tourner (clé exposée, départ d'un administrateur, règle interne), sans interruption ni perte :
+
+- **Trousseau** : la nouvelle clé dans `SECRET_CHIFFREMENT`, les anciennes dans `SECRET_CHIFFREMENT_ANCIENNES` (contrôlé par `--verifier`). Chaque usage a sa sous-clé dérivée (HKDF) de chaque clé.
+- **Au démarrage**, rechiffré avec la nouvelle clé :
+  - les données des clients des commandes, avec leur index de recherche refait ;
+  - les devis et les envois de webhook en attente, eux aussi réindexés : l'effacement des données d'un client les retrouve encore ;
+  - les secrets de double authentification.
+- **À la première utilisation**, empreinte refaite : les cartes cadeaux (seule une empreinte du code est gardée) et les comptes de fidélité (points, historique, réseaux de confiance).
+- **Journal inaltérable** : il n'est jamais re-signé, sinon il ne prouverait plus rien. La vérification accepte les anciennes clés sous deux conditions : une clé remplacée ne revient jamais plus loin dans la chaîne, et une entrée d'une ancienne clé ne peut pas être datée d'après la rotation de celle-ci. La rotation est notée dans le journal.
+- **Tests** : 6 tests, dont un parcours complet sur un vrai redémarrage. Les données sont créées sous K1, puis K2 prend la relève avec K1 en ancienne. Après le redémarrage :
+  - connexion avec un code de l'application d'authentification ;
+  - solde d'une carte cadeau ;
+  - client retrouvé par son adresse ;
+  - journal vérifié sans anomalie.
+  Si l'ancienne clé est oubliée, l'exploitant est prévenu, et rien n'est écrasé.
+- **Relecture indépendante**, constats corrigés :
+  - **Grave** : si l'ancienne clé était oubliée au premier redémarrage, le repère de clé était quand même mis à jour. Remettre la clé ensuite ne rechiffrait plus ces commandes, et surtout ne refaisait plus leur index : l'effacement des données d'un client les aurait manquées en silence. Le repère n'est maintenant posé que si tout a été relu (testé, et le test échoue sans le correctif).
+  - Un journal légitime était déclaré falsifié si les anciennes clés étaient listées de la plus ancienne à la plus récente. La règle ne dépend plus de l'ordre (testé avec deux rotations, dans les deux ordres).
+  - **Documentation trop affirmative** : quelqu'un qui détient une ancienne clé et peut écrire dans la base pourrait re-signer tout le journal avec elle. Après une fuite, seules les empreintes envoyées chaque semaine aux marchands font foi. C'est maintenant dit dans `MISE-EN-LIGNE.md` et dans le code.
+- **Limites connues** :
+  - les compteurs anti-abus repartent de zéro à la rotation ;
+  - les codes de fidélité en cours (15 minutes) sont à redemander ;
+  - l'empreinte réseau d'une acceptation de devis ne se compare plus d'une clé à l'autre (simple élément de preuve).
+- 195 tests sur 195 ; vérificateur complet 7 sur 7 (avant les derniers correctifs, puis parcours de bout en bout refait : 57 contrôles, 0 anomalie).

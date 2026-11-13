@@ -37,6 +37,7 @@ if (process.argv.includes('--verifier')) {
     v(!!env.FOURNISSEUR_URL_API, 'vrai fournisseur déclaré (FOURNISSEUR_*)', 'sans fournisseur réel, le dropshipping est impossible avec une clé Stripe réelle');
     v((env.TZ || '') === 'Europe/Zurich' || !env.TZ, 'heure de Lausanne', 'TZ doit valoir Europe/Zurich');
     v(/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || ''), 'clé de chiffrement des secrets de double authentification (SECRET_CHIFFREMENT)', 'générez-la avec « openssl rand -hex 32 » et gardez-la hors de la base (sinon une copie volée de la base suffit à lire les secrets)');
+    { const anc = String(env.SECRET_CHIFFREMENT_ANCIENNES || '').split(',').map(x => x.trim()).filter(Boolean); if (anc.length) v(anc.every(x => /^[0-9a-f]{64}$/i.test(x)) && !anc.includes(String(env.SECRET_CHIFFREMENT || '')), `anciennes clés de chiffrement (${anc.length}, SECRET_CHIFFREMENT_ANCIENNES)`, 'chaque clé : 64 caractères hexadécimaux, séparées par des virgules, différentes de SECRET_CHIFFREMENT'); }
     v(env.VERIFIER_FUITES !== 'non', 'mots de passe parus dans des fuites refusés (VERIFIER_FUITES)', 'retirez VERIFIER_FUITES=non');
     { let hote = ''; try { hote = new URL(url).hostname; } catch { /* vide */ }
       v(!env.WEBAUTHN_RP_ID || hote === env.WEBAUTHN_RP_ID || hote.endsWith('.' + env.WEBAUTHN_RP_ID), `clés d’accès liées au domaine ${env.WEBAUTHN_RP_ID || hote || '(URL_PUBLIQUE)'}`, 'WEBAUTHN_RP_ID doit être le domaine de URL_PUBLIQUE ou un domaine parent'); }
