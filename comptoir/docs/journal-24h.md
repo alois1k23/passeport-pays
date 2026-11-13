@@ -1449,6 +1449,6 @@ Chaque nouveauté de l'après-midi avait été relue seule. Une relecture indép
   - l'annulation et la confirmation par lien n'exigent aucune session, donc ni les fermetures de session ni la liaison à l'appareil ne peuvent empêcher la titulaire d'annuler à temps ;
   - les limites des différentes fonctions ne se mélangent pas ;
   - les membres d'équipe ne sont pas touchés.
-- **Risque résiduel, noté** : une clé d'accès ou une double authentification installée par l'intrus plus de 24 heures avant sa demande survit à l'annulation. L'e-mail d'annulation invite à vérifier les clés d'API et webhooks, mais pas encore les clés d'accès.
+- **Risque résiduel, noté** : une clé d'accès ou une double authentification installée par l'intrus plus de 24 heures avant sa demande survit à l'annulation. L'e-mail d'annulation invite désormais à vérifier les clés d'accès, la double authentification, les clés d'API et les webhooks.
 - 229 tests sur 229, parcours de bout en bout 57/57.
 
