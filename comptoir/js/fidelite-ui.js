@@ -5,7 +5,7 @@ function carteFidelite() {
   const f = ui.fidelite; if (!f) return '';
   const r = f.reglages, valeur = n => euros(Math.floor(n * r.valeurPour100 / 100) / 100);
   return `<details class="carte fidelite" ${r.actif ? '' : 'open'}><summary><h2>Programme de fidélité</h2><span class="sous">${r.actif ? `Actif · ${f.stats.membres} client${f.stats.membres > 1 ? 's' : ''} avec des points · ${f.stats.points.toLocaleString('fr-FR')} points en circulation (${valeur(f.stats.points)})` : 'Inactif'}</span></summary>
-    ${r.actif && f.stats.bientot && f.stats.bientot.points ? `<p class="sous">${f.stats.bientot.points.toLocaleString('fr-FR')} points (${valeur(f.stats.bientot.points)}, ${f.stats.bientot.comptes} client${f.stats.bientot.comptes > 1 ? 's' : ''}) expirent dans les 30 jours sans nouvel achat : une bonne occasion de les relancer.</p>` : ''}
+    ${r.actif && f.stats.bientot && f.stats.bientot.points ? `<p class="sous">${f.stats.bientot.points.toLocaleString('fr-FR')} points (${valeur(f.stats.bientot.points)}, ${f.stats.bientot.comptes} client${f.stats.bientot.comptes > 1 ? 's' : ''}) expirent dans les 30 jours sans nouvel achat. Vous pouvez le rappeler aux clients qui ont accepté vos e-mails.</p>` : ''}
     <p class="sous">Sans compte client : vos clients gagnent des points à chaque commande payée en ligne et les utilisent comme remise. Pour les utiliser, ils reçoivent un code par e-mail : connaître leur adresse ne suffit pas. Les adresses ne sont pas stockées en clair.</p>
     <form data-form="fidelite">
       <label class="case"><input type="checkbox" name="actif" ${r.actif ? 'checked' : ''}> Activer le programme</label>
@@ -30,7 +30,11 @@ async function chargerFidelite() {
 document.addEventListener('submit', async e => {
   if (e.target.dataset.form !== 'fidelite') return;
   e.preventDefault();
-  const d = new FormData(e.target), b = e.target.querySelector('button'); b.disabled = true;
+  const d = new FormData(e.target), b = e.target.querySelector('button');
+  // Durée raccourcie : les points des clients inactifs depuis plus longtemps expirent aussitôt, sans retour possible.
+  const avant = ui.fidelite && ui.fidelite.reglages ? ui.fidelite.reglages.expirationMois : null, apres = Number(d.get('expirationMois'));
+  if (avant && apres < avant && !confirm(`Passer l’expiration de ${avant} à ${apres} mois ? Les points des clients sans achat depuis plus de ${apres} mois expireront dans les prochaines minutes, sans retour possible.`)) return;
+  b.disabled = true;
   try {
     const r = await api('PUT', '/api/admin/fidelite', { actif: d.get('actif') === 'on', ...Object.fromEntries(['pointsParUnite', 'valeurPour100', 'seuil', 'plafondPct', 'expirationMois'].map(k => [k, Number(d.get(k))])) });
     ui.fidelite = { ...ui.fidelite, reglages: r.reglages }; toast(r.reglages.actif ? 'Programme de fidélité enregistré.' : 'Programme de fidélité désactivé.'); rendre();

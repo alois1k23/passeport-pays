@@ -160,13 +160,23 @@ test('expiration en lot : points expirés retirés des statistiques, registre co
   K.crediter('b1', 'bientot@exemple.fr', 200, { maintenant: t0 + 30 * j });   // expire vers t0 + 213 j
   K.crediter('b1', 'actif@exemple.fr', 100, { maintenant: t0 + 200 * j });
   const maintenant = t0 + 200 * j;   // 200 jours après le premier gain (6 mois ≈ 183 j) : expiré ; le deuxième expire dans ~13 jours
+  // Statistiques en lecture seule : les points expirés ne comptent plus, même avant le passage de la maintenance.
   const st = K.stats('b1', maintenant);
   assert.equal(st.points, 300, 'les 300 points expirés ne comptent plus');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM fidelite_mouvements WHERE type = 'expiration'").get().n, 0, 'rien écrit par les statistiques');
+  assert.equal(K.expirer('b1', maintenant), 1, 'maintenance : un compte expiré');
   assert.equal(st.membres, 2);
   assert.deepEqual(st.bientot, { comptes: 1, points: 200 });
   assert.equal(st.valeur, K.valeur(K.reglages('b1'), 300));
   assert.equal(K.solde('b1', 'ancien@exemple.fr', maintenant), 0);
   assert.deepEqual(K.verifier('b1'), [], 'registre : expiration inscrite');
   assert.equal(K.expirer('b1', maintenant), 0, 'idempotent');
-  assert.equal(K.stats('b1', maintenant).trenteJours.expiration, -300);
+  // Programme en pause : rien n'expire. Lots : au plus « lot » comptes par passage.
+  K.crediter('b1', 'pause@exemple.fr', 50, { maintenant: t0 });
+  K.ecrireReglages('b1', { actif: false, expirationMois: 6 });
+  assert.equal(K.expirer('b1', maintenant), 0);
+  K.ecrireReglages('b1', { actif: true, expirationMois: 6 });
+  for (let i = 0; i < 5; i++) K.crediter('b1', `lot${i}@exemple.fr`, 10, { maintenant: t0 });
+  assert.equal(K.expirer('b1', maintenant, { lot: 4 }), 4); assert.equal(K.expirer('b1', maintenant, { lot: 4 }), 2); assert.deepEqual(K.verifier('b1'), []);
+  assert.equal(K.stats('b1', maintenant).trenteJours.expiration, -400, '300 + 50 (compte de la pause) + 5 × 10');
 });

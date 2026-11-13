@@ -539,3 +539,20 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
   - la mise à zéro est conditionnelle : un achat arrivé entre-temps n'est pas effacé.
 - **Nouveau** : la valeur des points en circulation, et les points qui expirent dans les 30 jours sans nouvel achat (nombre de clients et valeur), affichés dans la carte Fidélité.
 - 1 nouveau test : 167 tests sur 167.
+- **Relecture indépendante**, constats corrigés :
+  - **Grave** : le passage d'expiration validait chaque écriture séparément. Sur une boutique de 20 000 comptes, le premier passage bloquait le serveur 5,4 s. Il travaille désormais par lots de 1 000 comptes, un lot par transaction et par passage de maintenance. L'expiration paresseuse du solde est atomique elle aussi (point de sauvegarde, utilisable dans une transaction en cours). L'index ne couvre que les comptes qui ont encore des points.
+  - Un programme mis en pause faisait expirer les points de tous les clients, alors qu'ils ne pouvaient plus en gagner. En pause, plus rien n'expire, et les boutiques supprimées sont ignorées.
+  - Les statistiques écrivaient au registre, y compris pour un compte en lecture seule. Elles sont maintenant en lecture seule : les comptes expirés en sont exclus par le calcul.
+  - « Une bonne occasion de les relancer » invitait à écrire à des clients sans consentement. Le texte devient : « Vous pouvez le rappeler aux clients qui ont accepté vos e-mails ».
+  - Raccourcir la durée d'expiration demande une confirmation, car les points concernés expirent sans retour possible.
+
+### Cycle 33 (04 h 05) : geste commercial (chantier 23)
+
+- **Geste commercial** depuis la fiche commande : rembourser un montant sans retour d'article (retard de livraison, petit défaut accepté par le client), avec un avoir numéroté et scellé, comme un retour partiel.
+  - Le montant est réparti au plus fort reste sur la valeur restante des articles.
+  - L'avoir porte une ligne « Geste commercial : article » par article, à son taux de TVA, et la facture électronique reste cohérente.
+  - Argent puis carte cadeau, points de fidélité au prorata, e-mail traduit, même protection contre le double remboursement.
+- **Calcul des retours unifié** : un article rendu est remboursé de sa valeur restante (sa part d'un geste déjà déduite), répartie sur les unités restantes ; la dernière unité reçoit exactement le reste. Les avoirs suivants présentent l'écart comme « Geste commercial déjà accordé », et non comme un arrondi.
+- Un article dont toute la valeur a déjà été rendue par un geste ne peut plus être remboursé partiellement. Le message renvoie au remboursement complet.
+- **Propriété vérifiée sur 1 000 commandes tirées au hasard**, gestes compris : avoirs partiels, gestes et avoir final font exactement la facture.
+- 1 nouveau test, et le test de propriété étendu : 168 tests sur 168.

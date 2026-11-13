@@ -1921,7 +1921,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const f = commandeDeBoutique(bid, ctx.params.id), calcul = en.calcul, mode = en.mode;
       if ((f.retoursPartiels || []).length + 1 !== en.rang) { delete f.retourEnCours; enregistrerCommande(f); return { commande: f, avoir: (f.retoursPartiels.at(-1) || {}).numero }; }   // déjà enregistré
       delete f.retourEnCours;
-      const piece = { numero: prochaineFacture(bid, Date.now(), 'AV'), date: Date.now(), lignes: calcul.lignes, port: calcul.port, montant: calcul.montant, argent: calcul.argent, carte: calcul.carte, mode, stock: en.stock, motif: en.motif };
+      const piece = { numero: prochaineFacture(bid, Date.now(), 'AV'), date: Date.now(), lignes: calcul.lignes, port: calcul.port, montant: calcul.montant, argent: calcul.argent, carte: calcul.carte, mode, stock: en.stock, motif: en.motif, ...(calcul.geste ? { geste: true } : {}) };
       // Stock : les unités vraiment retirées à la vente reviennent (ou sont sorties du compte si l'article est abîmé).
       for (const x of calcul.lignes) {
         const l = f.lignes[x.index];
@@ -1953,14 +1953,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       f.retoursPartiels = [...(f.retoursPartiels || []), piece];
       // Demande de retour du client entièrement couverte par les retours partiels : marquée remboursée.
       if (f.retour && f.retour.statut === 'demande' && (f.retour.lignes || []).every(x => Number.isInteger(x.ligne) && Retours.deja(f).qte[x.ligne] >= x.qte)) f.retour.statut = 'rembourse';
-      const liste = calcul.lignes.map(x => `${x.qte} × ${f.lignes[x.index].nom}`).join(', ');
-      historique(f, `Retour partiel ${piece.numero} : ${formatMontant(piece.montant / 100, config)} remboursés (${liste}${piece.port ? ', livraison' : ''})${piece.carte ? `, dont ${formatMontant(piece.carte / 100, config)} sur la carte cadeau ····${f.carteCadeau.fin}` : ''}${mode === 'manuel' && piece.argent ? ` ; ${formatMontant(piece.argent / 100, config)} à rendre au client par vos soins (virement, espèces)` : ''}${piece.stock ? '' : ' ; articles non remis en stock'}${notePoints}${piece.motif ? ` ; motif : ${piece.motif}` : ''}${f.litige ? ' ; attention : un litige bancaire est ouvert sur cette commande' : ''}`);
+      const liste = calcul.geste ? 'geste commercial, sans retour d’article' : calcul.lignes.map(x => `${x.qte} × ${f.lignes[x.index].nom}`).join(', ');
+      historique(f, `${calcul.geste ? 'Geste commercial' : 'Retour partiel'} ${piece.numero} : ${formatMontant(piece.montant / 100, config)} remboursés (${liste}${piece.port ? ', livraison' : ''})${piece.carte ? `, dont ${formatMontant(piece.carte / 100, config)} sur la carte cadeau ····${f.carteCadeau.fin}` : ''}${mode === 'manuel' && piece.argent ? ` ; ${formatMontant(piece.argent / 100, config)} à rendre au client par vos soins (virement, espèces)` : ''}${piece.stock ? '' : ' ; articles non remis en stock'}${notePoints}${piece.motif ? ` ; motif : ${piece.motif}` : ''}${f.litige ? ' ; attention : un litige bancaire est ouvert sur cette commande' : ''}`);
       enregistrerCommande(f);   // scelle l'avoir partiel au journal
       try { integ.emettre(bid, 'commande.remboursement_partiel', { ...commandeApi(f, config.boutique.devise || 'CHF', { client: false }), avoir: piece.numero, montant: piece.montant / 100, lignesRendues: calcul.lignes.map(x => ({ nom: f.lignes[x.index].nom, qte: x.qte, montant: x.montant / 100 })) }); } catch (e) { journal.error('[webhook]', e.message); }
-      noterActivite(ctx.marchand.id, 'remboursement', `Retour partiel ${piece.numero} (commande n° ${f.numero}, ${formatMontant(piece.montant / 100, config)})`, ctx);
+      noterActivite(ctx.marchand.id, 'remboursement', `${calcul.geste ? 'Geste commercial' : 'Retour partiel'} ${piece.numero} (commande n° ${f.numero}, ${formatMontant(piece.montant / 100, config)})`, ctx);
       // Client prévenu (dans sa langue) : montant, articles, livraison, part recréditée sur la carte, numéro de l'avoir.
       if (f.client && f.client.email && !f.client.illisible) {
-        const lignes = calcul.lignes.map(x => `- ${x.qte} × ${f.lignes[x.index].nom} : ${formatMontant(x.montant / 100, config)}`).concat(piece.port ? [`- ${LIVRAISON_LIBELLE[EmailsClients.langueDe(f) || 'fr'] || 'Livraison'} : ${formatMontant(piece.port / 100, config)}`] : []).join('\n');
+        const GESTE = { fr: 'Geste commercial', de: 'Kulanzgutschrift', it: 'Gesto commerciale', en: 'Goodwill credit' };
+        const lignes = (calcul.geste ? [`- ${GESTE[EmailsClients.langueDe(f) || 'fr'] || GESTE.fr} : ${formatMontant(piece.montant / 100, config)}`] : calcul.lignes.map(x => `- ${x.qte} × ${f.lignes[x.index].nom} : ${formatMontant(x.montant / 100, config)}`)).concat(piece.port ? [`- ${LIVRAISON_LIBELLE[EmailsClients.langueDe(f) || 'fr'] || 'Livraison'} : ${formatMontant(piece.port / 100, config)}`] : []).join('\n');
         const o = { ...optionsEmail(ctx.boutique, f, config), montant: formatMontant(piece.montant / 100, config), lignes, carte: piece.carte ? formatMontant(piece.carte / 100, config) : '', manuel: mode === 'manuel', avoir: piece.numero };
         const m = EmailsClients.langueDe(f) ? EmailsClients.remboursementPartiel(f, o) : { sujet: `Remboursement partiel de votre commande n° ${f.numero}`, corps: `Bonjour ${f.client.nom},\n\nNous avons remboursé ${o.montant} :\n${lignes}${o.carte ? `\n\nDont ${o.carte} recrédités sur votre carte cadeau.` : ''}\n\n${o.manuel ? 'Le remboursement se fait selon les modalités convenues avec nous (par exemple par virement).' : 'Le montant revient sur votre moyen de paiement d’origine ; selon votre banque, comptez quelques jours.'} Référence de l’avoir : ${piece.numero}.\n\nVotre commande : ${o.lienCommande}\n\n${config.boutique.nom}` };
         envoyerEmail(bid, f.client.email, m.sujet, m.corps, { langue: f.langue });
@@ -1978,7 +1979,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const carte = c.carteCadeau && !c.carteCadeau.liberee ? Retours.cts(c.carteCadeau.montant) : 0;
       const argentPaye = p ? p.montant_centimes : Math.max(0, Retours.cts(c.total) - carte);
       const calcul = Retours.calculer(c, ctx.corps, { argentPaye });
-      if (c.refFournisseur && ['payee', 'preparation', 'fournisseur'].includes(c.statut) && calcul.lignes.some(x => c.lignes[x.index].type === 'drop') && !ctx.corps.fournisseurAnnule)
+      if (c.refFournisseur && ['payee', 'preparation', 'fournisseur'].includes(c.statut) && calcul.lignes.some(x => x.qte > 0 && c.lignes[x.index].type === 'drop') && !ctx.corps.fournisseurAnnule)
         throw erreur(409, `La partie fournisseur est déjà commandée (réf. ${c.refFournisseur}) : annulez ces articles chez le fournisseur d’abord, puis confirmez.`, 'fournisseur_a_annuler');
       return { p, calcul, mode: p && p.fournisseur === 'stripe' ? 'stripe' : p ? p.fournisseur : 'manuel', rang: (c.retoursPartiels || []).length + 1 };
     };
@@ -3516,8 +3517,9 @@ ${bloc}</main></body></html>`;
     try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
     try { alertesRetourStock(maintenant); } catch (e) { journal.error('[retour-stock]', e.message); }
     try { appliquerRecuperations(maintenant); } catch (e) { journal.error('[recuperation]', e.message); }
-    // Fidélité : points des comptes inactifs expirés (le solde affiché et les points en circulation restent justes).
-    for (const { boutique_id: bid } of db.prepare('SELECT boutique_id FROM fidelite_reglages').all()) { try { FID.expirer(bid, maintenant); } catch (e) { journal.error('[fidelite] expiration', e.message); } }
+    // Fidélité : points des comptes inactifs expirés, un lot de 1000 comptes par boutique et par passage (toutes les
+    // quelques minutes) ; boutiques supprimées exclues, programme en pause ignoré (dans expirer).
+    for (const { boutique_id: bid } of db.prepare('SELECT f.boutique_id FROM fidelite_reglages f JOIN boutiques b ON b.id = f.boutique_id').all()) { try { FID.expirer(bid, maintenant); } catch (e) { journal.error('[fidelite] expiration', e.message); } }
     // Clôture journalière du journal inaltérable (jours terminés), pour chaque boutique qui a des pièces.
     // (boutiques supprimées : leur journal est gardé pour l'archivage, mais plus clôturé)
     for (const { boutique_id: bid } of db.prepare('SELECT DISTINCT j.boutique_id FROM journal_inalterable j JOIN boutiques b ON b.id = j.boutique_id').all()) {

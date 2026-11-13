@@ -42,7 +42,11 @@ function creer(db, cle) {
   try { db.exec('ALTER TABLE fidelite_codes ADD COLUMN echecs INTEGER NOT NULL DEFAULT 0'); db.exec('ALTER TABLE fidelite_codes ADD COLUMN echecs_depuis INTEGER NOT NULL DEFAULT 0'); } catch { /* déjà là */ }
   const empreinte = (bid, email) => crypto.createHmac('sha256', cle).update(`fidelite:${bid}:${normEmail(email)}`).digest('hex');
   const hashCode = (bid, emp, code) => crypto.createHmac('sha256', cle).update(`code:${bid}:${emp}:${String(code)}`).digest();
-  db.exec('CREATE INDEX IF NOT EXISTS fidelite_comptes_actif ON fidelite_comptes (boutique_id, actif_le)');   // expiration en lot
+  // Expiration en lot : index partiel (seuls les comptes qui ont encore des points), donc léger même avec beaucoup de comptes expirés.
+  db.exec('DROP INDEX IF EXISTS fidelite_comptes_actif');
+  db.exec('CREATE INDEX IF NOT EXISTS fidelite_comptes_a_expirer ON fidelite_comptes (boutique_id, actif_le) WHERE points > 0');
+  // Mise à zéro + inscription au registre d'un seul tenant (point de sauvegarde : valable aussi dans une transaction en cours).
+  const avecPoint = fn => { db.exec('SAVEPOINT fidelite_exp'); try { const r = fn(); db.exec('RELEASE fidelite_exp'); return r; } catch (e) { db.exec('ROLLBACK TO fidelite_exp'); db.exec('RELEASE fidelite_exp'); throw e; } };
   const inscrire = (bid, emp, type, points, solde, commandeId, le) => db.prepare('INSERT INTO fidelite_mouvements (boutique_id, empreinte, le, type, points, solde, commande_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(bid, emp, le, type, points, solde, commandeId || null);
 
   const api = {
@@ -56,8 +60,7 @@ function creer(db, cle) {
       if (!r) return 0;
       const exp = api.reglages(bid).expirationMois;
       if (r.points > 0 && r.actif_le < maintenant - exp * 30.44 * 86400000) {
-        db.prepare('UPDATE fidelite_comptes SET points = 0 WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
-        inscrire(bid, emp, 'expiration', -r.points, 0, null, maintenant);
+        avecPoint(() => { db.prepare('UPDATE fidelite_comptes SET points = 0 WHERE boutique_id = ? AND empreinte = ?').run(bid, emp); inscrire(bid, emp, 'expiration', -r.points, 0, null, maintenant); });
         return 0;
       }
       return r.points;
@@ -109,23 +112,26 @@ function creer(db, cle) {
       db.prepare('DELETE FROM fidelite_codes WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
       db.prepare('DELETE FROM fidelite_mouvements WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
     },
-    /* Expiration de tous les comptes inactifs (maintenance quotidienne, et avant les statistiques) : sans elle, des points
-       déjà expirés compteraient encore dans les points en circulation. Renvoie le nombre de comptes remis à zéro. */
-    expirer(bid, maintenant = Date.now()) {
-      const limite = maintenant - api.reglages(bid).expirationMois * 30.44 * 86400000;
-      let n = 0;
-      for (const r of db.prepare('SELECT empreinte, points FROM fidelite_comptes WHERE boutique_id = ? AND points > 0 AND actif_le < ?').all(bid, limite)) {
-        const fait = db.prepare('UPDATE fidelite_comptes SET points = 0 WHERE boutique_id = ? AND empreinte = ? AND points = ? AND actif_le < ?').run(bid, r.empreinte, r.points, limite);
-        if (fait.changes) { inscrire(bid, r.empreinte, 'expiration', -r.points, 0, null, maintenant); n++; }
-      }
-      return n;
+    /* Expiration des comptes inactifs, par lots (maintenance) : un lot = une transaction, le serveur reste disponible même
+       pour une boutique de dizaines de milliers de clients. Programme en pause : rien n'expire (les clients ne pouvaient pas
+       gagner de points). Renvoie le nombre de comptes remis à zéro dans ce lot. */
+    expirer(bid, maintenant = Date.now(), { lot = 1000 } = {}) {
+      const reg = api.reglages(bid);
+      if (!reg.actif) return 0;
+      const limite = maintenant - reg.expirationMois * 30.44 * 86400000;
+      const comptes = db.prepare('SELECT empreinte, points FROM fidelite_comptes WHERE boutique_id = ? AND points > 0 AND actif_le < ? LIMIT ?').all(bid, limite, lot);
+      if (!comptes.length) return 0;
+      return avecPoint(() => {
+        for (const r of comptes) { db.prepare('UPDATE fidelite_comptes SET points = 0 WHERE boutique_id = ? AND empreinte = ?').run(bid, r.empreinte); inscrire(bid, r.empreinte, 'expiration', -r.points, 0, null, maintenant); }
+        return comptes.length;
+      });
     },
-    /* Points en circulation (engagement envers les clients), leur valeur, et ce qui expire dans les 30 jours sans achat. */
+    /* Points en circulation (engagement envers les clients), leur valeur, et ce qui expire dans les 30 jours sans achat.
+       Lecture seule : les comptes déjà expirés (pas encore remis à zéro par la maintenance) ne sont pas comptés. */
     stats(bid, maintenant = Date.now()) {
-      api.expirer(bid, maintenant);
-      const reg = api.reglages(bid), limite = maintenant - reg.expirationMois * 30.44 * 86400000;
-      const r = db.prepare('SELECT COUNT(*) membres, COALESCE(SUM(points), 0) points FROM fidelite_comptes WHERE boutique_id = ? AND points > 0').get(bid);
-      const b = db.prepare('SELECT COUNT(*) comptes, COALESCE(SUM(points), 0) points FROM fidelite_comptes WHERE boutique_id = ? AND points > 0 AND actif_le < ?').get(bid, limite + 30 * 86400000);
+      const reg = api.reglages(bid), limite = reg.actif ? maintenant - reg.expirationMois * 30.44 * 86400000 : 0;
+      const r = db.prepare('SELECT COUNT(*) membres, COALESCE(SUM(points), 0) points FROM fidelite_comptes WHERE boutique_id = ? AND points > 0 AND actif_le >= ?').get(bid, limite);
+      const b = reg.actif ? db.prepare('SELECT COUNT(*) comptes, COALESCE(SUM(points), 0) points FROM fidelite_comptes WHERE boutique_id = ? AND points > 0 AND actif_le >= ? AND actif_le < ?').get(bid, limite, limite + 30 * 86400000) : { comptes: 0, points: 0 };
       const m = db.prepare("SELECT type, COALESCE(SUM(points), 0) s FROM fidelite_mouvements WHERE boutique_id = ? AND le > ? GROUP BY type").all(bid, maintenant - 30 * 86400000);
       return { membres: r.membres, points: r.points, valeur: api.valeur(reg, r.points), bientot: { comptes: b.comptes, points: b.points }, trenteJours: Object.fromEntries(m.map(x => [x.type, x.s])) };
     },

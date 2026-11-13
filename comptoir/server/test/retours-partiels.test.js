@@ -22,16 +22,26 @@ test('calcul : lignes au centime (prix déjà remisés, même fractionnaires), s
       const d = R.deja(c), restants = lignes.map((l, i) => l.qte - d.qte[i]);
       if (restants.reduce((a, b) => a + b, 0) <= 1) break;
       const i = restants.findIndex(q => q > 0);
-      const r = R.calculer(c, { lignes: [{ index: i, qte: 1 }], port: c.retoursPartiels.length === 1 }, { argentPaye: Math.round(c.total * 100) });
-      c.retoursPartiels.push({ numero: `AV-${c.retoursPartiels.length}`, date: 0, ...r });
+      // De temps en temps, un geste commercial entre deux retours.
+      if (hasard(4) === 0) {
+        const valeur = R.netsLignes(c).reduce((a, n, k) => a + (restants[k] > 0 ? n - d.montant[k] : 0), 0);
+        if (valeur > 2) { const g = R.calculer(c, { geste: (1 + hasard(Math.floor(valeur / 2))) / 100 }, { argentPaye: Math.round(c.total * 100) }); assert.equal(g.lignes.reduce((a, x) => a + x.montant, 0), g.montant); c.retoursPartiels.push({ numero: `AV-G${c.retoursPartiels.length}`, date: c.retoursPartiels.length, geste: true, ...g }); continue; }
+      }
+      let r;
+      try { r = R.calculer(c, { lignes: [{ index: i, qte: 1 }], port: c.retoursPartiels.length === 1 }, { argentPaye: Math.round(c.total * 100) }); }
+      catch (e) { if (e.code === 'montant_nul') break; throw e; }   // valeur déjà rendue par un geste : on clôt par l'avoir final
+      assert.ok(r.montant > 0);
+      c.retoursPartiels.push({ numero: `AV-${c.retoursPartiels.length}`, date: c.retoursPartiels.length, ...r });
     }
     const somme = c.retoursPartiels.reduce((a, p) => a + p.montant, 0) + R.resteAvoir(c);
     assert.equal(somme, Math.round(c.total * 100), 'avoirs partiels + avoir final = facture');
     assert.ok(R.resteAvoir(c) >= 0);
     // La vue de l'avoir final : articles restants + livraison restante = total (à l'arrondi des fractions de centime près).
     const v = R.vueReste({ ...c, avoir: { numero: 'AV-F', date: 0, montant: R.resteAvoir(c) / 100 } });
-    assert.ok(Math.abs(Math.round((v.sousTotal + v.port) * 100) - Math.round(v.total * 100)) <= lignes.length, `${v.sousTotal} + ${v.port} ≈ ${v.total}`);
-    assert.equal(v.remise, 0); assert.equal(v.retoursPartiels, undefined);
+    // (après un geste commercial, l'écart est une remise nommée « Geste commercial déjà accordé »)
+    assert.ok(Math.abs(Math.round((v.sousTotal - v.remise + v.port) * 100) - Math.round(v.total * 100)) <= lignes.length, `${v.sousTotal} − ${v.remise} + ${v.port} ≈ ${v.total}`);
+    assert.ok(v.remise >= 0); assert.equal(v.retoursPartiels, undefined);
+    if (!c.retoursPartiels.some(p => p.geste)) assert.equal(v.remise, 0);
   }
 });
 
@@ -278,4 +288,39 @@ test('facture QR annulée avant paiement : le PDF dit de ne pas payer, sans mont
   try { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'qr-')); const f = path.join(d, 'a.pdf'); fs.writeFileSync(f, pdf); texte = execFileSync('pdftotext', [f, '-']).toString(); fs.rmSync(d, { recursive: true, force: true }); } catch { return; }
   assert.doesNotMatch(texte, /Montant à payer|IBAN/);
   assert.match(texte, /Facture annulée par l’avoir AV-2026-0002 : ne la payez pas\./);
+});
+
+test('geste commercial : avoir sans retour d’article, puis retour et remboursement du reste ; documents et journal cohérents', async () => {
+  const { db, s, appel, slug, produits: [vase, bougie] } = await boutique();
+  try {
+    const cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: vase, qte: 2 }, { produitId: bougie, qte: 1 }], livraison: 'colissimo', client }, false);
+    await appel('POST', `/paiement-simule/${cmd.json.paiementUrl.split('/').pop()}/confirmer`, null, false);
+    const id = cmd.json.commandeId, base = `/api/admin/commandes/${id}/retour-partiel`;
+    const stockVase = stock(db, vase);
+    assert.equal((await retourner(appel, base, { geste: 0 })).statut, 400);
+    assert.equal((await retourner(appel, base, { geste: 10000 })).json.code, 'depasse');
+    const g = await retourner(appel, base, { geste: 10, motif: 'Livraison en retard' });
+    assert.equal(g.statut, 200, JSON.stringify(g.json));
+    let c = lire(db, id);
+    assert.equal(c.retoursPartiels[0].geste, true); assert.equal(c.retoursPartiels[0].montant, 1000);
+    assert.equal(stock(db, vase), stockVase, 'pas de mouvement de stock');
+    assert.match(c.historique.at(-1).texte, /Geste commercial AV-.*Livraison en retard/);
+    const xml = await appel('GET', `/api/admin/commandes/${id}/facture-electronique?avoir=${g.json.avoir}`);
+    assert.equal(xml.statut, 200, xml.texte); assert.match(xml.texte, /Geste commercial : Vase/); assert.match(xml.texte, /<ram:GrandTotalAmount>10\.00<\/ram:GrandTotalAmount>/);
+    // Un vase rendu ensuite : remboursé de sa valeur restante (moins sa part du geste).
+    const nets = R.netsLignes(c), partVase = c.retoursPartiels[0].lignes.find(x => x.index === 0).montant;
+    const r1 = await retourner(appel, base, { lignes: [{ index: 0, qte: 1 }] });
+    assert.equal(r1.statut, 200, JSON.stringify(r1.json));
+    c = lire(db, id);
+    assert.equal(c.retoursPartiels[1].montant, Math.round((nets[0] - partVase) / 2));
+    const xr = await appel('GET', `/api/admin/commandes/${id}/facture-electronique?avoir=${r1.json.avoir}`);
+    assert.equal(xr.statut, 200, xr.texte); assert.match(xr.texte, /Geste commercial déjà accordé/);
+    assert.equal((await appel('POST', `/api/admin/commandes/${id}/statut`, { statut: 'remboursee' })).statut, 200);
+    c = lire(db, id);
+    assert.equal(c.retoursPartiels.reduce((a, p) => a + p.montant, 0) + Math.round(c.avoir.montant * 100), Math.round(c.total * 100), 'avoirs = facture');
+    const xf = await appel('GET', `/api/admin/commandes/${id}/facture-electronique?avoir=1`);
+    assert.equal(xf.statut, 200, xf.texte);
+    const v = (await appel('POST', '/api/admin/journal-inalterable/verifier', {})).json;
+    assert.equal(v.ok, true, JSON.stringify(v.anomalies));
+  } finally { s.close(); }
 });
