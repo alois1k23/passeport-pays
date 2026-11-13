@@ -4,6 +4,8 @@ const crypto = require('node:crypto');
 const { erreur } = require('./http');
 
 const DUREE_SESSION = 30 * 24 * 3600 * 1000;
+// Durée de vie absolue d'une session, même utilisée chaque jour : un cookie volé ne vit pas indéfiniment.
+const DUREE_SESSION_MAX = 90 * 24 * 3600 * 1000;
 const COOKIE = 'comptoir_session';
 
 // scrypt asynchrone : un calcul (≈ 50 ms) ne bloque pas les autres requêtes pendant ce temps.
@@ -47,12 +49,13 @@ function cookieSession(jeton, securise) {
 function marchandDepuisRequete(db, cookies) {
   const jeton = cookies[COOKIE];
   if (!jeton) return null;
-  const s = db.prepare('SELECT marchand_id, expire_le FROM sessions WHERE jeton_hash = ?').get(sha256(jeton));
+  const s = db.prepare('SELECT marchand_id, expire_le, cree_le FROM sessions WHERE jeton_hash = ?').get(sha256(jeton));
   if (!s || s.expire_le < Date.now()) return null;
+  if (s.cree_le && Date.now() - s.cree_le > DUREE_SESSION_MAX) { db.prepare('DELETE FROM sessions WHERE jeton_hash = ?').run(sha256(jeton)); return null; }
   const m = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(s.marchand_id) || null;
   // Session glissante : un marchand qui utilise son espace n'est pas déconnecté au bout de 30 jours ;
   // passé la moitié de sa durée, elle repart pour 30 jours (le cookie est renouvelé par l'appelant).
-  if (m && s.expire_le - Date.now() < DUREE_SESSION / 2) {
+  if (m && s.expire_le - Date.now() < DUREE_SESSION / 2 && (!s.cree_le || Date.now() - s.cree_le < DUREE_SESSION_MAX - DUREE_SESSION / 2)) {
     db.prepare('UPDATE sessions SET expire_le = ? WHERE jeton_hash = ?').run(Date.now() + DUREE_SESSION, sha256(jeton));
     m.cookieRenouvele = jeton;
   }
@@ -177,4 +180,4 @@ function limiter(cle, max, fenetreMs, message) {
   if (e.n > max) throw erreur(429, message, 'trop_de_requetes');
 }
 
-module.exports = { persisterLimites, ecrireLimites, compteEchecs, essayerMotDePasse, egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, blocReseau, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };
+module.exports = { DUREE_SESSION_MAX, persisterLimites, ecrireLimites, compteEchecs, essayerMotDePasse, egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, blocReseau, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };

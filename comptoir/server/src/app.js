@@ -473,7 +473,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     etatSecurite.secrets2faIllisibles = illisibles;
     if (illisibles) journal.error(`[securite] ATTENTION : ${illisibles} secret(s) de double authentification illisible(s) avec les clés connues. Une ancienne clé manque-t-elle dans SECRET_CHIFFREMENT_ANCIENNES ?`);
   }
-  for (const sql of ['ALTER TABLE sessions ADD COLUMN cree_le INTEGER', 'ALTER TABLE sessions ADD COLUMN vu_le INTEGER', 'ALTER TABLE sessions ADD COLUMN appareil TEXT', 'ALTER TABLE sessions ADD COLUMN reseau TEXT', 'ALTER TABLE sessions ADD COLUMN cle_acces TEXT']) { try { db.exec(sql); } catch { /* déjà là */ } }
+  for (const sql of ['ALTER TABLE sessions ADD COLUMN cree_le INTEGER', 'ALTER TABLE sessions ADD COLUMN vu_le INTEGER', 'ALTER TABLE sessions ADD COLUMN appareil TEXT', 'ALTER TABLE sessions ADD COLUMN reseau TEXT', 'ALTER TABLE sessions ADD COLUMN cle_acces TEXT', 'ALTER TABLE sessions ADD COLUMN identite_le INTEGER']) { try { db.exec(sql); } catch { /* déjà là */ } }
+  // Sessions d'avant la durée de vie absolue : elle court à partir d'aujourd'hui (pas de déconnexion surprise).
+  db.prepare('UPDATE sessions SET cree_le = ? WHERE cree_le IS NULL').run(Date.now());
   // Description sobre de l'appareil (navigateur et système), sans empreinte détaillée.
   const decrireAppareil = ua => {
     const u = String(ua || '');
@@ -1101,7 +1103,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const acces = m && accesDe(m.id), b = acces && acces.boutique;
     const df = m && deuxFacteursDe(m.id);
     const protege = !!m && (!!(df && df.actif) || cleSeule(m.id));   // une clé d'accès seule (sans « exiger ») laisse la connexion par mot de passe ouverte
-    return { connecte: !!m, email: m ? m.email : null, emailVerifie: m ? emailVerifie(m.id) : null, slug: b ? b.slug : null, role: acces ? acces.role : null, compteProtege: protege, recuperationEnAttente: m ? recuperationEnAttente(m.id) : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
+    return { connecte: !!m, email: m ? m.email : null, emailVerifie: m ? emailVerifie(m.id) : null, deuxFacteurs: !!(df && df.actif), slug: b ? b.slug : null, role: acces ? acces.role : null, compteProtege: protege, recuperationEnAttente: m ? recuperationEnAttente(m.id) : null, paiement: paiement.nom, fournisseurDemoVendable, socialSimule, hebergeur: env.HEBERGEUR || null, emails: serviceEmail ? serviceEmail.nom : null, abonnement: m ? abo.etat(b ? b.marchand_id : m.id) : null };
   });
   r.post('/api/auth/inscription', async ctx => {
     auth.limiterConnexion(ctx.ip, Number(env.LIMITE_ESSAIS) || 10);
@@ -1443,6 +1445,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     roles: ROLES
   }));
   r.post('/api/admin/equipe/inviter', exigerProprietaire, ctx => {
+    exigerIdentite(ctx);
     const email = valider.email(ctx.corps.email).toLowerCase(), role = String(ctx.corps.role || '');
     if (!ROLES[role]) throw erreur(400, 'Rôle inconnu.', 'role');
     exigerEmailVerifie(ctx, 'inviter votre équipe');
@@ -1849,6 +1852,28 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     noterActivite(m.id, '2fa-desactivee', null, ctx);
     envoyerEmail(null, m.email, 'Double authentification désactivée', `Bonjour,\n\nLa double authentification vient d’être désactivée sur votre compte Comptoir.\n\nCe n’était pas vous ? Changez votre mot de passe tout de suite et réactivez-la : ${urlPublique}/app\n\nL’équipe Comptoir`);
     return { ok: true };
+  });
+  /* Identité confirmée récemment (« mode sécurisé ») : les actions qui ouvrent un accès durable aux données (clé d'API,
+     webhook, membre d'équipe) demandent une connexion ou une confirmation de moins de 15 minutes (l'export complet
+     redemande déjà mot de passe et code à chaque fois). Une
+     session volée (cookie copié) ne suffit donc pas à exfiltrer les données de la boutique sans le mot de passe. */
+  const IDENTITE_DUREE = 15 * 60000;
+  const sessionDe = ctx => db.prepare('SELECT cree_le, identite_le FROM sessions WHERE jeton_hash = ?').get(auth.sha256(String(ctx.cookies[auth.COOKIE] || ''))) || {};
+  const identiteRecente = ctx => { const s0 = sessionDe(ctx); return Math.max(s0.cree_le || 0, s0.identite_le || 0) > Date.now() - IDENTITE_DUREE; };
+  const exigerIdentite = ctx => { if (!identiteRecente(ctx)) throw erreur(403, 'Confirmez votre identité pour continuer (mot de passe, et code si la double authentification est active).', 'identite_a_confirmer'); };
+  r.post('/api/admin/compte/confirmer-identite', exigerCompte, async ctx => {
+    const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    // Compte qui n'accepte que sa clé d'accès : le mot de passe ne suffit pas ; il se reconnecte avec sa clé.
+    if (m.cle_seule) throw erreur(403, 'Votre compte n’accepte que votre clé d’accès : reconnectez-vous avec elle pour continuer.', 'cle_seule');
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    const df = deuxFacteursDe(m.id);
+    if (df && df.actif) {
+      auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
+      if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
+    }
+    db.prepare('UPDATE sessions SET identite_le = ? WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
+    noterActivite(m.id, 'identite-confirmee', null, ctx);
+    return { ok: true, valableJusqua: new Date(Date.now() + IDENTITE_DUREE).toISOString() };
   });
   r.post('/api/admin/compte/deconnecter-autres', exigerCompte, ctx => {
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
@@ -3369,11 +3394,12 @@ ${bloc}</main></body></html>`;
   });
   /* ---------- Intégrations : gestion (espace marchand, formule Croissance) ---------- */
   r.get('/api/admin/integrations', exigerMarchand, ctx => ({ inclus: apiPermise(ctx.boutique.id), cles: integ.listerCles(ctx.boutique.id), webhooks: integ.listerWebhooks(ctx.boutique.id), portees: integ.PORTEES, evenements: integ.EVENEMENTS, base: `${urlPublique}/api/v1` }));
-  r.post('/api/admin/integrations/cles', exigerFonction('api'), ctx => { const r2 = integ.creerCle(ctx.boutique.id, ctx.corps); noterActivite(ctx.marchand.id, 'cle-api', String(ctx.corps.nom || '').slice(0, 60), ctx); return { statut: 201, corps: r2 }; });
+  r.post('/api/admin/integrations/cles', exigerFonction('api'), ctx => { exigerIdentite(ctx); const r2 = integ.creerCle(ctx.boutique.id, ctx.corps); noterActivite(ctx.marchand.id, 'cle-api', String(ctx.corps.nom || '').slice(0, 60), ctx); return { statut: 201, corps: r2 }; });
   r.post('/api/admin/integrations/cles/:id/revoquer', exigerMarchand, ctx => { if (!integ.revoquerCle(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Clé inconnue.', 'introuvable'); noterActivite(ctx.marchand.id, 'cle-api-revoquee', null, ctx); return { ok: true }; });
-  r.post('/api/admin/integrations/webhooks', exigerFonction('api'), async ctx => ({ statut: 201, corps: await integ.creerWebhook(ctx.boutique.id, ctx.corps) }));
+  r.post('/api/admin/integrations/webhooks', exigerFonction('api'), async ctx => (exigerIdentite(ctx), { statut: 201, corps: await integ.creerWebhook(ctx.boutique.id, ctx.corps) }));
   r.post('/api/admin/integrations/webhooks/:id/supprimer', exigerMarchand, ctx => { if (!integ.supprimerWebhook(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Webhook inconnu.', 'introuvable'); return { ok: true }; });
   r.post('/api/admin/integrations/webhooks/:id/secret', exigerFonction('api'), ctx => {
+    exigerIdentite(ctx);
     const r2 = integ.renouvelerSecret(ctx.boutique.id, ctx.params.id); if (!r2) throw erreur(404, 'Webhook inconnu.', 'introuvable');
     noterActivite(ctx.marchand.id, 'secret-webhook', r2.id, ctx);
     return r2;

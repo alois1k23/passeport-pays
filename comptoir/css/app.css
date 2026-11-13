@@ -1459,3 +1459,11 @@ details.en-ligne form { margin-top: 6px; }
 .emplacements summary h2 { display: inline; }
 .tableau-defilant { overflow-x: auto; }
 .detail h2[tabindex="-1"]:focus, .detail h3[tabindex="-1"]:focus { outline: 2px solid var(--accent, #2b59c3); outline-offset: 3px; border-radius: 4px; }
+
+/* Confirmation d'identité (action sensible) : fenêtre native, centrée, lisible en mode sombre. */
+.dialogue-identite { border: 1px solid var(--line); border-radius: var(--r, 10px); background: var(--surface); color: var(--ink); padding: 20px; width: min(420px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
+.dialogue-identite::backdrop { background: rgba(13, 16, 22, .45); }
+.dialogue-identite h2 { margin: 0 0 6px; font-size: 1.125rem; }
+.dialogue-identite .pile { display: grid; gap: 12px; }
+.dialogue-identite input { width: 100%; }
+.dialogue-identite .erreur { color: var(--bad, #b42318); margin: 0; }

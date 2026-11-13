@@ -6,7 +6,7 @@
 
 const SERVEUR = { actif: false, connecte: false, email: null, slug: null, paiement: null };
 
-async function api(methode, chemin, corps) {
+async function api(methode, chemin, corps, { deja = false } = {}) {
   const rep = await fetch(chemin, {
     method: methode, credentials: 'same-origin',
     headers: corps ? { 'Content-Type': 'application/json' } : {},
@@ -16,7 +16,12 @@ async function api(methode, chemin, corps) {
   const json = texte ? JSON.parse(texte) : {};
   // Abonnement échu pendant la session : retour à l'écran de paiement.
   if (rep.status === 402 && SERVEUR.connecte && !SERVEUR.lectureSeule && !chemin.startsWith('/api/abonnement')) { location.reload(); }
-  if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; throw e; }
+  // Action sensible (clé d'API, webhook, équipe, export) : identité à confirmer, puis la même requête repart une fois.
+  if (rep.status === 403 && json.code === 'identite_a_confirmer' && !deja) {
+    if (await confirmerIdentite()) return api(methode, chemin, corps, { deja: true });
+    const e = new Error('Action annulée : identité non confirmée.'); e.statut = 403; throw e;
+  }
+  if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; e.code = json.code; throw e; }
   // Le serveur répond de nouveau : une modification restée en échec part tout de suite.
   if (typeof ENREGISTREMENT !== 'undefined' && ENREGISTREMENT.echecs && !ENREGISTREMENT.enCours && chemin !== '/api/admin/config') setTimeout(envoyerConfig, 0);
   return json;
@@ -164,6 +169,41 @@ function modeHorsEspace() {
   document.body.classList.add('hors-espace');
   const fil = document.getElementById('fil');
   if (fil) { fil.innerHTML = '<a class="marque-retour" href="/">← Comptoir</a>'; }
+}
+
+/* Confirmation d'identité (mot de passe, et code si la double authentification est active) dans une fenêtre native
+   <dialog> : focus gardé dans la fenêtre, Échap annule, le focus revient à l'élément d'origine. Résout true si confirmée. */
+function confirmerIdentite() {
+  return new Promise(resoudre => {
+    const retour = document.activeElement;
+    const d = document.createElement('dialog');
+    d.className = 'dialogue-identite'; d.setAttribute('aria-labelledby', 'identite-titre');
+    d.innerHTML = `<form method="dialog" class="pile">
+      <h2 id="identite-titre">Confirmez votre identité</h2>
+      <p class="sous">Cette action donne un accès durable aux données de votre boutique. Elle demande votre mot de passe${SERVEUR.deuxFacteurs ? ' et un code de votre application d’authentification' : ''} (valable 15 minutes).</p>
+      <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" autocomplete="current-password" required></label>
+      ${SERVEUR.deuxFacteurs ? '<label class="champ"><span>Code de vérification (ou code de secours)</span><input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>' : ''}
+      <p class="erreur" role="alert" hidden></p>
+      <div class="rangee"><button class="btn" value="ok">Confirmer</button><button class="btn fantome" type="button" data-annuler>Annuler</button></div>
+    </form>`;
+    document.body.appendChild(d);
+    const fin = ok => { d.close(); d.remove(); if (retour && document.contains(retour)) retour.focus(); resoudre(ok); };
+    d.querySelector('[data-annuler]').addEventListener('click', () => fin(false));
+    d.addEventListener('cancel', e => { e.preventDefault(); fin(false); });
+    d.querySelector('form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = new FormData(e.target), err = d.querySelector('.erreur'), bouton = d.querySelector('[value="ok"]');
+      bouton.disabled = true;
+      try {
+        const rep = await fetch('/api/admin/compte/confirmer-identite', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motDePasse: f.get('motDePasse'), code: f.get('code') || undefined }) });
+        const json = await rep.json().catch(() => ({}));
+        if (!rep.ok) throw new Error(json.erreur || `Erreur ${rep.status}`);
+        fin(true);
+      } catch (x) { err.textContent = x.message; err.hidden = false; bouton.disabled = false; d.querySelector('input').focus(); }
+    });
+    d.showModal();
+    d.querySelector('input').focus();
+  });
 }
 
 /* ---------- Connexion et inscription ---------- */
