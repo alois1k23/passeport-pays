@@ -46,6 +46,43 @@ const note = (q, d = '') => problemes.push(`${q}${d ? ` : ${d}` : ''}`);
     await p.evaluate(() => document.activeElement && document.activeElement.blur());
     f = await tab(x => x.action === 'devis-nouveau', 200, 'bouton Nouveau devis');
     if (f) { await p.keyboard.press('Enter'); await p.waitForTimeout(400); const g = await focus(); if (!g || g.dataset.dv !== 'client.raison') note('focus pas sur le premier champ du devis', JSON.stringify(g)); else etapes.push('nouveau devis : focus sur « Raison sociale »'); }
+    // Retour partiel et geste commercial, au clavier : ouverture, calcul, confirmation, focus à chaque étape.
+    const cmd = await p.evaluate(async () => {
+      const j = (m, u, b) => fetch(u, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined }).then(r => r.json());
+      const e = await j('GET', '/api/admin/etat');
+      const c = await j('POST', `/api/public/${e.serveur.slug}/commandes`, { lignes: [{ produitId: e.produits[0].id, qte: 2 }], livraison: 'poste-eco', client: { nom: 'Lou', email: 'lou@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } });
+      await fetch(c.paiementUrl.replace(/^https?:\/\/[^/]+/, '') + '/confirmer', { method: 'POST', redirect: 'manual' });
+      return c;
+    });
+    await p.goto(B + '/app?v=5#commandes'); await p.waitForTimeout(1500);
+    await p.evaluate(() => document.activeElement && document.activeElement.blur());
+    f = await tab(x => x.action === 'ouvrir-commande' && x.dataset.id === cmd.commandeId, 200, 'commande payée à rembourser');
+    if (f) {
+      await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+      f = await tab(x => x.action === 'retour-partiel-ouvrir' && !x.dataset.mode, 80, 'bouton Retour partiel');
+      if (f) {
+        await p.keyboard.press('Enter'); await p.waitForTimeout(300);
+        let g = await focus();
+        if (!g || g.tag !== 'input') note('retour partiel : focus pas sur la première quantité', JSON.stringify(g)); else etapes.push('retour partiel : focus sur la première quantité');
+        await p.keyboard.press('Control+A'); await p.keyboard.type('1');
+        f = await tab(x => x.tag === 'button' && /Calculer/.test(x.texte), 20, 'bouton Calculer');
+        if (f) {
+          await p.keyboard.press('Enter'); await p.waitForTimeout(600); g = await focus();
+          if (!g || !/^Rembourser/.test(g.texte)) note('retour partiel : focus pas sur la confirmation après le calcul', JSON.stringify(g));
+          else { etapes.push(`retour partiel : focus sur « ${g.texte} »`); await p.keyboard.press('Enter'); await p.waitForTimeout(1200); const t = await p.locator('#toast').innerText().catch(() => ''); if (!/Retour partiel remboursé/.test(t)) note('retour partiel au clavier', t); else etapes.push('retour partiel confirmé au clavier'); const apres = await focus(); if (!apres) note('retour partiel : focus perdu après la confirmation'); else etapes.push(`après confirmation, focus sur « ${String(apres.texte).slice(0, 40)} »`); }
+        }
+      }
+      // Geste commercial : ouverture, puis Annuler rend le focus au bouton du geste.
+      await p.evaluate(() => document.activeElement && document.activeElement.blur());
+      if (!(await p.locator('[data-action="retour-partiel-ouvrir"][data-mode="geste"]').count())) { await p.locator(`[data-action="ouvrir-commande"][data-id="${cmd.commandeId}"]`).first().click(); await p.waitForTimeout(400); await p.evaluate(() => document.activeElement && document.activeElement.blur()); }
+      f = await tab(x => x.action === 'retour-partiel-ouvrir' && x.dataset.mode === 'geste', 120, 'bouton Geste commercial');
+      if (f) {
+        await p.keyboard.press('Enter'); await p.waitForTimeout(300);
+        const g = await focus(); if (!g || g.tag !== 'input') note('geste : focus pas sur le montant', JSON.stringify(g)); else etapes.push('geste : focus sur le montant');
+        f = await tab(x => x.action === 'retour-partiel-fermer', 20, 'bouton Annuler du geste');
+        if (f) { await p.keyboard.press('Enter'); await p.waitForTimeout(300); const h = await focus(); if (!h || h.dataset.mode !== 'geste') note('geste : focus pas rendu au bouton du geste après Annuler', JSON.stringify(h)); else etapes.push('geste : Annuler rend le focus au bouton'); }
+      }
+    }
   } finally { await br.close(); srv.kill(); for (const x of [base, base + '-wal', base + '-shm']) fs.rmSync(x, { force: true }); }
   console.log(JSON.stringify({ etapes, problemes: [...new Set(problemes)], erreursJs: erreurs }, null, 1));
   process.exit(problemes.length || erreurs.length ? 1 : 0);

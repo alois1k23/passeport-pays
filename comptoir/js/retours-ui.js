@@ -15,7 +15,7 @@ function blocRetoursPartiels(c) {
   const propose = i => r && !r.initial ? (r.saisie.lignes.find(x => x.index === i) || { qte: 0 }).qte
     : c.retour && c.retour.statut === 'demande' ? Math.min(c.lignes[i].qte - deja[i], ((c.retour.lignes || []).find(x => x.ligne === i) || { qte: 0 }).qte) : 0;
   const total = pieces.reduce((a, p) => a + p.montant, 0) / 100;
-  return `<div class="bloc retours-partiels"><h3>Retours partiels</h3>
+  return `<div class="bloc retours-partiels"><h3 tabindex="-1" data-titre-retours>Retours partiels</h3>
     ${pieces.length ? `<ul class="sous">${pieces.map(p => `<li>${p.numero ? `<b>${esc(p.numero)}</b>` : '<b>Sans avoir</b>'} · ${new Date(p.date).toLocaleDateString('fr-CH')} · ${euros(p.montant / 100)} : ${p.geste ? 'geste commercial' : p.lignes.map(x => `${x.qte} × ${esc(c.lignes[x.index].nom)}`).join(', ')}${p.port ? `${p.lignes.length ? ', ' : ''}livraison` : ''}${p.carte ? ` (dont ${euros(p.carte / 100)} sur la carte cadeau)` : ''}${p.mode === 'manuel' && p.argent ? ' · à rendre par vos soins' : ''}${p.stock || p.geste ? '' : ' · non remis en stock'}
       ${p.numero ? `<button class="btn petit fantome" data-action="facture-xml" data-format="pdf" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en PDF Factur-X">PDF</button><button class="btn petit fantome" data-action="facture-xml" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en XML EN 16931">XML</button>` : ''}</li>`).join('')}</ul>
       <p class="sous">Total remboursé : ${euros(total)} sur ${euros(c.total)}.</p>` : ''}
@@ -78,6 +78,8 @@ document.addEventListener('submit', async e => {
       const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(id)}/retour-partiel`, { ...saisie, attendu: vu ? { rang: vu.rang, montant: vu.montant } : null });
       ui.retourPartiel = null;
       await rafraichir(r.avoir ? `${saisie.geste ? 'Geste commercial' : 'Retour partiel'} remboursé : avoir ${r.avoir} émis, client prévenu.` : 'Retour enregistré sans remboursement (valeur déjà rendue par un geste commercial).');
+      // Le détail est redessiné : le focus va au titre « Retours partiels », juste au-dessus du nouvel avoir.
+      const titre = document.querySelector('[data-titre-retours]'); if (titre) titre.focus();
       return;
     }
   } catch (err) { ui.retourPartiel.erreur = err.message; }
@@ -91,6 +93,6 @@ document.addEventListener('submit', async e => {
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action="retour-partiel-terminer"]'); if (!el) return;
   el.disabled = true;
-  try { const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/retour-partiel`, { reprendre: true }); await rafraichir(`Retour partiel terminé : avoir ${r.avoir} émis.`); }
+  try { const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/retour-partiel`, { reprendre: true }); await rafraichir(`Retour partiel terminé : avoir ${r.avoir} émis.`); const t = document.querySelector('[data-titre-retours]'); if (t) t.focus(); }
   catch (err) { toast(err.message); el.disabled = false; }
 });

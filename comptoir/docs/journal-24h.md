@@ -636,3 +636,11 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - les unités déjà rendues, par ligne.
 - Un logiciel comptable ou un ERP peut ainsi rapprocher chaque remboursement de sa pièce. Documenté dans `docs/API.md`, y compris le champ `geste` du webhook `commande.remboursement_partiel`.
 - 1 nouveau test, par une vraie clé d'API : 173 tests sur 173.
+
+### Cycle 38 (04 h 45) : retour partiel et geste commercial au clavier (chantier 29)
+
+- L'audit au clavier de l'espace marchand (`outils/simulation/clavier-marchand.js`) couvre maintenant :
+  - le retour partiel : ouverture, quantité, « Calculer », confirmation ;
+  - le geste commercial : ouverture, puis « Annuler ».
+- **Défaut trouvé** : après la confirmation d'un retour, le détail était redessiné et le focus perdu ; un utilisateur de lecteur d'écran repartait du haut de la page. Le focus va désormais au titre « Retours partiels », juste au-dessus du nouvel avoir, avec un contour visible.
+- Audit : toutes les étapes passent, aucune erreur JavaScript. 173 tests sur 173.
