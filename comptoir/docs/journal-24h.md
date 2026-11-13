@@ -28,6 +28,14 @@ Ordre de priorité : la sécurité d'abord, puis ce qui démarque Comptoir des a
 
 La feuille de route peut évoluer selon les constats des relectures.
 
+**Deuxième phase** (la première feuille de route est terminée le 13 novembre vers 1 h 50) :
+
+11. **Chiffrement des autres données personnelles** : coordonnées des clients professionnels dans les devis, file d'envoi des webhooks.
+12. **Audit de sécurité global** : relecture adversariale de tout le serveur (comptes et sessions, en-têtes, entrées, accès entre boutiques, intégrations), puis corrections.
+13. **Vente de cartes cadeaux en ligne**, par le client lui-même, dans la boutique.
+14. **Espace marchand au clavier** : caisse, commandes, devis.
+15. **E-mails des nouveautés dans les langues de la boutique** (fidélité, cartes cadeaux, devis).
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
