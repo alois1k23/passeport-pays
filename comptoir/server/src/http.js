@@ -51,7 +51,9 @@ function lireCorps(req, limite = 2 * 1024 * 1024) {
       morceaux.push(c);
     });
     req.on('end', () => ok(Buffer.concat(morceaux)));
-    req.on('error', ko);
+    // Client parti en cours d'envoi : requête incomplète (400), pas une erreur du serveur.
+    req.on('error', e => ko(e && (e.code === 'ECONNRESET' || e.message === 'aborted') ? erreur(400, 'Requête interrompue.', 'interrompue') : e));
+    req.on('aborted', () => ko(erreur(400, 'Requête interrompue.', 'interrompue')));
   });
 }
 

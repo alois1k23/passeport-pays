@@ -2,6 +2,7 @@
 // transmission aux fournisseurs, e-mails, pages publiques.
 'use strict';
 const crypto = require('node:crypto');
+const zlib = require('node:zlib');
 const dns = require('node:dns').promises;
 const fs = require('node:fs');
 const path = require('node:path');
@@ -526,7 +527,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       pied = `\n\n—\n${identite}${lien ? `\n${tp ? (motif === 'commande' ? tp.commande : tp.nouvelles)(conf.boutique.nom) : motif === 'commande' ? `Vous recevez cet e-mail à la suite de votre commande chez ${conf.boutique.nom}. Pour ne plus recevoir ce type de message` : `Vous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir`} : ${lien}` : ''}`;
     }
     const insere = db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
-    if (env.LOG_EMAILS) journal.log(`[e-mail] à ${courriel.masquerAdresses(destinataire)} : ${courriel.masquerAdresses(sujet)}`);   // (débogage ; adresses masquées)
+    if (env.LOG_EMAILS) journal.log(`[e-mail] à ${courriel.masquerAdresses(destinataire)} (boutique ${boutiqueId || '-'})`);   // (débogage ; ni adresse en clair ni sujet, qui peut porter un prénom)
     return Number(insere.lastInsertRowid);
   };
   const formateurs = new Map();   // Intl.NumberFormat est coûteux à créer : un par devise, gardé
@@ -1719,9 +1720,24 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   });
 
   /* ---------- Administration ---------- */
-  r.get('/api/admin/etat', exigerMarchand, ctx => {
+  /* État complet de l'espace marchand. Les commandes en sont l'essentiel (des milliers) : le JSON de chacune est gardé en
+     mémoire, repéré par l'empreinte de sa ligne en base. Une commande inchangée n'est ni relue, ni déchiffrée, ni
+     resérialisée (10 000 commandes : environ 0,7 s de calcul bloquant auparavant, à chaque ouverture de l'espace). */
+  const JSON_COMMANDES = new Map(), JSON_COMMANDES_MAX = 30000;
+  const jsonCommande = row => {
+    const cle = `${row.statut}|${row.numero}|${row.date}|${crypto.createHash('sha1').update(row.donnees).digest('base64')}`;
+    const m = JSON_COMMANDES.get(row.id);
+    if (m && m.cle === cle) { JSON_COMMANDES.delete(row.id); JSON_COMMANDES.set(row.id, m); return m.json; }   // récemment servi : gardé
+    const json = JSON.stringify(lireCommande(row));
+    JSON_COMMANDES.set(row.id, { cle, json });
+    if (JSON_COMMANDES.size > JSON_COMMANDES_MAX) JSON_COMMANDES.delete(JSON_COMMANDES.keys().next().value);
+    return json;
+  };
+  const MARQUE_COMMANDES = '\u0000commandes\u0000';
+  r.get('/api/admin/etat', exigerMarchand, async ctx => {
     const config = lireConfig(ctx.boutique);
-    const commandes = db.prepare('SELECT * FROM commandes WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(lireCommande);
+    const commandesJson = '[' + db.prepare('SELECT * FROM commandes WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(jsonCommande).join(',') + ']';
+    const commandes = MARQUE_COMMANDES;   // remplacé par les JSON gardés, à l'envoi
     const publications = db.prepare('SELECT * FROM publications WHERE boutique_id = ? ORDER BY date').all(ctx.boutique.id).map(social.lire);
     const abonnes = db.prepare('SELECT COUNT(*) AS n FROM abonnes WHERE boutique_id = ?').get(ctx.boutique.id).n;
     const envois = Object.fromEntries(db.prepare("SELECT substr(cle, 1, instr(cle, ':') - 1) AS type, COUNT(*) AS n FROM envois_auto WHERE boutique_id = ? GROUP BY type").all(ctx.boutique.id).map(x => [x.type, x.n]));
@@ -1733,8 +1749,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
     etatComplet.attentesStock = Object.fromEntries(db.prepare("SELECT produit_id || '|' || variante_id AS k, COUNT(*) AS n FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id").all(ctx.boutique.id).map(x => [x.k, x.n]));   // « clients en attente » par produit et variante
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
-    if (ctx.role === 'commandes') { const { iban, ...entreprise } = etatComplet.entreprise || {}; return { ...etatComplet, entreprise, desinscrits: [], abonnes: [], envois: [] }; }
-    return etatComplet;
+    let final = etatComplet;
+    if (ctx.role === 'commandes') { const { iban, ...entreprise } = etatComplet.entreprise || {}; final = { ...etatComplet, entreprise, desinscrits: [], abonnes: [], envois: [] }; }
+    const texte = JSON.stringify(final).replace(JSON.stringify(MARQUE_COMMANDES), () => commandesJson);
+    ctx.entetes['Cache-Control'] = 'no-store';
+    // Compression hors du fil principal, comme pour toute grande réponse JSON.
+    if (/\bgzip\b/.test(ctx.req.headers['accept-encoding'] || '')) {
+      const z = await new Promise((ok, ko) => zlib.gzip(Buffer.from(texte), { level: 5 }, (e, b) => e ? ko(e) : ok(b)));
+      ctx.entetes['Content-Encoding'] = 'gzip'; ctx.entetes.Vary = 'Accept-Encoding';
+      return { binaire: z, type: 'application/json; charset=utf-8' };
+    }
+    return { binaire: Buffer.from(texte), type: 'application/json; charset=utf-8' };
   });
   /* Le statut « actif » d’un domaine ne vient que de la vérification DNS du serveur. */
   function garderDomaine(config, ancienne) {
@@ -2919,7 +2944,8 @@ ${bloc}</main></body></html>`;
     // une vente à 0 h 30 le 1er janvier compte dans la nouvelle année.
     const FMT = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Zurich', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
     const minuit = j => { for (const h of ['+01:00', '+02:00']) { const t = Date.parse(`${j}T00:00:00${h}`); if (FMT.format(t) === `${j} 00`) return t; } return NaN; };
-    const lire = (nom, def) => { const v = ctx.query.get(nom); if (!v) return def; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw erreur(400, 'Période invalide (dates au format AAAA-MM-JJ).', 'invalide'); return v; };
+    // Date réelle seulement (ni 13e mois ni 30 février) : relue à l'identique après conversion.
+    const lire = (nom, def) => { const v = ctx.query.get(nom); if (!v) return def; const t = Date.parse(`${v}T12:00:00Z`); if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || !Number.isFinite(t) || new Date(t).toISOString().slice(0, 10) !== v) throw erreur(400, 'Période invalide (dates au format AAAA-MM-JJ).', 'invalide'); return v; };
     const jd = lire('debut', null), jf = lire('fin', null);
     const debut = jd ? minuit(jd) : 0;
     const finExclue = jf ? minuit(new Date(Date.parse(`${jf}T12:00:00Z`) + 86400000).toISOString().slice(0, 10)) : Date.now() + 1;
@@ -3719,7 +3745,8 @@ ${bloc}</main></body></html>`;
   /* ---------- Webhooks ---------- */
   r.post('/api/webhooks/stripe', async ctx => {
     if (paiement.nom !== 'stripe' || !paiement.verifierWebhook(ctx.corpsBrut, ctx.req.headers['stripe-signature'])) throw erreur(400, 'Signature invalide.', 'signature');
-    const ev = JSON.parse(ctx.corpsBrut);
+    const ev = lireJsonSur(ctx.corpsBrut);
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev)) throw erreur(400, 'Événement invalide.', 'corps_invalide');
     // Stripe renvoie un même événement en cas de doute : il n'est traité qu'une fois (plus d'e-mail en double).
     if (ev.id) {
       db.exec('CREATE TABLE IF NOT EXISTS evenements_stripe (id TEXT PRIMARY KEY, recu_le INTEGER NOT NULL)');
@@ -3778,7 +3805,8 @@ ${bloc}</main></body></html>`;
   r.post('/api/webhooks/fournisseurs/:code', ctx => {
     const f = db.prepare('SELECT * FROM fournisseurs WHERE code = ?').get(ctx.params.code);
     if (!f || !fournisseurs.verifierSignature(ctx.corpsBrut, ctx.req.headers['x-signature'], f.secret_webhook)) throw erreur(401, 'Signature invalide.', 'signature');
-    const ev = JSON.parse(ctx.corpsBrut);
+    const ev = lireJsonSur(ctx.corpsBrut);
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev)) throw erreur(400, 'Événement invalide.', 'corps_invalide');
     // Seulement une commande transmise à CE fournisseur : un fournisseur ne peut pas agir sur les commandes d'un autre.
     const row = db.prepare("SELECT * FROM commandes WHERE json_extract(donnees, '$.refFournisseur') = ? AND json_extract(donnees, '$.codeFournisseur') = ?").get(String(ev.ref), f.code);
     if (!row) throw erreur(404, 'Commande inconnue.', 'commande_introuvable');
@@ -4111,6 +4139,10 @@ ${FEUILLE_4}</head>
   r.post('/demo-fournisseur/commandes/:ref/expedier', exigerCleDemo, async ctx => { await expedierDemo(ctx.params.ref); return { ok: true }; });
 
   /* ---------- Gestionnaire HTTP ---------- */
+  /* JSON reçu : les clés qui changeraient le comportement d'un objet (__proto__, constructor, prototype, toString, valueOf)
+     sont écartées à la lecture. Sinon, { "code": { "toString": 1 } } ferait échouer String(code) (erreur 500). */
+  const CLES_INTERDITES = new Set(['__proto__', 'constructor', 'prototype', 'toString', 'valueOf', 'toJSON', 'toLocaleString', 'hasOwnProperty']);
+  const lireJsonSur = texte => JSON.parse(texte, (k, v) => CLES_INTERDITES.has(k) ? undefined : v);
   async function gerer(req, res) {
     let entetesRequete = {};
     gerer.enCours++; res.on('close', () => { gerer.enCours--; });   // requêtes en cours (arrêt propre : on attend qu'elles finissent)
@@ -4129,7 +4161,9 @@ ${FEUILLE_4}</head>
     if (securise) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     // HEAD : même réponse que GET, sans corps (Node l'omet de lui-même ; la réponse a déjà noté la méthode d'origine).
     if (req.method === 'HEAD') req.method = 'GET';
-    const url = new URL(req.url, 'http://local');
+    // Adresse impossible à lire (« // », « //:x ») : 400, et surtout pas une exception hors du try (le processus tomberait).
+    let url;
+    try { url = new URL(req.url, 'http://local'); } catch { res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Requête invalide.'); return; }
     const chemin = url.pathname;
     try {
       // Domaine personnalisé : la boutique est servie à la racine de son propre domaine.
@@ -4178,9 +4212,9 @@ ${FEUILLE_4}</head>
         if (chemin.startsWith('/api/') && !chemin.startsWith('/api/webhooks/')) {
           // JSON obligatoire : un formulaire d'un autre site ne peut pas envoyer ce type sans CORS (protection CSRF).
           if (ctx.corpsBrut && !type.startsWith('application/json')) throw erreur(415, 'Envoyez du JSON.', 'type_contenu');
-          ctx.corps = ctx.corpsBrut ? JSON.parse(ctx.corpsBrut) : {};
+          ctx.corps = ctx.corpsBrut ? lireJsonSur(ctx.corpsBrut) : {};
           if (!ctx.corps || typeof ctx.corps !== 'object' || Array.isArray(ctx.corps)) throw erreur(400, 'Requête invalide : un objet JSON est attendu.', 'corps_invalide');
-        } else if (type.startsWith('application/json') && ctx.corpsBrut) ctx.corps = JSON.parse(ctx.corpsBrut);
+        } else if (type.startsWith('application/json') && ctx.corpsBrut) { const v = lireJsonSur(ctx.corpsBrut); ctx.corps = v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
       }
       let resultat;
       await requeteCourante.run({ auteur: null }, async () => { for (const g of route.gestionnaires) resultat = await g(ctx); });

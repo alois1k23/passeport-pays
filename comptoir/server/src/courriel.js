@@ -61,7 +61,12 @@ let envoiEnCours = false;
    fidélité et de cartes cadeaux) : masqués dès l'envoi dans la copie gardée en base, et dans la liste de l'espace
    marchand. Une copie de la base ne permet ainsi ni de prendre un compte ni d'utiliser un code. */
 /* « lou.martin@exemple.fr » → « l•••@exemple.fr » : assez pour reconnaître un domaine qui refuse, pas pour identifier qui. */
-const masquerAdresses = texte => String(texte || '').replace(/([^\s@<>"'(),;:]{1})[^\s@<>"'(),;:]*@([\w.-]+\.[a-z]{2,})/gi, '$1•••@$2');
+const masquerAdresses = texte => {
+  let t = String(texte || '');
+  try { t = t.replace(/%40/gi, '@'); } catch { /* garder tel quel */ }   // adresse encodée dans une URL
+  // Toute suite de caractères autour d'un @ (Unicode, partie locale entre guillemets comprise) ; seul le domaine reste lisible.
+  return t.replace(/"[^"]*"@|[^\s<>"'(),=?&/]+@/gu, m => `${m.startsWith('"') ? '"' : m[0]}•••@`);
+};
 const masquerSecrets = texte => String(texte || '')
   .replace(/([?&](?:reinitialiser|invitation|verifier|jeton|j|reprendre|code|cle)=)[^\s&"'<>]+/g, '$1…')
   .replace(/\b[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){3}\b/g, '••••-••••-••••-••••')

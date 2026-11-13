@@ -21,7 +21,7 @@ const CHAMPS = ['lignes', 'client', 'email', 'montant', 'code', 'statut', 'qte',
   'note', 'texte', 'titre', 'expireMois', 'destinataire', 'message', 'destEmail', 'destNom', 'remise', 'seuil', 'plafondPct', 'expirationMois', 'id', 'ids', 'cle'];
 const VALEURS = () => [null, true, false, 0, -1, 1e308, -0, NaN, 1.5, 2 ** 53, '', ' ', 'x'.repeat(20000), '0', '1', '-1', '1e9', '<script>alert(1)</script>', "'; DROP TABLE commandes; --",
   '../../etc/passwd', '%00', '\u0000', '‮', 'é'.repeat(300), '2026-13-45', 'AV-2026-0001', '1111-2222-3333-4444', [], [{}], [null], [1, 2, 3], {}, { __proto__: { admin: true } },
-  { constructor: { prototype: { x: 1 } } }, { index: '0', qte: '1' }, [{ index: 0, qte: 1 }], [{ index: -1, qte: 1e9 }], { montant: '12,5' }, Array(500).fill('a')];
+  { constructor: { prototype: { x: 1 } } }, { toString: 1 }, { valueOf: 'x' }, { toJSON: null }, '2026-13-01', '2026-02-30', '9999-99-99', { index: '0', qte: '1' }, [{ index: 0, qte: 1 }], [{ index: -1, qte: 1e9 }], { montant: '12,5' }, Array(500).fill('a')];
 const valeur = (prof = 0) => { const r = hasard(); if (prof < 2 && r < 0.15) return objet(prof + 1); if (prof < 2 && r < 0.25) return Array.from({ length: Math.floor(hasard() * 4) }, () => valeur(prof + 1)); return choisir(VALEURS()); };
 const objet = (prof = 0) => { const o = {}; const n = 1 + Math.floor(hasard() * 6); for (let i = 0; i < n; i++) o[choisir(CHAMPS)] = valeur(prof); if (hasard() < 0.1) o.__proto__ = { polue: true }; return o; };
 const corps = () => { const r = hasard(); if (r < 0.06) return '{"cassé":'; if (r < 0.1) return '[]'; if (r < 0.13) return 'null'; if (r < 0.16) return '"texte"'; if (r < 0.18) return JSON.stringify({ x: 'y'.repeat(2e6) }); return JSON.stringify(objet()); };

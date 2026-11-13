@@ -113,6 +113,9 @@ function arreter(signal) {
     }
   }, 50);
 }
+// Dernier filet : une promesse rejetée sans gestionnaire est journalisée, le serveur continue de servir les autres clients.
+// (Chaque requête a déjà son propre traitement d'erreur ; ceci ne couvre que l'imprévu.)
+process.on('unhandledRejection', e => console.error('[erreur] promesse rejetée sans gestionnaire :', e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : e));
 process.on('SIGTERM', () => arreter('SIGTERM'));
 process.on('SIGINT', () => arreter('SIGINT'));
 serveurHttp.listen(port, () => {

@@ -785,3 +785,17 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
 
   C'est large pour un usage normal, une fiduciaire qui télécharge un trimestre par exemple, mais une session volée ou un script ne peut plus monopoliser le serveur. Le reste de l'espace marchand reste ouvert. La vérification complète du journal garde sa limite propre (6 par heure), et le téléchargement des pièces par le client garde la sienne (60 par heure et par réseau).
 - 1 test de plus : 180 tests sur 180.
+
+### Cycle 46 (06 h 05) : relecture adversariale du fuzzing et performance de l'espace marchand (chantiers 36, 38 et 39)
+
+- **Grave, trouvé par la relecture adversariale** : une seule requête anonyme (`GET //`) **faisait tomber le serveur**. La lecture de l'adresse se trouvait hors du traitement d'erreur, et le processus s'arrêtait. Une adresse illisible reçoit désormais un 400, et un dernier filet journalise toute promesse rejetée sans gestionnaire sans arrêter le serveur. Un test envoie ces requêtes brutes et vérifie que le serveur répond encore.
+- **Moyen** : un objet JSON avec ses propres clés `toString` ou `valueOf` provoquait une erreur 500 sur une trentaine de routes, dont des routes publiques sans compte. Le JSON reçu est maintenant lu sans ces clés, ni `__proto__`, `constructor` ou `prototype`. Hors de `/api/`, un corps qui n'est pas un objet est ramené à un objet, et les webhooks refusent un événement nul.
+- Dates impossibles (13e mois, 30 février) refusées dans l'export des cartes.
+- Un client parti en cours d'envoi donne une requête interrompue (400), et non plus une fausse erreur du serveur.
+- **Journaux** : le masquage des adresses couvre les adresses Unicode, les parties entre guillemets et les adresses encodées dans une URL, et une adresse comme « lou;martin@… » est masquée en entier. La trace `LOG_EMAILS` ne contient plus le sujet, qui peut porter un prénom.
+- Le fuzzer connaît maintenant ces pièges : 0 constat.
+- **Performance de l'espace marchand** (chantier 39), mesurée avec 10 000 commandes réelles, dont 400 retours et gestes :
+  - l'état complet prenait 0,7 s de calcul bloquant à chaque ouverture de l'espace. Le JSON de chaque commande est désormais gardé en mémoire, repéré par l'empreinte de sa ligne : une commande inchangée n'est ni relue, ni déchiffrée, ni resérialisée. La compression se fait hors du fil principal, et le cache est borné à 30 000 commandes ;
+  - résultat : médiane de 0,3 s par ouverture, et blocage maximal du fil principal de 170 ms au lieu de 700 ms ;
+  - les autres routes étaient déjà rapides : API (100 commandes) 6 ms, export des cartes 39 ms. La vérification complète du journal prend 0,8 s pour 10 000 commandes ; elle travaille par lots et rend la main entre deux lots.
+- 2 tests de plus : 181 tests sur 181.
