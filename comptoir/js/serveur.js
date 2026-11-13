@@ -745,3 +745,18 @@ document.addEventListener('click', async e => {
   el.disabled = true;
   try { await api('POST', `/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/liberer-carte`, {}); await rafraichir('Carte cadeau libérée et envoyée.'); } catch (err) { toast(err.message); el.disabled = false; }
 });
+
+/* Cartes cadeaux : export pour la fiduciaire (mouvements de la période et encours en fin de période). */
+document.addEventListener('submit', async e => {
+  const f = e.target.closest && e.target.closest('[data-form="cartes-export"]'); if (!f) return;
+  e.preventDefault();
+  const d = new FormData(f), b = f.querySelector('button'); b.disabled = true;
+  try {
+    const r = await fetch(`/api/admin/cartes-cadeaux/export?debut=${encodeURIComponent(d.get('debut') || '')}&fin=${encodeURIComponent(d.get('fin') || '')}`, { credentials: 'same-origin' });
+    if (!r.ok) { let m = 'Export impossible.'; try { m = (await r.json()).erreur || m; } catch { /* ignoré */ } toast(m); return; }
+    const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+    a.href = url; a.download = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'cartes-cadeaux.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Export des cartes cadeaux téléchargé.');
+  } catch { toast('Pas de connexion : réessayez dans un instant.'); }
+  finally { b.disabled = false; }
+});

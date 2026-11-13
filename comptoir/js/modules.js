@@ -593,6 +593,11 @@ function vueCartesCadeaux() {
       <button class="btn">Émettre la carte</button>
     </form>
     ${ui.cartesCadeaux && !ui.cartesCadeaux.registreCoherent ? '<p class="alerte-texte" role="alert">Registre des cartes incohérent : contactez le support.</p>' : ''}
+    ${cartes.length ? `<form data-form="cartes-export" class="rangee">
+      <label class="champ"><span>Du</span><input name="debut" type="date" value="${new Date().getFullYear()}-01-01"></label>
+      <label class="champ"><span>Au</span><input name="fin" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
+      <button class="btn petit fantome" title="Ventes, utilisations et recrédits de la période, puis l’encours (cartes à utiliser) en fin de période">Exporter pour la fiduciaire (CSV)</button>
+    </form>` : ''}
     ${cartes.length ? `<table class="table compacte"><thead><tr><th>Carte</th><th class="num">Solde</th><th>État</th><th></th></tr></thead><tbody>${cartes.slice(0, 50).map(c => {
       const expiree = c.expireLe && c.expireLe < Date.now();
       return `<tr><td><span class="mono">····${esc(c.fin)}</span>${c.destinataire ? `<div class="sous">${esc(c.destinataire)}</div>` : ''}<div class="sous">${dateCourte(c.creeLe)}${c.expireLe ? ` · valable jusqu’au ${new Date(c.expireLe).toLocaleDateString('fr-FR')}` : ''}</div></td>

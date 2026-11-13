@@ -279,3 +279,22 @@ test('relecture de la vente : pas d’argent rendu si la carte a servi, pas d’
     assert.equal((await appel('POST', `/api/public/${slug}/carte-cadeau`, { code }, false)).json.solde, 10, 'carte toujours active');
   } finally { s.close(); }
 });
+
+test('export pour la fiduciaire : mouvements de la période, encours en fin de période, soldes expirés à part, pas de formule', () => {
+  const db = ouvrir(':memory:'), K = CC.creer(db, crypto.randomBytes(32)), j = 86400000, t0 = Date.UTC(2026, 0, 10);
+  const a = K.emettre('b1', { montant: 50, devise: 'CHF', maintenant: t0, origine: 'vente', commandeId: 'c1' });
+  const b = K.emettre('b1', { montant: 20, devise: 'CHF', maintenant: t0 + j, expireLe: t0 + 30 * j });
+  K.debiter(a.carte.id, 1500, { commandeId: 'c2', texte: '=HYPERLINK("x")', maintenant: t0 + 5 * j });
+  K.emettre('b2', { montant: 99, devise: 'CHF', maintenant: t0 });   // autre boutique : absente
+  const csv = K.exporter('b1', { debut: t0, fin: t0 + 60 * j, numeros: new Map([['c1', 1001], ['c2', 1002]]) });
+  const lignes = csv.replace(/^﻿/, '').trim().split('\n');
+  assert.equal(lignes.length, 1 + 3 + 3, 'en-tête, 3 mouvements, ligne vide et 2 lignes de synthèse');
+  assert.match(lignes[1], /"vendue";"Émission";50\.00;50\.00;"1001"/);
+  assert.match(lignes[3], /"Utilisation";-15\.00;35\.00;"1002";"'=HYPERLINK/, 'texte neutralisé pour le tableur');
+  assert.match(csv, /"Encours au 2026-03-10";"1 carte\(s\)";;"Solde des cartes actives non expirées";35\.00/);
+  assert.match(csv, /"Soldes non utilisables";;;"Cartes expirées ou désactivées[^"]*";20\.00/);
+  assert.doesNotMatch(csv, /99\.00/);
+  // Encours à une date passée : avant l'utilisation, 50 + 20.
+  assert.match(K.exporter('b1', { debut: t0, fin: t0 + 3 * j }), /"2 carte\(s\)";;"Solde des cartes actives non expirées";70\.00/);
+  assert.equal(b.carte.solde, 20);
+});

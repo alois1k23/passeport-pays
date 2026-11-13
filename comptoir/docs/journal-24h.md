@@ -617,3 +617,13 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   La facture électronique, le PDF et l'application l'utilisent. Les avoirs compensent la facture taux par taux, et chaque facture électronique d'avoir reste conforme.
 - **Vérifié dans l'application** : facture, avoir partiel, avoir de geste et avoir final se compensent au centime dans le décompte de TVA (total 0, TVA 0) et dans l'export CSV (4 lignes, somme 0).
 - 1 nouveau test : 171 tests sur 171.
+
+### Cycle 36 (04 h 41) : export des cartes cadeaux pour la fiduciaire (chantier 28)
+
+- **Export CSV**, depuis la carte « Cartes cadeaux » (période au choix) :
+  - chaque mouvement de la période : émission, utilisation, recrédit, désactivation, avec origine (vendue ou émise par la boutique), montant, solde après et numéro de commande ;
+  - en fin de fichier, l'**encours** à la date de fin, c'est-à-dire les cartes actives non expirées, un engagement envers les clients ;
+  - à part, les soldes de cartes expirées ou désactivées, à traiter avec la fiduciaire.
+- Calculé depuis le registre des mouvements, donc juste aussi pour une date passée.
+- Textes neutralisés pour les tableurs (pas de formule), en-têtes sans cache, une seule boutique.
+- 1 nouveau test : 172 tests sur 172.

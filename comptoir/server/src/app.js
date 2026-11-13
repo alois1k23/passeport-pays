@@ -2855,6 +2855,17 @@ ${bloc}</main></body></html>`;
     return reservee ? erreur(409, 'Le solde de cette carte est réservé par une commande en attente de paiement. Il revient sur la carte si ce paiement n’aboutit pas (au plus tard 2 heures après).', 'carte_reservee')
       : erreur(400, 'Carte cadeau inconnue, expirée ou épuisée.', 'carte_invalide');
   };
+  // Export pour la fiduciaire : mouvements d'une période (dates AAAA-MM-JJ, fin incluse), encours en fin de période.
+  r.get('/api/admin/cartes-cadeaux/export', exigerMarchand, ctx => {
+    const jour = (v, def) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? Date.parse(`${v}T00:00:00Z`) : def;
+    const debut = jour(ctx.query.get('debut'), 0), fin = jour(ctx.query.get('fin'), null);
+    const finExclue = fin === null ? Date.now() + 1 : fin + 86400000;
+    if (!Number.isFinite(debut) || !Number.isFinite(finExclue) || finExclue <= debut) throw erreur(400, 'Période invalide.', 'invalide');
+    const numeros = new Map(db.prepare("SELECT id, numero FROM commandes WHERE boutique_id = ? AND id IN (SELECT DISTINCT commande_id FROM cartes_mouvements WHERE boutique_id = ? AND commande_id IS NOT NULL)").all(ctx.boutique.id, ctx.boutique.id).map(r => [r.id, r.numero]));
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    ctx.entetes['Content-Disposition'] = `attachment; filename="cartes-cadeaux-${ctx.boutique.slug}.csv"`;
+    return { binaire: Buffer.from(Cartes.exporter(ctx.boutique.id, { debut, fin: finExclue, numeros }), 'utf8'), type: 'text/csv; charset=utf-8' };
+  });
   r.get('/api/admin/cartes-cadeaux', exigerMarchand, ctx => ({ cartes: Cartes.lister(ctx.boutique.id), registreCoherent: !Cartes.verifier(ctx.boutique.id).length }));
   // Réglages de la vente en ligne : déclarés avant « /:id » (sinon « vente » serait pris pour un identifiant).
   r.get('/api/admin/cartes-cadeaux/vente', exigerMarchand, ctx => ({ vente: Cartes.reglagesVente(ctx.boutique.id) }));
