@@ -1536,3 +1536,31 @@ Les clés d'avant le chantier 68, et celles qu'on crée sans adresses autorisée
   - **Limite écrite** : seuls les appels acceptés sont suivis. Un appel refusé faute de permission (403) ou d'abonnement (402) ne compte pas.
 - Après corrections : 231 tests sur 231, parcours de bout en bout 57/57.
 - Vérification complète (7 étapes) réussie sur le code final du chantier 69.
+
+### Cycle 75 (21 h 40) : mise au propre de la seizième phase
+
+À 21 h 32, il restait trop peu de temps avant 22 h 15 pour un chantier complet avec relecture indépendante et corrections. Ce cycle relit donc la documentation de l'après-midi :
+
+- **Correction dans la liste des fonctionnalités** : elle disait qu'« une connexion, même forte, ne compte pas » comme identité récente. C'est faux pour la plupart des actions sensibles, où une session ouverte depuis moins de 15 minutes suffit toujours. Seul le changement d'adresse du compte exige une confirmation explicite, qu'aucune connexion ne remplace. Le texte le dit maintenant. Il précise aussi que les codes de double authentification refusés n'importe où dans l'espace comptent pour la fermeture de session (chantier 66).
+
+**Bilan de la seizième phase (chantiers 62 à 69, 13 h → 21 h 30).** Elle a porté sur la prise de compte et le vol de session ou de clé, que les protections du matin ne couvraient pas :
+
+- **Changement de l'adresse du compte** (chantier 62) :
+  - annulable 7 jours par l'ancienne adresse, avec restauration de l'état d'avant ;
+  - trois relectures, puis une relecture croisée qui a trouvé un trou grave : le lien de réinitialisation de l'intrus survivait à l'annulation. Corrigé et testé.
+- **Confirmation d'identité par clé d'accès** (chantier 63) ; plus aucune connexion ne vaut confirmation explicite.
+- **Fermeture de session au 5e essai refusé** (chantier 64) : un voleur de cookie est mis dehors au lieu de bloquer la titulaire.
+- **Session liée à la famille d'appareil** (chantier 65), avec les tolérances pour l'app iOS installée et Android en mode ordinateur.
+- **Relecture croisée** des quatre chantiers précédents (chantier 66).
+- **Signaux d'attaque dans la console de l'exploitant** (chantier 67).
+- **Clés d'API** : durée de validité et adresses IP autorisées (chantier 68), puis alerte au premier usage depuis un réseau inconnu (chantier 69).
+
+**Ce que les relectures indépendantes ont trouvé et fait corriger**, en plus de nombreux points mineurs :
+- **trois trous graves** :
+  - lien de réinitialisation qui survivait à l'annulation d'un changement d'adresse ;
+  - règle IPv6 qui ouvrait une clé à toutes les adresses IPv4 ;
+  - « clé d'accès seule » retirée à l'annulation ;
+- **deux faux positifs graves** qui auraient déconnecté de vrais marchands (app iOS installée, Android en mode ordinateur).
+
+État à la fin de la phase : 231 tests sur 231, parcours de bout en bout 57/57, vérification complète (7 étapes) réussie après chaque chantier.
+
