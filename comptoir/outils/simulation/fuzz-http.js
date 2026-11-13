@@ -34,7 +34,7 @@ const corps = () => { const r = hasard(); if (r < 0.06) return '{"cassé":'; if 
   s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '100000', LIMITES_FACTEUR: '100000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal }));
   let cookie = '';
   const brut = async (m, chemin, texte, { session = true, entetes = {} } = {}) => {
-    const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(session && cookie ? { Cookie: cookie } : {}), ...entetes }, body: m === 'GET' || m === 'HEAD' ? undefined : texte });
+    const r = await fetch(base + chemin, { method: m, redirect: 'manual', signal: AbortSignal.timeout(10000), headers: { 'Content-Type': 'application/json', ...(session && cookie ? { Cookie: cookie } : {}), ...entetes }, body: m === 'GET' || m === 'HEAD' ? undefined : texte });
     const sc = r.headers.getSetCookie(); if (session && sc.length && /session/.test(sc.join(';'))) cookie = sc.map(x => x.split(';')[0]).join('; ');
     return { statut: r.status, texte: await r.text().catch(() => '') };
   };
@@ -56,13 +56,15 @@ const corps = () => { const r = hasard(); if (r < 0.06) return '{"cassé":'; if 
   // Routes qui ferment la session ou effacent le compte : à la fin, pour ne pas couper le reste.
   const fin = r => /deconnexion|compte\/supprimer|sessions\/revoquer|clients\/effacer/.test(r.chemin);
   routes.sort((a, b) => fin(a) - fin(b));
+  // Flux en direct (connexion ouverte sans fin) : hors du fuzzing.
+  for (let i = routes.length - 1; i >= 0; i--) if (/\/flux\b/.test(routes[i].chemin)) routes.splice(i, 1);
   const param = nom => {
     const vrai = { slug, id: cmd.commandeId, numero: String(cmd.numero), produit, pid: produit }[nom];
     return encodeURIComponent(hasard() < 0.6 && vrai ? vrai : choisir(['x', '0', '-1', '99999999', '%2e%2e', 'a'.repeat(300), 'AV-2026-0001', carte.id, '__proto__', '1;2']));
   };
   const constats = [], vus = new Set();
   const noter = (r, quoi, detail) => { const k = `${r.methode} ${r.chemin} ${quoi}`; if (vus.has(k)) return; vus.add(k); constats.push({ route: `${r.methode} ${r.chemin}`, quoi, detail: String(detail).slice(0, 300) }); };
-  let requetes = 0;
+  let requetes = 0; const statuts = {};
   for (const r of routes) {
     for (let i = 0; i < ESSAIS; i++) {
       const chemin = r.chemin.replace(/:(\w+)/g, (_, n) => param(n)) + (hasard() < 0.4 ? `?${choisir(CHAMPS)}=${encodeURIComponent(String(valeur()))}&jeton=${encodeURIComponent(String(choisir(VALEURS())))}` : '');
@@ -70,16 +72,17 @@ const corps = () => { const r = hasard(); if (r < 0.06) return '{"cassé":'; if 
       const avant = erreursServeur.length;
       let rep;
       try { rep = await brut(r.methode, chemin, corps(), { session: avecSession, entetes: avecCle ? { Authorization: `Bearer ${cle}` } : {} }); }
-      catch (x) { noter(r, 'connexion coupée', x.message); continue; }
-      requetes++;
+      catch (x) { noter(r, x.name === 'TimeoutError' ? 'pas de réponse en 10 s' : 'connexion coupée', x.message); continue; }
+      requetes++; statuts[rep.statut] = (statuts[rep.statut] || 0) + 1;
       if (rep.statut >= 500) noter(r, `erreur ${rep.statut}`, rep.texte);
       if (/\bat [\w.<>]+ \(|\/server\/src\/|node:internal|\.js:\d+:\d+/.test(rep.texte)) noter(r, 'pile ou chemin de fichier exposé', rep.texte);
       if (erreursServeur.length > avant) noter(r, 'exception non gérée', erreursServeur.at(-1));
     }
+    process.stderr.write(`${r.methode} ${r.chemin}\n`);
     // Garde la session : certaines routes la ferment.
     if (!cookie || (await appel('GET', '/api/admin/etat')).statut === 401) { await appel('POST', '/api/auth/connexion', { email: 'fuzz@exemple.ch', motDePasse: 'un mot de passe solide' }); }
   }
   s.close();
-  console.log(JSON.stringify({ routes: routes.length, requetes, constats: constats.length, details: constats.slice(0, 60) }, null, 1));
+  console.log(JSON.stringify({ routes: routes.length, requetes, statuts, constats: constats.length, details: constats.slice(0, 60) }, null, 1));
   process.exit(constats.length ? 1 : 0);
 })();

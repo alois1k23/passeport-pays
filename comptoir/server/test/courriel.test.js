@@ -52,3 +52,10 @@ test('panne du service d’envoi : les e-mails attendent et partent ensuite, san
     assert.match(erreurs[0], /ABANDON/);
   } finally { Date.now = reel; }
 });
+
+test('journal du serveur : adresses e-mail masquées (domaine gardé)', () => {
+  const { masquerAdresses } = require('../src/courriel');
+  assert.equal(masquerAdresses('Refusé : lou.martin@exemple.fr'), 'Refusé : l•••@exemple.fr');
+  assert.equal(masquerAdresses('<a@b.ch>, x.y+z@sous.domaine.com'), '<a•••@b.ch>, x•••@sous.domaine.com');
+  assert.equal(masquerAdresses('sans adresse'), 'sans adresse');
+});

@@ -1,5 +1,5 @@
 // Toutes les vérifications de Comptoir, l'une après l'autre, avec un bilan final.
-// Usage : npm run verifier            (complet : tests, bout en bout, clavier, simulation de 60 jours, charge réduite)
+// Usage : npm run verifier            (complet : tests, bout en bout, clavier, simulation de 60 jours, fuzzing HTTP, charge réduite)
 //         npm run verifier -- --rapide (tests et bout en bout seulement)
 // Les étapes qui ouvrent un navigateur (bout en bout, clavier) demandent Playwright ; sans lui, elles sont signalées et sautées.
 'use strict';
@@ -16,6 +16,7 @@ const etapes = [
     ['Achat au clavier (boutique)', [sansAvert, 'outils/simulation/clavier.js'], racine, r => /"problemes": \[\]/.test(r), true],
     ['Espace marchand au clavier', [sansAvert, 'outils/simulation/clavier-marchand.js'], racine, r => /"problemes": \[\]/.test(r), true],
     ['Simulation de 60 jours (100 marchands)', [sansAvert, 'outils/simulation/mois.js', '100', '60'], racine, r => /"nbAnomalies": 0/.test(r.slice(-400))],
+    ['Fuzzing HTTP (toutes les routes, corps hostiles)', [sansAvert, 'outils/simulation/fuzz-http.js', '8', String(Date.now() % 100000)], racine, r => /"constats": 0/.test(r)],
     ['Charge réduite (100 boutiques, 15 s)', [sansAvert, 'outils/simulation/charge.js', '100', '50', '15', '20'], racine, r => { try { const j = JSON.parse(r.slice(r.indexOf('{'))); return j.mesuresMs.every(m => m.erreurs === 0) && !j.journalErreurs.length; } catch { return false; } }]
   ])
 ];

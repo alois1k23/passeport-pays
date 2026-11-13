@@ -763,3 +763,16 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - un avoir final jamais négatif ;
   - de nouveaux parcours : confirmation rejouée (refusée) et geste mêlé à un retour (refusé).
 - Nouveau passage (40 marchands, 45 jours) : 757 retours partiels, 1 913 gestes, 271 remboursements du reste, 504 confirmations rejouées toutes refusées, **0 anomalie**. Les retours en suspens, qui supposent des pannes de Stripe, restent couverts par les tests automatiques.
+
+### Cycle 44 (05 h 53) : fuzzing HTTP et journaux sans données personnelles (chantiers 36 et 38)
+
+- **Fuzzing HTTP** (`outils/simulation/fuzz-http.js`) : chacune des 157 routes du serveur (publiques, espace marchand, API avec clé) reçoit des corps et des paramètres aléatoires et hostiles :
+  - types inattendus, chaînes énormes, caractères nuls ou de direction ;
+  - clés `__proto__` et `constructor`, tableaux à la place d'objets ;
+  - JSON cassé, corps de 2 Mo, identifiants absurdes ;
+  - avec ou sans session.
+
+  Règles : jamais d'erreur 500, jamais de pile ni de chemin de fichier dans une réponse, jamais d'exception non gérée côté serveur.
+- **Résultat** : 6 280 requêtes, **0 constat**. Le détail des réponses montre que les traitements sont bien atteints (1 423 réponses 200, 1 597 refus de validation, 144 refus métier, 1 834 introuvables, 1 111 sans session, quelques limites de débit et de taille), et non arrêtés à l'entrée. Le flux en direct (connexion sans fin) est exclu. Un passage court fait désormais partie de `npm run verifier`.
+- **Journaux du serveur** : l'échec d'envoi d'un e-mail inscrivait l'adresse du client et le sujet en clair, et le message du prestataire peut lui aussi répéter l'adresse. Les adresses y sont maintenant masquées (« l•••@exemple.fr », domaine gardé pour diagnostiquer un refus), avec le numéro de l'e-mail pour le retrouver dans la base. Même chose pour la trace de débogage `LOG_EMAILS`. Les autres journaux ont été relus : ils ne contiennent ni adresse, ni nom, ni adresse postale.
+- 1 test de plus : 179 tests sur 179.

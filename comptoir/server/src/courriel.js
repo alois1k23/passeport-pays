@@ -60,6 +60,8 @@ let envoiEnCours = false;
 /* Secrets contenus dans les e-mails (liens de réinitialisation, d'invitation, de devis, de commande, codes de
    fidélité et de cartes cadeaux) : masqués dès l'envoi dans la copie gardée en base, et dans la liste de l'espace
    marchand. Une copie de la base ne permet ainsi ni de prendre un compte ni d'utiliser un code. */
+/* « lou.martin@exemple.fr » → « l•••@exemple.fr » : assez pour reconnaître un domaine qui refuse, pas pour identifier qui. */
+const masquerAdresses = texte => String(texte || '').replace(/([^\s@<>"'(),;:]{1})[^\s@<>"'(),;:]*@([\w.-]+\.[a-z]{2,})/gi, '$1•••@$2');
 const masquerSecrets = texte => String(texte || '')
   .replace(/([?&](?:reinitialiser|invitation|verifier|jeton|j|reprendre|code|cle)=)[^\s&"'<>]+/g, '$1…')
   .replace(/\b[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){3}\b/g, '••••-••••-••••-••••')
@@ -87,11 +89,13 @@ async function envoyerLot(db, p, { lot, journal }) {
       const definitif = [400, 404, 422].includes(err.statut);   // 401/403 : clé ou compte du service à corriger par l'exploitant, on réessaie
       const t = e.tentatives + 1, attente = Math.min(6 * 3600000, 60000 * 2 ** (t - 1));
       db.prepare('UPDATE emails SET tentatives = ?, erreur = ?, prochain_essai = ? WHERE id = ?').run(definitif ? ESSAIS_MAX : t, String(err.message).slice(0, 200), Date.now() + attente, e.id);
-      journal.error(definitif || t >= ESSAIS_MAX ? '[e-mail] ABANDON (à vérifier par l’exploitant)' : '[e-mail]', `${err.message} · à ${e.destinataire} · « ${e.sujet} »`);
+      // Journal du serveur sans adresse en clair (le message du prestataire peut la répéter) : l'identifiant de l'e-mail suffit
+      // pour retrouver l'envoi dans la base.
+      journal.error(definitif || t >= ESSAIS_MAX ? '[e-mail] ABANDON (à vérifier par l’exploitant)' : '[e-mail]', `${masquerAdresses(err.message)} · e-mail n° ${e.id} à ${masquerAdresses(e.destinataire)}`);
       if (err.statut === 429 || err.name === 'TimeoutError') break;   // service saturé : le reste du lot attend le prochain passage
     }
   }
   return n;
 }
 
-module.exports = { prestataire, creerTables, envoyerFile, masquerSecrets };
+module.exports = { masquerAdresses, prestataire, creerTables, envoyerFile, masquerSecrets };
