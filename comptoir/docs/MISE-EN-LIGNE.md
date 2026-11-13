@@ -1,6 +1,6 @@
 # Mettre Comptoir en ligne : ce qu'il reste à faire (environ 2 heures)
 
-Tout le logiciel est prêt et testé : 180 tests automatiques ; 100 marchands simulés sur 60 jours ; un essai de bout en bout avec de faux services Stripe, e-mails et fournisseur. Il reste les étapes qui exigent **votre identité** ou **vos comptes**. Après chaque étape, lancez la vérification :
+Tout le logiciel est prêt et testé : plus de 200 tests automatiques (`npm test`) ; 100 marchands simulés sur 60 jours ; un essai de bout en bout avec de faux services Stripe, e-mails et fournisseur. Il reste les étapes qui exigent **votre identité** ou **vos comptes**. Après chaque étape, lancez la vérification :
 
 ```
 node server/server.js --verifier
@@ -17,8 +17,8 @@ Elle liste ce qui manque (✗) et ce qui est prêt (✓).
    - dans les réglages de Connect, activez les moyens de paiement des comptes connectés : **cartes**, **TWINT** (CHF) et **Bancontact** (EUR, Belgique).
 4. **Clés** : menu *Développeurs* > *Clés API*. Copiez la clé secrète (`sk_test_…`) dans `STRIPE_SECRET_KEY`.
 5. **Webhooks** : menu *Développeurs* > *Webhooks*. Créez-en **deux**, tous les deux vers `https://<votre-domaine>/api/webhooks/stripe` et en version d'API **2024-06-20** :
-   - **Votre compte**, avec les événements `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` et `customer.subscription.deleted`. Son secret va dans `STRIPE_WEBHOOK_SECRET`.
-   - **Comptes connectés**, avec les événements `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `account.updated`, `account.application.deauthorized`, `charge.dispute.created`, `charge.dispute.updated` et `charge.dispute.closed`. Son secret va dans `STRIPE_CONNECT_WEBHOOK_SECRET`.
+   - **Votre compte**, avec les événements `checkout.session.completed`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` et `customer.subscription.deleted`. Son secret va dans `STRIPE_WEBHOOK_SECRET`.
+   - **Comptes connectés**, avec les événements `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `account.updated`, `charge.refunded`, `account.application.deauthorized`, `charge.dispute.created`, `charge.dispute.updated` et `charge.dispute.closed`. Son secret va dans `STRIPE_CONNECT_WEBHOOK_SECRET`.
 6. Lancez `node server/server.js --verifier`. Elle contrôle aussi que la clé est acceptée et que Connect est activé.
 7. **Essai complet en mode test** :
    - créez un compte marchand et payez la formule avec la carte de test `4242 4242 4242 4242` ;
@@ -68,6 +68,14 @@ Renseignez ensuite `FOURNISSEUR_URL_API`, `FOURNISSEUR_CLE_API` et `FOURNISSEUR_
    - la console `/operateur` montre aussi l'état des journaux de toutes les boutiques et les violations de sécurité (CSP) signalées par les navigateurs ;
    - le proxy (Caddy) doit transmettre aussi les requêtes `POST /csp-rapport` à Comptoir (c'est le cas avec la configuration ci-dessus, qui transmet tout) ;
    - avant d'annoncer la facture électronique et le journal des ventes au format FEC, faites valider un fichier de chacun : validateur public Factur-X (règles schematron) et outil Test Compta Demat de la DGFiP.
+
+7. **À savoir avant d'ouvrir (ajouts du 13 novembre)** :
+   - **adresse e-mail confirmée** : un nouveau marchand reçoit un lien de confirmation. Tant qu'il ne l'a pas ouvert, il ne peut ni inviter d'équipe, ni envoyer de devis, ni activer les versements. Les comptes créés avant cette règle sont considérés comme confirmés ;
+   - le proxy doit transmettre l'en-tête `Host` d'origine (Caddy le fait par défaut ; avec nginx, `proxy_set_header Host $host;`). Sinon, les actions de l'espace marchand sont refusées comme venant d'un autre site (`403 autre_site`), sauf depuis l'adresse de `URL_PUBLIQUE` ;
+   - **rotation de `SECRET_CHIFFREMENT`** : voir « Rotation de `SECRET_CHIFFREMENT` » plus haut dans cette section, avec `SECRET_CHIFFREMENT_ANCIENNES` ;
+   - la console `/operateur` a une section **Sécurité** : clé hors de la base ou non, rotations, données illisibles, comptes protégés, paiements à rembourser. Une ligne en rouge demande une action, décrite sur la ligne ;
+   - les webhooks Stripe incluent maintenant `charge.refunded` (ajouté aux deux listes de la section 1, point 5) : un remboursement fait à la main dans Stripe solde un paiement « à rembourser » ;
+   - les marchands peuvent renouveler le secret d'un webhook : l'ancien reste valable 24 heures (double signature, voir `API.md`).
 
 ## 5. Documents à faire relire
 

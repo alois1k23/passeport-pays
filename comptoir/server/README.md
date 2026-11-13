@@ -14,7 +14,7 @@ Ouvrez `http://localhost:3000`, créez un compte, puis ouvrez votre boutique pub
 
 | Domaine | Détail |
 |---|---|
-| **Comptes** | Inscription et connexion. Mots de passe hachés avec scrypt. Session dans un cookie HttpOnly et SameSite=Lax ; la base ne stocke que l'empreinte du jeton. Calcul scrypt asynchrone (n'immobilise pas le serveur). Limites d'essais par adresse IPv4 ou par réseau IPv6 /64 ; changement de mot de passe et suppression du compte limités par compte. Un domaine personnalisé n'est actif qu'après vérification DNS et TXT. |
+| **Comptes** | Inscription et connexion. Mots de passe hachés avec scrypt. Session dans un cookie HttpOnly et SameSite=Lax ; la base ne stocke que l'empreinte du jeton. Calcul scrypt asynchrone (n'immobilise pas le serveur). Limites d'essais par adresse IPv4 ou par réseau IPv6 /64, et par compte et bloc d'adresses voisines ; changement de mot de passe et suppression du compte limités par compte. Adresse e-mail confirmée par un lien (`POST /api/auth/verifier-email`, renvoi `POST /api/admin/compte/verifier-email/renvoyer`) : exigée pour inviter l'équipe, envoyer un devis et activer les versements. Appareils reconnus : jeton aléatoire par appareil, révocable. Double authentification : chaque code ne sert qu'une fois, même en parallèle. Un domaine personnalisé n'est actif qu'après vérification DNS et TXT. |
 | **Boutiques** | Plusieurs boutiques dans une seule base. Chaque requête d'administration est limitée à la boutique du marchand connecté (testé). |
 | **Boutique publique** | `/s/<slug>` : catalogue, panier, livraison, paiement. Le coût fournisseur n'est jamais exposé. |
 | **Prix** | Tout est recalculé côté serveur (produits, livraison, seuil de port offert). Un prix envoyé par le navigateur est ignoré (testé). |
