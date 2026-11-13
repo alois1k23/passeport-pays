@@ -177,6 +177,8 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     db.prepare('UPDATE webhooks SET secret = ?, secret_ancien = ?, secret_ancien_jusqu = ? WHERE id = ?').run(fermerSecret(boutiqueId, w.id, secret), w.secret, jusqu, w.id);
     return { id: w.id, secret, ancienValableJusqua: new Date(jusqu).toISOString() };
   }
+  /* Webhooks dont le secret ne se lit plus avec les clés connues (console de l'exploitant). */
+  const secretsIllisibles = () => db.prepare('SELECT id, boutique_id, secret FROM webhooks').all().filter(w => !ouvrirSecret(w.boutique_id, w.id, w.secret)).length;
   /* Secrets encore en clair (avant le chiffrement) : chiffrés une fois (appelé au démarrage). */
   function chiffrerSecrets() {
     if (!chiffrement()) return 0;
@@ -318,7 +320,7 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     return db.prepare("DELETE FROM webhook_envois WHERE webhook_id IN (SELECT id FROM webhooks WHERE boutique_id = ?) AND (email_index = ? OR instr(lower(corps), ?) > 0)").run(boutiqueId, ix, JSON.stringify(String(email).toLowerCase())).changes;
   }
 
-  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, renouvelerSecret, chiffrerSecrets, signer, verifierUrl, poster };
+  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, renouvelerSecret, chiffrerSecrets, secretsIllisibles, signer, verifierUrl, poster };
 }
 
 module.exports = { creerIntegrations, ipInterne, PORTEES, EVENEMENTS };

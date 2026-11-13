@@ -31,5 +31,18 @@ test('santé et console de l’exploitant', async () => {
     const page = await op('GET', '/operateur');
     assert.equal(page.s, 200); assert.match(page.t, /Comptes marchands/); assert.match(page.t, /Revenu mensuel récurrent/);
     assert.doesNotMatch(page.t, /marchand@exemple\.ch/, 'aucune adresse affichée');
+    // Bilan de sécurité : clé gardée dans la base signalée (pas de SECRET_CHIFFREMENT ici), comptes protégés comptés.
+    assert.match(page.t, /<h2>Sécurité<\/h2>/);
+    assert.match(page.t, /<tr class="alerte"><td>Clé de chiffrement<\/td><td class="d"><b>GARDÉE DANS LA BASE/);
+    assert.match(page.t, /Données illisibles avec les clés connues<\/td><td class="d"><b>aucune/);
+    assert.match(page.t, /Comptes marchands protégés[^<]*<\/td><td class="d"><b>1 \/ 2 \(50 %\)/);
+    // Alertes : secret de webhook illisible, paiement reçu à rembourser.
+    const bid = db.prepare('SELECT id FROM boutiques LIMIT 1').get().id;
+    db.prepare("INSERT INTO webhooks (id, boutique_id, url, secret, evenements, cree_le) VALUES ('wh_x', ?, 'https://exemple.ch/h', 'v2.casse', '[]', 1)").run(bid);
+    db.prepare("INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES ('c_x', ?, 9999, 1, 'annulee', 'j', '{}')").run(bid);
+    db.prepare("INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le) VALUES ('pay_x', 'c_x', 'stripe', 1000, 'CHF', 'a_rembourser', 1)").run();
+    const page2 = await op('GET', '/operateur');
+    assert.match(page2.t, /<tr class="alerte"><td>Données illisibles avec les clés connues<\/td><td class="d"><b>0 commande\(s\) · 0 secret\(s\) de double authentification · 1 secret\(s\) de webhook/);
+    assert.match(page2.t, /<tr class="alerte"><td>Paiements reçus à rembourser<\/td><td class="d"><b>1</);
   } finally { s.close(); }
 });

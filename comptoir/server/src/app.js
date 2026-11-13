@@ -63,9 +63,9 @@ function creerApp({ db, env = {}, urlPublique, fetchImpl = fetch, journal = cons
 h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;margin:6mm 0}td,th{padding:2mm 1mm;border-bottom:1px solid #ddd;text-align:left}.n{text-align:right;white-space:nowrap}.tot td{font-weight:700;border:0}
 .haut{display:flex;justify-content:space-between;gap:10mm}.bas{position:absolute;left:0;bottom:0}.imp{position:fixed;top:8px;right:12px;margin:0;background:#fff;padding:6px 10px;border-radius:6px;font-size:9pt}
 @media print{body{background:#fff}.page{margin:0;box-shadow:none}.imp{display:none}@page{size:A4;margin:0}}${QrFacture.CSS}`);
-  const FEUILLE_2 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}*{box-sizing:border-box}body{font:16px/1.5 system-ui,sans-serif;background:#F3F4F7;color:#151821;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:12px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}h1{font-size:1.3rem;margin:0}.total{font-size:1.8rem;font-weight:700}button{font:inherit;font-weight:600;padding:12px;border-radius:8px;border:1px solid #151821;width:100%;cursor:pointer}.payer{background:#151821;color:#fff}.annuler{background:#fff}.note{color:#5B6372;font-size:.85rem}`);
-  const FEUILLE_3 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}`);
-  const FEUILLE_4 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#F4F5F7;color:#151821;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:24px;max-width:720px;margin:24px auto}h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 4px}a{color:#1D5C70}.alerte{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px}`);
+  const FEUILLE_2 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}*{box-sizing:border-box}body{font:16px/1.5 system-ui,sans-serif;background:#F3F4F7;color:#151821;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:12px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}h1{font-size:1.3rem;margin:0}.total{font-size:1.8rem;font-weight:700}button{font:inherit;font-weight:600;padding:12px;border-radius:8px;border:1px solid #151821;width:100%;cursor:pointer}.payer{background:#151821;color:#fff}.annuler{background:#fff}.note{color:#5B6372;font-size:.85rem}`);
+  const FEUILLE_3 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}`);
+  const FEUILLE_4 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#F4F5F7;color:#151821;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:24px;max-width:720px;margin:24px auto}h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 4px}a{color:#1D5C70}.alerte{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px}`);
   const paiement = choisirPrestataire(env, urlPublique, fetchImpl);
   const simulationAutorisee = paiement.nom === 'simulation' && env.NODE_ENV !== 'production';
   // Le fournisseur de démonstration n'expédie rien : ses produits ne se vendent jamais contre de l'argent réel
@@ -391,6 +391,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   for (const k of [cleChiffrement, ...anciennesSaisies.filter(x => /^[0-9a-f]{64}$/i.test(x)).map(x => Buffer.from(x, 'hex')), cleBase]) if (!trousseau.some(t => t.equals(k))) trousseau.push(k);
   // Sous-clés dédiées (HKDF) : chaque usage a la sienne, dérivée de chaque clé du trousseau.
   const sousCle = (k, etiquette) => Buffer.from(crypto.hkdfSync('sha256', k, Buffer.alloc(0), etiquette, 32));
+  // Constats du démarrage, montrés dans la console de l'exploitant (données illisibles avec les clés connues).
+  const etatSecurite = { commandesIllisibles: 0, secrets2faIllisibles: 0, cleHorsBase: /^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || ''), anciennesCles: trousseau.length - 1 - (cleBase.equals(cleChiffrement) ? 0 : 1) };
   const Cartes = CartesCadeaux.creer(db, trousseau.map(k => sousCle(k, 'comptoir:cartes-cadeaux')));
   const DV = Devis.creer(db, () => PII);
   const FID = Fidelite.creer(db, trousseau.map(k => sousCle(k, 'comptoir:fidelite')));   // fidélité : empreinte HMAC, jamais en clair
@@ -451,6 +453,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     try { const n = DV.chiffrerAnciens() + integ.chiffrerFile() + integ.chiffrerSecrets(); if (n) journal.log(`[donnees-clients] ${n} devis ou envoi(s) de webhook chiffré(s)`); } catch (e) { journal.error('[donnees-clients] devis et webhooks', e.message); }
     if (trousseau.length > 1) try { const n = DV.renouvelerCle() + integ.renouvelerCleFile(); if (n) journal.log(`[donnees-clients] ${n} devis ou envoi(s) de webhook rechiffré(s) avec la clé courante`); } catch (e) { journal.error('[donnees-clients] rotation devis et webhooks', e.message); }
+    etatSecurite.commandesIllisibles = illisibles;
     if (illisibles) journal.error(`[donnees-clients] ATTENTION : ${illisibles} commande(s) dont les données client sont illisibles avec les clés connues. SECRET_CHIFFREMENT a-t-il changé ? Remettez l'ancienne valeur.`);
     if (abimees) journal.error(`[donnees-clients] ${abimees} commande(s) aux données illisibles (JSON abîmé), laissées telles quelles`);
   }
@@ -467,6 +470,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (lu.ancien) { db.prepare('UPDATE deux_facteurs SET secret = ? WHERE marchand_id = ? AND secret = ?').run(totp.chiffrer(cleChiffrement, lu.secret), r.marchand_id, r.secret); n++; }
     }
     if (n) journal.log(`[securite] ${n} secret(s) de double authentification rechiffré(s) avec la clé courante`);
+    etatSecurite.secrets2faIllisibles = illisibles;
     if (illisibles) journal.error(`[securite] ATTENTION : ${illisibles} secret(s) de double authentification illisible(s) avec les clés connues. Une ancienne clé manque-t-elle dans SECRET_CHIFFREMENT_ANCIENNES ?`);
   }
   for (const sql of ['ALTER TABLE sessions ADD COLUMN cree_le INTEGER', 'ALTER TABLE sessions ADD COLUMN vu_le INTEGER', 'ALTER TABLE sessions ADD COLUMN appareil TEXT', 'ALTER TABLE sessions ADD COLUMN reseau TEXT', 'ALTER TABLE sessions ADD COLUMN cle_acces TEXT']) { try { db.exec(sql); } catch { /* déjà là */ } }
@@ -1500,6 +1504,31 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return { statut: ok ? 200 : 503, corps: { ok, depuis: Math.round((Date.now() - demarreLe) / 1000) } };
   });
   const operateurs = String(env.OPERATEUR_EMAILS || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+  /* Bilan de sécurité de la plateforme (console de l'exploitant) : chaque ligne dit si quelque chose demande une action,
+     et laquelle. Aucune donnée de client final, aucun secret : seulement des comptes et des dates. */
+  function bilanSecuriteExploitant(maintenant = Date.now()) {
+    const n = (sql, ...a) => db.prepare(sql).get(...a).n, j = 86400000;
+    const etatJ = JV().etat(''), rotations = (() => { try { return JSON.parse((db.prepare("SELECT valeur FROM journal_meta WHERE cle = 'rotations'").get() || {}).valeur || '[]'); } catch { return []; } })();
+    const comptes = n('SELECT COUNT(*) n FROM marchands');
+    const proteges = n("SELECT COUNT(*) n FROM marchands m WHERE EXISTS (SELECT 1 FROM deux_facteurs d WHERE d.marchand_id = m.id AND d.actif = 1) OR m.cle_seule = 1");
+    const webhooksIllisibles = integ.secretsIllisibles();
+    const illisibles = etatSecurite.commandesIllisibles + etatSecurite.secrets2faIllisibles + webhooksIllisibles;
+    const aRembourser = n("SELECT COUNT(*) n FROM paiements WHERE statut = 'a_rembourser'");
+    const nonConfirmees = n('SELECT COUNT(*) n FROM marchands WHERE email_verifie_le IS NULL AND cree_le < ?', maintenant - 7 * j);
+    const echecs2fa = n("SELECT COUNT(*) n FROM journal_compte WHERE type = 'echec-2fa' AND date > ?", maintenant - j);
+    return [
+      { titre: 'Clé de chiffrement', valeur: etatSecurite.cleHorsBase ? 'hors de la base (SECRET_CHIFFREMENT)' : 'GARDÉE DANS LA BASE', alerte: !etatSecurite.cleHorsBase,
+        conseil: etatSecurite.cleHorsBase ? '' : 'Une copie volée de la base suffirait à lire les données des clients : définissez SECRET_CHIFFREMENT (rotation décrite dans MISE-EN-LIGNE.md).' },
+      { titre: 'Anciennes clés et rotations', valeur: `${etatSecurite.anciennesCles} ancienne${etatSecurite.anciennesCles > 1 ? 's' : ''} clé${etatSecurite.anciennesCles > 1 ? 's' : ''} · ${rotations.length} rotation${rotations.length > 1 ? 's' : ''}${rotations.length ? ` (dernière le ${new Date(rotations.at(-1).le).toLocaleDateString('fr-CH', { timeZone: 'Europe/Zurich' })})` : ''}`, alerte: etatJ.cleChangee,
+        conseil: etatJ.cleChangee ? 'La clé qui signe les journaux des ventes a changé sans que l’ancienne soit gardée : remettez-la dans SECRET_CHIFFREMENT_ANCIENNES.' : '' },
+      { titre: 'Données illisibles avec les clés connues', valeur: illisibles ? `${etatSecurite.commandesIllisibles} commande(s) · ${etatSecurite.secrets2faIllisibles} secret(s) de double authentification · ${webhooksIllisibles} secret(s) de webhook` : 'aucune', alerte: illisibles > 0,
+        conseil: illisibles ? 'Une ancienne clé manque : ajoutez-la à SECRET_CHIFFREMENT_ANCIENNES et redémarrez (rien n’a été écrasé).' : '' },
+      { titre: 'Comptes marchands protégés (double authentification ou clé d’accès exigée)', valeur: `${proteges} / ${comptes}${comptes ? ` (${Math.round(proteges / comptes * 100)} %)` : ''}`, alerte: false },
+      { titre: 'Adresses e-mail non confirmées depuis plus de 7 jours', valeur: nonConfirmees, alerte: false },
+      { titre: 'Codes de vérification refusés (24 h)', valeur: echecs2fa, alerte: echecs2fa >= 20, conseil: echecs2fa >= 20 ? 'Beaucoup de codes refusés : une attaque sur des mots de passe connus est possible (les marchands concernés sont prévenus par e-mail).' : '' },
+      { titre: 'Paiements reçus à rembourser', valeur: aRembourser, alerte: aRembourser > 0, conseil: aRembourser ? 'Paiements reçus pour une commande annulée, déjà payée ou non conforme : vérifiez qu’ils ont bien été rendus (Stripe).' : '' }
+    ];
+  }
   r.get('/operateur', ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     const df = m && deuxFacteursDe(m.id);
@@ -1557,7 +1586,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
             ['En marche depuis', `${Math.round((maintenant - demarreLe) / 3600000)} h · Node ${process.version}`]
     ];
     noterActivite(m.id, 'console-operateur', null, ctx);
-    return { html: pageSimple('Console de l’exploitant', 'Chiffres agrégés de la plateforme, sans donnée de client final.', `<table class="tab-console">${lignes.map(([k, v]) => `<tr><td>${escHtml(k)}</td><td class="d"><b>${escHtml(String(v))}</b></td></tr>`).join('')}</table>`) };
+    const securite = bilanSecuriteExploitant(maintenant);
+    const tableSecurite = `<h2>Sécurité</h2><table class="tab-console">${securite.map(x => `<tr${x.alerte ? ' class="alerte"' : ''}><td>${escHtml(x.titre)}</td><td class="d"><b>${escHtml(String(x.valeur))}</b>${x.conseil ? `<br><span>${escHtml(x.conseil)}</span>` : ''}</td></tr>`).join('')}</table>`;
+    return { html: pageSimple('Console de l’exploitant', 'Chiffres agrégés de la plateforme, sans donnée de client final.', `<table class="tab-console">${lignes.map(([k, v]) => `<tr><td>${escHtml(k)}</td><td class="d"><b>${escHtml(String(v))}</b></td></tr>`).join('')}</table>${tableSecurite}`) };
   });
 
   /* ---------- Rapports de violation de la politique de sécurité (CSP) ----------

@@ -997,7 +997,7 @@ Un relecteur indépendant a attaqué la boutique publique et le paiement : prix,
   - recréer un code du même nom reprend ses utilisations passées.
 - 202 tests sur 202 ; parcours de bout en bout : 57 contrôles, 0 anomalie.
 
-### Cycle 55 (09 h 35) : relecture adversariale de l'API publique et des webhooks sortants (chantier 48)
+### Cycle 55 (09 h 10) : relecture adversariale de l'API publique et des webhooks sortants (chantier 48)
 
 Un relecteur indépendant a attaqué `/api/v1` et les webhooks avec deux boutiques et un récepteur local. Il a prouvé chaque constat par un script, sans faille critique.
 
