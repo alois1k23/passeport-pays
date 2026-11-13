@@ -267,3 +267,14 @@ Relecture indépendante du programme de fidélité : 200 000 paniers aléatoires
   - à la fermeture du panier (bouton, fond ou Échap), le focus revenait sur la page entière. Il revient désormais sur le bouton qui avait ouvert le panier ;
   - les erreurs de commande (stock, code, paiement indisponible) sont annoncées tout de suite (« alert »).
 - Résultat de l'outil : **aucun problème, aucune erreur JavaScript**. 142 tests sur 142, bout en bout 51 sur 51.
+
+### Cycle 16 (01 h 10) : mentions des factures entre professionnels
+
+- Point resté ouvert dans la relecture des devis. Une commande issue d'un devis reçoit maintenant une **échéance de paiement** à l'acceptation : le délai réglé dans la boutique, 30 jours par défaut. L'échéance figure aussi dans la facture électronique.
+- La facture imprimée et la facture Factur-X d'une vente entre professionnels indiquent désormais :
+  - le **numéro de TVA du client** ;
+  - le devis d'origine ;
+  - l'échéance, si la facture n'est pas payée.
+  
+  En France, elles indiquent aussi **les mentions de l'art. L441-10 du Code de commerce** : pas d'escompte pour paiement anticipé, pénalités de retard à trois fois le taux d'intérêt légal, indemnité forfaitaire de 40 € pour frais de recouvrement.
+- Test vérifiant le texte du PDF (numéro de TVA, mentions, devis d'origine) : 142 tests sur 142.

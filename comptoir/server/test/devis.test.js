@@ -97,6 +97,12 @@ test('parcours : création, envoi, consultation, acceptation unique, commande pa
     const c2 = { ...(await commandeApi(d.commande.id)), numero: 1 };
     const xml = F.produire(c2, cfg); assert.deepEqual(F.verifier(xml), []); assert.ok(xml.includes(`<ram:GrandTotalAmount>${d.total.toFixed(2)}</ram:GrandTotalAmount>`));
     assert.ok(!c2.lignes.some(l => l.type === 'drop' && !l.codeFournisseur));
+    // Facture PDF d'une vente entre professionnels : numéro de TVA du client et mentions de l'art. L441-10.
+    const pdf = require('../src/facturx-pdf').produire(c2, cfg, { xml });
+    const os = require('node:os'), fs = require('node:fs'), path = require('node:path'), { execFileSync } = require('node:child_process');
+    let texte = null; try { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dv-')); fs.writeFileSync(path.join(dir, 'f.pdf'), pdf); texte = execFileSync('pdftotext', [path.join(dir, 'f.pdf'), '-']).toString().replace(/\s+/g, ' '); fs.rmSync(dir, { recursive: true, force: true }); } catch { /* sans poppler */ }
+    if (texte) { assert.match(texte, /N° TVA FR99123456789/); assert.match(texte, /L441-10/); assert.match(texte, /Selon le devis DE-\d{4}-0001/); }
+    assert.ok(c2.echeance > Date.now(), 'échéance de paiement fixée à l’acceptation');
   } finally { s.close(); }
 });
 

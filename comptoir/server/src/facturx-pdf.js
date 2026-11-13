@@ -143,7 +143,7 @@ function composer(c, config, { avoir, devise }) {
   // Client
   p.ecrire(MARGE, y, avoir ? 'Client' : 'Facturé à', { taille: 8.5, couleur: gris }); y -= 14;
   for (const morceau of t.couper(client.nom || 'Client', 10, 300, 'b', 2)) { p.ecrire(MARGE, y, morceau, { taille: 10, s: 'b' }); y -= 13; }
-  for (const ligne of [client.adresse, [client.npa, client.ville].filter(Boolean).join(' '), client.email].filter(Boolean)) {
+  for (const ligne of [client.adresse, [client.npa, client.ville].filter(Boolean).join(' '), client.email, client.tva ? `N° TVA ${client.tva}` : ''].filter(Boolean)) {
     for (const morceau of t.couper(ligne, 9, 300, 'r', 2)) { p.ecrire(MARGE, y, morceau, { taille: 9, couleur: gris }); y -= 12; }
   }
   if (c.numero) { p.ecrire(MARGE, y, `Commande n° ${c.numero} du ${dateFr(c.date)}`, { taille: 9, couleur: gris }); y -= 12; }
@@ -216,6 +216,12 @@ function composer(c, config, { avoir, devise }) {
     if (e.iban) mentions.push(`IBAN : ${String(e.iban).replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim()}${c.referenceQr ? ` · Référence : ${c.referenceQr}` : ''}`);
   }
   if (!avoir && c.carteCadeau && c.carteCadeau.montant > 0) mentions.push(`Dont ${brut(c.carteCadeau.montant)} réglés par carte cadeau ····${c.carteCadeau.fin}.`);
+  // Vente entre professionnels (commande issue d'un devis) : mentions de l'art. L441-9 du Code de commerce (France).
+  if (!avoir && c.canal === 'devis') {
+    if (c.devis) mentions.push(`Selon le devis ${c.devis.numero} accepté.`);
+    if (!paye && c.echeance) mentions.push(`Échéance de paiement : ${dateFr(c.echeance)}.`);
+    if (pays === 'fr') mentions.push('Pas d’escompte pour paiement anticipé. En cas de retard de paiement, pénalités au taux de trois fois le taux d’intérêt légal et indemnité forfaitaire pour frais de recouvrement de 40 € (art. L441-10 du Code de commerce).');
+  }
   mentions.push('Ce PDF/A-3 contient la facture électronique structurée (fichier joint factur-x.xml, norme européenne EN 16931).');
   const morceauxMentions = mentions.map(m => t.couper(m, 8.5, L - 2 * MARGE, 'r', 4));
   place(morceauxMentions.reduce((a, m) => a + m.length * 12, 0));   // les mentions restent ensemble

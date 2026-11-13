@@ -2461,7 +2461,7 @@ ${bloc}</main></body></html>`;
         client: { nom: frais.client.raison, contact: frais.client.contact, email: frais.client.email, adresse: frais.client.adresse, npa: frais.client.npa, ville: frais.client.ville, pays: frais.client.pays, tva: frais.client.tva },
         lignes: frais.lignes.map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, prix: l.prix, qte: l.qte, type: l.type, tauxTva: l.tauxTva, tauxReduit: l.tauxReduit, source: l.source || null, fournisseur: l.fournisseur || null, ...(l.codeFournisseur ? { codeFournisseur: l.codeFournisseur } : {}) })),
         sousTotal: frais.sousTotal, remise: frais.remise, motifRemise: frais.remise ? `Remise du devis ${frais.numero} (${frais.remisePct} %)` : null, port: frais.port, total: frais.total, tauxTva: frais.tauxTva,
-        livraison: 'devis', canal: 'devis', devis: { id: frais.id, numero: frais.numero }, suivi: '', note: '',
+        livraison: 'devis', canal: 'devis', devis: { id: frais.id, numero: frais.numero }, echeance: maintenant + (config.reglages.echeanceJours || 30) * 86400000, suivi: '', note: '',
         historique: [{ date: maintenant, texte: `Commande issue du devis ${frais.numero}, accepté en ligne par ${nom}` }] };
       const jetonCommande = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
