@@ -1535,3 +1535,4 @@ Les clés d'avant le chantier 68, et celles qu'on crée sans adresses autorisée
   - **Limite écrite** : une clé sans aucun réseau appris apprend son premier réseau sans alerte, quel que soit son âge. C'est le cas des clés d'avant ce chantier, et des clés après un an sans usage.
   - **Limite écrite** : seuls les appels acceptés sont suivis. Un appel refusé faute de permission (403) ou d'abonnement (402) ne compte pas.
 - Après corrections : 231 tests sur 231, parcours de bout en bout 57/57.
+- Vérification complète (7 étapes) réussie sur le code final du chantier 69.
