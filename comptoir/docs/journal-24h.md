@@ -1512,3 +1512,4 @@ Une clé d'API de Comptoir valait jusqu'ici pour toujours et depuis n'importe o�
     - le dernier usage n'est noté qu'après les deux contrôles ;
     - affichage échappé.
 - Après corrections : 230 tests sur 230, parcours de bout en bout 57/57, fuzzing sans constat.
+- Vérification complète (7 étapes) réussie sur le code final du chantier 68.
