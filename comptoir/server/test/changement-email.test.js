@@ -91,7 +91,7 @@ test('changement en attente : il tombe quand la titulaire change son mot de pass
   } finally { s.close(); }
 });
 
-test('annulation : « clé d’accès seule » d’avant la demande conservée, équipe ajoutée par l’intrus retirée ; connexion forte = identité confirmée', async () => {
+test('annulation : « clé d’accès seule » d’avant la demande conservée, équipe ajoutée par l’intrus retirée ; connexion avec code ≠ identité confirmée', async () => {
   const totp = require('../src/totp');
   const db = ouvrir(':memory:');
   const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
@@ -109,11 +109,15 @@ test('annulation : « clé d’accès seule » d’avant la demande conservée, 
     const d = await intrus('POST', '/api/auth/connexion', { email: 'cs@exemple.ch', motDePasse: 'un mot de passe solide' });
     assert.equal(d.j.deuxFacteurs, true);
     assert.equal((await intrus('POST', '/api/auth/connexion/2fa', { defi: d.j.defi, code: totp.code(prep.j.secret, totp.pasActuel() + 1) })).s, 200);
-    // (ici l'intrus a les deux facteurs ; on vérifie l'effet de la connexion forte et de l'annulation)
-    assert.equal((await intrus('POST', '/api/admin/compte/email', { email: 'x@pirate.example' })).s, 200, 'connexion forte : pas de confirmation à refaire');
+    // Une connexion, même avec code, ne vaut pas confirmation explicite (un cookie volé juste après ne suffit pas).
+    assert.equal((await intrus('POST', '/api/admin/compte/email', { email: 'x@pirate.example' })).j.code, 'identite_a_confirmer');
+    // L'intrus (qui a ici les deux facteurs) invite un premier complice, puis attend avant de demander le changement.
+    db.prepare('UPDATE sessions SET identite_le = ?').run(Date.now());
+    assert.equal((await intrus('POST', '/api/admin/equipe/inviter', { email: 'avant@pirate.example', role: 'commandes' })).s, 201);
+    db.prepare('UPDATE invitations SET cree_le = cree_le - 600000').run(); db.prepare('UPDATE sessions SET cree_le = cree_le - 600000').run();   // 10 minutes plus tôt
     // La protection « clé d'accès seule » de la titulaire existait avant la demande.
     db.prepare('UPDATE marchands SET cle_seule = 1, cle_seule_le = ?').run(Date.now() - 86400000);
-    db.prepare('UPDATE changements_email SET demande_le = ?').run(Date.now());
+    assert.equal((await intrus('POST', '/api/admin/compte/email', { email: 'x@pirate.example' })).s, 200);
     assert.equal((await client()('POST', '/api/auth/changer-email', { jeton: lien('x@pirate.example', 'changer-email') })).s, 200);
     // L'intrus invite un complice, qui accepte, et en invite un autre.
     db.prepare('UPDATE sessions SET identite_le = ?').run(Date.now());
@@ -123,7 +127,9 @@ test('annulation : « clé d’accès seule » d’avant la demande conservée, 
     // Annulation : l'équipe ajoutée depuis est retirée, la « clé d'accès seule » d'avant reste en place.
     assert.equal((await client()('POST', '/api/auth/annuler-changement-email', { jeton: lien('cs@exemple.ch', 'annuler-email') })).s, 200);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM equipe').get().n, 0);
-    assert.equal(db.prepare('SELECT COUNT(*) n FROM invitations').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM invitations').get().n, 0);   // celle d'avant la demande aussi (session de moins de 24 h)
+    assert.ok(db.prepare("SELECT corps FROM emails WHERE destinataire = 'cs@exemple.ch' AND sujet LIKE 'Changement d’adresse annulé%'").get().corps.includes('membre complice@pirate.example'));
+    assert.equal((await client()('POST', '/api/auth/connexion', { email: 'cs@exemple.ch', motDePasse: 'un mot de passe solide' })).s, 401, 'mot de passe connu de l’intrus invalidé');
     assert.ok(!db.prepare("SELECT 1 FROM marchands WHERE email = 'complice@pirate.example'").get(), 'compte du complice supprimé');
     assert.equal(db.prepare("SELECT cle_seule FROM marchands WHERE email = 'cs@exemple.ch'").get().cle_seule, 1, 'protection d’avant conservée');
   } finally { s.close(); }
@@ -146,3 +152,26 @@ test('annulation : « clé d’accès seule » activée par l’intrus après la
     assert.equal(db.prepare('SELECT cle_seule FROM marchands').get().cle_seule, 0);
   } finally { s.close(); }
 });
+
+test('annulation : « clé d’accès seule » désactivée par l’intrus, rétablie', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const client = () => { const jar = {}; return async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { ...(corps ? { 'Content-Type': 'application/json' } : {}), Cookie: Object.values(jar).join('; ') }, body: corps ? JSON.stringify(corps) : undefined }); for (const x of r.headers.getSetCookie()) { const [nv] = x.split(';'); jar[nv.split('=')[0]] = nv; } return { s: r.status, j: await r.json().catch(() => null) }; }; };
+  const lien = (dest, param) => (db.prepare('SELECT corps FROM emails WHERE destinataire = ? ORDER BY id DESC').all(dest).map(x => (x.corps.match(new RegExp(`${param}=([\\w-]+)`)) || [])[1]).find(Boolean));
+  try {
+    const i = client();
+    await i('POST', '/api/auth/inscription', { email: 'r@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'R' } } });
+    const mid = db.prepare('SELECT id FROM marchands').get().id;
+    // La titulaire avait une clé d'accès et « clé d'accès seule » (posées directement : le test porte sur l'annulation).
+    db.prepare("INSERT INTO cles_acces (id, marchand_id, nom, cle, compteur, cree_le) VALUES ('k1', ?, 'Téléphone', '{}', 0, ?)").run(mid, Date.now() - 86400000 * 30);
+    db.prepare('UPDATE marchands SET cle_seule = 1, cle_seule_le = ?').run(Date.now() - 86400000 * 30);
+    db.prepare('UPDATE sessions SET identite_le = ?').run(Date.now());
+    await i('POST', '/api/admin/compte/email', { email: 'r@pirate.example' });
+    db.prepare('UPDATE marchands SET cle_seule = 0, cle_seule_le = ?').run(Date.now());   // désactivée par l'intrus
+    assert.equal((await client()('POST', '/api/auth/changer-email', { jeton: lien('r@pirate.example', 'changer-email') })).s, 200);
+    assert.equal((await client()('POST', '/api/auth/annuler-changement-email', { jeton: lien('r@exemple.ch', 'annuler-email') })).s, 200);
+    assert.equal(db.prepare('SELECT cle_seule FROM marchands').get().cle_seule, 1, 'protection rétablie');
+  } finally { s.close(); }
+});
+

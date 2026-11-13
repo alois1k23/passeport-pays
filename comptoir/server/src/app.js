@@ -503,8 +503,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     db.prepare('INSERT INTO journal_compte (marchand_id, date, type, detail, reseau) VALUES (?, ?, ?, ?, ?)').run(marchandId, Date.now(), type, detail ? String(detail).slice(0, 200) : null, ctx ? reseauIp(ctx.ip) : null);
   };
   // Ouvre une session (cookie) et la décrit pour la liste des appareils connectés.
-  // forte : connexion avec double authentification ou clé d'accès, qui vaut confirmation explicite d'identité (15 minutes) ;
-  // c'est aussi le seul moyen, pour un compte « clé d'accès seule », de confirmer son identité.
+  // forte : connexion par clé d'accès d'un compte « clé d'accès seule », qui vaut confirmation explicite d'identité
+  // (15 minutes) : le mot de passe y est refusé, c'est le seul moyen de la donner. Pour les autres comptes, une connexion
+  // ne vaut jamais confirmation explicite (un cookie volé juste après ne doit pas suffire).
   function ouvrirSession(ctx, m, { nouvelAppareil = false, forte = false } = {}) {
     const jeton = auth.creerSession(db, m.id), maintenant = Date.now(), appareil = decrireAppareil(ctx.req.headers['user-agent']);
     db.prepare('UPDATE sessions SET cree_le = ?, vu_le = ?, appareil = ?, reseau = ?, identite_le = ? WHERE jeton_hash = ?').run(maintenant, maintenant, appareil, reseauIp(ctx.ip), forte ? maintenant : null, auth.sha256(jeton));
@@ -1118,14 +1119,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
      La réponse ne dit jamais si la nouvelle adresse a déjà un compte (pas de repérage d'adresses). */
   db.exec(`CREATE TABLE IF NOT EXISTS changements_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, nouvel_email TEXT NOT NULL, expire_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS annulations_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, ancien_email TEXT NOT NULL, expire_le INTEGER NOT NULL);`);
-  for (const sql of ['ALTER TABLE changements_email ADD COLUMN demande_le INTEGER', 'ALTER TABLE annulations_email ADD COLUMN demande_le INTEGER', 'ALTER TABLE marchands ADD COLUMN cle_seule_le INTEGER']) { try { db.exec(sql); } catch { /* déjà là */ } }
+  for (const sql of ['ALTER TABLE changements_email ADD COLUMN demande_le INTEGER', 'ALTER TABLE annulations_email ADD COLUMN demande_le INTEGER', 'ALTER TABLE marchands ADD COLUMN cle_seule_le INTEGER', 'ALTER TABLE changements_email ADD COLUMN cle_seule_avant INTEGER', 'ALTER TABLE annulations_email ADD COLUMN cle_seule_avant INTEGER', 'ALTER TABLE equipe ADD COLUMN invite_le INTEGER']) { try { db.exec(sql); } catch { /* déjà là */ } }
   // Adresse quittée dont le changement peut encore être annulé : réservée (ni inscription, ni invitation, ni autre
   // changement vers elle), pour que sa titulaire puisse toujours la reprendre.
   const adresseReservee = email => !!db.prepare('SELECT 1 FROM annulations_email WHERE lower(ancien_email) = lower(?) AND expire_le > ?').get(String(email || ''), Date.now());
   const masquer = e => String(e).replace(/^(.)[^@]*@/, '$1…@');
   r.post('/api/admin/compte/email', exigerCompte, ctx => {
     exigerIdentite(ctx, { explicite: true });   // une session simplement récente ne suffit pas : mot de passe (et code) redemandés
-    const m = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    const m = db.prepare('SELECT id, email, cle_seule FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    // Début de la période retirée en cas d'annulation : la demande, ou l'ouverture de la session si elle date de moins de
+    // 24 heures (un intrus qui installe sa double authentification ou invite un complice, puis attend avant de demander).
+    const sess0 = sessionDe(ctx), debut = sess0.cree_le && sess0.cree_le > Date.now() - 86400000 ? Math.min(sess0.cree_le, Date.now()) : Date.now();
     // Un seul changement à la fois : tant que le précédent peut être annulé par l'adresse d'origine, aucun autre (sinon un
     // intrus enchaînerait deux changements et ferait disparaître le lien d'annulation de la vraie titulaire).
     const encours = db.prepare('SELECT expire_le FROM annulations_email WHERE marchand_id = ? AND expire_le > ?').get(m.id, Date.now());
@@ -1139,7 +1143,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     } else {
       const jeton = crypto.randomBytes(32).toString('base64url');
       db.prepare('DELETE FROM changements_email WHERE marchand_id = ?').run(m.id);   // une seule demande en cours
-      db.prepare('INSERT INTO changements_email (jeton_hash, marchand_id, nouvel_email, expire_le, demande_le) VALUES (?, ?, ?, ?, ?)').run(auth.sha256(jeton), m.id, nouvel, Date.now() + 86400000, Date.now());
+      db.prepare('INSERT INTO changements_email (jeton_hash, marchand_id, nouvel_email, expire_le, demande_le, cle_seule_avant) VALUES (?, ?, ?, ?, ?, ?)').run(auth.sha256(jeton), m.id, nouvel, Date.now() + 86400000, debut, m.cle_seule ? 1 : 0);
       envoyerEmail(null, nouvel, 'Confirmez votre nouvelle adresse Comptoir', `Bonjour,\n\nPour que cette adresse devienne celle de votre compte Comptoir (connexion, récupération, alertes), ouvrez ce lien (valable 24 heures) :\n${urlPublique}/app?changer-email=${jeton}\n\nSi vous n’avez rien demandé, ignorez cet e-mail.\n\nL’équipe Comptoir`);
     }
     envoyerEmail(null, m.email, 'Changement d’adresse demandé sur votre compte Comptoir', `Bonjour,\n\nUn changement de l’adresse de votre compte vers ${masquer(nouvel)} vient d’être demandé. Il ne prendra effet qu’après confirmation depuis la nouvelle adresse, et vous recevrez alors un lien pour l’annuler.\n\nCe n’était pas vous ? Changez votre mot de passe et déconnectez les autres appareils.\n\nL’équipe Comptoir`);
@@ -1158,7 +1162,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);   // liens envoyés à l'ancienne adresse : caducs
       db.prepare('DELETE FROM verifications_email WHERE marchand_id = ?').run(m.id);
       const annul = crypto.randomBytes(32).toString('base64url');
-      db.prepare('INSERT INTO annulations_email (jeton_hash, marchand_id, ancien_email, expire_le, demande_le) VALUES (?, ?, ?, ?, ?)').run(auth.sha256(annul), m.id, m.email, Date.now() + 7 * 86400000, l.demande_le || Date.now());
+      db.prepare('INSERT INTO annulations_email (jeton_hash, marchand_id, ancien_email, expire_le, demande_le, cle_seule_avant) VALUES (?, ?, ?, ?, ?, ?)').run(auth.sha256(annul), m.id, m.email, Date.now() + 7 * 86400000, l.demande_le || Date.now(), l.cle_seule_avant);
       annulerRecuperation(m.id, 'adresse du compte changée', null);   // une récupération lancée depuis l'ancienne adresse ne s'applique plus
       return { m, nouvel: l.nouvel_email, annul };
     });
@@ -1184,24 +1188,37 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const depuis = (l.demande_le || l.expire_le - 7 * 86400000) - 60000;
       db.prepare('DELETE FROM deux_facteurs WHERE marchand_id = ? AND cree_le >= ?').run(l.marchand_id, depuis);
       db.prepare('DELETE FROM cles_acces WHERE marchand_id = ? AND cree_le >= ?').run(l.marchand_id, depuis);
-      // « Clé d'accès seule » retirée seulement si elle a été activée depuis la demande (par l'intrus) : une protection que la
-      // titulaire avait avant reste en place, et sa réinitialisation passe alors par la récupération différée habituelle.
-      db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ? AND cle_seule = 1 AND COALESCE(cle_seule_le, 0) >= ?').run(l.marchand_id, depuis);
+      // « Clé d'accès seule » remise dans l'état d'avant la demande : retirée si l'intrus l'a activée, rétablie s'il l'a
+      // désactivée (tant qu'il reste une clé d'accès de la titulaire). Le mot de passe actuel, que l'intrus connaît, cesse de
+      // fonctionner : la titulaire en choisit un nouveau par le lien envoyé à l'ancienne adresse.
+      const avant = l.cle_seule_avant;
+      if (avant === 1 && db.prepare('SELECT 1 FROM cles_acces WHERE marchand_id = ?').get(l.marchand_id)) db.prepare('UPDATE marchands SET cle_seule = 1 WHERE id = ?').run(l.marchand_id);
+      else if (avant === 0) db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ?').run(l.marchand_id);
+      else db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ? AND cle_seule = 1 AND COALESCE(cle_seule_le, 0) >= ?').run(l.marchand_id, depuis);   // demande d'avant cette règle
+      db.prepare("UPDATE marchands SET mot_de_passe = 'annule$' WHERE id = ?").run(l.marchand_id);
+      const retires = [];
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(l.marchand_id)) {
-        db.prepare('DELETE FROM invitations WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
-        db.prepare('DELETE FROM marchands WHERE id IN (SELECT marchand_id FROM equipe WHERE boutique_id = ? AND cree_le >= ?)').run(b.id, depuis);   // membres arrivés depuis : comptes retirés
+        for (const i of db.prepare('DELETE FROM invitations WHERE boutique_id = ? AND cree_le >= ? RETURNING email').all(b.id, depuis)) retires.push(`invitation de ${i.email}`);
+        // Membres invités depuis (date de l'invitation, pas de l'acceptation) : comptes retirés, comme au retrait d'un membre.
+        for (const mb of db.prepare('SELECT m.id, m.email FROM equipe e JOIN marchands m ON m.id = e.marchand_id WHERE e.boutique_id = ? AND COALESCE(e.invite_le, e.cree_le) >= ?').all(b.id, depuis)) {
+          db.prepare('DELETE FROM marchands WHERE id = ?').run(mb.id);
+          db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(mb.email).toLowerCase());
+          retires.push(`membre ${mb.email}`);
+        }
         db.prepare('DELETE FROM cles_api WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
         db.prepare('DELETE FROM webhooks WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
       }
       annulerRecuperation(l.marchand_id, 'changement d’adresse annulé', null);
       const jeton = crypto.randomBytes(32).toString('base64url');
       db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le) VALUES (?, ?, ?)').run(auth.sha256(jeton), l.marchand_id, Date.now() + 3600 * 1000);
-      return { l, jeton };
+      return { l, jeton, retires };
     });
     if (!r0) throw erreur(400, 'Ce lien a expiré ou a déjà servi.', 'lien_expire');
     if (r0.pris) throw erreur(409, 'Cette adresse est utilisée par un autre compte : contactez le support.', 'email_pris');
     noterActivite(r0.l.marchand_id, 'email-changement-annule', masquer(r0.l.ancien_email), ctx);
-    envoyerEmail(null, r0.l.ancien_email, 'Changement d’adresse annulé : choisissez un nouveau mot de passe', `Bonjour,\n\nL’adresse de votre compte Comptoir vous a été rendue et tous les appareils ont été déconnectés. Choisissez maintenant un nouveau mot de passe (lien valable 1 heure) :\n${urlPublique}/app?reinitialiser=${r0.jeton}\n\nL’équipe Comptoir`);
+    for (const x of r0.retires) noterActivite(r0.l.marchand_id, 'equipe-retiree-annulation', x, ctx);
+    const liste = r0.retires.length ? `\n\nRetiré de votre équipe, car ajouté pendant la période suspecte :\n${r0.retires.map(x => '- ' + x).join('\n')}` : '';
+    envoyerEmail(null, r0.l.ancien_email, 'Changement d’adresse annulé : choisissez un nouveau mot de passe', `Bonjour,\n\nL’adresse de votre compte Comptoir vous a été rendue et tous les appareils ont été déconnectés. Votre mot de passe actuel ne fonctionne plus : choisissez-en un nouveau (lien valable 1 heure) :\n${urlPublique}/app?reinitialiser=${r0.jeton}${liste}\n\nVérifiez aussi vos clés d’API et webhooks dans Paramètres.\n\nL’équipe Comptoir`);
     return { ok: true };
   });
   r.post('/api/admin/compte/verifier-email/renvoyer', exigerCompte, ctx => {
@@ -1314,7 +1331,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { noterActivite(mid, 'echec-2fa', null, ctx); if (auth.compteEchecs && auth.compteEchecs(parReseau[0]) >= 3) alerterEchecs2fa(m); throw erreur(401, 'Code incorrect.', 'code_2fa'); }
     auth.oublierEchecs(parReseau);
     if (cleSeule(m.id)) throw erreur(403, 'Ce compte se connecte uniquement avec sa clé d’accès : utilisez « Se connecter avec une clé d’accès ».', 'cle_requise');   // option activée après l'envoi du mot de passe
-    ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu, forte: true });
+    ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
     return { ok: true };
   });
   /* Mot de passe oublié : lien valable 1 heure, réponse identique que le compte existe ou non. */
@@ -1606,7 +1623,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (!db.prepare('DELETE FROM invitations WHERE id = ? RETURNING id').get(i.id)) throw erreur(404, 'Invitation déjà utilisée.', 'invitation');   // usage unique
       if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(i.email) || adresseReservee(i.email)) throw erreur(409, 'Cette adresse a déjà un compte Comptoir.', 'email_pris');
       db.prepare('INSERT INTO marchands (id, email, mot_de_passe, cree_le, email_verifie_le) VALUES (?, ?, ?, ?, ?)').run(id, i.email, hash, Date.now(), Date.now());   // le lien d'invitation prouve l'adresse
-      db.prepare('INSERT INTO equipe (marchand_id, boutique_id, role, cree_le) VALUES (?, ?, ?, ?)').run(id, i.boutique_id, i.role, Date.now());
+      db.prepare('INSERT INTO equipe (marchand_id, boutique_id, role, cree_le, invite_le) VALUES (?, ?, ?, ?, ?)').run(id, i.boutique_id, i.role, Date.now(), i.cree_le);
     });
     const proprio = db.prepare('SELECT m.id, m.email FROM boutiques b JOIN marchands m ON m.id = b.marchand_id WHERE b.id = ?').get(i.boutique_id);
     if (proprio) { noterActivite(proprio.id, 'membre-arrive', i.email, ctx); envoyerEmail(null, proprio.email, `${i.email} a rejoint votre équipe`, `Bonjour,\n\n${i.email} a accepté votre invitation et rejoint l’équipe de ${JSON.parse(i.config).boutique.nom} (rôle : ${ROLES[i.role]}).\n\nVous pouvez retirer cet accès à tout moment dans Paramètres > Équipe.\n${urlPublique}/app\n\nL’équipe Comptoir`); }
@@ -1932,7 +1949,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(cred.marchand_id);
     if (!m) refus('Compte introuvable.');
     const appareilConnu = !!appareilConnuPour(ctx, m.id);
-    const jeton = ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu, forte: true });
+    const jeton = ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu, forte: !!m.cle_seule });
     db.prepare('UPDATE sessions SET cle_acces = ? WHERE jeton_hash = ?').run(cred.id, auth.sha256(jeton));   // révoquée avec la clé
     noterActivite(m.id, 'cle-acces', cred.nom, ctx);
     annulerRecuperation(m.id, 'connexion avec votre clé d’accès', ctx);

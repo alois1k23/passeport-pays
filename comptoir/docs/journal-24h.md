@@ -1325,5 +1325,11 @@ Jusqu'ici, un marchand ne pouvait pas changer l'adresse de son compte. Et une se
     - **Grave** : l'annulation retirait toujours « Exiger la clé d'accès ». Quiconque tenait l'ancienne boîte (boîte piratée, c'est justement le cas que cette option protège) obtenait un compte protégé par le seul mot de passe. L'option n'est plus retirée que si elle a été activée après la demande (date d'activation enregistrée ; testé dans les deux sens).
     - **Régression** : un compte « clé d'accès seule » ne pouvait plus confirmer son identité (le mot de passe est refusé), donc plus changer d'adresse. Une connexion par clé d'accès ou par double authentification vaut maintenant confirmation pendant 15 minutes (testé).
     - Les membres et invitations d'équipe ajoutés par l'intrus survivaient à l'annulation : ils sont retirés (comptes des membres compris, comme au retrait d'un membre ; testé).
-- Vérification complète (7 étapes) réussie, 223 tests sur 223, parcours de bout en bout 57/57.
+  - **Troisième ronde**, corrigée :
+    - **Moyen** : la connexion par code valait confirmation d'identité, donc un cookie volé juste après suffisait à demander le changement. Seule la connexion par clé d'accès d'un compte « clé d'accès seule » (où le mot de passe est refusé) en tient lieu désormais (testé).
+    - **Moyen** : un intrus qui avait désactivé « Exiger la clé d'accès » la gardait désactivée après l'annulation, et son mot de passe restait valable. L'état d'avant la demande est enregistré et rétabli (s'il reste une clé de la titulaire), et le mot de passe actuel est invalidé : la titulaire en choisit un nouveau par le lien (testé).
+    - **Bas à moyen** : un intrus pouvait installer, puis attendre quelques minutes avant de demander. Si la session date de moins de 24 heures, la période retirée part de son ouverture (testé avec une invitation faite 10 minutes avant la demande).
+    - Membres : jugés par la date de leur invitation (un membre invité avant, arrivé pendant, reste) ; chaque retrait est noté dans le journal du compte, listé dans l'e-mail, et ses e-mails sont effacés comme au retrait d'un membre.
+    - Non corrigé : une double authentification d'avant la demande que l'intrus aurait désactivée ne peut pas être rétablie (le secret est détruit). Le mot de passe invalidé et toutes les sessions fermées couvrent le risque ; la titulaire la réactive.
+- Vérification complète (7 étapes) réussie avant la troisième ronde ; ensuite 224 tests sur 224, parcours de bout en bout 57/57.
 
