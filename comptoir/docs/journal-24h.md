@@ -1253,4 +1253,4 @@ Chaque nouveauté de la matinée avait été relue seule. Un relecteur indépend
 - un IBAN saisi juste avant de quitter la page (envoi de dernière seconde) n'est pas enregistré si l'identité n'est pas confirmée ;
 - annuler la fenêtre de confirmation la fait revenir au prochain enregistrement automatique, tant que l'IBAN modifié reste dans le formulaire.
 
-213 tests sur 213 ; parcours de bout en bout : 57 contrôles, 0 anomalie ; audits au clavier : 0 problème.
+213 tests sur 213 ; parcours de bout en bout : 57 contrôles, 0 anomalie ; audits au clavier : 0 problème ; simulation de 60 jours sur 100 marchands (après les premiers correctifs) : 0 anomalie.
