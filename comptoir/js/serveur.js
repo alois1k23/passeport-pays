@@ -19,7 +19,7 @@ async function api(methode, chemin, corps, { deja = false } = {}) {
   // Action sensible (clé d'API, webhook, équipe, export) : identité à confirmer, puis la même requête repart une fois.
   if (rep.status === 403 && json.code === 'identite_a_confirmer' && !deja) {
     if (await confirmerIdentite()) return api(methode, chemin, corps, { deja: true });
-    const e = new Error('Action annulée : identité non confirmée.'); e.statut = 403; throw e;
+    const e = new Error('Action annulée : identité non confirmée.'); e.statut = 403; e.code = 'identite_annulee'; throw e;
   }
   if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; e.code = json.code; throw e; }
   // Le serveur répond de nouveau : une modification restée en échec part tout de suite.
@@ -107,11 +107,30 @@ async function initServeur() {
    attente est envoyée d’abord : sinon le rechargement l’écraserait (réglage perdu sans prévenir). */
 const ENREGISTREMENT = { minuterie: null, enCours: null, echecs: 0 };
 const ACTIONS_EN_COURS = new Set();
+/* Champs sensibles (IBAN, e-mail de contact, facture QR) : leur dernière valeur enregistrée sur le serveur. Les changer
+   demande une identité confirmée ; si la confirmation est annulée, ils reprennent cette valeur et le reste des réglages
+   s'enregistre quand même (sans fenêtre qui revient à chaque enregistrement). */
+const SENSIBLES = { valeurs: null };
+function lireSensibles(c) { return { iban: ((c.entreprise || {}).iban) || '', email: ((c.entreprise || {}).email) || '', factureQr: !!((c.reglages || {}).factureQr) }; }
+function avecSensiblesEnregistres(c) {
+  if (!SENSIBLES.valeurs) return c;
+  return { ...c, entreprise: { ...(c.entreprise || {}), iban: SENSIBLES.valeurs.iban, email: SENSIBLES.valeurs.email }, reglages: { ...(c.reglages || {}), factureQr: SENSIBLES.valeurs.factureQr } };
+}
 function envoyerConfig() {
   clearTimeout(ENREGISTREMENT.minuterie); ENREGISTREMENT.minuterie = null;
-  const envoi = api('PUT', '/api/admin/config', { config: configActuelle() })
-    .then(() => { if (ENREGISTREMENT.echecs) toast('Connexion rétablie : vos modifications sont enregistrées.'); ENREGISTREMENT.echecs = 0; })
+  const config = configActuelle();
+  const envoi = api('PUT', '/api/admin/config', { config })
+    .then(() => { SENSIBLES.valeurs = lireSensibles(config); if (ENREGISTREMENT.echecs) toast('Connexion rétablie : vos modifications sont enregistrées.'); ENREGISTREMENT.echecs = 0; })
     .catch(e => {
+      if (e.code === 'identite_annulee' && SENSIBLES.valeurs) {
+        // Identité non confirmée : IBAN, e-mail et facture QR remis à leur valeur enregistrée, le reste repart tout de suite.
+        etat.entreprise = { ...(etat.entreprise || {}), iban: SENSIBLES.valeurs.iban, email: SENSIBLES.valeurs.email };
+        etat.reglages = { ...(etat.reglages || {}), factureQr: SENSIBLES.valeurs.factureQr };
+        toast('IBAN, e-mail de contact et facture QR non modifiés : identité non confirmée. Vos autres réglages sont enregistrés.');
+        if (typeof rendre === 'function') rendre();
+        ENREGISTREMENT.minuterie = setTimeout(envoyerConfig, 0);
+        return;
+      }
       // Échec (serveur ou réseau coupé) : on réessaie tout seul, de plus en plus espacé, et dès le retour du réseau.
       ENREGISTREMENT.echecs++;
       const delai = [5000, 15000, 30000][Math.min(ENREGISTREMENT.echecs - 1, 2)];
@@ -142,6 +161,7 @@ async function rechargerEtat() {
   // Une modification faite pendant la lecture garde la priorité : on relira au prochain passage.
   if (ENREGISTREMENT.minuterie || ENREGISTREMENT.enCours) return;
   etat = completerEtat(e);
+  SENSIBLES.valeurs = lireSensibles(etat);
   SERVEUR.slug = e.serveur.slug;
   SERVEUR.utilisationsCodes = e.serveur.utilisationsCodes || null;
   // Adresse confirmée entre-temps (lien ouvert sur un autre appareil) : le rappel disparaît sans recharger la page.
@@ -402,7 +422,7 @@ function installerModeConnecte() {
     ENREGISTREMENT.minuterie = setTimeout(envoyerConfig, 600);
   };
   // Fermeture de l’onglet juste après une modification : on l’envoie quand même.
-  addEventListener('pagehide', () => { if (ENREGISTREMENT.minuterie) { clearTimeout(ENREGISTREMENT.minuterie); fetch('/api/admin/config', { method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: configActuelle() }) }); } });
+  addEventListener('pagehide', () => { if (ENREGISTREMENT.minuterie) { clearTimeout(ENREGISTREMENT.minuterie); fetch('/api/admin/config', { method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: avecSensiblesEnregistres(configActuelle()) }) }); } });   // envoi de dernière seconde : sans fenêtre possible, les champs sensibles gardent leur valeur enregistrée, le reste n'est pas perdu
 
   // Adresse e-mail pas encore confirmée : rappel discret, avec renvoi du lien (inviter l'équipe et activer les versements l'exigent).
   if (SERVEUR.emailVerifie === false && !document.querySelector('.bandeau-verif-email')) {
