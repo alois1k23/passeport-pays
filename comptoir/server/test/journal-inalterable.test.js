@@ -217,3 +217,27 @@ test('reprise au démarrage : un numéro déjà scellé pour une autre commande 
   assert.deepEqual(db.prepare('SELECT ref, commande_id FROM journal_inalterable ORDER BY seq').all().map(x => `${x.ref}:${x.commande_id}`), ['FA-1:c1', 'FA-2:c3']);
   assert.equal(signales.length, 1); assert.match(signales[0], /^c2: FA-1 \(déjà scellé pour une autre commande\)/);
 });
+
+test('reprise : conflit sur un avoir partiel, la commande entière reste à sceller et toujours signalée', async () => {
+  const { ouvrir } = require('../src/db');
+  const JI = require('../src/journal-inalterable');
+  const db = ouvrir(':memory:');
+  db.prepare("INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES ('m', 'm@exemple.ch', 'x', 1)").run();
+  db.prepare("INSERT INTO boutiques (id, marchand_id, slug, config, cree_le) VALUES ('b', 'm', 's', '{}', 1)").run();
+  const J = JI.creer(db, require('node:crypto').randomBytes(32));
+  const piece = (id, f, d, ap) => ({ id, numero: d, facture: f, dateFacture: d, date: d, statut: 'payee', lignes: [{ nom: 'x', prix: 10, qte: 2 }], total: 20, port: 0, client: {},
+    ...(ap ? { retoursPartiels: [{ numero: ap, date: d, lignes: [{ index: 0, qte: 1 }], montant: 1000 }] } : {}) });
+  const inserer = c => db.prepare("INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, 'b', ?, ?, 'payee', 'j', ?)").run(c.id, c.numero, c.date, JSON.stringify(c));
+  const c1 = piece('c1', 'FA-1', 1, 'AP-9'); inserer(c1); J.sceller('b', c1, 1);
+  const c5 = piece('c5', 'FA-5', 5, 'AP-9'); inserer(c5);   // avoir partiel au numéro déjà scellé pour c1
+  const lire = row => ({ ...JSON.parse(row.donnees), id: row.id });
+  const signales = [];
+  for (let demarrage = 0; demarrage < 2; demarrage++) J.reprendre(lire, { signaler: (bid, c, quoi) => signales.push(`${c.id}: ${quoi}`) });
+  assert.equal(signales.length, 2, 'signalé à chaque démarrage, pas une seule fois');
+  assert.ok(!db.prepare("SELECT 1 FROM journal_inalterable WHERE ref = 'FA-5'").get(), 'facture de la commande en conflit pas scellée seule');
+  assert.deepEqual(J.nonScellees('b').map(r => r.id), ['c5'], 'toujours dans les pièces à sceller');
+  // Facture déjà scellée, seul l'avoir partiel ajouté ensuite est en conflit : la commande reste visible à la vérification.
+  const c6 = piece('c6', 'FA-6', 6); inserer(c6); J.sceller('b', c6, 6);
+  db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(JSON.stringify(piece('c6', 'FA-6', 6, 'AP-9')), 'c6');
+  assert.deepEqual(J.nonScellees('b').map(r => r.id).sort(), ['c5', 'c6']);
+});

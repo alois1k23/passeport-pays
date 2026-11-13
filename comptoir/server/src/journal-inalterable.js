@@ -134,7 +134,7 @@ function creer(db, cles) {
     return db.prepare(`SELECT c.* FROM commandes c WHERE ${boutiqueId ? 'c.boutique_id = ? AND' : ''} (
         (json_extract(c.donnees, '$.facture') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.commande_id = c.id AND j.type IN ('facture', 'ticket')))
         OR (json_extract(c.donnees, '$.avoir.numero') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.commande_id = c.id AND j.type = 'avoir'))
-        OR (json_type(c.donnees, '$.retoursPartiels') = 'array' AND EXISTS (SELECT 1 FROM json_each(c.donnees, '$.retoursPartiels') r WHERE json_extract(r.value, '$.numero') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.type = 'avoir-partiel' AND j.ref = json_extract(r.value, '$.numero')))))`)
+        OR (json_type(c.donnees, '$.retoursPartiels') = 'array' AND EXISTS (SELECT 1 FROM json_each(c.donnees, '$.retoursPartiels') r WHERE json_extract(r.value, '$.numero') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.type = 'avoir-partiel' AND j.ref = json_extract(r.value, '$.numero') AND j.commande_id = c.id))))`)
       .all(...(boutiqueId ? [boutiqueId] : []));
   }
 
@@ -152,14 +152,20 @@ function creer(db, cles) {
       try {
         for (const c of cmds) {
           db.exec('SAVEPOINT piece');
-          try {
-            const r = sceller(bid, c, c.dateFacture || c.date, (c.avoir && c.avoir.date) || c.dateFacture || c.date, { reprise: true });
-            n += r.faits.length; db.exec('RELEASE piece');
-            if (r.conflits.length && signaler) signaler(bid, c, r.conflits.join(', '));
-          } catch (e) { db.exec('ROLLBACK TO piece'); db.exec('RELEASE piece'); if (signaler) signaler(bid, c, e.message); }
+          let r;
+          try { r = sceller(bid, c, c.dateFacture || c.date, (c.avoir && c.avoir.date) || c.dateFacture || c.date, { reprise: true }); }
+          catch (e) {
+            // Erreur de la base elle-même (disque plein…) : la transaction a pu être annulée par SQLite ; l'erreur d'origine remonte.
+            if (!db.isTransaction) throw e;
+            db.exec('ROLLBACK TO piece'); db.exec('RELEASE piece'); if (signaler) signaler(bid, c, e.message); continue;
+          }
+          // Conflit sur l'une de ses pièces : la commande entière reste à sceller (jamais un avoir scellé sans sa facture),
+          // et la vérification du journal continue de la signaler au marchand.
+          if (r.conflits.length) { db.exec('ROLLBACK TO piece'); db.exec('RELEASE piece'); if (signaler) signaler(bid, c, r.conflits.join(', ')); continue; }
+          n += r.faits.length; db.exec('RELEASE piece');
         }
         db.exec('COMMIT');
-      } catch (e) { db.exec('ROLLBACK'); throw e; }
+      } catch (e) { if (db.isTransaction) db.exec('ROLLBACK'); throw e; }
     }
     return n;
   }

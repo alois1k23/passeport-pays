@@ -1066,3 +1066,25 @@ Aucune donnée de client final ni aucun secret : seulement des comptes et des da
 - Le libellé précise que les commandes et les secrets de double authentification sont comptés au démarrage.
 
 203 tests sur 203 ; parcours de bout en bout : 57 contrôles, 0 anomalie.
+
+### Cycle 57 (09 h 30) : reprise du journal des ventes au redémarrage (chantier 50)
+
+- **Cause trouvée et reproduite** : une commande portant un numéro de facture (ou d'avoir) déjà scellé pour une autre commande faisait échouer l'insertion (contrainte `UNIQUE`). Cela arrive avec une base fusionnée, restaurée ou des données importées. Toute la reprise de la boutique était alors annulée, à chaque démarrage, et ses autres pièces, saines, ne se scellaient jamais.
+- **Correctif** :
+  - un numéro déjà scellé ailleurs est un conflit signalé, jamais une erreur ;
+  - la reprise travaille commande par commande, avec un point de reprise pour chacune. Une commande en conflit est laissée entière à sceller : jamais d'avoir scellé sans sa facture ;
+  - le conflit est journalisé à chaque démarrage, sans donnée de client ;
+  - la vérification du journal continue de signaler la pièce au marchand ;
+  - les autres pièces sont scellées.
+- **Relecture indépendante**, constats corrigés :
+  - un conflit sur un avoir partiel n'était signalé qu'une fois, puis disparaissait de la vérification : l'avoir partiel ne comptait comme scellé que pour sa propre commande ;
+  - une erreur de la base elle-même (disque plein) aurait été masquée par l'annulation : l'erreur d'origine remonte maintenant.
+  - Vérifié par le relecteur : la chaîne d'empreintes et la numérotation restent intactes quand une commande est laissée de côté.
+- 2 tests de plus, dont un qui échoue sans le correctif de l'avoir partiel : 205 tests sur 205.
+
+### Cycle 58 (09 h 35) : test de charge après les changements de la matinée (chantier 51)
+
+- **1 000 boutiques**, 200 000 commandes d'historique, 50 clients simultanés : 472 actions par seconde sur 60 secondes, 197 Mo, **0 erreur** sur 28 331 actions.
+- Le chiffre était plus bas que celui du cycle 48 (environ 583). Plutôt que de conclure, une comparaison directe a été faite sur la même machine et au même moment, avec les mêmes paramètres : code du cycle 48 contre code actuel, 522 contre 529 actions par seconde. **Pas de régression** : l'écart venait de la charge de la machine, pas du code.
+- Latences au 95e centile : vitrine 183 ms, espace marchand 194 ms, commande payée de bout en bout 145 ms.
+- Le profil du serveur montre que le temps se partage entre les lectures de la base et le chiffrement des données des clients ; rien ne se détache.
