@@ -173,3 +173,25 @@ test('rotation : une commande illisible (ancienne clé oubliée) est rechiffrée
   srv = await demarrer(db, { SECRET_CHIFFREMENT: K2, SECRET_CHIFFREMENT_ANCIENNES: K1 }); srv.s.close();   // K1 remise
   assert.equal(db.prepare('SELECT email_index FROM commandes').get().email_index, Pii.creer([Buffer.from(K2, 'hex')]).index(bid, 'lou@exemple.ch'), 'réindexée avec la clé courante');
 });
+
+test('clé gardée dans la base : jamais acceptée si elle n’a pas été la clé courante (pièce du journal, carte cadeau forgées)', async () => {
+  const db = ouvrir(':memory:');
+  const srv = await demarrer(db, { SECRET_CHIFFREMENT: K1 });
+  try {
+    const a = srv.client();
+    await a('POST', '/api/auth/inscription', { email: 'forge@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Forge', pays: 'ch', secteur: 'maison' }, entreprise: { raison: 'Forge Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'forge@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } }, produits: [{ nom: 'Vase', prix: 40, stock: 50, type: 'stock' }] });
+    const etat = (await a('GET', '/api/admin/etat')).j, bid = db.prepare('SELECT id FROM boutiques').get().id;
+    const cmd = (await srv.client()('POST', `/api/public/${etat.serveur.slug}/commandes`, { lignes: [{ produitId: etat.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Lou', email: 'lou@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } })).j;
+    await fetch(`${srv.base}/paiement-simule/${cmd.paiementUrl.split('/').pop()}/confirmer`, { method: 'POST', redirect: 'manual' });
+    assert.equal((await a('POST', '/api/admin/journal-inalterable/verifier')).j.ok, true);
+    // Quelqu'un qui lit la base (copie volée) en tire la clé de la base et s'en sert.
+    const cleBase = Buffer.from(db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
+    const sous = e => Buffer.from(crypto.hkdfSync('sha256', cleBase, Buffer.alloc(0), e, 32));
+    JI.creer(db, sous('comptoir journal inalterable')).sceller(bid, { id: 'c_faux', numero: 999, facture: 'FA-FAUX', dateFacture: Date.now(), date: Date.now(), lignes: [{ nom: 'x', prix: 1, qte: 1 }], total: 1, port: 0, client: {} }, Date.now());
+    const jv = (await a('POST', '/api/admin/journal-inalterable/verifier')).j;
+    assert.equal(jv.ok, false); assert.ok(jv.anomalies.some(x => /FA-FAUX\) (modifiée|signée avec une clé qui n’a jamais)/.test(x)), JSON.stringify(jv.anomalies));
+    const { code } = Cartes.creer(db, sous('comptoir:cartes-cadeaux')).emettre(bid, { montant: 500, devise: 'CHF', origine: 'manuelle' });
+    const forgee = await srv.client()('POST', `/api/public/${etat.serveur.slug}/carte-cadeau`, { code });
+    assert.ok(forgee.s >= 400 && !(forgee.j && forgee.j.solde), `carte forgée avec la clé de la base refusée (${forgee.s})`);
+  } finally { srv.s.close(); }
+});

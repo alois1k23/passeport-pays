@@ -42,18 +42,24 @@ test('nom et adresse du client : une seule ligne, sans lien ni adresse de site (
 });
 
 test('réservations de stock : un même réseau ne retient pas tout le stock avec des adresses jetables', async () => {
-  const { s, commander } = await demarrer();
+  const { s, appel, etat, commander } = await demarrer();
   try {
     // Une seule commande impayée ne retient pas plus de la moitié du stock (15 → 8).
     assert.equal((await commander({ email: 'a0@jetable.example' }, { ip: '198.51.100.77' }, { qte: 15 })).j.code, 'trop_reserve');
     // 5 sur 15 : accepté ; puis 5 de plus du même réseau, autre adresse : 10 > 8 → refusé.
-    assert.equal((await commander({ email: 'a1@jetable.example' }, {}, { qte: 5 })).s, 201);
+    const a1 = await commander({ email: 'a1@jetable.example' }, {}, { qte: 5 });
+    assert.equal(a1.s, 201);
     const r2 = await commander({ email: 'a2@jetable.example' }, {}, { qte: 5 });
     assert.equal(r2.s, 429); assert.equal(r2.j.code, 'trop_reserve');
     // Le vrai client, ailleurs, achète.
     assert.equal((await commander({ email: 'vrai@exemple.ch' }, { ip: '203.0.113.9' }, { qte: 1 })).s, 201);
-    // Un client qui recommence sa propre commande (même adresse) n'est pas bloqué.
+    // La même adresse ne contourne pas le plafond en multipliant les commandes : 5 + 5 > 8.
+    assert.equal((await commander({ email: 'a1@jetable.example' }, {}, { qte: 5 })).j.code, 'trop_reserve');
+    // Un client qui quitte son paiement puis recommence n'est pas bloqué (la commande abandonnée ne retient plus rien).
+    assert.equal((await appel('POST', `/api/public/${etat.serveur.slug}/commandes/${a1.j.commandeId}/abandonner`, { jeton: a1.j.jeton })).s, 200);
     assert.equal((await commander({ email: 'a1@jetable.example' }, {}, { qte: 5 })).s, 201);
+    // Reprendre la commande abandonnée ensuite : soumis au même plafond (5 + 5 > 8).
+    assert.equal((await appel('POST', `/api/public/${etat.serveur.slug}/commandes/${a1.j.commandeId}/reprendre`, { jeton: a1.j.jeton })).j.code, 'trop_reserve');
   } finally { s.close(); }
 });
 
@@ -105,5 +111,25 @@ test('code de bienvenue : le client qui annule son paiement recommence avec le c
     // L'ancienne commande ne peut plus être reprise avec le code tant que la nouvelle est ouverte.
     const r1 = await appel('POST', `/api/public/${slug}/commandes/${o1.j.commandeId}/reprendre`, { jeton: o1.j.jeton });
     assert.equal(r1.s, 409); assert.equal(r1.j.code, 'code_premiere_commande');
+  } finally { s.close(); }
+});
+
+test('reprise refusée (article vendu entre-temps) : la carte cadeau n’est pas débitée à nouveau', async () => {
+  const { db, s, appel, etat, commander, cookie } = await demarrer();
+  try {
+    const slug = etat.serveur.slug;
+    db.prepare("UPDATE produits SET donnees = json_set(donnees, '$.stock', 1)").run();
+    const code = (await appel('POST', '/api/admin/cartes-cadeaux', { montant: 20 }, { cookie })).j.code;
+    const solde = async () => db.prepare('SELECT solde FROM cartes_cadeaux').get().solde / 100;
+    const x = await commander({ email: 'x@exemple.ch' }, {}, { corps: { carteCadeau: code } });
+    assert.equal(x.s, 201, JSON.stringify(x.j)); assert.equal(await solde(), 0, 'carte réservée par la commande');
+    assert.equal((await appel('POST', `/api/public/${slug}/commandes/${x.j.commandeId}/abandonner`, { jeton: x.j.jeton })).s, 200);
+    assert.equal(await solde(), 20, 'rendue à l’abandon');
+    // Le dernier exemplaire part chez quelqu'un d'autre.
+    const y = await commander({ email: 'y@exemple.ch' }, { ip: '203.0.113.60' });
+    await appel('POST', `/paiement-simule/${y.j.paiementUrl.split('/').pop()}/confirmer`);
+    const r = await appel('POST', `/api/public/${slug}/commandes/${x.j.commandeId}/reprendre`, { jeton: x.j.jeton });
+    assert.equal(r.j.code, 'stock_insuffisant');
+    assert.equal(await solde(), 20, 'la carte n’est pas débitée par une reprise refusée');
   } finally { s.close(); }
 });

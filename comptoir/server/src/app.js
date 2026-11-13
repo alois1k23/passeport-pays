@@ -387,12 +387,28 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const cleBase = Buffer.from(db.prepare("SELECT valeur FROM cles WHERE nom = 'chiffrement'").get().valeur, 'hex');
   const anciennesSaisies = String(env.SECRET_CHIFFREMENT_ANCIENNES || '').split(',').map(x => x.trim()).filter(Boolean);
   if (anciennesSaisies.some(x => !/^[0-9a-f]{64}$/i.test(x))) journal.error('[securite] SECRET_CHIFFREMENT_ANCIENNES : chaque clé doit faire 64 caractères hexadécimaux (séparées par des virgules) ; les autres sont ignorées.');
+  /* La clé gardée dans la base n'entre au trousseau que si elle a vraiment servi de clé courante sur cette base (avant que
+     SECRET_CHIFFREMENT soit défini). Sinon, quiconque lit la base (copie volée, sauvegarde) pourrait signer des pièces du
+     journal ou fabriquer des empreintes de cartes cadeaux avec elle, et elles seraient acceptées. Historique des clés
+     courantes : empreintes seulement, jamais les clés. */
+  const empreinteBrute = k => crypto.createHash('sha256').update(k).digest('hex').slice(0, 16);
+  const historiqueCles = new Set((() => { try { return JSON.parse((db.prepare("SELECT valeur FROM cles WHERE nom = 'historique-cles'").get() || {}).valeur || '[]'); } catch { return []; } })());
+  if (!historiqueCles.size && !cleBase.equals(cleChiffrement)) {
+    // Amorçage (base d'avant cet historique) : la clé de la base a-t-elle déjà servi ? Données des clients ou journal
+    // des ventes marqués avec elle.
+    const marqueurPii = (db.prepare("SELECT valeur FROM cles WHERE nom = 'pii-cle'").get() || {}).valeur;
+    let marqueurJournal = null; try { marqueurJournal = (db.prepare("SELECT valeur FROM journal_meta WHERE cle = 'cle'").get() || {}).valeur; } catch { /* pas encore de journal */ }
+    const journalBase = crypto.createHmac('sha256', Buffer.from(crypto.hkdfSync('sha256', cleBase, Buffer.alloc(0), 'comptoir journal inalterable', 32))).update('comptoir:journal:cle').digest('hex').slice(0, 16);
+    if ((marqueurPii && marqueurPii === Pii.creer([cleBase]).empreinteCle) || marqueurJournal === journalBase) historiqueCles.add(empreinteBrute(cleBase));
+  }
+  historiqueCles.add(empreinteBrute(cleChiffrement));
+  db.prepare("INSERT INTO cles (nom, valeur) VALUES ('historique-cles', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(JSON.stringify([...historiqueCles]));
   const trousseau = [];
-  for (const k of [cleChiffrement, ...anciennesSaisies.filter(x => /^[0-9a-f]{64}$/i.test(x)).map(x => Buffer.from(x, 'hex')), cleBase]) if (!trousseau.some(t => t.equals(k))) trousseau.push(k);
+  for (const k of [cleChiffrement, ...anciennesSaisies.filter(x => /^[0-9a-f]{64}$/i.test(x)).map(x => Buffer.from(x, 'hex')), ...(historiqueCles.has(empreinteBrute(cleBase)) ? [cleBase] : [])]) if (!trousseau.some(t => t.equals(k))) trousseau.push(k);
   // Sous-clés dédiées (HKDF) : chaque usage a la sienne, dérivée de chaque clé du trousseau.
   const sousCle = (k, etiquette) => Buffer.from(crypto.hkdfSync('sha256', k, Buffer.alloc(0), etiquette, 32));
   // Constats du démarrage, montrés dans la console de l'exploitant (données illisibles avec les clés connues).
-  const etatSecurite = { commandesIllisibles: 0, secrets2faIllisibles: 0, cleHorsBase: !cleChiffrement.equals(cleBase), anciennesCles: trousseau.length - 1 - (cleBase.equals(cleChiffrement) ? 0 : 1) };
+  const etatSecurite = { commandesIllisibles: 0, secrets2faIllisibles: 0, cleHorsBase: !cleChiffrement.equals(cleBase), anciennesCles: trousseau.filter(k => !k.equals(cleChiffrement) && !k.equals(cleBase)).length };
   const Cartes = CartesCadeaux.creer(db, trousseau.map(k => sousCle(k, 'comptoir:cartes-cadeaux')));
   const DV = Devis.creer(db, () => PII);
   const FID = Fidelite.creer(db, trousseau.map(k => sousCle(k, 'comptoir:fidelite')));   // fidélité : empreinte HMAC, jamais en clair
@@ -1286,6 +1302,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return resultat;
   });
   r.post('/api/admin/domaine/verifier', exigerMarchand, async ctx => {
+    exigerIdentite(ctx);   // un domaine vérifié reçoit les liens des e-mails (avec jetons) et les retours de paiement
     const config = lireConfig(ctx.boutique);
     const d = config.boutique.domaine;
     if (!d || !d.domaine) throw erreur(400, 'Choisissez d’abord un domaine.', 'sans_domaine');
@@ -2014,34 +2031,50 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.put('/api/admin/config', exigerMarchand, ctx => {
     const avant = lireConfig(ctx.boutique);
     const config = garderDomaine(nettoyerConfig(ctx.corps.config), avant);
-    // Membre de l'équipe : l'identité de l'entreprise, l'IBAN et le paiement sur facture restent ceux du propriétaire
-    // (sinon un membre pourrait faire verser les paiements des clients sur son propre compte).
-    if (ctx.role !== 'proprietaire') {
-      config.entreprise = { ...config.entreprise, ...Object.fromEntries(['iban', 'raison', 'adresse', 'siret', 'tvaIntra', 'regime', 'forme', 'email'].map(k => [k, (avant.entreprise || {})[k]])) };
-      config.reglages = { ...config.reglages, factureQr: (avant.reglages || {}).factureQr, echeanceJours: (avant.reglages || {}).echeanceJours };
-    }
-    // Propriétaire : changer l'IBAN (où arrivent les paiements par facture QR) ou activer la facture QR demande une identité
-    // confirmée récemment, et le propriétaire est prévenu par e-mail. Un cookie volé ne suffit pas à détourner les paiements.
-    const ibanAvant = String((avant.entreprise || {}).iban || '').replace(/\s/g, '').toUpperCase(), ibanApres = String((config.entreprise || {}).iban || '').replace(/\s/g, '').toUpperCase();
-    const qrActivee = !!(config.reglages && config.reglages.factureQr) && !(avant.reglages && avant.reglages.factureQr);
-    if (ctx.role === 'proprietaire' && ((ibanAvant && ibanApres !== ibanAvant) || (qrActivee && ibanApres))) exigerIdentite(ctx);
+    gardesConfig(ctx, avant, config);
     db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(config), ctx.boutique.id);
-    if (ibanAvant && ibanApres !== ibanAvant) {
-      noterActivite(ctx.marchand.id, 'iban-modifie', ibanApres ? `…${ibanApres.slice(-4)}` : 'retiré', ctx);
-      envoyerEmail(null, ctx.marchand.email, 'IBAN de votre boutique modifié', `Bonjour,\n\nL’IBAN qui reçoit les paiements par facture QR de votre boutique vient d’être modifié (se termine maintenant par ${ibanApres ? ibanApres.slice(-4) : '— retiré'}).\n\nCe n’était pas vous ? Remettez votre IBAN dans Paramètres, changez votre mot de passe et déconnectez les autres appareils.\n\nL’équipe Comptoir`);
-    }
+    signalerChangementsConfig(ctx, avant, config);
     return { ok: true };
   });
   r.post('/api/admin/reinitialiser', exigerMarchand, ctx => {
-    const config = garderDomaine(nettoyerConfig(ctx.corps.config), lireConfig(ctx.boutique));
+    const avant = lireConfig(ctx.boutique);
+    const config = garderDomaine(nettoyerConfig(ctx.corps.config), avant);
+    gardesConfig(ctx, avant, config);   // mêmes règles que l'enregistrement des réglages (IBAN, e-mail, membres d'équipe)
     transaction(db, () => {
       db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(config), ctx.boutique.id);
       for (const r0 of db.prepare('SELECT id FROM produits WHERE boutique_id = ? AND supprime = 0').all(ctx.boutique.id)) EMP.purgerProduit(ctx.boutique.id, r0.id);
       db.prepare('UPDATE produits SET supprime = 1 WHERE boutique_id = ?').run(ctx.boutique.id);
       insererProduits(ctx.boutique.id, ctx.corps.produits);
     });
+    signalerChangementsConfig(ctx, avant, config);
     return { ok: true };
   });
+  /* Règles communes à tout enregistrement de la configuration (réglages, réinitialisation) :
+     - membre de l'équipe : l'identité de l'entreprise, l'IBAN, l'e-mail de contact et le paiement sur facture restent
+       ceux du propriétaire (sinon un membre pourrait faire verser les paiements des clients sur son propre compte) ;
+     - propriétaire : ce qui détourne l'argent ou les réponses des clients demande une identité confirmée récemment :
+       IBAN posé ou changé (y compris un premier IBAN), facture QR activée, e-mail de contact de l'entreprise changé
+       (adresse de réponse des e-mails aux clients). */
+  const normIban = c => String(((c || {}).entreprise || {}).iban || '').replace(/\s/g, '').toUpperCase();
+  const emailEntreprise = c => String(((c || {}).entreprise || {}).email || '').trim().toLowerCase();
+  function gardesConfig(ctx, avant, config) {
+    if (ctx.role !== 'proprietaire') {
+      config.entreprise = { ...config.entreprise, ...Object.fromEntries(['iban', 'raison', 'adresse', 'siret', 'tvaIntra', 'regime', 'forme', 'email'].map(k => [k, (avant.entreprise || {})[k]])) };
+      config.reglages = { ...config.reglages, factureQr: (avant.reglages || {}).factureQr, echeanceJours: (avant.reglages || {}).echeanceJours };
+      return;
+    }
+    const qrActivee = !!(config.reglages && config.reglages.factureQr) && !(avant.reglages && avant.reglages.factureQr);
+    const emailChange = emailEntreprise(avant) && emailEntreprise(config) !== emailEntreprise(avant);
+    if (normIban(config) !== normIban(avant) || (qrActivee && normIban(config)) || emailChange) exigerIdentite(ctx);
+  }
+  function signalerChangementsConfig(ctx, avant, config) {
+    const ibanAvant = normIban(avant), ibanApres = normIban(config);
+    if (ibanApres !== ibanAvant) {
+      noterActivite(ctx.marchand.id, 'iban-modifie', ibanApres ? `…${ibanApres.slice(-4)}` : 'retiré', ctx);
+      envoyerEmail(null, ctx.marchand.email, 'IBAN de votre boutique modifié', `Bonjour,\n\nL’IBAN qui reçoit les paiements par facture QR de votre boutique vient d’être ${ibanAvant ? 'modifié' : 'enregistré'} (se termine maintenant par ${ibanApres ? ibanApres.slice(-4) : '— retiré'}).\n\nCe n’était pas vous ? Remettez votre IBAN dans Paramètres, changez votre mot de passe et déconnectez les autres appareils.\n\nL’équipe Comptoir`);
+    }
+    if (emailEntreprise(avant) && emailEntreprise(config) !== emailEntreprise(avant)) noterActivite(ctx.marchand.id, 'email-entreprise-modifie', emailEntreprise(config).replace(/^(.).*@/, '$1…@'), ctx);
+  }
   r.post('/api/admin/produits', exigerMarchand, ctx => {
     const id = auth.nouvelId('p_');
     const ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) + 1 AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
@@ -2662,7 +2695,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const emailClient = String((ctx.corps.client || {}).email || '').trim().toLowerCase();
     const reserve = {}, parReseau = {};
     const indexClient = PII.index(b.id, emailClient);
-    const empreinteReseau = crypto.createHmac('sha256', cleChiffrement).update(`reseau:${b.id}:${reseauIp(ctx.ip)}`).digest('hex').slice(0, 24);
+    const empreinteReseau = empreinteReseauDe(b.id, ctx.ip);
     for (const r2 of db.prepare("SELECT date, donnees, email_index FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ?").all(b.id, Date.now() - 90 * 86400000)) {
       const d = JSON.parse(r2.donnees);   // lignes et moyen seulement : rien à déchiffrer
       // 30 minutes pour un paiement en ligne, 48 heures pour une facture QR (une commande fictive sur facture ne bloque pas le stock un mois).
@@ -2671,8 +2704,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // paiement ne peut donc pas aboutir après la fin de la réservation et vendre un article déjà revendu.
       const depuis = Math.max(r2.date, d.reserveDepuis || 0);
       const active = !(d.abandonneeLe >= depuis) && depuis > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 35 * 60000);
-      if (!active || (indexClient && r2.email_index === indexClient)) continue;   // son propre essai précédent ne bloque pas le client
-      if (d.reseau === empreinteReseau && active && d.moyen !== 'facture' && d.canal !== 'devis') for (const l of d.lignes || []) if (l.type !== 'drop') parReseau[l.produitId] = (parReseau[l.produitId] || 0) + (l.qte || 0);
+      // Plafond par réseau : toutes ses commandes impayées actives comptent, même avec la même adresse e-mail (sinon une
+      // seule adresse retiendrait tout le stock en plusieurs commandes).
+      if (active && d.reseau === empreinteReseau && d.moyen !== 'facture' && d.canal !== 'devis') for (const l of d.lignes || []) if (l.type !== 'drop') parReseau[l.produitId] = (parReseau[l.produitId] || 0) + (l.qte || 0);
+      if (!active || (indexClient && r2.email_index === indexClient)) continue;   // son propre essai précédent ne bloque pas le stock du client
       for (const l of d.lignes || []) if (l.type !== 'drop') { reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0); if (l.varianteId) reserve[`${l.produitId}:${l.varianteId}`] = (reserve[`${l.produitId}:${l.varianteId}`] || 0) + (l.qte || 0); }
     }
     const produits = listerProduits(b.id).filter(vendable).map(p => !reserve[p.id] || p.type === 'drop' ? p : { ...p, stock: Math.max(0, p.stock - reserve[p.id]), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(v => ({ ...v, stock: Math.max(0, v.stock - (reserve[`${p.id}:${v.id}`] || 0)) })) } : {}) });   // produit masqué ou du fournisseur de démonstration : « plus disponible »
@@ -2703,7 +2738,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Commandes impayées : elles réservent le stock (30 minutes). Au plus 3 en cours par adresse e-mail et par réseau
     // (empreinte, jamais l'adresse IP en clair) : un visiteur ne garde pas un produit « épuisé » en enchaînant des
     // commandes jamais payées. Les commandes payées ne comptent pas.
-    const impayees = db.prepare("SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND date > ? AND (email_index = ? OR json_extract(donnees, '$.reseau') = ?)").get(b.id, Date.now() - 30 * 60000, PII.index(b.id, client.email) || '', empreinteReseau).n;
+    const impayees = impayeesActives(b.id, { index: PII.index(b.id, client.email) || '', reseau: empreinteReseau });
     if (impayees >= 3 * facteurLimites) throw erreur(429, 'Plusieurs commandes attendent déjà leur paiement : terminez un paiement en cours, ou réessayez dans 30 minutes.', 'trop_impayees');
     const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
     if (ctx.corps.code && calcul.codeValide === false) throw erreur(400, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
@@ -3761,7 +3796,7 @@ ${bloc}</main></body></html>`;
     const jeton = String(ctx.corps.jeton || '');
     if (!row || !auth.egal(jeton, row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
     if (row.statut !== 'attente') throw erreur(409, 'Cette commande est déjà payée ou annulée.', 'deja_traitee');
-    return ouvrirPaiement(b, row);
+    return ouvrirPaiement(b, row, ctx);
   });
   /* Nouveau lien de paiement en ligne pour une commande en attente (paiement repris, devis accepté) : les liens encore
      ouverts sont fermés d'abord ; la carte cadeau éventuellement recréditée est débitée à nouveau. */
@@ -3792,7 +3827,13 @@ ${bloc}</main></body></html>`;
     }
     return reserve;
   }
-  async function ouvrirPaiement(b, row) {
+  const empreinteReseauDe = (bid, ip) => crypto.createHmac('sha256', cleChiffrement).update(`reseau:${bid}:${reseauIp(ip)}`).digest('hex').slice(0, 24);
+  // Commandes impayées encore actives (réservation de moins de 35 minutes, depuis la commande ou sa dernière reprise,
+  // et pas abandonnées depuis) d'une adresse e-mail ou d'un réseau.
+  const impayeesActives = (bid, { index = '', reseau = '', sauf = '' }) => db.prepare(`SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND id <> ?
+      AND MAX(date, COALESCE(json_extract(donnees, '$.reserveDepuis'), 0)) > ? AND COALESCE(json_extract(donnees, '$.abandonneeLe'), 0) < MAX(date, COALESCE(json_extract(donnees, '$.reserveDepuis'), 0))
+      AND (email_index = ? OR json_extract(donnees, '$.reseau') = ?)`).get(bid, sauf, Date.now() - 35 * 60000, index, reseau).n;
+  async function ouvrirPaiement(b, row, ctx = null) {
     const c = lireCommande(row);
     const devise = lireConfig(b).boutique.devise || 'EUR';
     const compte = compteVente(b);
@@ -3800,19 +3841,37 @@ ${bloc}</main></body></html>`;
       db.prepare("UPDATE paiements SET statut = 'annule' WHERE id = ?").run(ancien.id);
       if (ancien.fournisseur === 'stripe' && paiement.expirer) await paiement.expirer(ancien).catch(e => journal.error('[paiement] expiration', e.message));
     }
-    // Carte cadeau ou points rendus (paiement abandonné) : repris avant de rouvrir le paiement du reste.
-    if ((c.carteCadeau && c.carteCadeau.liberee) || (c.fidelite && c.fidelite.liberee)) transaction(db, () => {
-      const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
-      if (frais.statut !== 'attente') return;
+    // Carte cadeau ou points rendus (paiement abandonné) : repris avant de rouvrir le paiement du reste. Appelé dans la même
+    // transaction que les contrôles de la reprise : si l'un d'eux refuse, rien n'est débité.
+    const reprendreCartes = frais => {
+      if (frais.statut !== 'attente' || !((frais.carteCadeau && frais.carteCadeau.liberee) || (frais.fidelite && frais.fidelite.liberee))) return;
       const refus = reprendreReservations(b.id, frais);
       if (refus) throw erreur(409, `Paiement impossible : ${refus}. Passez une nouvelle commande.`, 'reservation');
-      historique(frais, 'Paiement repris : réservations reprises'); enregistrerCommande(frais);
-      Object.assign(c, frais);
+      historique(frais, 'Paiement repris : réservations reprises');
+    };
+    if (c.canal === 'devis' || c.moyen === 'facture') transaction(db, () => {
+      const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
+      reprendreCartes(frais); enregistrerCommande(frais); Object.assign(c, frais);
     });
     // Paiement repris en ligne (lien de relance, des heures plus tard) : le stock est vérifié à nouveau (les articles ont pu
-    // être vendus entre-temps) et réservé de nouveau pour la durée du lien. Le code de bienvenue ne sert qu'une fois.
-    if (c.canal !== 'devis' && c.moyen !== 'facture') transaction(db, () => {
+    // être vendus entre-temps) et réservé de nouveau pour la durée du lien, avec les mêmes limites par réseau qu'à la
+    // commande. Les codes promo et de bienvenue ne dépassent pas leurs limites.
+    else transaction(db, () => {
       const frais = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.id));
+      if (ctx) {
+        const reseau = empreinteReseauDe(b.id, ctx.ip);
+        if (impayeesActives(b.id, { index: PII.index(b.id, frais.client.email) || '', reseau, sauf: c.id }) >= 3 * facteurLimites) throw erreur(429, 'Plusieurs commandes attendent déjà leur paiement : terminez un paiement en cours, ou réessayez dans 30 minutes.', 'trop_impayees');
+        const parReseau = {};
+        for (const r2 of db.prepare("SELECT id, date, donnees FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND id <> ? AND date > ?").all(b.id, c.id, Date.now() - 2 * 86400000)) {
+          const d = JSON.parse(r2.donnees), depuis = Math.max(r2.date, d.reserveDepuis || 0);
+          if (d.reseau !== reseau || d.moyen === 'facture' || d.canal === 'devis' || d.abandonneeLe >= depuis || depuis <= Date.now() - 35 * 60000) continue;
+          for (const l of d.lignes || []) if (l.type !== 'drop') parReseau[l.produitId] = (parReseau[l.produitId] || 0) + (l.qte || 0);
+        }
+        const tous = listerProduits(b.id), parProduit = {};
+        for (const l of frais.lignes) if (l.type !== 'drop') parProduit[l.produitId] = (parProduit[l.produitId] || 0) + l.qte;
+        for (const [pid, q] of Object.entries(parProduit)) { const p = tous.find(x => x.id === pid); if ((parReseau[pid] || 0) + q > Math.min(20, Math.max(3, Math.ceil(Math.max(0, p ? p.stock : 0) / 2))) * facteurLimites) throw erreur(429, 'Quantité trop grande pour une commande en ligne non payée : terminez d’abord un paiement en cours, ou demandez un devis à la boutique.', 'trop_reserve'); }
+        frais.reseau = reseau;
+      }
       const autres = reservationsAutres(b.id, c.id), prods = listerProduits(b.id);
       const manque = frais.lignes.filter(l => l.type !== 'drop').find(l => { const p = prods.find(x => x.id === l.produitId); if (!p || p.type === 'drop') return false;
         const v = l.varianteId && Array.isArray(p.variantes) ? p.variantes.find(y => y.id === l.varianteId) : null;
@@ -3822,6 +3881,7 @@ ${bloc}</main></body></html>`;
       { const refus = limiteCode(b.id, configVente(b), frais.codePromo, frais.client.email, c.id); if (refus) throw erreur(409, `${refus.message} Passez une nouvelle commande sans lui.`, refus.code); }
       if (frais.codeBienvenue && db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND id <> ? AND email_index = ? AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, c.id, PII.index(b.id, frais.client.email) || '', Date.now() - 35 * 60000))
         throw erreur(409, 'Le code de bienvenue a déjà servi pour une autre commande : passez une nouvelle commande sans lui.', 'code_premiere_commande');
+      reprendreCartes(frais);   // en dernier : seulement si tout le reste est accepté
       frais.reserveDepuis = Math.max(Date.now(), (frais.abandonneeLe || 0) + 1); enregistrerCommande(frais); Object.assign(c, frais);
     });
     const resteCentimes = Math.round(c.total * 100) - (c.carteCadeau ? Math.round(c.carteCadeau.montant * 100) : 0);

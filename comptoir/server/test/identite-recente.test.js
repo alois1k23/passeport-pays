@@ -104,3 +104,23 @@ test('sessions d’avant la règle : pas comptées comme identité récente au p
     assert.ok(sess.cree_le < Date.now() - 15 * 60000 && sess.cree_le > Date.now() - 20 * 60000);
   } finally { s.close(); }
 });
+
+test('premier IBAN, réinitialisation, e-mail de l’entreprise, domaine : mêmes exigences d’identité récente', async () => {
+  const { db, s, c } = await demarrer();
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'pre@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Pre', pays: 'ch' }, entreprise: { raison: 'Pre Sàrl', email: 'contact@pre.example' } } });
+    vieillir(db, 20);
+    const conf = (await c('GET', '/api/admin/etat')).j;
+    // Premier IBAN (la boutique n'en avait pas) : exigé aussi.
+    assert.equal((await c('PUT', '/api/admin/config', { config: { ...conf, entreprise: { ...conf.entreprise, iban: 'CH56 0483 5012 3456 7800 9' } } })).j.code, 'identite_a_confirmer');
+    // Par la réinitialisation de la boutique : même règle (avant, elle passait sans contrôle ni alerte).
+    assert.equal((await c('POST', '/api/admin/reinitialiser', { config: { ...conf, entreprise: { ...conf.entreprise, iban: 'CH56 0483 5012 3456 7800 9' }, reglages: { ...(conf.reglages || {}), factureQr: true } }, produits: [] })).j.code, 'identite_a_confirmer');
+    assert.equal(JSON.parse(db.prepare('SELECT config FROM boutiques').get().config).entreprise.iban || '', '', 'rien d’enregistré');
+    // E-mail de contact de l'entreprise (adresse de réponse des e-mails aux clients).
+    assert.equal((await c('PUT', '/api/admin/config', { config: { ...conf, entreprise: { ...conf.entreprise, email: 'pirate@exemple.example' } } })).j.code, 'identite_a_confirmer');
+    // Vérification d'un domaine.
+    assert.equal((await c('POST', '/api/admin/domaine/verifier', { domaine: 'boutique.exemple.ch' })).j.code, 'identite_a_confirmer');
+    // Un autre réglage passe sans confirmation (enregistrement automatique).
+    assert.equal((await c('PUT', '/api/admin/config', { config: { ...conf, boutique: { ...conf.boutique, slogan: 'Bonjour' } } })).s, 200);
+  } finally { s.close(); }
+});

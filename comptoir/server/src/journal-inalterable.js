@@ -248,6 +248,7 @@ function creer(db, cles) {
           if (i < 0) noter(`Entrée n° ${e.seq} (${e.ref}) modifiée : son empreinte ne correspond plus.`);
           else {
             if (i !== cleEnCours && (clesVues.has(i) || cleEnCours === 0)) noter(`Entrée n° ${e.seq} (${e.ref}) signée avec une clé déjà remplacée plus haut dans le journal : ajout suspect.`);
+            else if (i !== 0 && finDe(i) === Infinity) noter(`Entrée n° ${e.seq} (${e.ref}) signée avec une clé qui n’a jamais été la clé de ce journal : ajout suspect.`);
             else if (i !== 0 && e.le > finDe(i) + 60000) noter(`Entrée n° ${e.seq} (${e.ref}) signée avec une ancienne clé mais datée d’après sa rotation : ajout suspect.`);
             clesVues.add(i); cleEnCours = i;
           }
