@@ -1451,4 +1451,4 @@ Chaque nouveauté de l'après-midi avait été relue seule. Une relecture indép
   - les membres d'équipe ne sont pas touchés.
 - **Risque résiduel, noté** : une clé d'accès ou une double authentification installée par l'intrus plus de 24 heures avant sa demande survit à l'annulation. L'e-mail d'annulation invite désormais à vérifier les clés d'accès, la double authentification, les clés d'API et les webhooks.
 - 229 tests sur 229, parcours de bout en bout 57/57.
-
+- Vérification complète (7 étapes) réussie sur le code final des chantiers 65 et 66.
