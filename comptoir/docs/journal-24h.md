@@ -487,7 +487,7 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
 - 6 nouveaux tests : 160 tests sur 160. Bout en bout : 51 sur 51. `npm run verifier` complet : 6 étapes sur 6, lancé avant les corrections de la relecture. Parcours vérifié dans un vrai navigateur après les corrections : aperçu, confirmation, liste des avoirs, PDF.
 - **Reste ouvert** : la page de commande du client ne propose pas encore le PDF de l'avoir partiel (le numéro y figure). Pas de geste commercial sans article (remise après coup) : à traiter comme un avoir de remise, avec sa propre ligne.
 
-### Cycle 30 (03 h 55) : cartes cadeaux et fidélité en allemand, italien et anglais (chantier 21)
+### Cycle 30 (03 h 48) : cartes cadeaux et fidélité en allemand, italien et anglais (chantier 21)
 
 - **Audit dans un vrai navigateur**, boutique en allemand, italien puis anglais : achat d'une carte, panier, carte refusée puis acceptée, code de fidélité. Tous les textes restés en français ont été relevés, puis traduits :
   - formulaire d'achat de la carte ;
