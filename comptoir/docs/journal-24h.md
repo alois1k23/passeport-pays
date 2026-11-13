@@ -374,3 +374,11 @@ Chantier 12 de la deuxième phase. Un relecteur indépendant a audité tout le s
   - aucun prix d'achat dans les données publiques.
 - **Restent ouverts** : l'historique en clair de quelques commandes et devis créés avant le chiffrement (données de développement), et le motif de retour saisi par le client.
 - 4 nouveaux tests : 150 tests sur 150, bout en bout 51 sur 51, simulation de 60 jours : 0 anomalie.
+
+### Cycle 23 (02 h 35) : vente de cartes cadeaux en ligne
+
+- Chantier 13 de la deuxième phase. Dans « Magasin et caisse », le marchand active la vente en ligne et choisit les montants proposés (8 au plus, de 5 à 1000) et la validité (2 ans au moins en Belgique).
+- Dans la boutique, « Offrir une carte cadeau » apparaît en pied de page. Le client choisit le montant et indique son nom, son e-mail et, s'il le souhaite, l'e-mail et le prénom de la personne à qui il l'offre, ainsi qu'un message. Il paie en ligne, et la carte est émise au paiement puis envoyée par e-mail (« Léa vous offre une carte cadeau… »). La page de confirmation l'annonce, sans étapes de livraison.
+- **Bon à usages multiples** : pas de facture ni de numéro de facture (la TVA porte sur les articles achetés avec la carte), pas de points de fidélité, pas de relance de panier abandonné. Le code de la carte n'est gardé nulle part en clair : la copie de l'e-mail est masquée dès l'envoi. Le destinataire et le message sont chiffrés avec le client.
+- **Remboursement** : une carte non utilisée est désactivée. Une carte déjà utilisée ne se rembourse plus en entier (refus expliqué).
+- Vérifié dans un vrai navigateur (activation, achat, paiement, e-mail au destinataire). 1 nouveau test : 151 tests sur 151, bout en bout 51 sur 51, parcours au clavier sans problème.

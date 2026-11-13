@@ -686,10 +686,19 @@ document.addEventListener('click', async e => {
 /* Cartes cadeaux : liste, émission (le code n'est gardé qu'en mémoire, le temps de le noter), désactivation. */
 async function chargerCartesCadeaux() {
   ui.cartesEnCours = true;
-  try { ui.cartesCadeaux = await api('GET', '/api/admin/cartes-cadeaux'); } catch (err) { ui.cartesCadeaux = { cartes: [], registreCoherent: true }; toast(`Cartes cadeaux indisponibles : ${err.message}`); }
+  try { ui.cartesCadeaux = await api('GET', '/api/admin/cartes-cadeaux'); try { ui.cartesCadeaux.vente = (await api('GET', '/api/admin/cartes-cadeaux/vente')).vente; } catch { /* réglages indisponibles */ } } catch (err) { ui.cartesCadeaux = { cartes: [], registreCoherent: true }; toast(`Cartes cadeaux indisponibles : ${err.message}`); }
   finally { ui.cartesEnCours = false; }
   if (location.hash.startsWith('#magasin')) rendre();
 }
+document.addEventListener('submit', async e => {
+  if (e.target.dataset.form !== 'carte-vente') return;
+  e.preventDefault();
+  const d = new FormData(e.target);
+  try {
+    const r = await api('PUT', '/api/admin/cartes-cadeaux/vente', { actif: d.get('actif') === 'on', montants: String(d.get('montants') || '').split(/[;,\s]+/).filter(Boolean).map(x => Number(x.replace(',', '.'))), validiteMois: Number(d.get('validiteMois')) });
+    ui.cartesCadeaux = { ...ui.cartesCadeaux, vente: r.vente }; toast(r.vente.actif ? 'Vente en ligne des cartes cadeaux activée.' : 'Vente en ligne des cartes cadeaux désactivée.'); rendre();
+  } catch (err) { toast(err.message); }
+});
 document.addEventListener('submit', async e => {
   if (e.target.dataset.form !== 'carte-cadeau') return;
   e.preventDefault();

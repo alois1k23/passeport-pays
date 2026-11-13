@@ -469,7 +469,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     ...c.lignes.map(l => `- ${l.qte} × ${l.nom} : ${formatMontant(l.prix * l.qte, config)}`),
     // Les prix des articles sont déjà remisés : la remise est indiquée pour information, pas soustraite une seconde fois.
     ...(c.remise ? [`  (prix après remise${c.motifRemise ? ` : ${c.motifRemise}` : ''}, soit ${formatMontant(c.remise, config)} d’économie)`] : []),
-    c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
+    c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison === 'carte' ? 'envoi par e-mail' : c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
     `Total payé : ${formatMontant(c.total, config)}`,
     ...(c.fidelite && c.fidelite.gagnes ? [`Points de fidélité gagnés : ${c.fidelite.gagnes}`] : []),
     ...(c.carteCadeau && c.carteCadeau.montant ? [`  dont ${formatMontant(c.carteCadeau.montant, config)} par carte cadeau ····${c.carteCadeau.fin}, reste ${formatMontant(Math.max(0, c.total - c.carteCadeau.montant), config)}`] : [])
@@ -484,7 +484,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (/bpost/i.test(transporteur || '')) return `https://track.bpost.cloud/btr/web/#/search?itemCode=${n}&lang=fr`;
     return null;
   };
-  const optionsEmail = (b, c, config) => ({ nomBoutique: config.boutique.nom, formatMontant: m => formatMontant(m, config), nomLivraison: (prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison }).nom, lienCommande: lienCommande(b, c.id), contact: config.entreprise && config.entreprise.email });
+  const optionsEmail = (b, c, config) => ({ nomBoutique: config.boutique.nom, formatMontant: m => formatMontant(m, config), nomLivraison: (prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison === 'carte' ? 'envoi par e-mail' : c.livraison }).nom, lienCommande: lienCommande(b, c.id), contact: config.entreprise && config.entreprise.email });
   const emailExpedition = (b, c, config) => {
     const lien = lienTransporteur(c.transporteur || (prix.modesLivraison(config)[c.livraison] || {}).transporteur, c.suivi, config.boutique.pays);
     if (EmailsClients.langueDe(c)) { const m = EmailsClients.expedition(c, { ...optionsEmail(b, c, config), lienSuivi: lien }); return envoyerEmail(b.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
@@ -722,12 +722,28 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const gagnes = FID.gagnes(reg, Math.round(c.lignes.reduce((a, l) => a + l.prix * l.qte, 0) * 100));
     if (gagnes > 0) { FID.crediter(bid, c.client.email, gagnes, { commandeId: c.id }); c.fidelite = { ...(c.fidelite || {}), gagnes }; }
   }
+  /* Carte cadeau achetée en ligne et payée : émise, et son code envoyé au destinataire (ou à l'acheteur). Le code n'est
+     gardé nulle part en clair (la copie de l'e-mail est masquée dès l'envoi). */
+  function emettreCarteVendue(bid, c) {
+    if (c.carteEmise) return;
+    const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid), config = lireConfig(b), reg = Cartes.reglagesVente(bid);
+    const d = new Date(); d.setMonth(d.getMonth() + reg.validiteMois);
+    const dest = (c.client && c.client.destinataire) || {};
+    const { carte, code } = Cartes.emettre(bid, { montant: c.total, devise: config.boutique.devise || 'EUR', expireLe: d.getTime(), destinataire: dest.nom ? String(dest.nom).slice(0, 100) : null, origine: 'vente', commandeId: c.id });
+    c.carteEmise = { id: carte.id, fin: carte.fin };
+    const a = dest.email || c.client.email, offerte = !!dest.email && dest.email !== c.client.email;
+    envoyerEmail(bid, a, `${offerte ? `${c.client.nom} vous offre une carte cadeau` : 'Votre carte cadeau'} ${config.boutique.nom}`,
+      `Bonjour${dest.nom ? ` ${dest.nom}` : ''},\n\n${offerte ? `${c.client.nom} vous offre une carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.` : `Voici votre carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.`}${c.client.message ? `\n\nSon message : « ${String(c.client.message).slice(0, 300)} »` : ''}\n\nCode : ${code}\nValable jusqu’au ${new Date(carte.expireLe).toLocaleDateString('fr-FR')}, en ligne (${urlBoutique(b)}) et en boutique.\n\nGardez ce code : il vaut de l’argent.\n\n${config.boutique.nom}`);
+    historique(c, `Carte cadeau ····${carte.fin} émise et envoyée${offerte ? ' au destinataire' : ''}`);
+  }
   /* Appelé une seule fois quand le paiement est confirmé (idempotent). */
   /* Commande payée (dans une transaction) : facture, complément rattaché, alerte de rupture, stock. */
   function marquerPayee(row, texte) {
     const c = lireCommande(row);
     c.statut = 'payee'; c.payeLe = Date.now();
-    if (!c.facture) { c.facture = prochaineFacture(row.boutique_id, Date.now()); c.dateFacture = Date.now(); }   // facture QR : déjà émise
+    // Vente d'une carte cadeau (bon à usages multiples) : pas une livraison de biens, donc pas de facture ; un reçu.
+    if (c.canal === 'carte') emettreCarteVendue(row.boutique_id, c);
+    else if (!c.facture) { c.facture = prochaineFacture(row.boutique_id, Date.now()); c.dateFacture = Date.now(); }   // facture QR : déjà émise
     if (c.relances) { c.recuperee = true; c.historique.push({ date: Date.now(), texte: 'Paiement récupéré après relance' }); }
     if (c.parent) {
       const pr = db.prepare('SELECT * FROM commandes WHERE id = ?').get(c.parent);
@@ -1804,6 +1820,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
     if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1, canalStock(c));   // vendu : le stock baisse comme pour un paiement en ligne
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1, canalStock(c));
+    // Carte cadeau vendue : remboursable seulement si elle n'a pas servi ; elle est alors désactivée.
+    if ((cible === 'remboursee' || cible === 'annulee') && c.carteEmise && !c.carteEmise.desactivee) {
+      const k = db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(c.carteEmise.id);
+      if (k && k.solde < k.initial) throw erreur(409, `La carte cadeau ····${c.carteEmise.fin} a déjà servi (solde ${formatMontant(k.solde / 100, config)}) : elle ne peut plus être remboursée en entier.`, 'carte_utilisee');
+      if (k && k.statut === 'active') Cartes.desactiver(ctx.boutique.id, k.id);
+      c.carteEmise.desactivee = Date.now();
+    }
     // Fidélité : points gagnés retirés, points utilisés rendus (une seule fois). Des points gagnés déjà dépensés ne
     // peuvent pas être repris : l'écart est noté dans l'historique (à déduire du remboursement si le marchand le souhaite).
     if ((cible === 'remboursee' || cible === 'annulee') && c.fidelite && !c.fidelite.annule && c.client && c.client.email) {
@@ -2085,6 +2108,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       produits, avisRecents,
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: Remises.offresDe(config).seuilPort,
+      cartesCadeaux: (() => { const v = Cartes.reglagesVente(b.id); return v.actif ? { montants: v.montants } : null; })(),
       fidelite: (() => { const f = FID.reglages(b.id); return f.actif ? { pointsParUnite: f.pointsParUnite, valeurPour100: f.valeurPour100, seuil: f.seuil, plafondPct: f.plafondPct } : null; })(),
       offres: (({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles }) => ({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles: regles.filter(r => r.actif && r.type === 'panier') }))(Remises.offresDe(config)),
       newsletter: relances.nettoyer(config.automatisations).bienvenue,
@@ -2606,6 +2630,9 @@ ${bloc}</main></body></html>`;
       : erreur(400, 'Carte cadeau inconnue, expirée ou épuisée.', 'carte_invalide');
   };
   r.get('/api/admin/cartes-cadeaux', exigerMarchand, ctx => ({ cartes: Cartes.lister(ctx.boutique.id), registreCoherent: !Cartes.verifier(ctx.boutique.id).length }));
+  // Réglages de la vente en ligne : déclarés avant « /:id » (sinon « vente » serait pris pour un identifiant).
+  r.get('/api/admin/cartes-cadeaux/vente', exigerMarchand, ctx => ({ vente: Cartes.reglagesVente(ctx.boutique.id) }));
+  r.put('/api/admin/cartes-cadeaux/vente', exigerMarchand, ctx => ({ vente: Cartes.ecrireReglagesVente(ctx.boutique.id, ctx.corps || {}, lireConfig(ctx.boutique).boutique.pays) }));
   r.get('/api/admin/cartes-cadeaux/:id', exigerMarchand, ctx => Cartes.detail(ctx.boutique.id, ctx.params.id));
   // Émettre une carte crée un moyen de paiement : réservé au propriétaire et à la gestion complète (le rôle « commandes » n'y a pas accès).
   r.post('/api/admin/cartes-cadeaux', exigerMarchand, ctx => {
@@ -2622,6 +2649,36 @@ ${bloc}</main></body></html>`;
     noterActivite(ctx.marchand.id, 'carte-cadeau', `${formatMontant(r2.carte.initial, config)}, carte ····${r2.carte.fin}`, ctx);
     if (ctx.role && ctx.role !== 'proprietaire') { const p = db.prepare('SELECT email FROM marchands WHERE id = ?').get(ctx.boutique.marchand_id); if (p) envoyerEmail(null, p.email, `Carte cadeau émise par ${ctx.marchand.email}`, `Bonjour,\n\n${ctx.marchand.email} a émis une carte cadeau de ${formatMontant(r2.carte.initial, config)} (····${r2.carte.fin}) sur ${config.boutique.nom}.\n\nToutes les cartes : ${urlPublique}/app#magasin\n\nComptoir`); }
     return { statut: 201, corps: r2 };
+  });
+  /* Achat d'une carte cadeau dans la boutique : une commande à part (canal « carte »), payée en ligne. */
+  r.post('/api/public/:slug/cartes-cadeaux/achat', async ctx => {
+    const b = boutiqueOuverte(ctx.params.slug), reg = Cartes.reglagesVente(b.id), config = configVente(b);
+    if (!reg.actif) throw erreur(404, 'Cette boutique ne vend pas de cartes cadeaux en ligne.', 'vente_inactive');
+    auth.limiter(`achat-carte:${b.id}:${reseauIp(ctx.ip)}`, 10 * facteurLimites, 3600000, 'Trop d’achats de cartes en peu de temps. Réessayez plus tard.');
+    const montant = Number(ctx.corps.montant);
+    if (!reg.montants.includes(montant)) throw erreur(400, 'Montant de carte cadeau indisponible.', 'montant_invalide');
+    const cl = ctx.corps.client || {}, de = ctx.corps.destinataire || {};
+    const client = { nom: valider.texte(cl.nom, 'Votre nom', { max: 100 }), email: valider.email(cl.email), adresse: '', npa: '', ville: '' };
+    if (de.email) client.destinataire = { nom: de.nom ? valider.texte(de.nom, 'Le nom du destinataire', { max: 100 }) : '', email: valider.email(de.email) };
+    if (ctx.corps.message) client.message = String(ctx.corps.message).replace(/[\u0000-\u0008\u000B-\u001F]/g, ' ').slice(0, 300);
+    const devise = config.boutique.devise || 'EUR', compte = compteVente(b);
+    const { commande, pmt } = transaction(db, () => {
+      const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
+      const now = Date.now();
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', client, lignes: [{ produitId: null, nom: `Carte cadeau ${formatMontant(montant, config)}`, prix: montant, qte: 1, type: 'carte-cadeau', tauxTva: 0 }], sousTotal: montant, remise: 0, port: 0, total: montant, tauxTva: 0, livraison: 'carte', canal: 'carte', suivi: '', note: '', historique: [{ date: now, texte: 'Carte cadeau achetée en ligne, paiement en attente' }] };
+      const jeton = auth.nouvelId();
+      const { id, numero: n, date, statut, ...donnees } = c;
+      insererCommande(id, b.id, n, date, statut, jeton, donnees);
+      const p = { id: auth.nouvelId('pay_'), commande_id: c.id, montant_centimes: Math.round(montant * 100) };
+      db.prepare('INSERT INTO paiements (id, commande_id, fournisseur, montant_centimes, devise, statut, cree_le, compte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(p.id, c.id, paiement.nom, p.montant_centimes, devise, 'cree', now, compte);
+      return { commande: { ...c, jeton }, pmt: p };
+    });
+    const retour = `${urlBoutique(b)}?commande=${commande.id}&jeton=${commande.jeton}`;
+    let session;
+    try { session = await paiement.creerSession({ pays: config.boutique.pays, paiement: pmt, commande, devise, urlRetour: retour, urlAnnulation: `${retour}&annule=1`, compte, moyens: moyensDe(b.id) }); }
+    catch (e) { transaction(db, () => { db.prepare('DELETE FROM paiements WHERE commande_id = ?').run(commande.id); db.prepare('DELETE FROM commandes WHERE id = ?').run(commande.id); }); throw e; }
+    db.prepare('UPDATE paiements SET ref_externe = ? WHERE id = ?').run(session.refExterne, pmt.id);
+    return { statut: 201, corps: { commandeId: commande.id, jeton: commande.jeton, paiementUrl: session.url } };
   });
   r.post('/api/admin/cartes-cadeaux/:id/desactiver', exigerMarchand, ctx => ({ carte: Cartes.desactiver(ctx.boutique.id, ctx.params.id) }));
   // Solde d'une carte, pour le client (boutique) : limité par adresse et par boutique contre l'essai de codes au hasard.

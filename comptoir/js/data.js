@@ -237,7 +237,7 @@ const LIVRAISONS_BE = {
   retrait: LIVRAISONS.retrait
 };
 // Commande née d'un devis : livraison et frais fixés dans le devis (pas un mode proposé dans la boutique).
-const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH, ...LIVRAISONS_BE, devis: { nom: 'Selon le devis', court: 'Devis', prix: 0, delai: '', transporteur: null } };
+const TOUTES_LIVRAISONS = { ...LIVRAISONS, ...LIVRAISONS_CH, ...LIVRAISONS_BE, devis: { nom: 'Selon le devis', court: 'Devis', prix: 0, delai: '', transporteur: null }, carte: { nom: 'Envoi par e-mail', court: 'E-mail', prix: 0, delai: '', transporteur: null } };
 function livraisonsPays(pays) { return pays === 'ch' ? LIVRAISONS_CH : pays === 'be' ? LIVRAISONS_BE : LIVRAISONS; }
 const SEUIL_PORT_DEFAUT = 60;
 /* Seuil de livraison offerte de la boutique (Paramètres > Livraison, ou Conversion ; 0 = jamais offerte). */

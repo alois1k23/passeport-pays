@@ -211,11 +211,22 @@ function rendreBrut() {
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
     </div>
-    ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal" ${vue.legal === 'commandes' ? '' : 'data-legal'}>${texteLegal(vue.legal)}</article></div></div>` : ''}`;
+    ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal" ${['commandes', 'carte-cadeau'].includes(vue.legal) ? '' : 'data-legal'}>${texteLegal(vue.legal)}</article></div></div>` : ''}`;
 }
 
 function texteLegal(type) {
   const e = donnees.entreprise, b = donnees.boutique, ch = b.pays === 'ch';
+  if (type === 'carte-cadeau' && donnees.cartesCadeaux) return `<h2>Offrir une carte cadeau</h2><p>Valable en ligne et en boutique chez ${esc(b.nom)}. Elle est envoyée par e-mail dès le paiement.</p>
+    <form data-achat-carte>
+      <fieldset class="moyens-sf"><legend>Montant</legend>${donnees.cartesCadeaux.montants.map((m, i) => `<label class="case-sf"><input type="radio" name="montant" value="${m}" ${i === 0 ? 'checked' : ''}> ${euros(m)}</label>`).join('')}</fieldset>
+      <label class="champ"><span>Votre nom</span><input name="nom" required maxlength="100" autocomplete="name"></label>
+      <label class="champ"><span>Votre e-mail</span><input name="email" type="email" required autocomplete="email"></label>
+      <label class="champ"><span>E-mail de la personne à qui vous l’offrez (facultatif)</span><input name="destEmail" type="email" autocomplete="off"></label>
+      <label class="champ"><span>Son prénom (facultatif)</span><input name="destNom" maxlength="100" autocomplete="off"></label>
+      <label class="champ"><span>Votre message (facultatif)</span><textarea name="message" maxlength="300" rows="3"></textarea></label>
+      <p class="erreur-form" role="alert" hidden></p>
+      <button class="sf-btn plein">Payer et envoyer la carte</button>
+    </form>`;
   if (type === 'commandes') return `<h2>Mes commandes</h2><p>Recevez par e-mail le lien de suivi de chacune de vos commandes chez ${esc(b.nom)}.</p>
     <form data-mes-commandes><label class="champ"><span>E-mail utilisé pour commander</span><input type="email" name="email" required autocomplete="email"></label><button class="sf-btn">Recevoir mes liens</button></form>`;
   if (type === 'cgv') return `<h2>Conditions générales de vente</h2>
@@ -281,9 +292,9 @@ async function suivreCommande(id, jeton, annule) {
       const retrait = c.livraison === 'retrait';
       const pointRetrait = !retrait && mode && /pickpost|relais|point/i.test(c.livraison + ' ' + mode.nom);
       const etapes = [['Commande reçue', true], ['Préparation', !['attente'].includes(c.statut)], [retrait ? 'Prête à retirer' : 'Expédiée', ['expediee', 'livree', 'prete', 'retiree'].includes(c.statut)], [retrait ? 'Retirée' : 'Livrée', ['livree', 'retiree'].includes(c.statut)]];
-      vue.message = `<div class="confirm"><p class="confirm-merci">${c.prenom ? `Merci ${esc(c.prenom)} !` : 'Merci !'}</p><h3>Commande n° ${c.numero}</h3><p>${c.statut === 'attente' && i >= 19 ? 'La confirmation du paiement prend plus de temps que prévu. Si votre paiement est passé, vous recevrez la confirmation par e-mail ; sinon, rien n’a été débité et vous pouvez réessayer.' : libelles[c.statut] || ''}</p>
-        ${['annulee', 'remboursee'].includes(c.statut) ? '' : `<ol class="suivi-etapes">${etapes.map(([n, fait]) => `<li class="${fait ? 'fait' : ''}">${n}</li>`).join('')}</ol>`}
-        ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
+      vue.message = `<div class="confirm"><p class="confirm-merci">${c.prenom ? `Merci ${esc(c.prenom)} !` : 'Merci !'}</p><h3>Commande n° ${c.numero}</h3><p>${c.statut === 'attente' && i >= 19 ? 'La confirmation du paiement prend plus de temps que prévu. Si votre paiement est passé, vous recevrez la confirmation par e-mail ; sinon, rien n’a été débité et vous pouvez réessayer.' : c.livraison === 'carte' && c.statut === 'payee' ? 'Paiement reçu : la carte cadeau vient de partir par e-mail.' : libelles[c.statut] || ''}</p>
+        ${['annulee', 'remboursee'].includes(c.statut) || c.livraison === 'carte' ? '' : `<ol class="suivi-etapes">${etapes.map(([n, fait]) => `<li class="${fait ? 'fait' : ''}">${n}</li>`).join('')}</ol>`}
+        ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) || c.livraison === 'carte' ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
@@ -343,7 +354,7 @@ document.addEventListener('click', e => {
     return;
   }
   const doc = e.target.closest('[data-action="doc"]');
-  if (doc) { vue.legal = ['cgv', 'commandes'].includes(doc.dataset.id) ? doc.dataset.id : 'mentions'; rendre(); return; }
+  if (doc) { vue.legal = ['cgv', 'commandes', 'carte-cadeau'].includes(doc.dataset.id) ? doc.dataset.id : 'mentions'; rendre(); document.querySelector('#modal input, #modal button')?.focus(); return; }
   const el = e.target.closest('[data-c]');
   if (!el) return;
   const c = el.dataset.c;
@@ -627,4 +638,18 @@ document.addEventListener('submit', async e => {
     if (!rep.ok) throw new Error((await rep.json()).erreur);
     f.innerHTML = '<p class="encart" role="status">C’est noté : vous recevrez un e-mail dès le retour en stock.</p>';
   } catch (err) { f.querySelector('button').disabled = false; alert(trad(err.message || 'Envoi impossible. Réessayez dans un instant.')); }
+});
+
+/* Achat d'une carte cadeau : commande à part, payée en ligne ; la carte part par e-mail au paiement. */
+document.addEventListener('submit', async e => {
+  if (!e.target.matches || !e.target.matches('[data-achat-carte]')) return;
+  e.preventDefault();
+  const f = e.target, d = new FormData(f), b = f.querySelector('button'), err = f.querySelector('.erreur-form');
+  b.disabled = true; err.hidden = true;
+  try {
+    const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/cartes-cadeaux/achat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ montant: Number(d.get('montant')), client: { nom: d.get('nom'), email: d.get('email') }, ...(d.get('destEmail') ? { destinataire: { email: d.get('destEmail'), nom: d.get('destNom') || '' } } : {}), message: d.get('message') || undefined }) });
+    const json = await rep.json();
+    if (!rep.ok) throw new Error(json.erreur || 'Achat impossible pour l’instant.');
+    location.href = json.paiementUrl;
+  } catch (x) { err.textContent = x.message; err.hidden = false; b.disabled = false; }
 });

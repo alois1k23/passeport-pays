@@ -578,6 +578,12 @@ function vueCartesCadeaux() {
     <p class="sous">Utilisables en ligne et à la caisse, comme moyen de paiement : la TVA figure sur la facture des articles achetés avec la carte. Si vous vendez une carte, demandez à votre fiduciaire comment la comptabiliser (bon à usage unique ou multiple selon vos taux de TVA).</p>
     ${ui.carteEmise ? `<div class="encart" role="status"><b>Carte de ${euros(ui.carteEmise.carte.initial)} émise.</b> Code à remettre au client : <span class="mono code-carte">${esc(ui.carteEmise.code)}</span>
       <p class="sous">Notez-le ou imprimez-le maintenant : pour votre sécurité, il ne sera plus jamais affiché.</p><button class="btn petit fantome" data-action="carte-imprimer">Imprimer la carte</button> <button class="btn petit fantome" data-action="carte-masquer">J’ai noté le code</button></div>` : ''}
+    ${(() => { const v = (ui.cartesCadeaux || {}).vente; if (!v) return ''; return `<form data-form="carte-vente" class="encart">
+      <label class="case"><input type="checkbox" name="actif" ${v.actif ? 'checked' : ''}> Vendre des cartes cadeaux dans la boutique en ligne</label>
+      <div class="rangee"><label class="champ"><span>Montants proposés</span><input name="montants" value="${esc(v.montants.join(', '))}" placeholder="25, 50, 100"></label>
+      <label class="champ"><span>Validité (mois)</span><input name="validiteMois" type="number" min="${etat.boutique.pays === 'be' ? 24 : 12}" max="120" value="${v.validiteMois}" class="champ-court"></label>
+      <button class="btn petit">Enregistrer</button></div>
+      <p class="sous">Le client choisit un montant, paie en ligne et la carte est envoyée par e-mail (à lui ou à la personne à qui il l’offre). Pas de facture : c’est un bon d’achat, la TVA porte sur les articles achetés avec.</p></form>`; })()}
     <form data-form="carte-cadeau" class="rangee">
       <label class="champ"><span>Montant</span><input name="montant" type="number" min="1" max="10000" step="0.01" inputmode="decimal" required></label>
       <label class="champ"><span>Validité</span><select name="expireMois"><option value="">Sans limite</option>${etat.boutique.pays === 'be' ? '' : '<option value="12">1 an</option>'}<option value="24" selected>2 ans</option><option value="36">3 ans</option></select></label>

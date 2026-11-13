@@ -52,7 +52,7 @@ function executer({ db, boutique, config, commandes, maintenant = Date.now(), ur
   // 1. Paiement abandonné : la commande a été créée mais jamais payée.
   if (a.paiement.actif) {
     for (const c of commandes) {
-      if (c.statut !== 'attente' || c.moyen === 'facture' || c.canal === 'devis' || !c.client.email || maintenant - c.date > 7 * JOUR) continue;   // facture QR ou devis accepté (paiement par virement attendu) : pas un panier abandonné
+      if (c.statut !== 'attente' || c.moyen === 'facture' || c.canal === 'devis' || c.canal === 'carte' || !c.client.email || maintenant - c.date > 7 * JOUR) continue;   // facture QR ou devis accepté (paiement par virement attendu) : pas un panier abandonné
       // Au plus une relance par passage : la plus avancée qui est due et pas encore envoyée
       // (après une interruption du serveur, le client ne reçoit pas trois e-mails d'un coup).
       let due = -1;

@@ -34,13 +34,26 @@ function creer(db, cle) {
     type TEXT NOT NULL, montant INTEGER NOT NULL, solde INTEGER NOT NULL, commande_id TEXT, texte TEXT)`);
   db.exec('CREATE INDEX IF NOT EXISTS cartes_mouvements_carte ON cartes_mouvements (carte_id, id)');
   db.exec('CREATE INDEX IF NOT EXISTS cartes_cadeaux_boutique ON cartes_cadeaux (boutique_id, cree_le)');
+  db.exec('CREATE TABLE IF NOT EXISTS cartes_vente (boutique_id TEXT PRIMARY KEY, donnees TEXT NOT NULL)');
 
   const empreinte = (boutiqueId, code) => crypto.createHmac('sha256', cle).update(`carte-cadeau:${boutiqueId}:${normaliser(code)}`).digest('hex');
   const inscrire = (carte, type, montant, solde, commandeId, texte, le) => db.prepare('INSERT INTO cartes_mouvements (carte_id, boutique_id, le, type, montant, solde, commande_id, texte) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(carte.id, carte.boutique_id, le, type, montant, solde, commandeId || null, texte ? String(texte).slice(0, 200) : null);
   const publique = row => row && ({ id: row.id, fin: row.fin, initial: row.initial / 100, solde: row.solde / 100, devise: row.devise, statut: row.statut, creeLe: row.cree_le, expireLe: row.expire_le, destinataire: row.destinataire, note: row.note, origine: row.origine });
 
+  const VENTE_DEFAUT = { actif: false, montants: [25, 50, 100], validiteMois: 24 };
   return {
     normaliser, formater,
+    /* Vente en ligne (le client achète une carte dans la boutique) : réglages du marchand. */
+    reglagesVente(bid) { const r = db.prepare('SELECT donnees FROM cartes_vente WHERE boutique_id = ?').get(bid); return r ? { ...VENTE_DEFAUT, ...JSON.parse(r.donnees) } : { ...VENTE_DEFAUT }; },
+    ecrireReglagesVente(bid, s, pays) {
+      const montants = [...new Set((Array.isArray(s.montants) ? s.montants : []).map(Number))].filter(m => Number.isFinite(m)).sort((a, b) => a - b);
+      if (s.actif === true && (!montants.length || montants.length > 8 || montants.some(m => m < 5 || m > 1000 || Math.round(m * 100) !== m * 100))) throw erreur(400, 'Montants proposés : de 1 à 8 montants entre 5 et 1000.', 'invalide');
+      const mois = Number(s.validiteMois ?? 24);
+      if (!Number.isInteger(mois) || mois < (pays === 'be' ? 24 : 12) || mois > 120) throw erreur(400, `Validité : entre ${pays === 'be' ? 24 : 12} et 120 mois.`, 'invalide');
+      const r = { actif: s.actif === true, montants: montants.length ? montants : VENTE_DEFAUT.montants, validiteMois: mois };
+      db.prepare('INSERT INTO cartes_vente (boutique_id, donnees) VALUES (?, ?) ON CONFLICT (boutique_id) DO UPDATE SET donnees = excluded.donnees').run(bid, JSON.stringify(r));
+      return r;
+    },
     /* Émet une carte : renvoie la carte et son code complet (seule fois où il existe en clair). */
     emettre(boutiqueId, { montant, devise, expireLe = null, destinataire = null, note = null, origine = 'manuelle', commandeId = null, maintenant = Date.now() }) {
       const c = centimes(montant);
