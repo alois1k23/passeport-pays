@@ -918,3 +918,9 @@ Le point ouvert du cycle 49 est fermé. Jusqu'ici, n'importe qui pouvait ouvrir 
   - les codes de fidélité en cours (15 minutes) sont à redemander ;
   - l'empreinte réseau d'une acceptation de devis ne se compare plus d'une clé à l'autre (simple élément de preuve).
 - 195 tests sur 195 ; vérificateur complet 7 sur 7 (avant les derniers correctifs, puis parcours de bout en bout refait : 57 contrôles, 0 anomalie).
+
+### Cycle 52 (07 h 45) : démonstration publiée, version 25 (chantier 46)
+
+- **Démonstration mise à jour** : https://claude.ai/artifact/VVqm5yN2b2csXTiHAt6sM9. Seuls les fichiers modifiés depuis la version 24 sont republiés (`data.js`, `serveur.js`, `parametres.js`, `app.css`), avec le secteur par défaut qui empêche le tableau de bord de planter.
+- Le rappel de confirmation de l'adresse et l'indication de la section Paiements n'apparaissent pas dans la démonstration : ils n'ont de sens qu'avec un serveur.
+- **Vérifié dans Chromium** avec les fichiers publiés : tableau de bord, commandes, réglages, analyse et clients. Aucune erreur JavaScript.
