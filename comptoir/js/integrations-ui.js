@@ -27,12 +27,14 @@ function vueIntegrations() {
       <p class="mono secret-integ">${esc(INTEG.nouvelle.valeur)}</p>
       <div class="rangee"><button class="btn" data-action="integ-copier">Copier</button><button class="btn fantome" data-action="integ-fini">C’est copié</button></div></section>` : '';
   const cles = `<section class="carte"><div class="carte-tete"><h2>Clés d’API</h2><span class="sous mono">${esc(d.base)}</span></div>
-    ${d.cles.length ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Nom</th><th>Clé</th><th>Permissions</th><th>Dernier usage</th><th></th></tr></thead><tbody>
-      ${d.cles.map(c => `<tr><td>${esc(c.nom)}</td><td class="mono">${esc(c.prefixe)}…</td><td class="sous">${c.portees.map(p => esc(LIBELLES_PORTEES[p] || p)).join(', ')}</td><td>${date(c.utilisee_le)}</td><td class="num"><button class="btn petit fantome danger" data-action="integ-revoquer" data-id="${esc(c.id)}">Révoquer</button></td></tr>`).join('')}
+    ${d.cles.length ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Nom</th><th>Clé</th><th>Permissions</th><th>Validité et réseaux</th><th>Dernier usage</th><th></th></tr></thead><tbody>
+      ${d.cles.map(c => `<tr><td>${esc(c.nom)}</td><td class="mono">${esc(c.prefixe)}…</td><td class="sous">${c.portees.map(p => esc(LIBELLES_PORTEES[p] || p)).join(', ')}</td><td class="sous">${c.expiree ? '<span class="pill bad">Expirée</span>' : c.expire_le ? `jusqu’au ${date(c.expire_le)}` : 'sans limite'}<br>${c.reseaux && c.reseaux.length ? `<span class="mono">${c.reseaux.map(esc).join(', ')}</span>` : 'toutes adresses'}</td><td>${date(c.utilisee_le)}</td><td class="num"><button class="btn petit fantome danger" data-action="integ-revoquer" data-id="${esc(c.id)}">Révoquer</button></td></tr>`).join('')}
     </tbody></table></div>` : '<p class="sous">Aucune clé pour l’instant.</p>'}
     <details${d.cles.length ? '' : ' open'}><summary>Créer une clé</summary><form data-form="integ-cle" class="grille-form">
       <label class="champ"><span>Nom (pour vous en souvenir)</span><input name="nom" maxlength="60" required placeholder="Comptabilité, entrepôt…"></label>
       <fieldset class="champ"><legend>Permissions</legend>${d.portees.map(p => `<label class="case"><input type="checkbox" name="portees" value="${esc(p)}"${p.endsWith(':lecture') && p.startsWith('commandes') ? ' checked' : ''}> ${esc(LIBELLES_PORTEES[p] || p)}</label>`).join('')}</fieldset>
+      <label class="champ"><span>Validité</span><select name="expireJours"><option value="30">30 jours</option><option value="90" selected>90 jours</option><option value="365">1 an</option><option value="jamais">Sans limite</option></select></label>
+      <label class="champ"><span>Adresses IP autorisées (facultatif)</span><input name="reseaux" placeholder="203.0.113.7, 203.0.113.0/24" autocomplete="off" aria-describedby="aide-reseaux"><small class="sous" id="aide-reseaux">Si votre outil a une adresse fixe, indiquez-la : une clé volée ne servira pas ailleurs. Vide : toutes les adresses. En IPv6, la précision s’arrête au réseau /64.</small></label>
       <div class="rangee"><button class="btn">Créer la clé</button><span class="sous">N’accordez que le nécessaire.</span></div></form></details></section>`;
   const statutEnvoi = e => e.statut === 'envoye' ? '<span class="pill good">Reçu</span>' : e.statut === 'echec' ? '<span class="pill bad">Abandonné</span>' : `<span class="pill warn">Nouvel essai (${e.tentatives})</span>`;
   const webhooks = `<section class="carte"><div class="carte-tete"><h2 id="integ-webhooks-titre" tabindex="-1">Webhooks</h2>${d.webhooks.length ? '<button class="btn petit fantome" data-action="integ-tester">Envoyer un test</button>' : ''}</div>
@@ -91,7 +93,7 @@ document.addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(f); INTEG.erreur = '';
   try {
-    if (f.dataset.form === 'integ-cle') { const r = await api('POST', '/api/admin/integrations/cles', { nom: fd.get('nom'), portees: fd.getAll('portees') }); INTEG.nouvelle = { type: 'cle', valeur: r.cle }; }
+    if (f.dataset.form === 'integ-cle') { const r = await api('POST', '/api/admin/integrations/cles', { nom: fd.get('nom'), portees: fd.getAll('portees'), expireJours: fd.get('expireJours'), reseaux: fd.get('reseaux') || '' }); INTEG.nouvelle = { type: 'cle', valeur: r.cle }; }
     else { const r = await api('POST', '/api/admin/integrations/webhooks', { url: fd.get('url'), evenements: fd.getAll('evenements'), donneesClient: fd.get('donneesClient') === 'on' }); INTEG.nouvelle = { type: 'webhook', valeur: r.secret }; }
     INTEG.donnees = null;
   } catch (err) { INTEG.erreur = err.message; toast(err.message); }

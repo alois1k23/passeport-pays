@@ -75,23 +75,53 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
   const httpLocalPermis = env.INTEGRATIONS_HTTP_LOCAL === '1';   // essais uniquement : webhooks vers http://127.0.0.1
 
   /* ---------- Clés d'API ---------- */
-  function creerCle(boutiqueId, { nom, portees }) {
+  // Expiration (facultative) et réseaux autorisés (facultatifs) : une clé volée cesse de servir à sa date, ou hors des
+  // adresses IP du serveur qui l'utilise (comptabilité, entrepôt).
+  for (const col of ['expire_le INTEGER', 'reseaux TEXT']) { try { db.exec(`ALTER TABLE cles_api ADD COLUMN ${col}`); } catch { /* déjà là */ } }
+  const DUREES_CLE = [30, 90, 365];
+  const ipNette = ip => { const t = String(ip || '').trim(); return /^::ffff:\d+\.\d+\.\d+\.\d+$/i.test(t) ? t.slice(7) : t; };
+  function lireReseaux(texte) {
+    const brut = (Array.isArray(texte) ? texte : String(texte || '').split(/[\s,;]+/)).map(x => String(x).trim()).filter(Boolean);
+    if (brut.length > 10) throw erreur(400, '10 réseaux au plus.', 'reseaux');
+    return brut.map(r => {
+      const [adr, pre, reste] = r.split('/');
+      const v = net.isIP(ipNette(adr));
+      const max = v === 4 ? 32 : 128;
+      const n = pre === undefined ? max : /^\d{1,3}$/.test(pre) ? Number(pre) : NaN;
+      if (!v || reste !== undefined || !(n >= (v === 4 ? 8 : 16) && n <= max)) throw erreur(400, `Réseau invalide : « ${r.slice(0, 50)} ». Exemples : 203.0.113.7, 203.0.113.0/24, 2001:db8::/48.`, 'reseaux');
+      // IPv6 : le serveur ne connaît le client qu'à son réseau /64 près (adresse temporaire qui change) : précision bornée au /64.
+      return `${ipNette(adr)}/${v === 6 ? Math.min(n, 64) : n}`;
+    });
+  }
+  const dansReseaux = (ip, reseaux) => {
+    const a = ipNette(String(ip || '').replace(/\/\d+$/, '')), v = net.isIP(a);   // IPv6 : réseau /64 du client (voir reseauIp)
+    if (!v) return false;
+    const bl = new net.BlockList();
+    for (const r of reseaux) { const [adr, n] = r.split('/'); const t = net.isIP(adr) === 4 ? 'ipv4' : 'ipv6'; bl.addSubnet(adr, Number(n), t); }
+    return bl.check(a, v === 4 ? 'ipv4' : 'ipv6');
+  };
+  function creerCle(boutiqueId, { nom, portees, expireJours, reseaux }) {
     const p = (Array.isArray(portees) ? portees : []).filter(x => PORTEES.includes(x));
     if (!p.length) throw erreur(400, 'Choisissez au moins une permission.', 'portees');
+    const jours = expireJours === undefined || expireJours === null || expireJours === '' || expireJours === 'jamais' ? null : Number(expireJours);
+    if (jours !== null && !DUREES_CLE.includes(jours)) throw erreur(400, 'Durée de validité : 30, 90 ou 365 jours, ou sans limite.', 'expiration');
+    const rs = lireReseaux(reseaux);
     if (db.prepare('SELECT COUNT(*) n FROM cles_api WHERE boutique_id = ? AND revoquee = 0').get(boutiqueId).n >= 10) throw erreur(409, '10 clés actives au plus : révoquez-en une.', 'trop_de_cles');
     const cle = 'cpt_' + crypto.randomBytes(24).toString('base64url');
     const id = 'key_' + crypto.randomBytes(6).toString('hex');
-    db.prepare('INSERT INTO cles_api (id, boutique_id, nom, prefixe, empreinte, portees, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, boutiqueId, String(nom || 'Clé').slice(0, 60), cle.slice(0, 12), sha256(cle), JSON.stringify([...new Set(p)]), Date.now());
-    return { id, cle };
+    db.prepare('INSERT INTO cles_api (id, boutique_id, nom, prefixe, empreinte, portees, cree_le, expire_le, reseaux) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, boutiqueId, String(nom || 'Clé').slice(0, 60), cle.slice(0, 12), sha256(cle), JSON.stringify([...new Set(p)]), Date.now(), jours ? Date.now() + jours * 86400000 : null, rs.length ? JSON.stringify(rs) : null);
+    return { id, cle, expireLe: jours ? Date.now() + jours * 86400000 : null, reseaux: rs };
   }
-  const listerCles = boutiqueId => db.prepare('SELECT id, nom, prefixe, portees, cree_le, utilisee_le FROM cles_api WHERE boutique_id = ? AND revoquee = 0 ORDER BY cree_le DESC').all(boutiqueId).map(c => ({ ...c, portees: JSON.parse(c.portees) }));
+  const listerCles = boutiqueId => db.prepare('SELECT id, nom, prefixe, portees, cree_le, utilisee_le, expire_le, reseaux FROM cles_api WHERE boutique_id = ? AND revoquee = 0 ORDER BY cree_le DESC').all(boutiqueId).map(c => ({ ...c, portees: JSON.parse(c.portees), reseaux: c.reseaux ? JSON.parse(c.reseaux) : [], expiree: !!(c.expire_le && c.expire_le < Date.now()) }));
   const revoquerCle = (boutiqueId, id) => db.prepare('UPDATE cles_api SET revoquee = 1 WHERE id = ? AND boutique_id = ?').run(String(id), boutiqueId).changes > 0;
   /* Authentifie « Authorization: Bearer cpt_… » ; renvoie { boutiqueId, portees, id } ou lève 401. */
-  function authentifier(entete) {
+  function authentifier(entete, ip) {
     const m = /^Bearer\s+(cpt_[\w-]{20,64})$/.exec(String(entete || ''));
     if (!m) throw erreur(401, 'Clé d’API manquante ou invalide (en-tête Authorization: Bearer cpt_…).', 'cle_api');
     const c = db.prepare('SELECT * FROM cles_api WHERE empreinte = ? AND revoquee = 0').get(sha256(m[1]));
     if (!c) throw erreur(401, 'Clé d’API inconnue ou révoquée.', 'cle_api');
+    if (c.expire_le && c.expire_le < Date.now()) throw erreur(401, 'Clé d’API expirée : créez-en une nouvelle dans Paramètres > Intégrations.', 'cle_expiree');
+    if (c.reseaux && !dansReseaux(ip, JSON.parse(c.reseaux))) throw erreur(403, 'Cette clé d’API n’est pas autorisée depuis cette adresse IP.', 'reseau_refuse');
     if (!c.utilisee_le || Date.now() - c.utilisee_le > 60000) db.prepare('UPDATE cles_api SET utilisee_le = ? WHERE id = ?').run(Date.now(), c.id);
     return { id: c.id, boutiqueId: c.boutique_id, portees: JSON.parse(c.portees) };
   }

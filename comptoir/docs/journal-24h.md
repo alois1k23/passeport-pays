@@ -128,6 +128,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 65. **Session liée à son appareil** : un cookie rejoué depuis un autre navigateur ou système ferme la session et prévient la titulaire.
 66. **Relecture adversariale croisée** des nouveautés de l'après-midi (changement d'adresse, confirmation par clé d'accès, essais refusés par session, session liée à l'appareil) : ce qui casse quand elles se combinent.
 67. **Signaux d'attaque dans la console de l'exploitant** : sessions fermées par précaution, clés d'accès peut-être copiées et changements d'adresse annulés, comptés sur toute la plateforme, avec alerte.
+68. **Clés d'API limitées** : date d'expiration et adresses IP autorisées ; une clé volée ne sert ni après sa date, ni depuis ailleurs.
 
 ## Cycles
 
@@ -1473,3 +1474,20 @@ Autres changements du chantier :
   - **Alertes** : une clé copiée ou une annulation n'allume plus la ligne pendant 30 jours. Le total sur 30 jours reste affiché, mais l'alerte ne porte que sur les 7 derniers jours (testé).
 - Après corrections : 229 tests sur 229, parcours de bout en bout 57/57.
 - Vérification complète (7 étapes) réussie sur le code final du chantier 67.
+
+### Cycle 73 (19 h 50) : clés d'API limitées (chantier 68)
+
+Une clé d'API de Comptoir valait jusqu'ici pour toujours et depuis n'importe où. Une clé oubliée dans un script, un dépôt ou un outil abandonné, si elle était volée, donnait un accès durable aux commandes et aux clients. Désormais :
+
+- **Durée de validité** choisie à la création : 30 jours, 90 jours (proposé par défaut), 1 an, ou sans limite. Une clé expirée est refusée (`401`, code `cle_expiree`) avec un message qui dit quoi faire. Les clés d'avant cette règle restent sans limite.
+- **Adresses IP autorisées**, facultatives : jusqu'à 10 adresses ou réseaux, IPv4 ou IPv6. Les saisies invalides ou trop larges (moins de /8 en IPv4, moins de /16 en IPv6) sont refusées avec un exemple. Ailleurs, la clé est refusée (`403`, code `reseau_refuse`). L'adresse du client est celle que le serveur connaît déjà : l'en-tête X-Forwarded-For n'est lu que depuis un proxy de confiance.
+- **Précision IPv6** : le serveur ne garde de l'adresse IPv6 que son réseau /64, car les adresses temporaires changent. Une adresse IPv6 précise est donc élargie à son /64, et c'est écrit dans le formulaire et dans la documentation de l'API. Le premier essai l'a révélé : le test d'une adresse IPv6 autorisée échouait.
+- **Écran Intégrations** : la liste montre la validité (date, « Expirée », « sans limite ») et les réseaux de chaque clé.
+- **Bilan de sécurité du marchand** : clés expirées ou qui expirent dans les 14 jours (à renouveler), et clés sans date ni adresse (à remplacer).
+- **Tests** :
+  - saisies refusées ;
+  - adresses IPv4 et IPv6 autorisées, même réseau /64 accepté, autre adresse refusée ;
+  - clé expirée refusée et signalée dans le bilan ;
+  - clé sans limite acceptée mais signalée.
+- 230 tests sur 230, parcours de bout en bout 57/57.
+
