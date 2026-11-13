@@ -603,6 +603,16 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
   - XSS de la boutique ;
   - en-têtes et cache des nouvelles routes.
 - 170 tests sur 170, bout en bout 51 sur 51. Parcours de fidélité vérifié dans un vrai navigateur : code demandé, code reçu saisi, points appliqués.
+- **Relecture indépendante de ces corrections**, constats corrigés :
+  - **Retour en suspens bloqué pour toujours** : si la reprise était refusée nettement par Stripe (litige ouvert entre-temps, clé expirée après 24 h), le marqueur restait et bloquait tout remboursement de la commande. Le marqueur est maintenant retiré sur un refus net, avec une trace dans l'historique, y compris quand l'erreur survient à la lecture préalable du paiement. Le marchand peut aussi l'abandonner lui-même après avoir vérifié dans Stripe, et le texte ne prétend plus que l'argent « a été remboursé » quand c'est incertain.
+  - **Codes de fidélité** : les plafonds tous réseaux pouvaient encore servir à bloquer un client. Un réseau où le client a déjà saisi un code juste est désormais « sûr » pour son adresse, et ces plafonds ne s'y appliquent plus : un tiers ne peut pas l'exclure de chez lui.
+  - **Force brute** : le plafond tous réseaux passe de 100 à 30 échecs par jour et par adresse. Les limites par adresse IP comptent par réseau (un /64 en IPv6 ne se contourne plus en changeant d'adresse). Le frein de la boutique revient, mais ne compte que les mauvais codes : un code juste passe toujours.
+  - **Ménage** : échecs de plus de 24 h purgés, index sur l'expiration des codes.
+  - **Litiges** : seuls les litiges ouverts (réponse attendue, en examen) ou perdus bloquent un remboursement ou la libération d'une carte. Une simple demande d'information ou un litige gagné ne bloque plus.
+  - **Pause** : à la reprise, l'inactivité est décalée de la durée exacte de la pause (et non remise à zéro), et seulement pour les comptes encore valables au début de la pause.
+  - **NFC** : les adresses déjà enregistrées (marchands, désinscriptions, invitations) sont normalisées au démarrage. Connexion et désinscriptions continuent de les trouver.
+  - Remboursement complet pendant une expédition : l'historique dit explicitement que le stock a été remis et qu'il faut le corriger si les articles ne reviennent pas.
+  - 2 tests de plus : 175 tests sur 175.
 
 ### Cycle 35 (04 h 39) : comptabilité des avoirs partiels (chantier 26)
 

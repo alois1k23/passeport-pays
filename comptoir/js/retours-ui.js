@@ -19,7 +19,7 @@ function blocRetoursPartiels(c) {
     ${pieces.length ? `<ul class="sous">${pieces.map(p => `<li>${p.numero ? `<b>${esc(p.numero)}</b>` : '<b>Sans avoir</b>'} · ${new Date(p.date).toLocaleDateString('fr-CH')} · ${euros(p.montant / 100)} : ${p.geste ? 'geste commercial' : p.lignes.map(x => `${x.qte} × ${esc(c.lignes[x.index].nom)}`).join(', ')}${p.port ? `${p.lignes.length ? ', ' : ''}livraison` : ''}${p.carte ? ` (dont ${euros(p.carte / 100)} sur la carte cadeau)` : ''}${p.mode === 'manuel' && p.argent ? ' · à rendre par vos soins' : ''}${p.stock || p.geste ? '' : ' · non remis en stock'}
       ${p.numero ? `<button class="btn petit fantome" data-action="facture-xml" data-format="pdf" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en PDF Factur-X">PDF</button><button class="btn petit fantome" data-action="facture-xml" data-id="${esc(c.id)}" data-avoir="${esc(p.numero)}" aria-label="Avoir ${esc(p.numero)} en XML EN 16931">XML</button>` : ''}</li>`).join('')}</ul>
       <p class="sous">Total remboursé : ${euros(total)} sur ${euros(c.total)}.</p>` : ''}
-    ${c.retourEnCours ? `<p class="alerte-texte" role="alert">Un retour partiel de ${euros(c.retourEnCours.calcul.montant / 100)} a été remboursé chez Stripe, mais son avoir n’a pas encore été créé.</p><button class="btn petit" data-action="retour-partiel-terminer" data-id="${esc(c.id)}">Terminer le retour en cours</button>` : ''}
+    ${c.retourEnCours ? `<p class="alerte-texte" role="alert">Un retour partiel de ${euros(c.retourEnCours.calcul.montant / 100)} est en suspens : Stripe n’a pas confirmé le remboursement (il a peut-être eu lieu), et l’avoir n’est pas encore créé.</p><button class="btn petit" data-action="retour-partiel-terminer" data-id="${esc(c.id)}">Terminer le retour en cours</button> <button class="btn petit fantome" data-action="retour-partiel-abandonner" data-id="${esc(c.id)}" title="Seulement si votre tableau de bord Stripe ne montre aucun remboursement">Abandonner (aucun remboursement chez Stripe)</button>` : ''}
     ${peut && !r && !c.retourEnCours ? `<div class="rangee"><button class="btn petit fantome" data-action="retour-partiel-ouvrir" data-id="${esc(c.id)}">${c.retour && c.retour.statut === 'demande' ? 'Rembourser les articles retournés…' : 'Retour partiel…'}</button><button class="btn petit fantome" data-action="retour-partiel-ouvrir" data-mode="geste" data-id="${esc(c.id)}" title="Rembourser un montant sans retour d’article (retard, petit défaut accepté par le client)">Geste commercial…</button></div>` : ''}
     ${peut && r && r.mode === 'geste' && !c.retourEnCours ? `<form data-form="retour-partiel" data-mode="geste" data-id="${esc(c.id)}">
       <label class="champ"><span>Montant du geste commercial</span><input name="geste" type="number" min="0.01" step="0.01" required value="${esc(r.saisie.geste ?? '')}" class="champ-court"></label>
@@ -94,5 +94,12 @@ document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action="retour-partiel-terminer"]'); if (!el) return;
   el.disabled = true;
   try { const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/retour-partiel`, { reprendre: true }); await rafraichir(`Retour partiel terminé : avoir ${r.avoir} émis.`); const t = document.querySelector('[data-titre-retours]'); if (t) t.focus(); }
+  catch (err) { toast(err.message); el.disabled = false; }
+});
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-action="retour-partiel-abandonner"]'); if (!el) return;
+  if (!confirm('Abandonner ce retour en suspens ? Faites-le seulement si votre tableau de bord Stripe ne montre aucun remboursement pour cette commande.')) return;
+  el.disabled = true;
+  try { await api('POST', `/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/retour-partiel`, { abandonner: true }); await rafraichir('Retour en suspens abandonné.'); }
   catch (err) { toast(err.message); el.disabled = false; }
 });

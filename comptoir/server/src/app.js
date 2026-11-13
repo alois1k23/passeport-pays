@@ -366,6 +366,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   PII = Pii.creer(cleBase.equals(cleChiffrement) ? [cleChiffrement] : [cleChiffrement, cleBase]);
   try { db.exec('ALTER TABLE commandes ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
   db.exec('CREATE INDEX IF NOT EXISTS commandes_email_index ON commandes (boutique_id, email_index)');
+  // Adresses e-mail enregistrées avant la normalisation Unicode (NFC) : remises sous leur forme unique, pour que connexion
+  // et désinscriptions continuent de les trouver (cas rares : adresses avec accents saisies sous forme décomposée).
+  for (const [table, cle] of [['marchands', 'id'], ['desinscriptions', 'rowid'], ['invitations', 'id']]) {
+    try {
+      for (const r of db.prepare(`SELECT ${cle} AS k, email FROM ${table}`).all()) {
+        const n = String(r.email || '').normalize('NFC');
+        if (n !== r.email) db.prepare(`UPDATE OR IGNORE ${table} SET email = ? WHERE ${cle} = ?`).run(n, r.k);
+      }
+    } catch (e) { journal.error('[nfc]', table, e.message); }
+  }
   /* Mise à niveau au démarrage, par pages (rowid), une transaction par page, ligne par ligne (une ligne abîmée est
      comptée et laissée telle quelle, sans bloquer le démarrage) :
      - commandes en clair (avant le chiffrement, ou importées) : chiffrées et indexées ;
@@ -1793,6 +1803,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (c.refFournisseur) throw erreur(409, 'La partie fournisseur est déjà transmise.', 'deja_transmise');
     return { commande: await transmettreAuFournisseur(ctx.boutique, c, false) };
   });
+  // Litige qui interdit un remboursement ou la libération d'une carte : ouvert (réponse attendue, en examen) ou perdu.
+  // Une simple demande d'information (« warning_* ») ou un litige gagné ne bloque pas.
+  const litigeBloquant = c => !!c.litige && ['needs_response', 'under_review', 'lost'].includes(c.litige.statut);
   // Remboursements en cours, par commande : un remboursement (complet ou partiel) à la fois, jamais deux en parallèle.
   const remboursementsEnCours = new Set();
   const avecVerrou = async (id, fn) => {
@@ -1810,7 +1823,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!transitionsPossibles(c).includes(cible)) throw erreur(409, `Impossible de passer de « ${c.statut} » à « ${cible} ».`, 'transition_invalide');
     const config = lireConfig(ctx.boutique);
     if ((cible === 'remboursee' || cible === 'annulee') && c.retourEnCours) throw erreur(409, 'Un retour partiel remboursé chez Stripe attend son avoir : terminez-le d’abord (fiche de la commande, « Terminer le retour en cours »).', 'retour_en_cours');
-    if (cible === 'remboursee' && c.litige && c.litige.statut !== 'won') throw erreur(409, 'Un litige bancaire est ouvert ou perdu sur cette commande : le remboursement passe par la banque du client.', 'litige');
+    if (cible === 'remboursee' && litigeBloquant(c)) throw erreur(409, 'Un litige bancaire est ouvert ou perdu sur cette commande : le remboursement passe par la banque du client.', 'litige');
     // Carte cadeau vendue déjà utilisée : refus AVANT tout remboursement (l'argent ne part pas si la carte reste valable).
     // (même si la carte a été bloquée entre-temps, par exemple par un litige : une carte dépensée n'est jamais remboursée)
     if ((cible === 'remboursee' || cible === 'annulee') && c.carteEmise) {
@@ -1839,7 +1852,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // L'argent est parti : l'avoir, la carte cadeau, les points et le stock sont enregistrés quoi qu'il soit arrivé
       // entre-temps (expédition, litige), sauf si la commande a déjà été remboursée ou annulée par ailleurs.
       if (['remboursee', 'annulee'].includes(frais.statut)) throw erreur(409, `La commande est déjà « ${frais.statut} » : vérifiez-la.`, 'statut_change');
-      if (frais.statut !== c.statut) historique(frais, `Remboursement effectué alors que la commande passait à « ${frais.statut} » : enregistré quand même`);
+      if (frais.statut !== c.statut) historique(frais, `Remboursement effectué alors que la commande passait à « ${frais.statut} » : enregistré quand même${['expediee', 'livree'].includes(frais.statut) ? ' ; stock remis comme si les articles revenaient : corrigez-le s’ils ne reviennent pas' : ''}`);
       const retourDemande = c.retour && c.retour.statut === 'rembourse';
       Object.assign(c, frais);
       if (retourDemande && c.retour) c.retour.statut = 'rembourse';
@@ -1929,7 +1942,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const finaliserRetour = async (ctx, bid, config, en, { repris = false } = {}) => {
     if (repris && en.calcul.argent && en.mode === 'stripe') {
       const p = db.prepare('SELECT * FROM paiements WHERE id = ?').get(en.paiementId);
-      await paiement.rembourser({ paiement: p, montant: en.calcul.argent, cle: en.cle });   // même clé : Stripe ne rembourse pas deux fois
+      try { await paiement.rembourser({ paiement: p, montant: en.calcul.argent, cle: en.cle }); }   // même clé : Stripe ne rembourse pas deux fois
+      catch (e) {
+        // Refus net de Stripe à la reprise : rien n'a été remboursé par cet appel. Le marqueur est retiré (sinon la commande
+        // resterait bloquée) ; le marchand vérifie dans Stripe si le premier essai était passé.
+        if (e.refuse) {
+          transaction(db, () => { const f = commandeDeBoutique(bid, ctx.params.id); delete f.retourEnCours; historique(f, `Retour partiel en suspens abandonné : Stripe a refusé la reprise (${e.message}). Vérifiez dans Stripe si un remboursement de ${formatMontant(en.calcul.argent / 100, config)} a eu lieu.`); enregistrerCommande(f); });
+          throw erreur(409, `Stripe refuse la reprise (${e.message}) : le retour en suspens est abandonné. Vérifiez dans votre tableau de bord Stripe si un remboursement de ${formatMontant(en.calcul.argent / 100, config)} a déjà eu lieu ; sinon, refaites le retour.`, 'reprise_refusee');
+        }
+        throw e;
+      }
     }
     return transaction(db, () => {
       const f = commandeDeBoutique(bid, ctx.params.id), calcul = en.calcul, mode = en.mode;
@@ -2013,6 +2035,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     return avecVerrou(c0.id, async () => {
       const c = commandeDeBoutique(bid, c0.id);
+      // Abandon déclaré par le marchand (il a vérifié dans Stripe qu'aucun remboursement n'a eu lieu) : marqueur retiré, tracé.
+      if (ctx.corps.abandonner === true) {
+        if (!c.retourEnCours) throw erreur(409, 'Aucun retour en suspens sur cette commande.', 'rien_a_abandonner');
+        transaction(db, () => { const f = commandeDeBoutique(bid, c.id); const m = f.retourEnCours; delete f.retourEnCours; historique(f, `Retour partiel en suspens de ${formatMontant(m.calcul.montant / 100, config)} abandonné par le marchand (aucun remboursement constaté chez Stripe)`); enregistrerCommande(f); });
+        noterActivite(ctx.marchand.id, 'remboursement', `Retour en suspens abandonné (commande n° ${c.numero})`, ctx);
+        return { commande: commandeDeBoutique(bid, c.id), abandonne: true };
+      }
       // Retour dont l'argent est parti sans avoir enregistré : terminé d'abord, à l'identique (rien d'autre n'est fait).
       if (c.retourEnCours) return finaliserRetour(ctx, bid, config, c.retourEnCours, { repris: true });
       const { p, calcul, mode, rang } = preparer(c);
@@ -2611,12 +2640,13 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const b = boutiqueOuverte(ctx.params.slug), reg = FID.reglages(b.id);
     if (!reg.actif) throw erreur(404, 'Programme de fidélité inactif.', 'fidelite_inactive');
     const email = valider.email(ctx.corps.email);
-    auth.limiter(`fidelite-code:${b.id}:${ctx.ip}`, 5 * facteurLimites, 15 * 60000, 'Trop de demandes de code. Réessayez dans quelques minutes.');
+    auth.limiter(`fidelite-code:${b.id}:${reseauIp(ctx.ip)}`, 5 * facteurLimites, 15 * 60000, 'Trop de demandes de code. Réessayez dans quelques minutes.');
     // Codes demandés pour une adresse : 3 par heure depuis un même réseau, 10 tous réseaux confondus (un tiers ne coupe pas
     // l'accès du client à ses codes depuis chez lui).
     const cleEmail = email.normalize('NFC').toLowerCase();
     auth.limiter(`fidelite-code-email:${b.id}:${cleEmail}:${reseauIp(ctx.ip)}`, 3 * facteurLimites, 3600000, 'Un code a déjà été envoyé à cette adresse : vérifiez vos e-mails.');
-    auth.limiter(`fidelite-code-email-tout:${b.id}:${cleEmail}`, 10 * facteurLimites, 3600000, 'Un code a déjà été envoyé à cette adresse : vérifiez vos e-mails.');
+    // (le plafond tous réseaux ne s'applique pas au réseau où le client a déjà saisi un code juste)
+    if (!FID.reseauSur(b.id, email, reseauIp(ctx.ip))) auth.limiter(`fidelite-code-email-tout:${b.id}:${cleEmail}`, 10 * facteurLimites, 3600000, 'Un code a déjà été envoyé à cette adresse : vérifiez vos e-mails.');
     const points = FID.solde(b.id, email);
     // Même réponse (une demande) que l'adresse ait des points ou non : rien n'indique qui est client.
     let demande = crypto.randomBytes(18).toString('base64url');
@@ -2633,8 +2663,11 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     const b = boutiqueOuverte(ctx.params.slug), reg = FID.reglages(b.id);
     if (!reg.actif) throw erreur(404, 'Programme de fidélité inactif.', 'fidelite_inactive');
     const email = valider.email(ctx.corps.email);
-    auth.limiter(`fidelite-solde:${b.id}:${ctx.ip}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
-    if (!FID.verifierCode(b.id, email, String(ctx.corps.code || ''), { demande: String(ctx.corps.demande || ''), reseau: reseauIp(ctx.ip) })) { throw erreur(400, 'Code invalide ou expiré : demandez-en un nouveau.', 'fidelite_code'); }
+    auth.limiter(`fidelite-solde:${b.id}:${reseauIp(ctx.ip)}`, 20 * facteurLimites, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.');
+    if (!FID.verifierCode(b.id, email, String(ctx.corps.code || ''), { demande: String(ctx.corps.demande || ''), reseau: reseauIp(ctx.ip) })) {
+      // Frein de la boutique : seuls les mauvais codes le consomment ; un code juste passe toujours.
+      if (!FID.reseauSur(b.id, email, reseauIp(ctx.ip))) auth.limiter(`fidelite-echecs:${b.id}`, 300 * facteurLimites, 3600000, 'Trop de codes erronés sur cette boutique : réessayez dans un moment.');
+      throw erreur(400, 'Code invalide ou expiré : demandez-en un nouveau.', 'fidelite_code'); }
     const points = FID.solde(b.id, email);
     return { points, valeur: FID.valeur(reg, points) / 100, seuil: reg.seuil, plafondPct: reg.plafondPct, utilisable: points >= reg.seuil };
   });
@@ -2932,7 +2965,7 @@ ${bloc}</main></body></html>`;
   r.post('/api/admin/commandes/:id/liberer-carte', exigerMarchand, ctx => avecVerrou(ctx.params.id, async () => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     if (c.canal !== 'carte' || c.statut !== 'payee' || c.carteEmise) throw erreur(409, 'Aucune carte cadeau retenue pour cette commande.', 'rien_a_liberer');
-    if (c.litige) throw erreur(409, 'Le paiement de cette carte est contesté auprès de la banque : la carte ne peut pas être libérée.', 'litige');
+    if (litigeBloquant(c)) throw erreur(409, 'Le paiement de cette carte est contesté auprès de la banque : la carte ne peut pas être libérée.', 'litige');
     transaction(db, () => { emettreCarteVendue(ctx.boutique.id, c, { liberer: true }); historique(c, 'Carte cadeau libérée par le marchand'); enregistrerCommande(c); });
     return { commande: c };
   }));

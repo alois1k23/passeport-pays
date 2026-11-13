@@ -393,3 +393,21 @@ test('API publique : avoirs, unités rendues et total remboursé de la commande'
     assert.equal(c.rembourse, c.total);
   } finally { s.close(); }
 });
+
+test('retour en suspens : abandon déclaré par le marchand, tracé ; plus rien ne bloque ensuite', async () => {
+  const { db, s, appel, slug, produits: [vase] } = await boutique();
+  try {
+    const cmd = await appel('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: vase, qte: 2 }], livraison: 'colissimo', client }, false);
+    await appel('POST', `/paiement-simule/${cmd.json.paiementUrl.split('/').pop()}/confirmer`, null, false);
+    const id = cmd.json.commandeId, base = `/api/admin/commandes/${id}/retour-partiel`;
+    assert.equal((await appel('POST', base, { abandonner: true })).json.code, 'rien_a_abandonner');
+    const brut = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(id).donnees);
+    brut.retourEnCours = { rang: 1, cle: `retour-${id}-1`, calcul: { lignes: [{ index: 0, qte: 1, montant: 1000 }], port: 0, montant: 1000, argent: 1000, carte: 0 }, mode: 'stripe', paiementId: 'x', stock: true, motif: null, le: Date.now() };
+    db.prepare('UPDATE commandes SET donnees = ? WHERE id = ?').run(JSON.stringify(brut), id);
+    const ab = await appel('POST', base, { abandonner: true });
+    assert.equal(ab.statut, 200, JSON.stringify(ab.json));
+    const c = lire(db, id);
+    assert.equal(c.retourEnCours, undefined); assert.match(c.historique.at(-1).texte, /abandonné par le marchand/);
+    assert.equal((await appel('POST', `/api/admin/commandes/${id}/statut`, { statut: 'remboursee' })).statut, 200, 'remboursement de nouveau possible');
+  } finally { s.close(); }
+});

@@ -210,3 +210,25 @@ test('pause du programme : aucun point n’expire, et l’inactivité repart de 
   assert.equal(K.solde('b1', 'lou@exemple.fr', t1 + 200 * j), 0, 'expire 6 mois après la reprise sans achat');
   assert.deepEqual(K.verifier('b1'), []);
 });
+
+test('codes : réseau sûr exempté des plafonds tous réseaux ; 30 échecs ailleurs bloquent ; pause décalée de sa durée', () => {
+  const db = ouvrir(':memory:'), K = Fid.creer(db, crypto.randomBytes(32));
+  K.ecrireReglages('b', { actif: true });
+  K.crediter('b', 'lou@exemple.fr', 200);
+  const juste = (reseau) => { const d = K.nouveauCode('b', 'lou@exemple.fr'); return K.verifierCode('b', 'lou@exemple.fr', d.code, { demande: d.demande, reseau }); };
+  assert.equal(juste('maison'), true);
+  assert.equal(K.reseauSur('b', 'lou@exemple.fr', 'maison'), true); assert.equal(K.reseauSur('b', 'lou@exemple.fr', 'ailleurs'), false);
+  // 30 échecs depuis 4 réseaux d'attaque : bloqués partout… sauf au réseau sûr du client.
+  for (let r = 0; r < 4; r++) for (let k = 0; k < 2; k++) { const d = K.nouveauCode('b', 'lou@exemple.fr'); for (let i = 0; i < 5 && (r * 10 + k * 5 + i) < 30; i++) K.verifierCode('b', 'lou@exemple.fr', d.code === '000000' ? '111111' : '000000', { demande: d.demande, reseau: `att${r}` }); }
+  assert.equal(juste('nouveau'), false, 'nouveau réseau : bloqué par le plafond de 30');
+  assert.equal(juste('maison'), true, 'réseau sûr du client : jamais bloqué par un tiers');
+  // Pause de 100 jours : l'inactivité est décalée de 100 jours, pas remise à zéro.
+  const j = 86400000, t0 = Date.UTC(2026, 0, 1);
+  const db2 = ouvrir(':memory:'), K2 = Fid.creer(db2, crypto.randomBytes(32));
+  K2.ecrireReglages('b', { actif: true, expirationMois: 6 }, t0);
+  K2.crediter('b', 'a@exemple.fr', 50, { maintenant: t0 });
+  K2.ecrireReglages('b', { actif: false }, t0 + 50 * j);
+  K2.ecrireReglages('b', { actif: true }, t0 + 150 * j);
+  assert.equal(K2.solde('b', 'a@exemple.fr', t0 + 270 * j), 50, '183 j d’inactivité + 100 j de pause : pas encore expiré');
+  assert.equal(K2.solde('b', 'a@exemple.fr', t0 + 290 * j), 0, 'expiré 100 jours plus tard qu’à l’origine');
+});

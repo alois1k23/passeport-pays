@@ -44,7 +44,10 @@ function creer(db, cle) {
   // Codes liés à leur demande (identifiant aléatoire remis au seul navigateur qui l'a faite) ; échecs comptés par adresse
   // ET par réseau : quelqu'un qui connaît l'adresse d'un client ne peut pas épuiser ses essais à sa place.
   db.exec(`CREATE TABLE IF NOT EXISTS fidelite_codes_demandes (boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, demande TEXT NOT NULL, code_hash TEXT NOT NULL, expire INTEGER NOT NULL, essais INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (boutique_id, empreinte, demande));
-    CREATE TABLE IF NOT EXISTS fidelite_echecs (boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, reseau TEXT NOT NULL, echecs INTEGER NOT NULL, depuis INTEGER NOT NULL, PRIMARY KEY (boutique_id, empreinte, reseau));`);
+    CREATE TABLE IF NOT EXISTS fidelite_echecs (boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, reseau TEXT NOT NULL, echecs INTEGER NOT NULL, depuis INTEGER NOT NULL, PRIMARY KEY (boutique_id, empreinte, reseau));
+    CREATE TABLE IF NOT EXISTS fidelite_reseaux_surs (boutique_id TEXT NOT NULL, empreinte TEXT NOT NULL, reseau TEXT NOT NULL, le INTEGER NOT NULL, PRIMARY KEY (boutique_id, empreinte, reseau));
+    CREATE INDEX IF NOT EXISTS fidelite_codes_expire ON fidelite_codes_demandes (expire);
+    CREATE INDEX IF NOT EXISTS fidelite_echecs_depuis ON fidelite_echecs (depuis);`);
   const hashDemande = d => crypto.createHash('sha256').update(String(d)).digest('hex');
   const echecsDe = (bid, emp, reseau, maintenant) => {
     const lignes = db.prepare('SELECT reseau, echecs FROM fidelite_echecs WHERE boutique_id = ? AND empreinte = ? AND depuis > ?').all(bid, emp, maintenant - 86400000);
@@ -63,8 +66,14 @@ function creer(db, cle) {
     reglages(bid) { const r = db.prepare('SELECT donnees FROM fidelite_reglages WHERE boutique_id = ?').get(bid); return r ? { ...DEFAUT, ...JSON.parse(r.donnees) } : { ...DEFAUT }; },
     ecrireReglages(bid, saisie, maintenant = Date.now()) {
       const avant = api.reglages(bid), r = lireReglages(saisie, avant);
-      // Reprise après une pause : l'inactivité recommence à compter d'aujourd'hui (pendant la pause, personne ne pouvait gagner de points).
-      if (r.actif && !avant.actif) db.prepare('UPDATE fidelite_comptes SET actif_le = MAX(actif_le, ?) WHERE boutique_id = ? AND points > 0').run(maintenant, bid);
+      // Pause : sa date est notée. Reprise : l'inactivité de chaque compte encore valable au début de la pause est décalée de
+      // la durée de la pause (pendant la pause, personne ne pouvait gagner de points) ; un compte déjà expiré le reste.
+      if (!r.actif && avant.actif) r.pauseLe = maintenant;
+      else if (r.actif && !avant.actif && avant.pauseLe) {
+        const duree = Math.max(0, maintenant - avant.pauseLe), limite = avant.pauseLe - avant.expirationMois * 30.44 * 86400000;
+        db.prepare('UPDATE fidelite_comptes SET actif_le = actif_le + ? WHERE boutique_id = ? AND points > 0 AND actif_le >= ?').run(duree, bid, limite);
+        delete r.pauseLe;
+      } else if (avant.pauseLe && !r.actif) r.pauseLe = avant.pauseLe;
       db.prepare('INSERT INTO fidelite_reglages (boutique_id, donnees) VALUES (?, ?) ON CONFLICT (boutique_id) DO UPDATE SET donnees = excluded.donnees').run(bid, JSON.stringify(r)); return r;
     },
     empreinte,
@@ -106,17 +115,23 @@ function creer(db, cle) {
        le code part par e-mail, la demande (aléatoire) revient au seul navigateur qui l'a faite. */
     nouveauCode(bid, email, maintenant = Date.now()) {
       const emp = empreinte(bid, email), code = String(crypto.randomInt(0, 1000000)).padStart(6, '0'), demande = crypto.randomBytes(18).toString('base64url');
-      db.prepare('DELETE FROM fidelite_codes_demandes WHERE expire < ?').run(maintenant - 86400000);   // ménage
+      db.prepare('DELETE FROM fidelite_codes_demandes WHERE expire < ?').run(maintenant - 86400000);   // ménage (index sur expire)
+      db.prepare('DELETE FROM fidelite_echecs WHERE depuis < ?').run(maintenant - 86400000);
       db.prepare('INSERT INTO fidelite_codes_demandes (boutique_id, empreinte, demande, code_hash, expire, essais) VALUES (?, ?, ?, ?, ?, 0)')
         .run(bid, emp, hashDemande(demande), hashCode(bid, emp, code).toString('hex'), maintenant + 15 * 60000);
       return { code, demande };
     },
+    /* Réseau « sûr » pour une adresse : un code juste y a déjà été saisi (le client, chez lui). Les plafonds tous réseaux
+       confondus ne s'y appliquent pas : un tiers ne peut pas bloquer le client depuis ailleurs. */
+    reseauSur(bid, email, reseau, maintenant = Date.now()) {
+      return !!reseau && !!db.prepare('SELECT 1 FROM fidelite_reseaux_surs WHERE boutique_id = ? AND empreinte = ? AND reseau = ? AND le > ?').get(bid, empreinte(bid, email), reseau, maintenant - 365 * 86400000);
+    },
     /* Vérifie le code de cette demande ; consommer = true l'efface (utilisation à la commande).
-       Plafonds : 5 essais par code ; 10 échecs par adresse et par réseau sur 24 h ; 100 échecs par adresse, tous réseaux
-       confondus (force brute impraticable, blocage d'un client par un tiers très coûteux). */
+       Plafonds : 5 essais par code ; 10 échecs par adresse et par réseau sur 24 h ; 30 échecs par adresse tous réseaux
+       confondus, sauf depuis un réseau sûr (force brute : au plus 30 essais par jour et par compte sur un million). */
     verifierCode(bid, email, code, { demande, reseau = '', consommer = false, maintenant = Date.now() } = {}) {
-      const emp = empreinte(bid, email), e = echecsDe(bid, emp, reseau, maintenant);
-      if (e.reseau >= 10 || e.total >= 100 || !demande || !/^\d{6}$/.test(String(code || ''))) return false;
+      const emp = empreinte(bid, email), e = echecsDe(bid, emp, reseau, maintenant), sur = api.reseauSur(bid, email, reseau, maintenant);
+      if (e.reseau >= 10 || (!sur && e.total >= 30) || !demande || !/^\d{6}$/.test(String(code || ''))) return false;
       const r = db.prepare('SELECT * FROM fidelite_codes_demandes WHERE boutique_id = ? AND empreinte = ? AND demande = ?').get(bid, emp, hashDemande(demande));
       if (!r || r.expire < maintenant || r.essais >= 5) return false;
       const ok = crypto.timingSafeEqual(Buffer.from(r.code_hash, 'hex'), hashCode(bid, emp, String(code)));
@@ -126,6 +141,7 @@ function creer(db, cle) {
           ON CONFLICT (boutique_id, empreinte, reseau) DO UPDATE SET echecs = CASE WHEN depuis > ? THEN echecs + 1 ELSE 1 END, depuis = CASE WHEN depuis > ? THEN depuis ELSE excluded.depuis END`).run(bid, emp, reseau, maintenant, maintenant - 86400000, maintenant - 86400000);
         return false;
       }
+      if (reseau) db.prepare('INSERT INTO fidelite_reseaux_surs (boutique_id, empreinte, reseau, le) VALUES (?, ?, ?, ?) ON CONFLICT (boutique_id, empreinte, reseau) DO UPDATE SET le = excluded.le').run(bid, emp, reseau, maintenant);
       if (consommer) db.prepare('DELETE FROM fidelite_codes_demandes WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
       return true;
     },
@@ -136,6 +152,7 @@ function creer(db, cle) {
       db.prepare('DELETE FROM fidelite_codes WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
       db.prepare('DELETE FROM fidelite_codes_demandes WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
       db.prepare('DELETE FROM fidelite_echecs WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
+      db.prepare('DELETE FROM fidelite_reseaux_surs WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
       db.prepare('DELETE FROM fidelite_mouvements WHERE boutique_id = ? AND empreinte = ?').run(bid, emp);
     },
     /* Expiration des comptes inactifs, par lots (maintenance) : un lot = une transaction, le serveur reste disponible même

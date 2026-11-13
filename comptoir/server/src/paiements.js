@@ -26,7 +26,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
   const lire = async (chemin, compte) => {
     const rep = await fetchImpl(`${baseStripe}/v1/${chemin}`, { headers: entetes(compte) });
     const json = await rep.json();
-    if (!rep.ok) throw erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe');
+    if (!rep.ok) { const e = erreur(502, `Stripe : ${json.error ? json.error.message : rep.status}`, 'stripe'); e.refuse = rep.status >= 400 && rep.status < 500; throw e; }
     return json;
   };
   const appeler = async (chemin, params, compte, cleIdempotence) => {
@@ -94,7 +94,7 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
       if (!paiement.ref_externe) return { ok: false };
       // ref_externe = session Checkout ; le remboursement passe par le payment_intent, sur le compte qui a encaissé.
       const s = await lire(`checkout/sessions/${paiement.ref_externe}`, paiement.compte || null);
-      if (!s.payment_intent) throw erreur(502, 'Stripe : paiement introuvable pour le remboursement.', 'stripe');
+      if (!s.payment_intent) { const e = erreur(502, 'Stripe : paiement introuvable pour le remboursement.', 'stripe'); e.refuse = true; throw e; }   // rien n'a été remboursé
       await appeler('refunds', [['payment_intent', s.payment_intent], ...(montant ? [['amount', montant]] : [])], paiement.compte || null, cle);
       return { ok: true };
     },
