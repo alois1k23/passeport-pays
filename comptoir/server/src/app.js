@@ -3975,7 +3975,14 @@ ${bloc}</main></body></html>`;
     db.prepare('DELETE FROM sessions WHERE expire_le < ?').run(maintenant);
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
-    db.prepare("UPDATE emails SET corps = '(contenu effacé après 180 jours)' WHERE envoye = 1 AND cree_le < ? AND corps <> '(contenu effacé après 180 jours)'").run(maintenant - 180 * 86400000);
+    /* E-mails : le contenu (nom, adresse et commande des clients, en clair le temps de l'envoi) n'est gardé que le temps
+       utile, puis effacé ; l'adresse du destinataire ne reste pas indéfiniment non plus.
+       - envoyé : contenu effacé après 7 jours (consultation et dépannage par le marchand) ;
+       - abandonné après tous les essais : contenu effacé après 30 jours ;
+       - toute la ligne (destinataire compris) : supprimée après 180 jours. */
+    db.prepare("UPDATE emails SET corps = '(contenu effacé après 7 jours)' WHERE envoye = 1 AND cree_le < ? AND corps NOT LIKE '(contenu effacé%'").run(maintenant - 7 * 86400000);
+    db.prepare("UPDATE emails SET corps = '(contenu effacé après 30 jours)' WHERE envoye = 0 AND tentatives >= 12 AND cree_le < ? AND corps NOT LIKE '(contenu effacé%'").run(maintenant - 30 * 86400000);
+    db.prepare('DELETE FROM emails WHERE cree_le < ?').run(maintenant - 180 * 86400000);
     db.prepare('DELETE FROM tickets_caisse WHERE le < ?').run(maintenant - 30 * 86400000);
     db.prepare('DELETE FROM journal_compte WHERE date < ?').run(maintenant - 365 * 86400000);   // activité du compte : 12 mois
     if (abo.obligatoire) conservation(maintenant).catch(e => journal.error('[conservation]', e.message));
@@ -4435,7 +4442,7 @@ ${FEUILLE_4}</head>
       ['Données des acheteurs', 'Nom, adresse de livraison, e-mail et commande, traités pour le compte du marchand (Comptoir agit comme sous-traitant). Elles sont transmises au prestataire de paiement, au transporteur et, pour le dropshipping, au fournisseur concerné.'],
       ['Prestataires', 'Paiement : Stripe (cartes, TWINT). Envoi des e-mails : le service configuré par l’exploitant. Aucune donnée n’est vendue ni utilisée à des fins publicitaires.'],
       ['Mesure d’audience', 'Uniquement après l’accord de l’acheteur dans la boutique, sans cookie publicitaire, avec un identifiant limité à l’onglet.'],
-      ['Durée et droits', 'Les données du marchand sont conservées pendant l’abonnement, puis 12 mois après sa fin (consultation et export restent possibles), et effacées ensuite, après un avertissement 30 jours avant ; une inscription jamais payée est effacée après 90 jours. Les pièces comptables appartiennent au marchand, qui les exporte et les conserve (10 ans en Suisse et en France). Vous pouvez demander l’accès, la rectification ou l’effacement de vos données par e-mail. Un compte peut être supprimé à tout moment depuis ses paramètres.']
+      ['Durée et droits', 'Les données du marchand sont conservées pendant l’abonnement, puis 12 mois après sa fin (consultation et export restent possibles), et effacées ensuite, après un avertissement 30 jours avant ; une inscription jamais payée est effacée après 90 jours. Le contenu des e-mails envoyés par Comptoir est effacé 7 jours après l’envoi, et leur trace (destinataire, sujet) après 180 jours. Les pièces comptables appartiennent au marchand, qui les exporte et les conserve (10 ans en Suisse et en France). Vous pouvez demander l’accès, la rectification ou l’effacement de vos données par e-mail. Un compte peut être supprimé à tout moment depuis ses paramètres.']
     ]) };
   });
   r.get('/conditions', () => ({ html: pageLegale('Conditions d’utilisation', [

@@ -116,6 +116,10 @@ La feuille de route peut évoluer selon les constats des relectures.
 59. **Webhooks sans données personnelles au choix** : chaque webhook peut recevoir les commandes sans nom, e-mail ni adresse du client (minimisation des données, comme l'API sans `clients:lecture`).
 60. **Codes promo : comptage juste** : une commande remboursée rend son utilisation ; un code recréé repart de zéro.
 
+**Quinzième phase** (la quatorzième est terminée le 13 novembre vers 10 h 45) :
+
+61. **Minimisation des e-mails gardés** : le contenu des e-mails envoyés (noms et adresses des clients, en clair) effacé après 7 jours au lieu de 180, la trace entière (destinataire compris) supprimée après 180 jours.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
