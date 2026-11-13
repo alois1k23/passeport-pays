@@ -1535,6 +1535,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       { titre: 'Comptes marchands protégés (double authentification ou clé d’accès exigée)', valeur: `${proteges} / ${comptes}${comptes ? ` (${Math.round(proteges / comptes * 100)} %)` : ''}`, alerte: false },
       { titre: 'Adresses e-mail non confirmées depuis plus de 7 jours', valeur: nonConfirmees, alerte: false },
       { titre: 'Codes de vérification refusés (24 h)', valeur: echecs2fa, alerte: echecs2fa >= 20, conseil: echecs2fa >= 20 ? 'Beaucoup de codes refusés : une attaque sur des mots de passe connus est possible (les marchands concernés sont prévenus par e-mail).' : '' },
+      (() => {
+        // Sauvegardes : chacune est restaurée à l'essai avant d'être gardée (voir sauvegarde.js) ; plus de 30 heures sans
+        // sauvegarde vérifiée, ou une dernière tentative en échec, demandent une action.
+        const e = (() => { try { return JSON.parse((db.prepare("SELECT valeur FROM cles WHERE nom = 'sauvegarde-etat'").get() || {}).valeur || '{}'); } catch { return {}; } })();
+        if (env.SAUVEGARDE === 'non') return { titre: 'Sauvegardes', valeur: 'désactivées (SAUVEGARDE=non)', alerte: true, conseil: 'Sans sauvegarde, une panne de disque efface toutes les boutiques.' };
+        const h = e.reussie ? Math.round((maintenant - e.reussie) / 3600000) : null;
+        const alerte = e.ok === false || !e.reussie || maintenant - e.reussie > 30 * 3600000;
+        return { titre: 'Sauvegardes (restaurées à l’essai)', valeur: e.reussie ? `dernière vérifiée il y a ${h} h · ${e.chiffree ? 'chiffrée' : 'NON chiffrée'}${typeof e.commandes === 'number' ? ` · ${e.commandes} commandes` : ''}${e.ok === false ? ' · DERNIÈRE TENTATIVE EN ÉCHEC' : ''}` : (e.ok === false ? 'ÉCHEC, aucune sauvegarde vérifiée' : 'aucune encore'), alerte: alerte || (e.reussie && !e.chiffree),
+          conseil: e.ok === false ? `Dernière erreur : ${e.erreur}. Vérifiez l’espace disque et les droits du dossier des sauvegardes.` : !e.reussie ? 'La première sauvegarde a lieu une minute après le démarrage, puis toutes les 6 heures.' : maintenant - e.reussie > 30 * 3600000 ? 'Plus de 30 heures sans sauvegarde vérifiée : le serveur a-t-il redémarré, le disque est-il plein ?' : !e.chiffree ? 'Définissez SAUVEGARDE_CLE pour chiffrer les copies envoyées hors du serveur.' : '' };
+      })(),
       { titre: 'Paiements reçus à rembourser', valeur: aRembourser, alerte: aRembourser > 0, conseil: aRembourser ? 'Paiements reçus pour une commande annulée, déjà payée ou non conforme : vérifiez qu’ils ont bien été rendus (Stripe).' : '' }
     ];
   }

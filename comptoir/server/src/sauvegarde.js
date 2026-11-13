@@ -44,7 +44,9 @@ async function dechiffrer(source, destination, cleHex) {
 
 
 /* Sauvegarde du jour : copie cohérente (VACUUM INTO) dans un fichier caché créé en 0600, vérifiée (quick_check),
-   chiffrée si une clé est fournie, puis renommée sous son nom final. En cas d'échec (disque plein, arrêt), rien ne
+   chiffrée si une clé est fournie, puis RESTAURÉE À L'ESSAI : la copie chiffrée est déchiffrée dans un fichier temporaire
+   et doit redonner exactement les mêmes octets (empreinte SHA-256) que la copie vérifiée. Une sauvegarde qu'on ne
+   saurait pas restaurer n'est jamais gardée sous son nom final. Elle est enfin renommée sous son nom final. En cas d'échec (disque plein, arrêt), rien ne
    reste : ni copie en clair, ni fichier partiel, ni sauvegarde vide qui prendrait la place d'une bonne.
    Rétention : les 14 plus récentes ; la plus récente n'est jamais supprimée. */
 const path = require('node:path');
@@ -61,24 +63,33 @@ async function sauvegarderBase(db, dossier, { cle = null, date = new Date(), gar
     fs.rmSync(src);
   }
   const nom = path.join(dossier, `comptoir-${date.toISOString().slice(0, 10)}.db`), final = chiffree ? nom + '.enc' : nom;
-  let cree = false;
+  let cree = false, commandes = null;
   if (!fs.existsSync(final)) {
-    const temp = path.join(dossier, `.comptoir-${process.pid}-${Date.now()}.tmp`);
+    const base = path.join(dossier, `.comptoir-${process.pid}-${Date.now()}`);
+    const temp = base + '.tmp', tempChiffre = base + '-chiffre.tmp', tempEssai = base + '-essai.tmp';
     try {
       fs.closeSync(fs.openSync(temp, 'wx', 0o600));   // fichier vide, lisible par le seul propriétaire, rempli par SQLite
       db.exec(`VACUUM INTO '${temp.replace(/'/g, "''")}'`);
       const { DatabaseSync } = require('node:sqlite');
       const v = new DatabaseSync(temp, { readOnly: true });
       const ok = v.prepare('PRAGMA quick_check').get();
+      try { commandes = v.prepare('SELECT COUNT(*) n FROM commandes').get().n; } catch { commandes = null; }
       v.close();
       if (!ok || Object.values(ok)[0] !== 'ok') throw new Error('copie de la base invalide');
-      if (chiffree) await chiffrer(temp, final, cle); else fs.renameSync(temp, final);
+      if (chiffree) {
+        const empreinte = await empreinteFichier(temp);
+        await chiffrer(temp, tempChiffre, cle);
+        await dechiffrer(tempChiffre, tempEssai, cle);   // restauration à l'essai
+        if (await empreinteFichier(tempEssai) !== empreinte) throw new Error('la sauvegarde chiffrée ne redonne pas la même base à la restauration');
+        fs.renameSync(tempChiffre, final);
+      } else fs.renameSync(temp, final);
       cree = true;
-    } finally { fs.rmSync(temp, { force: true }); }
+    } finally { for (const f of [temp, tempChiffre, tempEssai]) fs.rmSync(f, { force: true }); }
   }
   const fichiers = fs.readdirSync(dossier).filter(f => MOTIF.test(f) && fs.statSync(path.join(dossier, f)).size > 0).sort();
   for (const f of fichiers.slice(0, -Math.max(1, garder))) fs.rmSync(path.join(dossier, f));
-  return { fichier: final, cree };
+  return { fichier: final, cree, chiffree, verifiee: cree, commandes, taille: fs.existsSync(final) ? fs.statSync(final).size : 0 };
 }
+const empreinteFichier = f => new Promise((ok, ko) => { const h = crypto.createHash('sha256'); fs.createReadStream(f).on('data', d => h.update(d)).on('end', () => ok(h.digest('hex'))).on('error', ko); });
 
 module.exports = { chiffrer, dechiffrer, cleValide, sauvegarderBase };

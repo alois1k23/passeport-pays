@@ -44,5 +44,12 @@ test('santé et console de l’exploitant', async () => {
     const page2 = await op('GET', '/operateur');
     assert.match(page2.t, /<tr class="alerte"><td>Données illisibles avec les clés connues[^<]*<\/td><td class="d"><b>0 commande\(s\) · 0 secret\(s\) de double authentification · 1 secret\(s\) de webhook/);
     assert.match(page2.t, /<tr class="alerte"><td>Paiements reçus à rembourser<\/td><td class="d"><b>1</);
+    // Sauvegardes : aucune encore, puis une vérifiée il y a 2 h (pas d'alerte), puis une tentative en échec (alerte).
+    assert.match(page2.t, /<tr class="alerte"><td>Sauvegardes \(restaurées à l’essai\)<\/td><td class="d"><b>aucune encore/);
+    const etat = v => db.prepare("INSERT INTO cles (nom, valeur) VALUES ('sauvegarde-etat', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(JSON.stringify(v));
+    etat({ ok: true, reussie: Date.now() - 2 * 3600000, chiffree: true, verifiee: true, commandes: 12 });
+    assert.match((await op('GET', '/operateur')).t, /<tr><td>Sauvegardes \(restaurées à l’essai\)<\/td><td class="d"><b>dernière vérifiée il y a 2 h · chiffrée · 12 commandes/);
+    etat({ ok: false, erreur: 'disque plein', reussie: Date.now() - 2 * 3600000, chiffree: true });
+    assert.match((await op('GET', '/operateur')).t, /<tr class="alerte"><td>Sauvegardes[^<]*<\/td><td class="d"><b>[^<]*DERNIÈRE TENTATIVE EN ÉCHEC<\/b><br><span>Dernière erreur : disque plein/);
   } finally { s.close(); }
 });

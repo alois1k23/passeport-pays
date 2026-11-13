@@ -85,9 +85,14 @@ setInterval(() => { try { gerer.actualiserVentesTendances(); } catch (e) { conso
 {
   const fs = require('node:fs');
   const dossier = env.SAUVEGARDE_DOSSIER || path.join(path.dirname(env.BASE_DE_DONNEES || path.join(__dirname, 'donnees', 'comptoir.db')), 'sauvegardes');
+  // État de la dernière tentative (réussite vérifiée ou échec), lu par la console de l'exploitant.
+  const noter = etat => { try { db.prepare("INSERT INTO cles (nom, valeur) VALUES ('sauvegarde-etat', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(JSON.stringify(etat)); } catch { /* base fermée */ } };
   const sauvegarder = async () => {
-    try { await Sauvegarde.sauvegarderBase(db, dossier, { cle: env.SAUVEGARDE_CLE }); }
-    catch (e) { console.error('[sauvegarde] ÉCHEC', e.message); }
+    const precedent = (() => { try { return JSON.parse((db.prepare("SELECT valeur FROM cles WHERE nom = 'sauvegarde-etat'").get() || {}).valeur || '{}'); } catch { return {}; } })();
+    try {
+      const r = await Sauvegarde.sauvegarderBase(db, dossier, { cle: env.SAUVEGARDE_CLE });
+      noter({ ...precedent, tente: Date.now(), ok: true, erreur: null, ...(r.cree ? { reussie: Date.now(), fichier: path.basename(r.fichier), chiffree: r.chiffree, verifiee: r.verifiee, commandes: r.commandes, taille: r.taille } : {}) });
+    } catch (e) { console.error('[sauvegarde] ÉCHEC', e.message); noter({ ...precedent, tente: Date.now(), ok: false, erreur: String(e.message).slice(0, 200) }); }
   };
   if (env.SAUVEGARDE !== 'non') { setTimeout(sauvegarder, 60000).unref(); setInterval(sauvegarder, 6 * 3600000).unref(); }
 }

@@ -53,3 +53,21 @@ test('sauvegarde du jour : vérifiée, chiffrée, 0600, rien en clair après un 
     assert.deepEqual(fs.readdirSync(dos), ['comptoir-2026-11-14.db.enc']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('sauvegarde chiffrée : restaurée à l’essai avant d’être gardée, état noté pour la console', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cpt-sauv-'));
+  try {
+    const cle = crypto.randomBytes(32).toString('hex');
+    const db = ouvrir(path.join(dir, 'base.db'));
+    db.prepare("INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES ('m1', 'a@exemple.ch', 'x', 0)").run();
+    db.prepare("INSERT INTO boutiques (id, marchand_id, slug, config, cree_le) VALUES ('b1', 'm1', 's', '{}', 0)").run();
+    for (let i = 0; i < 3; i++) db.prepare("INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, 'b1', ?, 0, 'payee', 'j', '{}')").run(`c${i}`, 1000 + i);
+    const dos = path.join(dir, 'sauvegardes');
+    const r = await S.sauvegarderBase(db, dos, { cle, date: new Date('2026-11-13') });
+    assert.equal(r.cree, true); assert.equal(r.chiffree, true); assert.equal(r.verifiee, true); assert.equal(r.commandes, 3); assert.ok(r.taille > 0);
+    assert.deepEqual(fs.readdirSync(dos), ['comptoir-2026-11-13.db.enc'], 'aucun fichier temporaire laissé (copie, essai de restauration)');
+    // La copie gardée se restaure et contient les commandes.
+    await S.dechiffrer(path.join(dos, 'comptoir-2026-11-13.db.enc'), path.join(dir, 'r.db'), cle);
+    assert.equal(ouvrir(path.join(dir, 'r.db')).prepare('SELECT COUNT(*) n FROM commandes').get().n, 3);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
