@@ -1561,6 +1561,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         return { titre: 'Sauvegardes', valeur: e.reussie ? `${e.chiffree ? 'dernière restaurée à l’essai' : 'dernière vérifiée (quick_check seulement)'} il y a ${h} h · ${e.chiffree ? 'chiffrée' : 'NON chiffrée'}${typeof e.commandes === 'number' ? ` · ${e.commandes} commandes` : ''}${e.ok === false ? ' · DERNIÈRE TENTATIVE EN ÉCHEC' : ''}` : (e.ok === false ? 'ÉCHEC, aucune sauvegarde vérifiée' : 'aucune encore'), alerte: alerte || (e.reussie && !e.chiffree),
           conseil: e.ok === false ? `Dernière erreur : ${e.erreur}. Vérifiez l’espace disque et les droits du dossier des sauvegardes.` : !e.reussie ? 'La première sauvegarde a lieu une minute après le démarrage, puis toutes les 6 heures.' : maintenant - e.reussie > 30 * 3600000 ? 'Plus de 30 heures sans sauvegarde vérifiée : le serveur a-t-il redémarré, le disque est-il plein ?' : !e.chiffree ? 'Définissez SAUVEGARDE_CLE pour chiffrer les copies envoyées hors du serveur.' : '' };
       })(),
+      (() => {
+        // Aucun service d'envoi : rien ne part, et le contenu des e-mails en attente reste en clair jusqu'à 180 jours.
+        const enAttente = n('SELECT COUNT(*) n FROM emails WHERE envoye = 0 AND tentatives < 12');
+        return { titre: 'Envoi des e-mails', valeur: serviceEmail ? `${serviceEmail.nom} · ${enAttente} en attente` : `AUCUN SERVICE CONFIGURÉ · ${enAttente} en attente`, alerte: !serviceEmail,
+          conseil: serviceEmail ? '' : 'Les clients ne reçoivent ni confirmation ni lien de suivi, et les e-mails s’accumulent en attente : configurez Brevo ou Postmark (MISE-EN-LIGNE.md, section 2).' };
+      })(),
       { titre: 'Paiements reçus à rembourser', valeur: aRembourser, alerte: aRembourser > 0, conseil: aRembourser ? 'Paiements reçus pour une commande annulée, déjà payée ou non conforme : vérifiez qu’ils ont bien été rendus (Stripe).' : '' }
     ];
   }
@@ -3952,7 +3958,7 @@ ${bloc}</main></body></html>`;
     libererCartes(maintenant);
     // Carte cadeau vendue dont l'e-mail n'a pas pu partir (adresse refusée, service en panne) : l'acheteur a payé et
     // n'a pas son code. Le marchand et l'acheteur sont prévenus ; la carte se réémet depuis la commande (annuler, rembourser).
-    for (const row of db.prepare("SELECT * FROM commandes WHERE statut = 'payee' AND json_extract(donnees, '$.canal') = 'carte' AND json_extract(donnees, '$.carteEmise.email') IS NOT NULL AND json_extract(donnees, '$.carteEmise.echecEnvoi') IS NULL LIMIT 100").all()) {
+    for (const row of db.prepare("SELECT * FROM commandes WHERE statut = 'payee' AND json_extract(donnees, '$.canal') = 'carte' AND json_extract(donnees, '$.carteEmise.email') IS NOT NULL AND json_extract(donnees, '$.carteEmise.echecEnvoi') IS NULL AND EXISTS (SELECT 1 FROM emails m WHERE m.id = json_extract(commandes.donnees, '$.carteEmise.email') AND m.envoye = 0 AND m.tentatives >= 12) LIMIT 100").all()) {   // seulement les envois abandonnés : les cartes bien reçues ne bouchent pas la fenêtre
       const c = lireCommande(row), e = db.prepare('SELECT envoye, tentatives FROM emails WHERE id = ?').get(c.carteEmise.email);
       if (!e || e.envoye || e.tentatives < 12) continue;
       db.prepare('UPDATE emails SET corps = ? WHERE id = ?').run(courriel.masquerSecrets(db.prepare('SELECT corps FROM emails WHERE id = ?').get(c.carteEmise.email).corps), c.carteEmise.email);
@@ -3971,7 +3977,7 @@ ${bloc}</main></body></html>`;
     }
     // Purge quotidienne
     try { FID.menage(maintenant); } catch (e) { journal.error('[fidelite] ménage', e.message); }   // codes, échecs, réseaux sûrs périmés
-    db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE supprime = 1)').run();   // photos des produits supprimés : sessions et liens expirés, mesures d'audience de plus de 400 jours, corps des e-mails envoyés de plus de 180 jours
+    db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE supprime = 1)').run();   // photos des produits supprimés : sessions et liens expirés, mesures d'audience de plus de 400 jours ; e-mails : voir plus bas (7, 30 et 180 jours)
     db.prepare('DELETE FROM sessions WHERE expire_le < ?').run(maintenant);
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
@@ -3983,6 +3989,9 @@ ${bloc}</main></body></html>`;
     db.prepare("UPDATE emails SET corps = '(contenu effacé après 7 jours)' WHERE envoye = 1 AND cree_le < ? AND corps NOT LIKE '(contenu effacé%'").run(maintenant - 7 * 86400000);
     db.prepare("UPDATE emails SET corps = '(contenu effacé après 30 jours)' WHERE envoye = 0 AND tentatives >= 12 AND cree_le < ? AND corps NOT LIKE '(contenu effacé%'").run(maintenant - 30 * 86400000);
     db.prepare('DELETE FROM emails WHERE cree_le < ?').run(maintenant - 180 * 86400000);
+    // Envois automatiques déjà faits (« bienvenue:<e-mail> », relances…) : leur trace, qui contient l'adresse du client, ne
+    // reste pas plus de 400 jours (un client revenu après plus d'un an peut recevoir de nouveau un e-mail de bienvenue).
+    try { db.prepare('DELETE FROM envois_auto WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
     db.prepare('DELETE FROM tickets_caisse WHERE le < ?').run(maintenant - 30 * 86400000);
     db.prepare('DELETE FROM journal_compte WHERE date < ?').run(maintenant - 365 * 86400000);   // activité du compte : 12 mois
     if (abo.obligatoire) conservation(maintenant).catch(e => journal.error('[conservation]', e.message));
@@ -4442,7 +4451,7 @@ ${FEUILLE_4}</head>
       ['Données des acheteurs', 'Nom, adresse de livraison, e-mail et commande, traités pour le compte du marchand (Comptoir agit comme sous-traitant). Elles sont transmises au prestataire de paiement, au transporteur et, pour le dropshipping, au fournisseur concerné.'],
       ['Prestataires', 'Paiement : Stripe (cartes, TWINT). Envoi des e-mails : le service configuré par l’exploitant. Aucune donnée n’est vendue ni utilisée à des fins publicitaires.'],
       ['Mesure d’audience', 'Uniquement après l’accord de l’acheteur dans la boutique, sans cookie publicitaire, avec un identifiant limité à l’onglet.'],
-      ['Durée et droits', 'Les données du marchand sont conservées pendant l’abonnement, puis 12 mois après sa fin (consultation et export restent possibles), et effacées ensuite, après un avertissement 30 jours avant ; une inscription jamais payée est effacée après 90 jours. Le contenu des e-mails envoyés par Comptoir est effacé 7 jours après l’envoi, et leur trace (destinataire, sujet) après 180 jours. Les pièces comptables appartiennent au marchand, qui les exporte et les conserve (10 ans en Suisse et en France). Vous pouvez demander l’accès, la rectification ou l’effacement de vos données par e-mail. Un compte peut être supprimé à tout moment depuis ses paramètres.']
+      ['Durée et droits', 'Les données du marchand sont conservées pendant l’abonnement, puis 12 mois après sa fin (consultation et export restent possibles), et effacées ensuite, après un avertissement 30 jours avant ; une inscription jamais payée est effacée après 90 jours. Le contenu des e-mails envoyés par Comptoir est effacé 7 jours après l’envoi (30 jours pour un e-mail qui n’a pas pu être remis), et leur trace (destinataire, sujet, message d’erreur éventuel) après 180 jours ; la trace des e-mails automatiques déjà envoyés (bienvenue, relances) après 400 jours. La liste des adresses désinscrites est gardée tant que la boutique existe, pour ne plus leur écrire. Les pièces comptables appartiennent au marchand, qui les exporte et les conserve (10 ans en Suisse et en France). Vous pouvez demander l’accès, la rectification ou l’effacement de vos données par e-mail. Un compte peut être supprimé à tout moment depuis ses paramètres.']
     ]) };
   });
   r.get('/conditions', () => ({ html: pageLegale('Conditions d’utilisation', [

@@ -1289,3 +1289,21 @@ Chaque nouveauté de la matinée avait été relue seule. Un relecteur indépend
   - l'horloge du navigateur ne compte plus ;
   - la documentation de l'API est alignée.
 - 216 tests sur 216.
+
+### Cycle 66 (11 h 55) : minimisation des e-mails gardés (chantier 61)
+
+Les données des clients dans les commandes sont chiffrées, mais le journal des e-mails envoyés gardait en clair, 180 jours, le contenu des confirmations (nom, adresse, commande). Une copie volée de la base livrait donc six mois de données par ce biais. Désormais :
+
+- **Durées de conservation** :
+  - e-mail envoyé : contenu effacé 7 jours après l'envoi (assez pour le dépannage ; l'écran du marchand n'affiche de toute façon que sujet, destinataire et date) ;
+  - e-mail qui n'a pas pu être remis : contenu effacé après 30 jours ;
+  - ligne entière (destinataire, sujet, message d'erreur) : supprimée après 180 jours ;
+  - trace des envois automatiques déjà faits (« bienvenue », relances), qui contient l'adresse du client : supprimée après 400 jours ;
+  - e-mail en attente d'envoi : jamais touché.
+- **Page Protection des données** : ces durées y sont, ainsi que la liste des désinscriptions, gardée pour ne plus écrire aux personnes désinscrites.
+- **Console de l'exploitant** : une ligne « Envoi des e-mails » alerte s'il n'y a aucun service d'envoi. Rien ne part alors, et le contenu en attente resterait en clair jusqu'à 180 jours.
+- **Relecture indépendante** :
+  - aucun lecteur des e-mails cassé (écran du marchand, cartes cadeaux, effacement d'un client, compteurs) ;
+  - **défaut plus ancien découvert au passage** : la recherche des cartes cadeaux dont l'e-mail n'a pas pu partir lisait les 100 premières commandes de cartes, sans ordre. Au-delà de 100 cartes bien reçues, un envoi abandonné pouvait ne jamais être repéré : l'acheteur a payé et n'a pas son code. Elle ne lit plus que les envois abandonnés (testé avec 120 cartes reçues ; le test échoue sans le correctif) ;
+  - la page de confidentialité, d'abord incomplète, est complétée.
+- 218 tests sur 218.
