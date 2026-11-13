@@ -1089,7 +1089,7 @@ Aucune donnée de client final ni aucun secret : seulement des comptes et des da
 - Latences au 95e centile : vitrine 183 ms, espace marchand 194 ms, commande payée de bout en bout 145 ms.
 - Le profil du serveur montre que le temps se partage entre les lectures de la base et le chiffrement des données des clients ; rien ne se détache.
 
-### Cycle 59 (10 h 05) : audit au clavier et au lecteur d'écran des nouveaux écrans (chantier 52)
+### Cycle 59 (09 h 35) : audit au clavier et au lecteur d'écran des nouveaux écrans (chantier 52)
 
 Un auditeur indépendant a parcouru dans Chromium, au clavier, à 1 280 et 390 pixels de large, les écrans ajoutés depuis la nuit : rappel de confirmation de l'adresse, codes promo, nouveau secret de webhook, indication de la section Paiements, message du code promo dans la boutique.
 
