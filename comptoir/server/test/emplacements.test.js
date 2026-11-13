@@ -1,0 +1,47 @@
+// Stock sur plusieurs emplacements : initialisation, ordre de prélèvement par canal, retours, corrections,
+// transferts, contrôle « somme des emplacements = stock de la fiche ».
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { ouvrir } = require('../src/db');
+const Emp = require('../src/emplacements');
+
+test('module : répartition, ventes par canal, retours, transferts, corrections, contrôle', () => {
+  const db = ouvrir(':memory:'), E = Emp.creer(db);
+  const produits = [{ id: 'p1', stock: 10 }, { id: 'p2', stock: 0, variantes: [{ id: 'v1', stock: 4 }, { id: 'v2', stock: 2 }] }, { id: 'p3', type: 'drop', stock: 999 }];
+  assert.equal(E.actif('b'), false);
+  assert.deepEqual(E.retirer('b', 'p1', '', 3), {}, 'sans emplacement : rien');
+  const ent = E.creer('b', { nom: 'Entrepôt Lyon', type: 'entrepot' }, produits);
+  const mag = E.creer('b', { nom: 'Boutique Croix-Rousse', type: 'magasin' }, produits);
+  assert.throws(() => E.creer('b', { nom: 'entrepôt lyon', type: 'entrepot' }, produits), /déjà ce nom/);
+  assert.throws(() => E.creer('b', { nom: 'X', type: 'cave' }, produits), /Type/);
+  let rep = E.repartition('b');
+  assert.deepEqual(rep.p1[''], { [ent.id]: 10 }, 'le premier emplacement reçoit tout le stock');
+  assert.deepEqual(rep.p2, { v1: { [ent.id]: 4 }, v2: { [ent.id]: 2 } });
+  assert.equal(rep.p3, undefined, 'dropshipping : pas de stock à répartir');
+  // Transfert de 4 vases au magasin.
+  E.transferer('b', { produitId: 'p1', varianteId: '', de: ent.id, vers: mag.id, quantite: 4 });
+  assert.throws(() => E.transferer('b', { produitId: 'p1', varianteId: '', de: mag.id, vers: ent.id, quantite: 5 }), /Seulement 4/);
+  assert.throws(() => E.transferer('b', { produitId: 'p1', varianteId: '', de: mag.id, vers: mag.id, quantite: 1 }), /différents/);
+  // Caisse : prend au magasin d'abord ; en ligne : à l'entrepôt d'abord.
+  assert.deepEqual(E.retirer('b', 'p1', '', 5, { canal: 'magasin' }), { [mag.id]: 4, [ent.id]: 1 });
+  produits[0].stock = 5;
+  const pris = E.retirer('b', 'p1', '', 2, { canal: 'web' }); assert.deepEqual(pris, { [ent.id]: 2 });
+  produits[0].stock = 3;
+  assert.deepEqual(E.verifier('b', produits), []);
+  // Retour : là d'où ça venait.
+  E.remettre('b', 'p1', '', 2, pris); produits[0].stock = 5;
+  assert.equal(E.repartition('b').p1[''][ent.id], 5);
+  // Correction depuis la fiche : +3 au principal, puis −6 (principal d'abord).
+  E.ajusterTotal('b', 'p1', '', 3); produits[0].stock = 8;
+  E.ajusterTotal('b', 'p1', '', -6); produits[0].stock = 2;
+  assert.deepEqual(E.verifier('b', produits), []);
+  // Écart détecté.
+  produits[0].stock = 3;
+  assert.deepEqual(E.verifier('b', produits), [{ produitId: 'p1', varianteId: null, fiche: 3, emplacements: 2 }]);
+  // Suppression : seulement vide ; le principal en dernier.
+  assert.throws(() => E.supprimer('b', ent.id), /contient encore|principal/);
+  E.supprimer('b', mag.id);
+  assert.equal(E.lister('b').length, 1);
+  assert.ok(E.mouvements('b').some(m => m.type === 'transfert'));
+});
