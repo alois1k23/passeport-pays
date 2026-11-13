@@ -373,7 +373,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return r && r.vu_le > Date.now() - 365 * 86400000 ? r : null;
   };
   const appareilConnuPour = (ctx, marchandId) => { const a = appareilDe(ctx); return a && a.marchand_id === marchandId ? a : null; };
-  const oublierAppareils = (marchandId, sauf = null) => db.prepare('DELETE FROM appareils_connus WHERE marchand_id = ? AND empreinte <> ?').run(marchandId, sauf || '');
+  // Révocation (mot de passe changé ou réinitialisé, autres appareils déconnectés, double authentification activée) : un
+  // changement d'adresse demandé mais pas encore confirmé tombe aussi (un intrus expulsé ne le confirme plus ensuite).
+  const oublierAppareils = (marchandId, sauf = null) => { try { db.prepare('DELETE FROM changements_email WHERE marchand_id = ?').run(marchandId); } catch { /* table pas encore créée */ } return db.prepare('DELETE FROM appareils_connus WHERE marchand_id = ? AND empreinte <> ?').run(marchandId, sauf || ''); };
   /* ---------- Sécurité du compte : double authentification, appareils, journal d'activité ---------- */
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'chiffrement'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('chiffrement', ?)").run(crypto.randomBytes(32).toString('hex'));
   // Clé de chiffrement des secrets (TOTP) : SECRET_CHIFFREMENT (64 caractères hexadécimaux) si l'exploitant la garde hors de la base.
@@ -1114,20 +1116,28 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
      La réponse ne dit jamais si la nouvelle adresse a déjà un compte (pas de repérage d'adresses). */
   db.exec(`CREATE TABLE IF NOT EXISTS changements_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, nouvel_email TEXT NOT NULL, expire_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS annulations_email (jeton_hash TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, ancien_email TEXT NOT NULL, expire_le INTEGER NOT NULL);`);
+  for (const sql of ['ALTER TABLE changements_email ADD COLUMN demande_le INTEGER', 'ALTER TABLE annulations_email ADD COLUMN demande_le INTEGER']) { try { db.exec(sql); } catch { /* déjà là */ } }
+  // Adresse quittée dont le changement peut encore être annulé : réservée (ni inscription, ni invitation, ni autre
+  // changement vers elle), pour que sa titulaire puisse toujours la reprendre.
+  const adresseReservee = email => !!db.prepare('SELECT 1 FROM annulations_email WHERE lower(ancien_email) = lower(?) AND expire_le > ?').get(String(email || ''), Date.now());
   const masquer = e => String(e).replace(/^(.)[^@]*@/, '$1…@');
   r.post('/api/admin/compte/email', exigerCompte, ctx => {
-    exigerIdentite(ctx);
+    exigerIdentite(ctx, { explicite: true });   // une session simplement récente ne suffit pas : mot de passe (et code) redemandés
     const m = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(ctx.marchand.id);
+    // Un seul changement à la fois : tant que le précédent peut être annulé par l'adresse d'origine, aucun autre (sinon un
+    // intrus enchaînerait deux changements et ferait disparaître le lien d'annulation de la vraie titulaire).
+    const encours = db.prepare('SELECT expire_le FROM annulations_email WHERE marchand_id = ? AND expire_le > ?').get(m.id, Date.now());
+    if (encours) throw erreur(409, `Un changement d’adresse récent peut encore être annulé jusqu’au ${new Date(encours.expire_le).toLocaleDateString('fr-CH', { timeZone: 'Europe/Zurich' })} : réessayez ensuite.`, 'changement_en_cours');
     const nouvel = valider.email(ctx.corps.email);
     if (nouvel.toLowerCase() === m.email.toLowerCase()) throw erreur(400, 'C’est déjà l’adresse de votre compte.', 'meme_email');
     auth.limiter('changer-email:' + m.id, 3 * facteurLimites, 3600000, 'Trop de demandes de changement d’adresse : réessayez dans une heure.');
-    if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(nouvel)) {
-      // Adresse déjà prise : même réponse ; seule la personne qui la détient est prévenue (une fois par jour).
+    if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(nouvel) || adresseReservee(nouvel)) {
+      // Adresse déjà prise (ou réservée) : même réponse ; seule la personne qui la détient est prévenue (une fois par jour).
       try { auth.limiter(`changer-email-pris:${nouvel.toLowerCase()}`, 1, 86400000, ''); envoyerEmail(null, nouvel, 'Demande de changement d’adresse Comptoir', `Bonjour,\n\nQuelqu’un a demandé à utiliser cette adresse pour un compte Comptoir, mais elle en a déjà un. Si ce n’était pas vous, ignorez cet e-mail.\n\nL’équipe Comptoir`); } catch { /* déjà prévenu aujourd'hui */ }
     } else {
       const jeton = crypto.randomBytes(32).toString('base64url');
       db.prepare('DELETE FROM changements_email WHERE marchand_id = ?').run(m.id);   // une seule demande en cours
-      db.prepare('INSERT INTO changements_email (jeton_hash, marchand_id, nouvel_email, expire_le) VALUES (?, ?, ?, ?)').run(auth.sha256(jeton), m.id, nouvel, Date.now() + 86400000);
+      db.prepare('INSERT INTO changements_email (jeton_hash, marchand_id, nouvel_email, expire_le, demande_le) VALUES (?, ?, ?, ?, ?)').run(auth.sha256(jeton), m.id, nouvel, Date.now() + 86400000, Date.now());
       envoyerEmail(null, nouvel, 'Confirmez votre nouvelle adresse Comptoir', `Bonjour,\n\nPour que cette adresse devienne celle de votre compte Comptoir (connexion, récupération, alertes), ouvrez ce lien (valable 24 heures) :\n${urlPublique}/app?changer-email=${jeton}\n\nSi vous n’avez rien demandé, ignorez cet e-mail.\n\nL’équipe Comptoir`);
     }
     envoyerEmail(null, m.email, 'Changement d’adresse demandé sur votre compte Comptoir', `Bonjour,\n\nUn changement de l’adresse de votre compte vers ${masquer(nouvel)} vient d’être demandé. Il ne prendra effet qu’après confirmation depuis la nouvelle adresse, et vous recevrez alors un lien pour l’annuler.\n\nCe n’était pas vous ? Changez votre mot de passe et déconnectez les autres appareils.\n\nL’équipe Comptoir`);
@@ -1140,12 +1150,14 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const l = db.prepare('DELETE FROM changements_email WHERE jeton_hash = ? RETURNING *').get(auth.sha256(String(ctx.corps.jeton || '')));
       if (!l || l.expire_le < Date.now()) return null;
       const m = db.prepare('SELECT id, email FROM marchands WHERE id = ?').get(l.marchand_id);
-      if (!m || db.prepare('SELECT 1 FROM marchands WHERE email = ? AND id <> ?').get(l.nouvel_email, m.id)) return { pris: true };
+      if (!m || db.prepare('SELECT 1 FROM marchands WHERE email = ? AND id <> ?').get(l.nouvel_email, m.id) || adresseReservee(l.nouvel_email)) return { pris: true };
+      if (db.prepare('SELECT 1 FROM annulations_email WHERE marchand_id = ? AND expire_le > ?').get(m.id, Date.now())) return { pris: true };   // un autre changement s'est intercalé
       db.prepare('UPDATE marchands SET email = ?, email_verifie_le = ? WHERE id = ?').run(l.nouvel_email, Date.now(), m.id);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);   // liens envoyés à l'ancienne adresse : caducs
       db.prepare('DELETE FROM verifications_email WHERE marchand_id = ?').run(m.id);
       const annul = crypto.randomBytes(32).toString('base64url');
-      db.prepare('INSERT INTO annulations_email (jeton_hash, marchand_id, ancien_email, expire_le) VALUES (?, ?, ?, ?)').run(auth.sha256(annul), m.id, m.email, Date.now() + 7 * 86400000);
+      db.prepare('INSERT INTO annulations_email (jeton_hash, marchand_id, ancien_email, expire_le, demande_le) VALUES (?, ?, ?, ?, ?)').run(auth.sha256(annul), m.id, m.email, Date.now() + 7 * 86400000, l.demande_le || Date.now());
+      annulerRecuperation(m.id, 'adresse du compte changée', null);   // une récupération lancée depuis l'ancienne adresse ne s'applique plus
       return { m, nouvel: l.nouvel_email, annul };
     });
     if (!r0) throw erreur(400, 'Ce lien a expiré ou a déjà servi. Refaites la demande depuis votre espace.', 'lien_expire');
@@ -1161,10 +1173,21 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (!l || l.expire_le < Date.now()) return null;
       if (db.prepare('SELECT 1 FROM marchands WHERE email = ? AND id <> ?').get(l.ancien_email, l.marchand_id)) return { pris: true };
       db.prepare('UPDATE marchands SET email = ?, email_verifie_le = ? WHERE id = ?').run(l.ancien_email, Date.now(), l.marchand_id);   // le lien prouve l'ancienne adresse
+      db.prepare('DELETE FROM annulations_email WHERE marchand_id = ?').run(l.marchand_id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(l.marchand_id);
       oublierAppareils(l.marchand_id);
       db.prepare('DELETE FROM changements_email WHERE marchand_id = ?').run(l.marchand_id);
-      db.prepare('DELETE FROM annulations_email WHERE marchand_id = ?').run(l.marchand_id);
+      // Ce que l'intrus a pu installer depuis sa demande est retiré : double authentification, clés d'accès, « clé
+      // d'accès seule », clés d'API et webhooks créés depuis. La titulaire repart de son mot de passe (lien envoyé).
+      const depuis = (l.demande_le || l.expire_le - 7 * 86400000) - 60000;
+      db.prepare('DELETE FROM deux_facteurs WHERE marchand_id = ? AND cree_le >= ?').run(l.marchand_id, depuis);
+      db.prepare('DELETE FROM cles_acces WHERE marchand_id = ? AND cree_le >= ?').run(l.marchand_id, depuis);
+      db.prepare('UPDATE marchands SET cle_seule = 0 WHERE id = ?').run(l.marchand_id);
+      for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(l.marchand_id)) {
+        db.prepare('DELETE FROM cles_api WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
+        db.prepare('DELETE FROM webhooks WHERE boutique_id = ? AND cree_le >= ?').run(b.id, depuis);
+      }
+      annulerRecuperation(l.marchand_id, 'changement d’adresse annulé', null);
       const jeton = crypto.randomBytes(32).toString('base64url');
       db.prepare('INSERT INTO reinitialisations (jeton_hash, marchand_id, expire_le) VALUES (?, ?, ?)').run(auth.sha256(jeton), l.marchand_id, Date.now() + 3600 * 1000);
       return { l, jeton };
@@ -1197,7 +1220,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const hashMdp = await auth.hacherMotDePasse(mdp);
     // Un domaine choisi à l'inscription n'est jamais actif : il faut d'abord prouver qu'on le possède (DNS + TXT).
     const config = garderDomaine(nettoyerConfig(ctx.corps.config), { boutique: {} });
-    if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(email)) {
+    if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(email) || adresseReservee(email)) {
       // Une inscription refusée révèle qu'un compte existe : ces refus sont bornés par réseau (10 par heure), ce qui rend
       // le repérage d'adresses clientes de Comptoir lent et visible. Le titulaire est prévenu (une fois par jour).
       auth.limiter(`inscription-existant:${reseauIp(ctx.ip)}`, 10 * facteurLimites, 3600000, 'Trop de tentatives d’inscription : réessayez plus tard, ou connectez-vous.');
@@ -1575,7 +1598,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const id = auth.nouvelId('m_');
     transaction(db, () => {
       if (!db.prepare('DELETE FROM invitations WHERE id = ? RETURNING id').get(i.id)) throw erreur(404, 'Invitation déjà utilisée.', 'invitation');   // usage unique
-      if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(i.email)) throw erreur(409, 'Cette adresse a déjà un compte Comptoir.', 'email_pris');
+      if (db.prepare('SELECT 1 FROM marchands WHERE email = ?').get(i.email) || adresseReservee(i.email)) throw erreur(409, 'Cette adresse a déjà un compte Comptoir.', 'email_pris');
       db.prepare('INSERT INTO marchands (id, email, mot_de_passe, cree_le, email_verifie_le) VALUES (?, ?, ?, ?, ?)').run(id, i.email, hash, Date.now(), Date.now());   // le lien d'invitation prouve l'adresse
       db.prepare('INSERT INTO equipe (marchand_id, boutique_id, role, cree_le) VALUES (?, ?, ?, ?)').run(id, i.boutique_id, i.role, Date.now());
     });
@@ -1963,7 +1986,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const IDENTITE_DUREE = 15 * 60000;
   const sessionDe = ctx => db.prepare('SELECT cree_le, identite_le FROM sessions WHERE jeton_hash = ?').get(auth.sha256(String(ctx.cookies[auth.COOKIE] || ''))) || {};
   const identiteRecente = ctx => { const s0 = sessionDe(ctx); return Math.max(s0.cree_le || 0, s0.identite_le || 0) > Date.now() - IDENTITE_DUREE; };
-  const exigerIdentite = ctx => { if (!identiteRecente(ctx)) throw erreur(403, 'Confirmez votre identité pour continuer (mot de passe, et code si la double authentification est active).', 'identite_a_confirmer'); };
+  const exigerIdentite = (ctx, { explicite = false } = {}) => { if (explicite ? !((sessionDe(ctx).identite_le || 0) > Date.now() - IDENTITE_DUREE) : !identiteRecente(ctx)) throw erreur(403, 'Confirmez votre identité pour continuer (mot de passe, et code si la double authentification est active).', 'identite_a_confirmer'); };
   r.post('/api/admin/compte/confirmer-identite', exigerCompte, async ctx => {
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     // Compte qui n'accepte que sa clé d'accès : le mot de passe ne suffit pas ; il se reconnecte avec sa clé.
