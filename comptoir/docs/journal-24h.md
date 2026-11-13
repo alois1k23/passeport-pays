@@ -1424,4 +1424,9 @@ Le vol de cookie de session (logiciel espion qui vide les profils de navigateur,
   - autre navigateur sur le même système : refusé, sans second e-mail ;
   - session ancienne : appareil noté au premier passage.
 - 228 tests sur 228, parcours de bout en bout 57/57, parcours marchand au clavier sans problème.
+- **Relecture indépendante** : rien ne contourne la vérification. Un tiers sans cookie ne peut ni fermer une session ni multiplier les e-mails, et l'ordre des contrôles est correct. Deux faux positifs graves ont été trouvés et corrigés :
+  - **Grave** : l'app installée sur l'écran d'accueil d'un iPhone ou d'un iPad (mode autonome, nécessaire aux notifications sur iOS) n'annonce pas « Safari ». Un marchand connecté dans Safari, puis passé à l'app (iOS 17 y recopie les cookies), était déconnecté et recevait l'alerte « cookie copié ». Correction : entre deux appareils iOS, seul le système compte, puisque tous les navigateurs iOS reposent sur le même moteur. Entre un iPad et un « Mac » à moteur Safari (iPad en mode ordinateur), même tolérance. En revanche, une session d'iPad rejouée dans Chrome sur un vrai Mac reste refusée, et entre deux Mac le navigateur compte toujours (testé).
+  - **Grave** : la « version pour ordinateur » des navigateurs Android, activée par défaut sur les tablettes, se présente comme Linux. Android et Linux sont maintenant confondus, le navigateur comptant toujours (testé : Chrome Android en mode ordinateur toléré, Firefox Android refusé).
+  - **Bas, accepté et documenté** : l'émulation d'un téléphone dans les outils de développement ferme la session ; il suffit de se reconnecter.
+- Après corrections : 228 tests sur 228, parcours de bout en bout 57/57.
 

@@ -501,9 +501,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   };
   // Session liée à son appareil : un cookie rejoué depuis un autre navigateur ou un autre système (vol par logiciel espion,
   // copie de profil) ferme la session. Seules la famille du navigateur et celle du système comptent, pas les versions
-  // (mises à jour) ; iPad et Mac sont confondus (Safari sur iPad se présente parfois comme un Mac). Un voleur qui recopie
-  // aussi l'en-tête User-Agent passe : c'est une barrière contre le rejeu naïf, pas une preuve d'appareil.
-  const familleAppareil = a => String(a || '').replace('iPhone / iPad', 'Apple').replace(/sur Mac$/, 'sur Apple');
+  // (mises à jour). Tolérances, pour ne pas déconnecter de vrais marchands :
+  //  - iPhone / iPad : seul le système compte (l'app installée sur l'écran d'accueil et les vues web n'annoncent pas
+  //    « Safari », et tous les navigateurs iOS reposent sur le même moteur) ; iPad et Mac sont confondus (Safari sur iPad
+  //    se présente souvent comme un Mac) ;
+  //  - Android et Linux sont confondus (« version pour ordinateur » des navigateurs Android, tablettes).
+  // Un voleur qui recopie aussi l'en-tête User-Agent passe : c'est une barrière contre le rejeu naïf, pas une preuve.
+  const partiesAppareil = a => { const [nav, os] = String(a || '').split(' sur '); return { nav, os, ios: os === 'iPhone / iPad', groupe: os === 'iPhone / iPad' || os === 'Mac' ? 'Apple' : os === 'Android' || os === 'Linux' ? 'Android-Linux' : os }; };
+  // Navigateur ignoré seulement entre deux iPhone / iPad, ou entre un iPad et un « Mac » à moteur Safari (iPad en mode
+  // ordinateur) : une session d'iPad rejouée dans Chrome sur un vrai Mac reste refusée.
+  const moteurSafari = x => x.nav === 'Safari' || x.nav === 'Navigateur';
+  const memeAppareil = (a, b) => { const x = partiesAppareil(a), y = partiesAppareil(b); return x.groupe === y.groupe && (x.nav === y.nav || (x.ios && y.ios) || ((x.ios || y.ios) && moteurSafari(x) && moteurSafari(y))); };
   const marchandDeRequete = ctx => {
     const m = auth.marchandDepuisRequete(db, ctx.cookies);
     if (!m) return null;
@@ -511,7 +519,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const sess = db.prepare('SELECT appareil FROM sessions WHERE jeton_hash = ?').get(h);
     const actuel = decrireAppareil(ctx.req.headers['user-agent']);
     if (!sess || !sess.appareil) { if (sess) db.prepare('UPDATE sessions SET appareil = ? WHERE jeton_hash = ?').run(actuel, h); return m; }
-    if (familleAppareil(sess.appareil) === familleAppareil(actuel)) return m;
+    if (memeAppareil(sess.appareil, actuel)) return m;
     if (!db.prepare('DELETE FROM sessions WHERE jeton_hash = ? RETURNING 1').get(h)) return null;
     db.prepare('DELETE FROM appareils_connus WHERE marchand_id = ? AND session = ?').run(m.id, h);
     noterActivite(m.id, 'session-autre-appareil', `ouverte sur ${sess.appareil}, utilisée depuis ${actuel}`, ctx);

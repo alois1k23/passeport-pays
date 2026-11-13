@@ -11,7 +11,12 @@ const UA = {
   chromeMacNeuf: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   firefoxWin: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
   safariIpad: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-  safariMac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'
+  safariMac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+  appIphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+  safariIphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  chromeAndroid: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
+  chromeAndroidOrdi: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  firefoxAndroid: 'Mozilla/5.0 (Android 14; Mobile; rv:132.0) Gecko/132.0 Firefox/132.0'
 };
 
 test('cookie rejoué depuis un autre navigateur ou système : session fermée, titulaire prévenue ; mises à jour et iPad tolérés', async () => {
@@ -43,10 +48,20 @@ test('cookie rejoué depuis un autre navigateur ou système : session fermée, t
     // Mais un autre navigateur sur le même système : refusé (et pas de second e-mail avant 6 heures).
     assert.equal((await appel('GET', '/api/session', { cookie: c2, ua: UA.chromeMac })).j.connecte, false);
     assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet = 'Session fermée : utilisée depuis un autre appareil'").get().n, 1);
+    // App installée sur l'écran d'accueil de l'iPhone (sans « Safari » dans l'en-tête) après connexion dans Safari : tolérée.
+    const c4 = (await appel('POST', '/api/auth/connexion', { ua: UA.safariIphone, corps: { email: 'app@exemple.ch', motDePasse: 'un mot de passe solide' } })).cookie;
+    assert.equal((await appel('GET', '/api/session', { cookie: c4, ua: UA.appIphone })).j.connecte, true);
+    // Android en « version pour ordinateur » (se présente comme Linux) : tolérée ; un autre navigateur Android : refusé.
+    const c5 = (await appel('POST', '/api/auth/connexion', { ua: UA.chromeAndroid, corps: { email: 'app@exemple.ch', motDePasse: 'un mot de passe solide' } })).cookie;
+    assert.equal((await appel('GET', '/api/session', { cookie: c5, ua: UA.chromeAndroidOrdi })).j.connecte, true);
+    assert.equal((await appel('GET', '/api/session', { cookie: c5, ua: UA.firefoxAndroid })).j.connecte, false);
+    // Un Mac avec un autre navigateur que celui de la session : refusé (la tolérance iOS ne s'étend pas au Mac).
+    const c6 = (await appel('POST', '/api/auth/connexion', { ua: UA.safariMac, corps: { email: 'app@exemple.ch', motDePasse: 'un mot de passe solide' } })).cookie;
+    assert.equal((await appel('GET', '/api/session', { cookie: c6, ua: UA.chromeMac })).j.connecte, false);
     // Sessions d'avant la règle (appareil inconnu) : l'appareil est noté au premier passage, puis vérifié.
     const c3 = (await appel('POST', '/api/auth/connexion', { ua: UA.firefoxWin, corps: { email: 'app@exemple.ch', motDePasse: 'un mot de passe solide' } })).cookie;
     db.prepare('UPDATE sessions SET appareil = NULL').run();
     assert.equal((await appel('GET', '/api/session', { cookie: c3, ua: UA.firefoxWin })).j.connecte, true);
-    assert.equal(db.prepare('SELECT appareil FROM sessions').get().appareil, 'Firefox sur Windows');
+    assert.ok(db.prepare("SELECT 1 FROM sessions WHERE appareil = 'Firefox sur Windows'").get(), 'appareil noté');
   } finally { s.close(); }
 });

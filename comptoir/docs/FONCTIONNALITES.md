@@ -55,7 +55,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Rotation des clés de chiffrement** sans interruption : l'ancienne clé passe dans `SECRET_CHIFFREMENT_ANCIENNES`, tout est rechiffré au démarrage, le journal des ventes reste vérifiable.
 - **Webhooks** : secret chiffré en base et renouvelable (24 heures de double signature) ; un paiement qui ne correspond pas à la commande (montant, devise) est remboursé automatiquement.
 - Alerte à chaque nouvel appareil, déconnexion à distance, journal d'activité.
-- **Session liée à son appareil** : un cookie de session rejoué depuis un autre navigateur ou un autre système ferme la session, et la titulaire est prévenue. Les mises à jour du navigateur ne gênent pas. C'est une barrière contre le rejeu naïf d'un cookie volé, pas une preuve d'appareil : un voleur qui imite aussi l'en-tête du navigateur passe.
+- **Session liée à son appareil** : un cookie de session rejoué depuis un autre navigateur ou un autre système ferme la session, et la titulaire est prévenue. Ne gênent pas : les mises à jour du navigateur, l'app installée sur l'écran d'accueil d'un iPhone ou d'un iPad, l'iPad en mode ordinateur, la « version pour ordinateur » des navigateurs Android. Gêne en revanche : l'émulation d'un téléphone dans les outils de développement du navigateur (la session est fermée ; il suffit de se reconnecter). C'est une barrière contre le rejeu naïf d'un cookie volé, pas une preuve d'appareil : un voleur qui imite aussi l'en-tête du navigateur passe.
 - **Bilan de sécurité** : ce qui protège le compte et ce qui reste à faire (tentatives suspectes, appareils oubliés, équipe sans protection, clés d'API dormantes).
 - Mots de passe courants ou parus dans des fuites de données refusés (anonymat k).
 
