@@ -115,6 +115,15 @@ function blocAvis() {
   </section>`;
 }
 
+/* Limites d'un code manuel (montant minimum, utilisations, une fois par client) et combien de fois il a servi
+   (commandes payées, ou en attente de paiement). */
+function limitesCode(c, manuels) {
+  const m = c.source === 'Code manuel' ? manuels.find(x => x.code === c.code) : null;
+  const servi = (etat.commandes || []).filter(x => x.codePromo === c.code && x.statut !== 'annulee').length;
+  const parts = [m && m.minimum ? `dès ${euros(m.minimum)}` : null, m && m.max ? `${servi} / ${m.max} utilisation${m.max > 1 ? 's' : ''}` : servi ? `utilisé ${servi} fois` : null, m && m.unParClient ? 'une fois par client' : null].filter(Boolean);
+  return parts.length ? ` · ${esc(parts.join(' · '))}` : '';
+}
+
 function vueConversion() {
   if (!etat.avis && !connecteServeur()) { semerAvis(); sauver(); }
   const { a, o } = etatConversion();
@@ -172,9 +181,9 @@ function vueConversion() {
     <section class="carte sans-pad">
       <div class="carte-tete pad"><h2>Codes promo valables</h2><span class="sous">${codes.length} code${codes.length > 1 ? "s" : ""}</span></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th class="num">Remise</th><th>Origine</th><th></th></tr></thead><tbody>
-        ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}${c.expire ? ` · ${c.expireDeja ? 'expiré le' : 'jusqu’au'} ${new Date(c.expire).toLocaleDateString('fr-FR')}` : ''}</td><td class="num">${c.source === 'Code manuel' ? `<button class="btn petit fantome danger-doux" data-action="suppr-code" data-code="${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
+        ${codes.map(c => `<tr><td class="mono">${esc(c.code)}</td><td class="num">−${c.remise} %</td><td class="sous">${esc(c.source)}${c.expire ? ` · ${c.expireDeja ? 'expiré le' : 'jusqu’au'} ${new Date(c.expire).toLocaleDateString('fr-FR')}` : ''}${limitesCode(c, manuels)}</td><td class="num">${c.source === 'Code manuel' ? `<button class="btn petit fantome danger-doux" data-action="suppr-code" data-code="${esc(c.code)}">Retirer</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="vide">Aucun code.</td></tr>'}
       </tbody></table></div>
-      <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="50" value="10" required aria-label="Remise en %"><label class="sous">Jusqu’au <input name="expire" type="date" aria-label="Date d’expiration (facultative)"></label><button class="btn">Ajouter</button></form>
+      <form class="ajout-code" data-form="ajout-code"><input name="code" placeholder="NOUVEAUCODE" required maxlength="20" aria-label="Code"><input name="remise" type="number" min="1" max="50" value="10" required aria-label="Remise en %"><label class="sous">Jusqu’au <input name="expire" type="date" aria-label="Date d’expiration (facultative)"></label><label class="sous">Dès <input name="minimum" type="number" min="0" step="1" placeholder="0" aria-label="Montant minimum du panier (facultatif)" class="court"></label><label class="sous">Au plus <input name="max" type="number" min="1" step="1" placeholder="∞" aria-label="Nombre maximum d’utilisations (facultatif)" class="court"> fois</label><label class="case"><input type="checkbox" name="unParClient"> Une fois par client</label><button class="btn">Ajouter</button></form>
     </section>
   </div>
   ${blocAvis()}`;
@@ -294,8 +303,12 @@ document.addEventListener('submit', e => {
   const exp = d.get('expire') ? new Date(d.get('expire') + 'T23:59:59').getTime() : null;
   if (exp && exp < Date.now()) { toast('La date d’expiration est déjà passée.'); return; }
   const remplace = (o.codes || []).some(c => c.code === code);
-  o.codes = [...(o.codes || []).filter(c => c.code !== code), { code, remise, ...(exp ? { expire: exp } : {}) }];
-  sauver(); toast(`Code ${code} ${remplace ? 'mis à jour' : 'ajouté'} : −${remise} %${exp ? ` jusqu’au ${new Date(exp).toLocaleDateString('fr-FR')}` : ''}.`); rendre();
+  const max = Math.floor(Number(d.get('max'))) > 0 ? Math.min(100000, Math.floor(Number(d.get('max')))) : null;
+  const minimum = Number(d.get('minimum')) > 0 ? Math.min(100000, Math.round(Number(d.get('minimum')) * 100) / 100) : null;
+  const unParClient = d.get('unParClient') === 'on';
+  o.codes = [...(o.codes || []).filter(c => c.code !== code), { code, remise, ...(exp ? { expire: exp } : {}), ...(max ? { max } : {}), ...(minimum ? { minimum } : {}), ...(unParClient ? { unParClient } : {}) }];
+  const conditions = [exp ? `jusqu’au ${new Date(exp).toLocaleDateString('fr-FR')}` : null, minimum ? `dès ${euros(minimum)}` : null, max ? `${max} utilisation${max > 1 ? 's' : ''} au plus` : null, unParClient ? 'une fois par client' : null].filter(Boolean);
+  sauver(); toast(`Code ${code} ${remplace ? 'mis à jour' : 'ajouté'} : −${remise} %${conditions.length ? ` (${conditions.join(', ')})` : ''}.`); rendre();
 });
 document.addEventListener('click', e => {
   if (e.target.closest('[data-action="ajout-regle"]')) {

@@ -22,7 +22,10 @@
       si: String(r.si || '*').slice(0, 40), alors: String(r.alors || '').slice(0, 40),
       remise: Math.max(0, Math.min(50, Number(r.remise) || 0)), type: r.type === 'apres' ? 'apres' : 'panier', actif: r.actif !== false
     })).filter(r => r.alors && r.si !== r.alors);
-    o.codes = (Array.isArray(o.codes) ? o.codes : []).filter(x => x && typeof x === 'object').slice(0, 50).map(c => ({ code: String(c.code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), remise: Math.max(1, Math.min(70, Number(c.remise) || 0)), expire: Number(c.expire) || null })).filter(c => c.code);
+    o.codes = (Array.isArray(o.codes) ? o.codes : []).filter(x => x && typeof x === 'object').slice(0, 50).map(c => ({ code: String(c.code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20), remise: Math.max(1, Math.min(70, Number(c.remise) || 0)), expire: Number(c.expire) || null,
+      // Limites facultatives : nombre total d'utilisations, une fois par client (adresse e-mail), montant minimum du panier.
+      max: Number.isInteger(Number(c.max)) && Number(c.max) > 0 ? Math.min(100000, Number(c.max)) : null, unParClient: c.unParClient === true,
+      minimum: Number(c.minimum) > 0 ? Math.min(100000, Math.round(Number(c.minimum) * 100) / 100) : null })).filter(c => c.code);
     return o;
   }
 
@@ -114,7 +117,10 @@
     const sousTotal = arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
     const palier = o.paliersActifs ? o.paliers.filter(p => qte >= p.qte).pop() : null;
     const saisi = String(code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const trouve = saisi ? codesValables(config, maintenant).find(c => c.code === saisi) : null;
+    const valable = saisi ? codesValables(config, maintenant).find(c => c.code === saisi) : null;
+    // Code avec un montant minimum : pas appliqué en dessous (le panier dit combien il manque).
+    const sousMinimum = !!(valable && valable.minimum && sousTotal < valable.minimum);
+    const trouve = sousMinimum ? null : valable;
     let taux = 0, motif = null;
     if (palier) { taux = palier.remise; motif = { type: 'palier', libelle: `${palier.remise} % dès ${palier.qte} articles` }; }
     if (trouve && trouve.remise > taux) { taux = trouve.remise; motif = { type: 'code', libelle: `Code ${trouve.code} (−${trouve.remise} %)`, code: trouve.code }; }
@@ -125,7 +131,7 @@
     const prochain = o.paliersActifs ? o.paliers.find(p => qte < p.qte) : null;
     return {
       lignes: remisees, sousTotal, remise: arrondi(sousTotal - apres), apresRemise: apres, taux, motif,
-      codeSaisi: saisi || null, codeValide: saisi ? !!trouve : null, codeMoinsBon: !!(trouve && palier && trouve.remise <= palier.remise),
+      codeSaisi: saisi || null, codeValide: saisi ? !!valable : null, codeMinimum: sousMinimum ? valable.minimum : null, codeMoinsBon: !!(trouve && palier && trouve.remise <= palier.remise),
       prochainPalier: prochain ? { manque: prochain.qte - qte, remise: prochain.remise } : null
     };
   }

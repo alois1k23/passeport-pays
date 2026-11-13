@@ -493,7 +493,7 @@ async function appliquerCode(code) {
     if (!rep.ok) throw new Error(json.erreur);
     vue.code = json;
     const calc = calculPanier();
-    vue.codeMessage = calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.${json.condition ? ' ' + json.condition : ''}` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
+    vue.codeMessage = calc.codeMinimum ? `Code ${json.code} : −${json.remise} % dès ${euros(calc.codeMinimum)} d’achat.${json.condition ? ' ' + json.condition.replace(/Dès [^.]*\. ?/, '') : ''}` : calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.${json.condition ? ' ' + json.condition : ''}` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
   } catch (e) { vue.code = null; vue.codeMessage = e.message || 'Code non reconnu.'; }
   rendre();
 }

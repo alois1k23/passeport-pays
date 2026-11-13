@@ -799,10 +799,14 @@ main { grid-template-columns: minmax(0, 1fr); } main > * { min-width: 0; }
 .flux-reglages summary { cursor: pointer; font-size: .8125rem; color: var(--accent); width: max-content; }
 .flux-reglages .deux { margin-top: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .paliers { display: grid; gap: 8px; }
-.ajout-code { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.ajout-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
 .ajout-code input { padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-petit); background: var(--surface); min-width: 0; font-size: .8125rem; }
-.ajout-code input[name=code] { flex: 1; text-transform: uppercase; font-family: var(--f-mono); }
-.ajout-code input[name=remise] { width: 72px; }
+.ajout-code input[name=code] { flex: 1 1 9em; text-transform: uppercase; font-family: var(--f-mono); }
+.ajout-code input[name=remise] { width: 72px; flex: none; }
+.ajout-code input.court { width: 5.5em; }
+.ajout-code input[type=checkbox] { padding: 0; }
+/* Champs facultatifs (expiration, minimum, utilisations) : chacun sur une ligne avec son libellé, le code garde sa largeur. */
+.ajout-code > label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; margin: 0; }
 @media (max-width: 760px) { .flux-ligne { grid-template-columns: minmax(0, 1fr) auto; } .flux-apercu { grid-column: 1 / -1; grid-row: 2; } .flux-chiffre { justify-items: start; } }
 .case-sf { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; font-size: .8rem; color: var(--sf-muted); }
 .metriques { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; }
@@ -1202,7 +1206,8 @@ textarea.reponse-avis { width: 100%; min-width: 200px; resize: vertical; font: i
   .chaleur thead th:nth-child(odd):not(:first-child) { color: transparent; }
   .chaleur th, .chaleur td { font-size: .65rem; }
   .regles .table, .ajout-code { min-width: 0; }
-  .ajout-code { display: grid; grid-template-columns: minmax(0, 1fr) 80px auto; gap: 6px; }
+  .ajout-code { display: grid; grid-template-columns: minmax(0, 1fr) 80px; gap: 6px; }
+  .ajout-code > label, .ajout-code .btn { grid-column: 1 / -1; }
   .ajout-code .btn { height: var(--control-h); }
   .tuile-ligne strong { font-size: 1.15rem; }
   .tuile-ligne { flex-wrap: wrap; }

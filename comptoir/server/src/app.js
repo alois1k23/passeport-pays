@@ -2611,6 +2611,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (impayees >= 3 * facteurLimites) throw erreur(429, 'Plusieurs commandes attendent déjà leur paiement : terminez un paiement en cours, ou réessayez dans 30 minutes.', 'trop_impayees');
     const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
     if (ctx.corps.code && calcul.codeValide === false) throw erreur(400, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
+    if (calcul.codeMinimum) throw erreur(400, `Ce code s’applique dès ${formatMontant(calcul.codeMinimum, config)} d’achat.`, 'code_minimum');
+    const codePromo = calcul.motif && calcul.motif.type === 'code' ? calcul.motif.code : null;
     // Le code de bienvenue est annoncé « sur votre première commande » : refusé à une adresse qui a déjà commandé ici.
     const bienvenue = ((config.automatisations || {}).bienvenue || {});
     const codeBienvenue = !!(calcul.motif && calcul.motif.code && bienvenue.code && calcul.motif.code.toUpperCase() === String(bienvenue.code).toUpperCase());
@@ -2671,8 +2673,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
       if (fidelite && !FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''), { demande: String(ctx.corps.fidelite.demande || ''), reseau: reseauIp(ctx.ip), consommer: true })) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
+      { const refus = limiteCode(b.id, config, codePromo, client.email); if (refus) throw refus; }   // dans la transaction : deux commandes simultanées ne prennent pas la dernière utilisation
       const motifs = [calcul.motif ? calcul.motif.libelle : null, fidelite ? `${fidelite.points} points de fidélité` : null].filter(Boolean);
-      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, ...(codeBienvenue ? { codeBienvenue: true } : {}), client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, ...(codeBienvenue ? { codeBienvenue: true } : {}), ...(codePromo ? { codePromo } : {}), client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
@@ -3522,7 +3525,10 @@ ${bloc}</main></body></html>`;
     if (!c) throw erreur(404, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
     // Le code de bienvenue ne vaut que pour une première commande : on le dit dès sa saisie (contrôlé au paiement avec l'e-mail).
     const bv = ((configVente(b).automatisations || {}).bienvenue || {});
-    return { code: c.code, remise: c.remise, ...(bv.code && String(bv.code).toUpperCase() === c.code ? { condition: 'Valable sur une première commande.' } : {}) };
+    const m = Remises.offresDe(configVente(b)).codes.find(x => x.code === c.code);
+    if (m && m.max && utilisationsCode(b.id, c.code) >= m.max) throw erreur(404, `Le code ${c.code} a atteint son nombre d’utilisations.`, 'code_epuise');
+    const conditions = [bv.code && String(bv.code).toUpperCase() === c.code ? 'Valable sur une première commande.' : null, m && m.minimum ? `Dès ${formatMontant(m.minimum, configVente(b))} d’achat.` : null, m && m.unParClient ? 'Une fois par client.' : null].filter(Boolean);
+    return { code: c.code, remise: c.remise, ...(m && m.minimum ? { minimum: m.minimum } : {}), ...(conditions.length ? { condition: conditions.join(' ') } : {}) };
   });
   /* Mes commandes : les liens de suivi des commandes de cette adresse (12 derniers mois) envoyés à cette adresse seule.
      Réponse identique que l'adresse soit connue ou non : le formulaire ne révèle pas qui est client. */
@@ -3650,6 +3656,22 @@ ${bloc}</main></body></html>`;
   });
   /* Nouveau lien de paiement en ligne pour une commande en attente (paiement repris, devis accepté) : les liens encore
      ouverts sont fermés d'abord ; la carte cadeau éventuellement recréditée est débitée à nouveau. */
+  /* Utilisations d'un code promo : commandes qui le portent et qui comptent (payées, ou en attente avec un paiement encore
+     possible : lien ouvert depuis moins de 35 minutes, facture QR). Une commande annulée ou dont le client a quitté le
+     paiement rend son utilisation. Avec index : celles de ce client seulement. */
+  function utilisationsCode(bid, code, { index = null, saufId = '' } = {}) {
+    return db.prepare(`SELECT COUNT(*) n FROM commandes WHERE boutique_id = ? AND id <> ? AND json_extract(donnees, '$.codePromo') = ? ${index ? 'AND email_index = ?' : ''}
+      AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?))`)
+      .get(bid, saufId, code, ...(index ? [index] : []), Date.now() - 35 * 60000).n;
+  }
+  // Le code peut-il encore servir à ce client ? Renvoie null, ou l'erreur à lever.
+  function limiteCode(bid, config, code, email, saufId = '') {
+    const c = code && Remises.offresDe(config).codes.find(x => x.code === code);
+    if (!c) return null;
+    if (c.max && utilisationsCode(bid, code, { saufId }) >= c.max) return erreur(400, `Le code ${code} a atteint son nombre d’utilisations.`, 'code_epuise');
+    if (c.unParClient && utilisationsCode(bid, code, { index: PII.index(bid, email) || '', saufId }) > 0) return erreur(400, `Le code ${code} ne s’utilise qu’une fois par client.`, 'code_deja_utilise');
+    return null;
+  }
   // Stock réservé par les autres commandes en attente encore actives (même règle qu'à la commande).
   function reservationsAutres(bid, saufId) {
     const reserve = {};
@@ -3688,6 +3710,7 @@ ${bloc}</main></body></html>`;
         const dispo = v ? v.stock - (autres[`${l.produitId}:${l.varianteId}`] || 0) : p.stock - (autres[l.produitId] || 0);
         return dispo < frais.lignes.filter(y => y.produitId === l.produitId && (!v || y.varianteId === l.varianteId)).reduce((a, y) => a + y.qte, 0); });
       if (manque) throw erreur(409, `« ${manque.nom} » n’est plus disponible dans cette quantité : passez une nouvelle commande.`, 'stock_insuffisant');
+      { const refus = limiteCode(b.id, configVente(b), frais.codePromo, frais.client.email, c.id); if (refus) throw erreur(409, `${refus.message} Passez une nouvelle commande sans lui.`, refus.code); }
       if (frais.codeBienvenue && db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND id <> ? AND email_index = ? AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, c.id, PII.index(b.id, frais.client.email) || '', Date.now() - 35 * 60000))
         throw erreur(409, 'Le code de bienvenue a déjà servi pour une autre commande : passez une nouvelle commande sans lui.', 'code_premiere_commande');
       frais.reserveDepuis = Math.max(Date.now(), (frais.abandonneeLe || 0) + 1); enregistrerCommande(frais); Object.assign(c, frais);

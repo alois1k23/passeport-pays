@@ -28,7 +28,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 
 - Retours : demande du client depuis le suivi de commande, dans le délai légal ou celui du marchand.
 - Relances de paiement, demandes d'avis vérifiés, e-mail de bienvenue.
-- Codes promo, remises par quantité, offres dans le panier et après l'achat.
+- Codes promo, remises par quantité, offres dans le panier et après l'achat. Un code peut avoir une date de fin, un montant minimum, un nombre maximum d'utilisations et la règle « une fois par client » ; l'espace marchand montre combien de fois il a servi. Une commande abandonnée rend son utilisation.
 
 ## Piloter
 

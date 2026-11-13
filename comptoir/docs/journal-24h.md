@@ -87,6 +87,12 @@ La feuille de route peut évoluer selon les constats des relectures.
 45. **Relecture adversariale de la boutique publique et du paiement** : prix, stock, jetons de commande, documents, cartes cadeaux, fidélité, puis corrections.
 46. **Démonstration publiée** mise à jour avec les nouveautés de la matinée.
 
+**Dixième phase** (la neuvième est terminée le 13 novembre vers 8 h 45) :
+
+47. **Codes promo avec limites** : nombre d'utilisations, une fois par client, montant minimum, sans dépassement même en parallèle (limite relevée par la relecture du chantier 45).
+48. **Relecture adversariale de l'API publique et des webhooks sortants** (`/api/v1`, portées des clés, SSRF, signature, rejeu), puis corrections.
+49. **Tableau de sécurité de l'exploitant** : état des clés, rotations, alertes, dans la console `/operateur`.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
