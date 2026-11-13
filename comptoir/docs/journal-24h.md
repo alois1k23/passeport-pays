@@ -44,6 +44,14 @@ La feuille de route peut évoluer selon les constats des relectures.
 19. **Webhooks des nouveautés** : devis accepté, carte cadeau émise, transfert de stock.
 20. **Une seule commande de vérification** : tests, bout en bout, simulations et audits clavier enchaînés (`npm run verifier`).
 
+**Quatrième phase** (la troisième est terminée le 13 novembre vers 3 h 35) :
+
+21. **Cartes cadeaux et fidélité dans les langues de la boutique** : formulaire d'achat, paiement, messages, e-mail de la carte.
+22. **Avoir partiel téléchargeable par le client**, depuis sa page de commande.
+23. **Geste commercial** : avoir de remise sans retour d'article, avec sa propre ligne.
+24. **Fidélité** : expiration des points prise en compte dans les statistiques et le solde affiché.
+25. **Relecture adversariale des nouveautés** (retours partiels, cartes cadeaux, devis, fidélité, emplacements), puis corrections.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -478,3 +486,19 @@ Relecture indépendante de la vente de cartes cadeaux en ligne, scénarios rejou
   - Demande de retour du client : plafonnée aux unités pas encore rendues ; une nouvelle demande est possible après un retour remboursé ; les avoirs partiels sont visibles sur la page de commande.
 - 6 nouveaux tests : 160 tests sur 160. Bout en bout : 51 sur 51. `npm run verifier` complet : 6 étapes sur 6, lancé avant les corrections de la relecture. Parcours vérifié dans un vrai navigateur après les corrections : aperçu, confirmation, liste des avoirs, PDF.
 - **Reste ouvert** : la page de commande du client ne propose pas encore le PDF de l'avoir partiel (le numéro y figure). Pas de geste commercial sans article (remise après coup) : à traiter comme un avoir de remise, avec sa propre ligne.
+
+### Cycle 30 (03 h 55) : cartes cadeaux et fidélité en allemand, italien et anglais (chantier 21)
+
+- **Audit dans un vrai navigateur**, boutique en allemand, italien puis anglais : achat d'une carte, panier, carte refusée puis acceptée, code de fidélité. Tous les textes restés en français ont été relevés, puis traduits :
+  - formulaire d'achat de la carte ;
+  - champ et messages de la carte au paiement ;
+  - bloc de fidélité ;
+  - messages d'erreur du serveur (carte inconnue, solde réservé, trop d'essais, code expiré) ;
+  - annonces pour lecteur d'écran (« ajouté au panier »).
+- **E-mails de la carte cadeau** dans la langue de l'acheteur : le code envoyé au destinataire et l'avis d'envoi à l'acheteur. Les protections restent :
+  - nom et message de l'acheteur nettoyés (`texteSur`) ;
+  - mention « texte libre, non vérifié par la boutique » ;
+  - « la boutique ne vous demandera jamais ce code » ;
+  - code masqué dans la copie gardée, vérifié pour les trois langues.
+- **Défaut de conformité trouvé pendant l'audit** : une boutique dont le marchand a supprimé la section « Pied de page » n'affichait plus aucun lien vers les mentions légales, les CGV, « Mes commandes » ni la carte cadeau. En ligne, un pied minimal les affiche désormais toujours.
+- 4 nouveaux tests : 164 tests sur 164. Bout en bout : 51 sur 51. Audit au clavier de la boutique : aucun problème.

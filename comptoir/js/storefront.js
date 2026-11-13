@@ -257,6 +257,9 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
     </header>`;
   // Aucune section (configuration vide ou abîmée) : en ligne, la boutique montre au moins ses produits au lieu d'une page blanche.
   const listeSections = (b.sections || []).length || mode === 'edition' ? (b.sections || []) : [{ id: 'secours', type: 'produits', props: { titre: 'Nos produits', nombre: '8', categorie: '' } }];
+  // Pied de page supprimé dans l'éditeur : en ligne, un pied minimal garde les liens obligatoires (mentions légales, CGV)
+  // et ceux des commandes et de la carte cadeau.
+  const piedSecours = mode !== 'edition' && !listeSections.some(x => x.type === 'pied') ? renduSection({ id: 'pied-secours', type: 'pied', props: { texte: `© ${new Date().getFullYear()} ${b.nom}` } }, etat, mode) : '';
   const sections = listeSections.map(s => {
     const html = renduSection(s, etat, mode);
     if (mode !== 'edition') return html;
@@ -275,11 +278,11 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
       const html = renduSection(s, etat, mode);
       return mode !== 'edition' ? html : `<div class="sf-bloc${selection === s.id ? ' choisi' : ''}" data-section="${s.id}" tabindex="0"><span class="sf-etiquette">${esc(TYPES_SECTIONS[s.type].nom)}</span>${html}</div>`;
     }).join('');
-    return `<div class="sf" data-vars="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}${ficheHtml}</div>`;
+    return `<div class="sf" data-vars="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}${ficheHtml}${piedSecours}</div>`;
   }
   // Sans section d'en-tête (qui porte le titre principal), le nom de la boutique sert de titre principal, pour les lecteurs d'écran et les moteurs de recherche.
   const titrePrincipal = listeSections.some(x => x.type === 'hero') ? '' : `<h1 class="sf-masque" data-sans-traduction>${esc(b.nom)}</h1>`;
-  return `<div class="sf" data-vars="${varsTheme(b.theme)}">${entete}${titrePrincipal}${sections}${ficheHtml}</div>`;
+  return `<div class="sf" data-vars="${varsTheme(b.theme)}">${entete}${titrePrincipal}${sections}${ficheHtml}${piedSecours}</div>`;
 }
 
 /* Navigation de la boutique : défile jusqu’à la collection, au texte de présentation ou au pied de page. */
