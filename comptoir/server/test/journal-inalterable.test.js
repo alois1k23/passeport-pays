@@ -198,3 +198,22 @@ test('reprise après interruption : seules les pièces manquantes sont scellées
   const r = await J.verifier('b', { lireCommandes: ids => new Map(ids.map(id => [id, lire(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id))])), compteurFactures: 4 });
   assert.equal(r.ok, true, JSON.stringify(r.anomalies));
 });
+
+test('reprise au démarrage : un numéro déjà scellé pour une autre commande est signalé, sans bloquer les autres pièces', () => {
+  const { ouvrir } = require('../src/db');
+  const JI = require('../src/journal-inalterable');
+  const db = ouvrir(':memory:');
+  db.prepare("INSERT INTO marchands (id, email, mot_de_passe, cree_le) VALUES ('m', 'm@exemple.ch', 'x', 1)").run();
+  db.prepare("INSERT INTO boutiques (id, marchand_id, slug, config, cree_le) VALUES ('b', 'm', 's', '{}', 1)").run();
+  const J = JI.creer(db, require('node:crypto').randomBytes(32));
+  const piece = (id, f, d) => ({ id, numero: d, facture: f, dateFacture: d, date: d, statut: 'payee', lignes: [{ nom: 'x', prix: 10, qte: 1 }], total: 10, port: 0, client: {} });
+  const inserer = c => db.prepare("INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees) VALUES (?, 'b', ?, ?, 'payee', 'j', ?)").run(c.id, c.numero, c.date, JSON.stringify(c));
+  const c1 = piece('c1', 'FA-1', 1); inserer(c1); J.sceller('b', c1, 1);
+  inserer(piece('c2', 'FA-1', 2));   // même numéro, autre commande (base fusionnée, import)
+  inserer(piece('c3', 'FA-2', 3));   // pièce saine
+  const signales = [];
+  const n = J.reprendre(row => ({ ...JSON.parse(row.donnees), id: row.id }), { signaler: (bid, c, quoi) => signales.push(`${c.id}: ${quoi}`) });
+  assert.equal(n, 1, 'la pièce saine est scellée');
+  assert.deepEqual(db.prepare('SELECT ref, commande_id FROM journal_inalterable ORDER BY seq').all().map(x => `${x.ref}:${x.commande_id}`), ['FA-1:c1', 'FA-2:c3']);
+  assert.equal(signales.length, 1); assert.match(signales[0], /^c2: FA-1 \(déjà scellé pour une autre commande\)/);
+});

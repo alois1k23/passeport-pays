@@ -2813,7 +2813,10 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
     return { html: pageFactureQr(b, c, lireConfig(b)) };
   });
   /* Reprise : pièces émises avant le journal, ou dont le scellement a été interrompu : scellées une fois, dans l'ordre de leur date. */
-  try { const n = JV().reprendre(lireCommande); if (n) journal.log(`[journal-inalterable] ${n} pièce(s) reprise(s)`); } catch (e) { journal.error('[journal-inalterable] reprise', e.message); }
+  try {
+    const n = JV().reprendre(lireCommande, { signaler: (bid, c, quoi) => journal.error(`[journal-inalterable] reprise : commande n° ${c.numero} de la boutique ${bid} non scellée (${quoi}). À examiner : le journal signale ce numéro à la vérification.`) });
+    if (n) journal.log(`[journal-inalterable] ${n} pièce(s) reprise(s)`);
+  } catch (e) { journal.error('[journal-inalterable] reprise', e.message); }
   if (env.NODE_ENV === 'production' && !/^[0-9a-f]{64}$/i.test(env.SECRET_CHIFFREMENT || '')) journal.error('[securite] ATTENTION : SECRET_CHIFFREMENT absent. La clé qui chiffre les secrets de double authentification et signe le journal des ventes est gardée dans la base : une copie de la base suffit à les lire et à recalculer le journal.');
   if (JV().etat('').cleChangee) journal.error('[journal-inalterable] ATTENTION : la clé de signature a changé (SECRET_CHIFFREMENT). Les journaux existants ne peuvent plus être vérifiés ; remettez l’ancienne clé.');
   const lireCommandesParIds = boutiqueId => ids => {

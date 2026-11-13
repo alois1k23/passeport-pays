@@ -93,6 +93,13 @@ La feuille de route peut évoluer selon les constats des relectures.
 48. **Relecture adversariale de l'API publique et des webhooks sortants** (`/api/v1`, portées des clés, SSRF, signature, rejeu), puis corrections.
 49. **Tableau de sécurité de l'exploitant** : état des clés, rotations, alertes, dans la console `/operateur`.
 
+**Onzième phase** (la dixième est terminée le 13 novembre vers 9 h 20) :
+
+50. **Reprise du journal des ventes au redémarrage** : trouver l'origine de l'erreur `UNIQUE` vue par le relecteur du chantier 48 et rendre la reprise sûre quoi qu'il arrive.
+51. **Test de charge à grande échelle** après les changements de la matinée (1 000 boutiques).
+52. **Audit au clavier et au lecteur d'écran** des nouveaux écrans : rappel de confirmation, codes promo, nouveau secret de webhook, console.
+53. **Documentation relue contre le code** (fonctionnalités, API, mise en ligne, README).
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -1036,7 +1043,7 @@ Un relecteur indépendant a attaqué `/api/v1` et les webhooks avec deux boutiqu
 
 203 tests sur 203. Parcours de bout en bout : 57 contrôles, 0 anomalie. Fuzzing HTTP : 3 200 requêtes, 0 constat.
 
-### Cycle 56 (09 h 40) : bilan de sécurité dans la console de l'exploitant (chantier 49)
+### Cycle 56 (09 h 20) : bilan de sécurité dans la console de l'exploitant (chantier 49)
 
 La console `/operateur` (réservée à l'exploitant, double authentification et lien de confirmation exigés) a maintenant une section **Sécurité**. Chaque ligne dit si une action est nécessaire, et laquelle :
 - clé de chiffrement hors de la base ou non ;

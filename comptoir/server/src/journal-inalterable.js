@@ -106,19 +106,25 @@ function creer(db, cles) {
   function sceller(boutiqueId, c, le = Date.now(), leAvoir = le, { reprise = false } = {}) {
     const faits = [], conflits = [];
     const existant = types => db.prepare(`SELECT ref FROM journal_inalterable WHERE boutique_id = ? AND commande_id = ? AND type IN (${types.map(() => '?').join(', ')})`).get(boutiqueId, c.id, ...types);
+    // Numéro déjà scellé pour une AUTRE commande (base restaurée ou fusionnée, données importées) : conflit signalé, jamais
+    // une erreur qui bloquerait le scellement des autres pièces de la boutique.
+    const prisAilleurs = (type, ref) => { const x = db.prepare('SELECT commande_id FROM journal_inalterable WHERE boutique_id = ? AND type = ? AND ref = ?').get(boutiqueId, type, ref); return x && x.commande_id !== c.id; };
     if (c.facture) {
       const type = c.canal === 'magasin' ? 'ticket' : 'facture', e = existant(['facture', 'ticket']);
-      if (!e) { ajouter(boutiqueId, type, c.facture, c.id, contenuPiece(type, c), le); faits.push(c.facture); } else if (e.ref !== c.facture) conflits.push(`${c.facture} (déjà ${e.ref})`);
+      if (!e && prisAilleurs(type, c.facture)) conflits.push(`${c.facture} (déjà scellé pour une autre commande)`);
+      else if (!e) { ajouter(boutiqueId, type, c.facture, c.id, contenuPiece(type, c), le); faits.push(c.facture); } else if (e.ref !== c.facture) conflits.push(`${c.facture} (déjà ${e.ref})`);
     }
     // Avoirs partiels, dans l'ordre (avant l'avoir final, qui ne vient qu'après eux).
     for (const piece of c.retoursPartiels || []) {
       if (!piece.numero) continue;
-      const e = db.prepare("SELECT 1 FROM journal_inalterable WHERE boutique_id = ? AND type = 'avoir-partiel' AND ref = ?").get(boutiqueId, piece.numero);
+      const e = db.prepare("SELECT commande_id FROM journal_inalterable WHERE boutique_id = ? AND type = 'avoir-partiel' AND ref = ?").get(boutiqueId, piece.numero);
+      if (e && e.commande_id !== c.id) conflits.push(`${piece.numero} (déjà scellé pour une autre commande)`);
       if (!e) { ajouter(boutiqueId, 'avoir-partiel', piece.numero, c.id, contenuPiece('avoir-partiel', c, piece.numero), reprise ? piece.date : leAvoir); faits.push(piece.numero); }
     }
     if (c.avoir && c.avoir.numero) {
       const e = existant(['avoir']);
-      if (!e) { ajouter(boutiqueId, 'avoir', c.avoir.numero, c.id, contenuPiece('avoir', c), leAvoir); faits.push(c.avoir.numero); } else if (e.ref !== c.avoir.numero) conflits.push(`${c.avoir.numero} (déjà ${e.ref})`);
+      if (!e && prisAilleurs('avoir', c.avoir.numero)) conflits.push(`${c.avoir.numero} (déjà scellé pour une autre commande)`);
+      else if (!e) { ajouter(boutiqueId, 'avoir', c.avoir.numero, c.id, contenuPiece('avoir', c), leAvoir); faits.push(c.avoir.numero); } else if (e.ref !== c.avoir.numero) conflits.push(`${c.avoir.numero} (déjà ${e.ref})`);
     }
     return { faits, conflits };
   }
@@ -134,17 +140,30 @@ function creer(db, cles) {
 
   /* Reprise (démarrage) : scelle les pièces manquantes de chaque boutique, dans l'ordre de leur date, en une transaction
      par boutique. Une reprise interrompue repart d'où elle s'était arrêtée. La date de scellement est celle du document. */
-  function reprendre(lireCommande) {
+  function reprendre(lireCommande, { signaler = null } = {}) {
     const parBoutique = new Map();
     for (const row of nonScellees()) { if (!parBoutique.has(row.boutique_id)) parBoutique.set(row.boutique_id, []); parBoutique.get(row.boutique_id).push(lireCommande(row)); }
     let n = 0;
     for (const [bid, cmds] of parBoutique) {
       cmds.sort((a, b) => (a.dateFacture || a.date) - (b.dateFacture || b.date));
+      // Une transaction par boutique, un point de reprise par commande : une commande en échec (conflit de numéro, donnée
+      // abîmée) est signalée et laissée de côté, les autres pièces de la boutique sont scellées quand même.
       db.exec('BEGIN');
-      try { for (const c of cmds) n += sceller(bid, c, c.dateFacture || c.date, (c.avoir && c.avoir.date) || c.dateFacture || c.date, { reprise: true }).faits.length; db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
+      try {
+        for (const c of cmds) {
+          db.exec('SAVEPOINT piece');
+          try {
+            const r = sceller(bid, c, c.dateFacture || c.date, (c.avoir && c.avoir.date) || c.dateFacture || c.date, { reprise: true });
+            n += r.faits.length; db.exec('RELEASE piece');
+            if (r.conflits.length && signaler) signaler(bid, c, r.conflits.join(', '));
+          } catch (e) { db.exec('ROLLBACK TO piece'); db.exec('RELEASE piece'); if (signaler) signaler(bid, c, e.message); }
+        }
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
     }
     return n;
   }
+
 
   /* Clôture des jours terminés. Chaque pièce est couverte par exactement une clôture : celle du jour où elle a été
      scellée, ou la première clôture suivante si ce jour était déjà clôturé (reprise). */
