@@ -110,6 +110,12 @@ La feuille de route peut évoluer selon les constats des relectures.
 
 57. **Relecture adversariale transversale** des nouveautés de la matinée : ce qui casse quand elles se combinent (rotation des clés et données ajoutées après, réservations et codes, remboursements automatiques et états de paiement, mode sécurisé et enregistrement automatique), plus le vérificateur complet.
 
+**Quatorzième phase** (la treizième est terminée le 13 novembre vers 10 h 30) :
+
+58. **Mode sécurisé et enregistrement automatique** : une confirmation annulée remet les champs sensibles à leur valeur enregistrée (plus de fenêtre qui revient), et l'envoi de dernière seconde ne perd plus le reste des réglages.
+59. **Webhooks sans données personnelles au choix** : chaque webhook peut recevoir les commandes sans nom, e-mail ni adresse du client (minimisation des données, comme l'API sans `clients:lecture`).
+60. **Codes promo : comptage juste** : une commande remboursée rend son utilisation ; un code recréé repart de zéro.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
