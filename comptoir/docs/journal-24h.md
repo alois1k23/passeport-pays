@@ -100,6 +100,12 @@ La feuille de route peut évoluer selon les constats des relectures.
 52. **Audit au clavier et au lecteur d'écran** des nouveaux écrans : rappel de confirmation, codes promo, nouveau secret de webhook, console.
 53. **Documentation relue contre le code** (fonctionnalités, API, mise en ligne, README).
 
+**Douzième phase** (la onzième est terminée le 13 novembre vers 9 h 40) :
+
+54. **Mode sécurisé et durée de vie des sessions** : identité confirmée récemment pour les actions qui ouvrent un accès durable aux données, sessions limitées à 90 jours.
+55. **Sauvegardes vérifiées** : chaque sauvegarde est relue et contrôlée (intégrité, journal des ventes) automatiquement, et l'échec est signalé.
+56. **Démonstration publiée** mise à jour.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
@@ -1122,7 +1128,7 @@ Un auditeur indépendant a parcouru dans Chromium, au clavier, à 1 280 et 390 p
 
 205 tests sur 205 ; audits au clavier de la boutique et de l'espace marchand : 0 problème.
 
-### Cycle 60 (10 h 10) : documentation relue contre le code (chantier 53)
+### Cycle 60 (09 h 40) : documentation relue contre le code (chantier 53)
 
 Un relecteur indépendant a confronté les six documents (`API.md`, `FONCTIONNALITES.md`, `MISE-EN-LIGNE.md`, les deux README, `.env.example`) au code. `API.md` était pour l'essentiel exact ; les erreurs se concentraient dans le README du serveur et `.env.example`. Tout est corrigé :
 
