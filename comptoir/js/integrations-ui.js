@@ -2,7 +2,7 @@
    Une clé ou un secret de webhook n'est affiché qu'une fois, à sa création. */
 const INTEG = { donnees: null, chargement: false, erreur: '', nouvelle: null };
 const LIBELLES_PORTEES = { 'commandes:lecture': 'Lire les commandes', 'commandes:ecriture': 'Marquer les commandes expédiées', 'produits:lecture': 'Lire les produits', 'produits:ecriture': 'Modifier prix et stock', 'clients:lecture': 'Données des clients (nom, e-mail, adresse)' };
-const LIBELLES_EVENEMENTS = { 'commande.payee': 'Commande payée', 'commande.expediee': 'Commande expédiée', 'commande.livree': 'Commande livrée', 'commande.remboursee': 'Commande remboursée', 'commande.annulee': 'Commande annulée', 'commande.retiree': 'Commande retirée en magasin', 'produit.rupture': 'Produit épuisé', 'journal.cloture': 'Clôture du journal des ventes (empreinte du jour)', 'devis.accepte': 'Devis accepté par le client', 'carte.emise': 'Carte cadeau émise (sans son code)', 'stock.transfert': 'Transfert de stock entre emplacements' };
+const LIBELLES_EVENEMENTS = { 'commande.payee': 'Commande payée', 'commande.remboursement_partiel': 'Commande remboursée en partie', 'commande.expediee': 'Commande expédiée', 'commande.livree': 'Commande livrée', 'commande.remboursee': 'Commande remboursée', 'commande.annulee': 'Commande annulée', 'commande.retiree': 'Commande retirée en magasin', 'produit.rupture': 'Produit épuisé', 'journal.cloture': 'Clôture du journal des ventes (empreinte du jour)', 'devis.accepte': 'Devis accepté par le client', 'carte.emise': 'Carte cadeau émise (sans son code)', 'stock.transfert': 'Transfert de stock entre emplacements' };
 function chargerIntegrations() {
   if (INTEG.chargement) return;
   INTEG.chargement = true;
@@ -45,7 +45,8 @@ function vueIntegrations() {
     <details${d.webhooks.length ? '' : ' open'}><summary>Ajouter un webhook</summary><form data-form="integ-webhook" class="grille-form">
       <label class="champ"><span>Adresse (https://…)</span><input name="url" type="url" required placeholder="https://hooks.zapier.com/…" pattern="https://.*"></label>
       <fieldset class="champ"><legend>Événements</legend>${d.evenements.map(x => `<label class="case"><input type="checkbox" name="evenements" value="${esc(x)}"${x === 'commande.payee' ? ' checked' : ''}> ${esc(LIBELLES_EVENEMENTS[x] || x)}</label>`).join('')}</fieldset>
-      <label class="case"><input type="checkbox" name="donneesClient"> Inclure les données personnelles des clients (nom, e-mail, adresse)<span class="sous"> : sans cette case, chaque commande n’indique que le pays du client. Cochez-la seulement si votre outil en a besoin (expédition, comptabilité nominative).</span></label>
+      <label class="case case-longue"><input type="checkbox" name="donneesClient" aria-describedby="aide-donnees-client"> <span>Inclure les données personnelles des clients (nom, e-mail, adresse)</span></label>
+      <p class="sous" id="aide-donnees-client">Sans cette case, chaque commande n’indique que le pays du client. Cochez-la seulement si votre outil en a besoin (expédition, comptabilité nominative).</p>
       <div class="rangee"><button class="btn">Ajouter</button><span class="sous">Si votre outil ne répond pas, Comptoir réessaie pendant environ 38 heures ; rien n’est perdu.</span></div></form></details></section>`;
   return intro + nouvelle + cles + webhooks;
 }

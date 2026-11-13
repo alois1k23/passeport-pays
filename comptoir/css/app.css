@@ -182,6 +182,8 @@ textarea { resize: vertical; }
 .champ > span { font-size: .84rem; font-weight: 500; color: var(--muted); }
 .champ input[type="color"] { width: 100%; height: 36px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .case { display: flex; gap: 8px; align-items: center; }
+.case-longue { align-items: flex-start; }
+.case-longue input { margin-top: 3px; flex: none; }
 .deux { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 /* Maître / détail */

@@ -1490,4 +1490,8 @@ Une clé d'API de Comptoir valait jusqu'ici pour toujours et depuis n'importe o�
   - clé expirée refusée et signalée dans le bilan ;
   - clé sans limite acceptée mais signalée.
 - 230 tests sur 230, parcours de bout en bout 57/57.
+- **Vérifié dans Chromium**, bureau et mobile, sans erreur de page :
+  - création d'une clé limitée à 30 jours et à un réseau : la ligne affiche la date et le réseau ;
+  - saisie invalide : message clair.
+- Au passage, la capture mobile a montré deux défauts plus anciens de l'écran des webhooks, corrigés : l'événement « remboursement partiel » n'avait pas de libellé (son code brut s'affichait), et la case « données personnelles des clients » se cassait en colonne étroite (texte d'aide sorti du libellé, case alignée en haut).
 
