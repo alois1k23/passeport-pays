@@ -114,6 +114,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
   }
   const hotePrincipal = new URL(urlPublique).hostname.toLowerCase();
+  const originePublique = new URL(urlPublique).origin;
   // Facteur des limites de débit publiques (1 en production ; plus élevé pour les tests et simulations depuis une seule adresse).
   const facteurLimites = Math.max(1, Number(env.LIMITES_FACTEUR) || 1);
   const abo = abonnements.creerGestion({ db, env, urlPublique, fetchImpl });
@@ -357,9 +358,22 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const attendu = signerDesinscription(boutiqueId, email);
     return auth.egal(sig, attendu) ? { boutiqueId, email } : null;
   };
-  // Appareil où le marchand s'est connecté : cookie signé, valable un an, qui ne contient que l'empreinte de l'e-mail.
-  // Lié à l'empreinte du mot de passe actuel : un changement ou une réinitialisation du mot de passe révoque tous les appareils.
-  const jetonAppareil = email => { const m = db.prepare('SELECT mot_de_passe FROM marchands WHERE lower(email) = ?').get(email); return crypto.createHmac('sha256', cleDesinscription).update(`appareil|${email}|${m ? m.mot_de_passe : ''}`).digest('base64url').slice(0, 32); };
+  /* Appareil connu : jeton aléatoire propre à chaque appareil (cookie), dont seule l'empreinte est en base. Révocable : il
+     disparaît à l'activation de la double authentification, avec « déconnecter les autres appareils », au changement ou à
+     la réinitialisation du mot de passe. Il évite au marchand d'être bloqué chez lui par quelqu'un qui essaie son compte
+     ailleurs, sans jamais lever les limites : il a seulement ses propres compteurs. Lié à la dernière session ouverte
+     depuis cet appareil : révoquer cette session révoque aussi l'appareil. */
+  db.exec('CREATE TABLE IF NOT EXISTS appareils_connus (empreinte TEXT PRIMARY KEY, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, cree_le INTEGER NOT NULL, vu_le INTEGER NOT NULL)');
+  db.exec('CREATE INDEX IF NOT EXISTS appareils_connus_marchand ON appareils_connus (marchand_id)');
+  if (!db.prepare('PRAGMA table_info(appareils_connus)').all().some(c => c.name === 'session')) db.exec('ALTER TABLE appareils_connus ADD COLUMN session TEXT');
+  const appareilDe = ctx => {
+    const j = String(ctx.cookies.comptoir_appareil || '');
+    if (!/^[\w-]{30,64}$/.test(j)) return null;
+    const r = db.prepare('SELECT * FROM appareils_connus WHERE empreinte = ?').get(auth.sha256(j));
+    return r && r.vu_le > Date.now() - 365 * 86400000 ? r : null;
+  };
+  const appareilConnuPour = (ctx, marchandId) => { const a = appareilDe(ctx); return a && a.marchand_id === marchandId ? a : null; };
+  const oublierAppareils = (marchandId, sauf = null) => db.prepare('DELETE FROM appareils_connus WHERE marchand_id = ? AND empreinte <> ?').run(marchandId, sauf || '');
   /* ---------- Sécurité du compte : double authentification, appareils, journal d'activité ---------- */
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'chiffrement'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('chiffrement', ?)").run(crypto.randomBytes(32).toString('hex'));
   // Clé de chiffrement des secrets (TOTP) : SECRET_CHIFFREMENT (64 caractères hexadécimaux) si l'exploitant la garde hors de la base.
@@ -439,7 +453,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   function ouvrirSession(ctx, m, { nouvelAppareil = false } = {}) {
     const jeton = auth.creerSession(db, m.id), maintenant = Date.now(), appareil = decrireAppareil(ctx.req.headers['user-agent']);
     db.prepare('UPDATE sessions SET cree_le = ?, vu_le = ?, appareil = ?, reseau = ? WHERE jeton_hash = ?').run(maintenant, maintenant, appareil, reseauIp(ctx.ip), auth.sha256(jeton));
-    ctx.entetes['Set-Cookie'] = [auth.cookieSession(jeton, securise), cookieAppareil(String(m.email).toLowerCase())];
+    ctx.entetes['Set-Cookie'] = [auth.cookieSession(jeton, securise), cookieAppareilPour(ctx, m.id, auth.sha256(jeton))];
     noterActivite(m.id, 'connexion', appareil, ctx);
     // Connexion depuis un appareil jamais vu : le marchand est prévenu (un mot de passe volé se voit tout de suite).
     if (nouvelAppareil) envoyerEmail(null, m.email, 'Nouvelle connexion à votre compte Comptoir',
@@ -452,13 +466,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const lireDefi = d => { const [mid, expire, sig] = String(d || '').split('.'); return mid && Number(expire) > Date.now() && auth.egal(sig, signerDefi(mid, Number(expire))) ? mid : null; };
   const deuxFacteursDe = mid => db.prepare('SELECT * FROM deux_facteurs WHERE marchand_id = ?').get(mid) || null;
   /* Vérifie un code de l'application ou un code de secours (consommé). Renvoie true/false ; met à jour le dernier pas. */
-  function verifierSecondFacteur(df, saisi, ctx) {
+  /* Chaque code ne sert qu'une fois, même envoyé deux fois en même temps : l'état est relu en base, et la consommation est
+     conditionnelle (le pas TOTP doit être plus récent que le dernier accepté, la liste des codes de secours inchangée). */
+  function verifierSecondFacteur(dfAncien, saisi, ctx) {
+    const df = deuxFacteursDe(dfAncien.marchand_id);
+    if (!df || !df.actif) return false;
     const s = String(saisi || '').trim();
     const pas = totp.verifier(totp.dechiffrer(cleChiffrement, df.secret), s, { dernierPas: df.dernier_pas });
-    if (pas !== null) { db.prepare('UPDATE deux_facteurs SET dernier_pas = ? WHERE marchand_id = ?').run(pas, df.marchand_id); return true; }
+    if (pas !== null) return db.prepare('UPDATE deux_facteurs SET dernier_pas = ? WHERE marchand_id = ? AND dernier_pas < ?').run(pas, df.marchand_id, pas).changes === 1;
     const secours = JSON.parse(df.secours), i = secours.indexOf(totp.empreinteSecours(s));
     if (i >= 0 && s.replace(/[^a-z0-9]/gi, '').length === 10) {
-      secours.splice(i, 1); db.prepare('UPDATE deux_facteurs SET secours = ? WHERE marchand_id = ?').run(JSON.stringify(secours), df.marchand_id);
+      secours.splice(i, 1);
+      if (db.prepare('UPDATE deux_facteurs SET secours = ? WHERE marchand_id = ? AND secours = ?').run(JSON.stringify(secours), df.marchand_id, df.secours).changes !== 1) return false;
       noterActivite(df.marchand_id, 'code-secours', `${secours.length} code(s) de secours restant(s)`, ctx);
       return true;
     }
@@ -469,7 +488,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     try { auth.limiter('alerte-2fa:' + m.id, 1, 3600000, ''); } catch { return; }
     envoyerEmail(null, m.email, 'Codes de vérification refusés sur votre compte Comptoir', `Bonjour,\n\nPlusieurs codes de vérification faux viennent d’être saisis après votre mot de passe. Votre mot de passe est probablement connu de quelqu’un d’autre : changez-le maintenant (Paramètres > Zone sensible) et vérifiez vos appareils connectés (Paramètres > Sécurité).\n${urlPublique}/app\n\nVotre double authentification a bloqué l’accès.\n\nL’équipe Comptoir`);
   }
-  const cookieAppareil = email => `comptoir_appareil=${jetonAppareil(email)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=${365 * 86400}${securise ? '; Secure' : ''}`;
+  const cookieAppareilPour = (ctx, marchandId, session) => {
+    const a = appareilConnuPour(ctx, marchandId), maintenant = Date.now();
+    let jeton = String(ctx.cookies.comptoir_appareil || '');
+    if (a) db.prepare('UPDATE appareils_connus SET vu_le = ?, session = ? WHERE empreinte = ?').run(maintenant, session, a.empreinte);
+    else { jeton = crypto.randomBytes(24).toString('base64url'); db.prepare('INSERT INTO appareils_connus (empreinte, marchand_id, cree_le, vu_le, session) VALUES (?, ?, ?, ?, ?)').run(auth.sha256(jeton), marchandId, maintenant, maintenant, session); }
+    return `comptoir_appareil=${jeton}; Path=/api; HttpOnly; SameSite=Lax; Max-Age=${365 * 86400}${securise ? '; Secure' : ''}`;
+  };
+  // Un ancien cookie d'appareil (chemin /api/auth) peut rester dans le navigateur : il est envoyé avant celui de /api
+  // (chemin plus précis d'abord) et lireCookies garde la dernière valeur, donc le nouveau jeton l'emporte.
   // IPv6 : une personne dispose d'un réseau /64 entier ; les limites comptent par réseau, pas par adresse.
   const reseauIp = ip => {
     const a = String(ip || '').toLowerCase().replace(/%.*$/, '').replace(/^::ffff:/, '');
@@ -1003,13 +1030,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Limites par adresse, et par compte depuis cette adresse : un tiers ne peut pas verrouiller le compte d'un marchand
     // depuis d'autres adresses. Le compte seul n'est bloqué qu'à un seuil très élevé (attaque distribuée massive).
     const max = Number(env.LIMITE_ESSAIS) || 10, e = email.toLowerCase(), reseau = reseauIp(ctx.ip);
+    // Bloc réseau (IPv4 /24, IPv6 /48), par compte : changer d'adresse voisine ne multiplie pas les essais sur un compte.
+    // Jamais un compteur commun au bloc (un voisin de bureau ou d'opérateur bloquerait tout le monde), et jamais pour un
+    // appareil où le marchand s'est déjà connecté (vérifié plus bas).
+    const blocReseau = auth.blocReseau(ctx.ip);
     const parIp = ['ip:' + reseau, `compte-ip:${e}|${reseau}`];
     auth.verifierEchecs(parIp, max);
     auth.verifierEchecs(['ip-cours:' + reseau, `compte-ip-cours:${e}|${reseau}`], max);
     // Seuil global du compte (attaque répartie sur beaucoup d'adresses) : il ne s'applique jamais à un appareil où
     // le marchand s'est déjà connecté (cookie signé), donc personne ne peut l'empêcher de se connecter de chez lui.
-    const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(e);
-    if (!appareilConnu) auth.verifierEchecs(['compte:' + e], max * 20);
+    const appareilLu = appareilDe(ctx), proprio = appareilLu && db.prepare('SELECT lower(email) AS e FROM marchands WHERE id = ?').get(appareilLu.marchand_id);
+    const appareilConnu = !!(proprio && proprio.e === e);
+    if (!appareilConnu) { auth.verifierEchecs(['compte:' + e], max * 20); auth.verifierEchecs([`compte-bloc:${e}|${blocReseau}`], max * 3); }
     const m = db.prepare('SELECT * FROM marchands WHERE email = ?').get(email);
     // Compté avant le calcul : des essais lancés en parallèle ne contournent pas la limite.
     const enCours = ['ip-cours:' + reseau, `compte-ip-cours:${e}|${reseau}`];
@@ -1017,7 +1049,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Mot de passe changé ou réinitialisé pendant le calcul : l'ancien ne doit pas ouvrir de session.
     const actuel = m && db.prepare('SELECT mot_de_passe FROM marchands WHERE id = ?').get(m.id);
     const actuelCle = m && db.prepare('SELECT cle_seule FROM marchands WHERE id = ?').get(m.id);   // relu après le calcul (option activée entre-temps)
-    if (!ok || !actuel || actuel.mot_de_passe !== m.mot_de_passe) { auth.noterEchec([...parIp, 'compte:' + e]); throw erreur(401, 'E-mail ou mot de passe incorrect. Si votre compte utilise une clé d’accès, connectez-vous avec elle.', 'identifiants'); }
+    if (!ok || !actuel || actuel.mot_de_passe !== m.mot_de_passe) { auth.noterEchec([...parIp, 'compte:' + e, `compte-bloc:${e}|${blocReseau}`]); throw erreur(401, 'E-mail ou mot de passe incorrect. Si votre compte utilise une clé d’accès, connectez-vous avec elle.', 'identifiants'); }
     m.cle_seule = actuelCle ? actuelCle.cle_seule : m.cle_seule;
     if (m.cle_seule) {
       // Bon mot de passe, mais ce compte exige sa clé d'accès : refusé. Noté au journal du compte (une fois par heure),
@@ -1044,15 +1076,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!m || !df || !df.actif) throw erreur(401, 'Reconnectez-vous avec votre mot de passe.', 'defi_expire');
     // Limites : par compte et par réseau (5), et globale par compte (50) sauf sur un appareil déjà connu :
     // quelqu'un qui connaît le mot de passe ne peut pas bloquer le vrai propriétaire chez lui.
-    const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(String(m.email).toLowerCase());
-    // Réseau : l'adresse, et pour IPv4 tout son /24 (un attaquant ne multiplie pas les essais en changeant d'adresse voisine).
-    const ip = reseauIp(ctx.ip), bloc = /^\d+\.\d+\.\d+\.\d+$/.test(ip) ? ip.replace(/\.\d+$/, '.0/24') : ip;
-    const parReseau = [`2fa:${mid}|${ip}`, `2fa:${mid}|${bloc}`], global = ['2fa:' + mid];
+    const appareil = appareilConnuPour(ctx, mid), appareilConnu = !!appareil;
+    // Réseau : l'adresse, et tout son bloc (IPv4 : /24 ; IPv6 : /48), pour qu'un attaquant ne multiplie pas les essais
+    // en changeant d'adresse voisine.
+    const ip = reseauIp(ctx.ip), bloc = /^\d+\.\d+\.\d+\.\d+$/.test(ip) ? ip.replace(/\.\d+$/, '.0/24') : ip.includes(':') ? `${ip.split(':').slice(0, 3).join(':')}::/48` : ip;
+    const parReseau = [...new Set([`2fa:${mid}|${ip}`, `2fa:${mid}|${bloc}`])];
+    // Compteurs globaux : ceux du compte, ou ceux de cet appareil connu (jamais aucun) : un tiers qui épuise les essais
+    // du compte ne bloque pas le marchand chez lui, et ne peut pas lui-même dépasser ces plafonds.
+    const global = [appareilConnu ? `2fa-appareil:${appareil.empreinte}` : '2fa:' + mid];
     auth.verifierEchecs(parReseau, 5);
-    if (!appareilConnu) {
-      auth.verifierEchecs(global, 10);   // 10 erreurs par quart d'heure pour le compte…
-      auth.limiter(`2fa-jour:${mid}`, 30, 86400000, 'Trop d’essais de code aujourd’hui pour ce compte : réessayez demain, ou utilisez un code de secours depuis un appareil déjà connu.');   // …et 30 essais par jour
-    }
+    auth.verifierEchecs(global, 10);   // 10 erreurs par quart d'heure…
+    auth.limiter(appareilConnu ? `2fa-jour-appareil:${appareil.empreinte}` : `2fa-jour:${mid}`, 30, 86400000, 'Trop d’essais de code aujourd’hui : réessayez demain, ou utilisez un code de secours depuis un appareil déjà connu.');   // …et 30 essais par jour
     auth.noterEchec([...parReseau, ...global]);   // compté avant la vérification (essais parallèles)
     if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { noterActivite(mid, 'echec-2fa', null, ctx); if (auth.compteEchecs && auth.compteEchecs(parReseau[0]) >= 3) alerterEchecs2fa(m); throw erreur(401, 'Code incorrect.', 'code_2fa'); }
     auth.oublierEchecs(parReseau);
@@ -1101,6 +1135,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     transaction(db, () => {
       db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, ligne.marchand_id);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(ligne.marchand_id);
+      oublierAppareils(ligne.marchand_id);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(ligne.marchand_id);
       // Compte peut-être compromis : une clé d'accès ajoutée par un tiers ne doit pas survivre à la réinitialisation.
       db.prepare('DELETE FROM cles_acces WHERE marchand_id = ?').run(ligne.marchand_id);
@@ -1192,10 +1227,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       db.prepare('UPDATE marchands SET mot_de_passe = ? WHERE id = ?').run(hashMdp, m.id);
       annulerRecuperation(m.id, 'mot de passe changé', ctx);
       db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, actuelle);
+      oublierAppareils(m.id, (appareilConnuPour(ctx, m.id) || {}).empreinte);
       db.prepare('DELETE FROM reinitialisations WHERE marchand_id = ?').run(m.id);
     });
     noterActivite(m.id, 'mot-de-passe', 'changé depuis l’espace', ctx);
-    ajouterCookie(ctx, cookieAppareil(String(m.email).toLowerCase()));   // cet appareil reste reconnu ; les autres ne le sont plus
+    ajouterCookie(ctx, cookieAppareilPour(ctx, m.id, actuelle));   // cet appareil reste reconnu ; les autres ne le sont plus
     return { ok: true };
   });
   /* Activation des paiements de la boutique (Stripe Connect) : la boutique encaisse sur son propre compte Stripe. */
@@ -1280,6 +1316,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/compte/sessions/:id/revoquer', exigerCompte, ctx => {
     const id = String(ctx.params.id).replace(/[^0-9a-f]/g, '').slice(0, 16);
     if (id.length !== 16) throw erreur(400, 'Session inconnue.', 'session');
+    const cibles = db.prepare('SELECT jeton_hash FROM sessions WHERE marchand_id = ? AND substr(jeton_hash, 1, 16) = ?').all(ctx.marchand.id, id);
+    // L'appareil de la session révoquée n'est plus « connu » : il retrouve les limites d'un inconnu.
+    for (const c of cibles) db.prepare('DELETE FROM appareils_connus WHERE marchand_id = ? AND session = ?').run(ctx.marchand.id, c.jeton_hash);
     const n = db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND substr(jeton_hash, 1, 16) = ?').run(ctx.marchand.id, id).changes;
     if (!n) throw erreur(404, 'Session inconnue.', 'session');
     noterActivite(ctx.marchand.id, 'session-revoquee', null, ctx);
@@ -1515,6 +1554,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         db.prepare('UPDATE marchands SET mot_de_passe = ?, cle_seule = 0 WHERE id = ?').run(r2.mot_de_passe, r2.marchand_id);
         db.prepare('DELETE FROM cles_acces WHERE marchand_id = ?').run(r2.marchand_id);
         db.prepare('DELETE FROM sessions WHERE marchand_id = ?').run(r2.marchand_id);
+        oublierAppareils(r2.marchand_id);
         db.prepare('DELETE FROM recuperations_differees WHERE marchand_id = ?').run(r2.marchand_id);
       });
       noterActivite(r2.marchand_id, 'recuperation-appliquee', null, null);
@@ -1616,7 +1656,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     db.prepare('UPDATE cles_acces SET compteur = ?, utilisee_le = ? WHERE id = ?').run(v.compteur, Date.now(), cred.id);
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(cred.marchand_id);
     if (!m) refus('Compte introuvable.');
-    const appareilConnu = String(ctx.cookies.comptoir_appareil || '') === jetonAppareil(String(m.email).toLowerCase());
+    const appareilConnu = !!appareilConnuPour(ctx, m.id);
     const jeton = ouvrirSession(ctx, m, { nouvelAppareil: !appareilConnu });
     db.prepare('UPDATE sessions SET cle_acces = ? WHERE jeton_hash = ?').run(cred.id, auth.sha256(jeton));   // révoquée avec la clé
     noterActivite(m.id, 'cle-acces', cred.nom, ctx);
@@ -1642,6 +1682,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     db.prepare('UPDATE deux_facteurs SET actif = 1, dernier_pas = ?, secours = ? WHERE marchand_id = ?').run(pas, JSON.stringify(empreintes), m.id);
     // Les autres appareils déjà connectés sont déconnectés : un intrus déjà entré ne reste pas.
     db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(m.id, auth.sha256(String(ctx.cookies[auth.COOKIE] || '')));
+    oublierAppareils(m.id, (appareilConnuPour(ctx, m.id) || {}).empreinte);   // un appareil connu d'avant la 2FA ne garde aucun privilège
     annulerRecuperation(ctx.marchand.id, 'double authentification activée', ctx); noterActivite(m.id, '2fa-activee', null, ctx);
     envoyerEmail(null, m.email, 'Double authentification activée', `Bonjour,\n\nLa double authentification est maintenant active sur votre compte Comptoir. À chaque connexion, le code de votre application vous sera demandé.\n\nGardez vos codes de secours en lieu sûr : ils remplacent le téléphone en cas de perte.\n\nCe n’était pas vous ? Écrivez-nous immédiatement.\n\nL’équipe Comptoir`);
     return { ok: true, codesSecours: codes };
@@ -1672,6 +1713,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.post('/api/admin/compte/deconnecter-autres', exigerCompte, ctx => {
     const actuelle = auth.sha256(String(ctx.cookies[auth.COOKIE] || ''));
     noterActivite(ctx.marchand.id, 'autres-deconnectes', null, ctx);
+    oublierAppareils(ctx.marchand.id, (appareilConnuPour(ctx, ctx.marchand.id) || {}).empreinte);
     return { ok: true, n: db.prepare('DELETE FROM sessions WHERE marchand_id = ? AND jeton_hash <> ?').run(ctx.marchand.id, actuelle).changes };
   });
   /* Suppression définitive d'un compte marchand et de tout ce qui lui appartient (demande du marchand, ou fin de conservation). */
@@ -1713,7 +1755,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const cles = ['mdp:' + m.id];   // même compteur que le changement de mot de passe : une session volée ne devine pas le mot de passe par essais
     if (!(await auth.essayerMotDePasse(cles, Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
     await supprimerCompte(m);
-    ctx.entetes['Set-Cookie'] = [auth.cookieSession(null, securise), `comptoir_appareil=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${securise ? '; Secure' : ''}`];
+    ctx.entetes['Set-Cookie'] = [auth.cookieSession(null, securise), `comptoir_appareil=; Path=/api; HttpOnly; SameSite=Lax; Max-Age=0${securise ? '; Secure' : ''}`];
     return { ok: true };
   });
 
@@ -3547,6 +3589,8 @@ ${bloc}</main></body></html>`;
   function entretien(maintenant = Date.now()) {
     // Copies déchiffrées des commandes (état de l'espace marchand) : effacées après 30 minutes sans ouverture.
     for (const [bid, v] of JSON_COMMANDES) if (maintenant - v.le >= JSON_COMMANDES_DUREE) JSON_COMMANDES.delete(bid);
+    // Appareils connus sans connexion depuis un an (cookie expiré, navigateur remplacé) : oubliés.
+    db.prepare('DELETE FROM appareils_connus WHERE vu_le < ?').run(maintenant - 365 * 86400000);
     // Fournisseur de démonstration : expéditions en attente (redémarrage, webhook en échec)
     if (delaiExpeditionDemo >= 0) for (const r of db.prepare("SELECT ref FROM demo_fournisseur_commandes WHERE statut = 'recue' AND cree_le < ?").all(maintenant - delaiExpeditionDemo - 60000)) expedierDemo(r.ref).catch(e => journal.error('[demo-fournisseur]', e.message));
     libererCartes(maintenant);
@@ -4229,6 +4273,15 @@ ${FEUILLE_4}</head>
       entetesRequete = ctx.entetes;   // cookie de session renouvelé : envoyé même avec une réponse d'erreur
       // HTTPS : seule la session « __Host- » compte ; un cookie de session sans préfixe (posé par un sous-domaine, en HTTP) est ignoré.
       if (securise) { const h = ctx.cookies[`__Host-${auth.COOKIE}`]; delete ctx.cookies[auth.COOKIE]; if (h) ctx.cookies[auth.COOKIE] = h; }
+      // Requête qui modifie quelque chose, venue d'un autre site (même un sous-domaine voisin) : refusée, avec ou sans corps.
+      // Le navigateur indique sa provenance (Sec-Fetch-Site, Origin) ; les webhooks et l'API par clé n'ont pas de navigateur.
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && chemin.startsWith('/api/') && !chemin.startsWith('/api/webhooks/') && !chemin.startsWith('/api/v1/')) {
+        const provenance = req.headers['sec-fetch-site'], origine = req.headers.origin;
+        let autreSite = !!provenance && !['same-origin', 'none'].includes(provenance);
+        // Origine acceptée : l'hôte demandé (boutique sur son domaine) ou l'adresse publique configurée (proxy qui réécrit Host).
+        if (!autreSite && origine) { try { const o = new URL(origine); autreSite = origine === 'null' || (o.host !== req.headers.host && o.origin !== originePublique); } catch { autreSite = true; } }
+        if (autreSite) throw erreur(403, 'Requête venue d’un autre site : refusée.', 'autre_site');
+      }
       if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
         ctx.corpsBrut = (await lireCorps(req, chemin === '/csp-rapport' ? 16 * 1024 : undefined)).toString('utf8');   // rapports CSP : petits, sans compte
         const type = req.headers['content-type'] || '';

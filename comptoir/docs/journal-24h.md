@@ -826,3 +826,30 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
 - **Constat** : le cache de l'état de l'espace marchand, ajouté au cycle 46, coûtait plus qu'il ne rapportait pour les boutiques de taille courante. Sur 200 commandes, calculer les empreintes revient plus cher que tout relire. Avec le cache : 589 requêtes par seconde et 288 Mo ; sans le cache : 623 et 197 Mo.
 - **Correctif** : le cache ne sert plus qu'aux boutiques d'au moins 1 000 commandes, là où il fait gagner (10 000 commandes : 0,7 s ramenées à 0,3 s). Sa taille se règle par `CACHE_ETAT_MAX` (0 le désactive).
 - **Résultat final** : 600 requêtes par seconde, 190 Mo, **aucune erreur** sur 35 000 actions, aucune erreur au journal du serveur. C'est le niveau mesuré avant les protections de la nuit (605), avec beaucoup plus de fonctions.
+
+### Cycle 49 (06 h 30) : audit de l'authentification, corrections (chantier 41)
+
+Un relecteur indépendant a audité la connexion des marchands : mot de passe, double authentification, appareils connus, limites d'essais, sessions. Constats corrigés :
+
+- **Appareils connus** : l'ancien cookie « appareil connu » était une signature dérivée de l'e-mail, identique sur tous les appareils et impossible à révoquer un par un. Chaque appareil reçoit maintenant un jeton aléatoire, dont seule l'empreinte est en base (table `appareils_connus`). Il est révoqué :
+  - à l'activation de la double authentification ;
+  - avec « déconnecter les autres appareils » ;
+  - au changement ou à la réinitialisation du mot de passe, et à la récupération du compte ;
+  - à la révocation de la session ouverte depuis cet appareil.
+  Les appareils sans connexion depuis un an sont oubliés.
+- **Double authentification** : un appareil connu ne levait plus seulement le blocage du compte, mais aussi les limites d'essais de code. Il a désormais ses propres compteurs (par appareil et par jour), et un réseau IPv6 est compté par bloc /48.
+- **Codes consommés une seule fois** : l'état de la double authentification est relu au moment du contrôle, et un code (pas de temps ou code de secours) n'est consommé que par une mise à jour conditionnelle. Le même code de secours envoyé deux fois en parallèle n'ouvre qu'une session (testé), et il ne sert plus ensuite à désactiver la double authentification.
+- **Requêtes d'un autre site** : la règle « JSON obligatoire » ne couvrait pas les requêtes sans corps (déconnecter les autres appareils, par exemple). Toute requête qui modifie un état sous `/api/` est refusée (`403 autre_site`) quand le navigateur indique qu'elle vient d'un autre site. Le navigateur l'indique par `Sec-Fetch-Site` (refusé même pour un sous-domaine voisin) ou par `Origin` (refusé si l'origine n'est ni l'hôte demandé ni `URL_PUBLIQUE`). Les webhooks et l'API par clé n'y sont pas soumis.
+- **Essais répartis sur des adresses voisines** : changer d'adresse dans un même /24 remettait le compteur à zéro. Les échecs sont maintenant aussi comptés par compte et par bloc (IPv4 /24, IPv6 /48), au triple du seuil par adresse. Ce compteur n'est jamais commun à tout le bloc, et ne s'applique pas à un appareil connu.
+- **Seconde relecture de ces correctifs**, quatre défauts réels corrigés :
+  - le cookie d'appareil, limité à `/api/auth`, n'atteignait pas les routes du compte (`/api/admin/compte/…`). Activer la double authentification oubliait donc aussi l'appareil du marchand. Le chemin est maintenant `/api` ;
+  - un compteur commun au bloc aurait permis à un voisin de bureau ou d'opérateur de bloquer la connexion de tous. Il est remplacé par le compteur par compte et par bloc ;
+  - le même problème touchait la réinitialisation, l'inscription et les invitations : le compteur de bloc en est retiré ;
+  - révoquer une session laissait à l'appareil son statut d'appareil connu. Les deux sont maintenant liés.
+- Le test d'attaque répartie a été ajusté : ses 25 adresses « réparties » étaient toutes dans un même /24, et elles sont maintenant bloquées plus tôt. Il utilise désormais 25 blocs différents.
+- Le test du cookie `__Host-` a révélé qu'un proxy qui réécrit `Host` refuserait toutes les requêtes du site. L'origine de `URL_PUBLIQUE` est donc acceptée. Le README rappelle de transmettre `Host` (Caddy le fait par défaut ; avec nginx, `proxy_set_header Host $host;`).
+- 3 tests de plus : 185 tests sur 185. Vérificateur complet : 7 étapes sur 7, fuzzing compris. La seconde relecture confirme les correctifs.
+- **Limites connues** :
+  - seule la dernière session d'un appareil lui est liée : révoquer une session plus ancienne du même appareil le laisse connu (« déconnecter les autres appareils » couvre ce cas) ;
+  - un ancien cookie d'appareil (chemin `/api/auth`) reste dans le navigateur jusqu'à son expiration, sans effet.
+- **Point ouvert** : l'inscription ne vérifie pas encore l'adresse e-mail avant d'ouvrir l'espace. Le paiement de l'abonnement fait office de filtre en production, mais une vérification par lien reste à ajouter.

@@ -117,6 +117,14 @@ function ecrireLimites(tout = false) {
 
 /* Limite les essais de connexion : 10 par adresse IP et par quart d'heure. */
 const essais = new Map();
+// Bloc d'adresses voisines (IPv4 /24, IPv6 /48) : un robot qui change d'adresse dans son bloc ne remet pas son compteur à zéro.
+// Sert aux échecs de connexion sur un compte donné, jamais à un compteur commun à tout le bloc (un voisin bloquerait les autres).
+function blocReseau(ip) {
+  const v = String(ip || '').replace(/^::ffff:/i, '');
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(v)) return v.replace(/\.\d+$/, '.0/24');
+  if (v.includes(':')) return v.toLowerCase().split(':').slice(0, 3).join(':') + '::/48';
+  return v;
+}
 function limiterConnexion(ip, max = 10) {
   const maintenant = Date.now(), k = empreinteCle(ip);
   const e = essais.get(k) || { n: 0, depuis: maintenant, fenetre: QUART };
@@ -169,4 +177,4 @@ function limiter(cle, max, fenetreMs, message) {
   if (e.n > max) throw erreur(429, message, 'trop_de_requetes');
 }
 
-module.exports = { persisterLimites, ecrireLimites, compteEchecs, essayerMotDePasse, egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };
+module.exports = { persisterLimites, ecrireLimites, compteEchecs, essayerMotDePasse, egal, limiter, hacherMotDePasse, verifierMotDePasse, creerSession, cookieSession, marchandDepuisRequete, supprimerSession, limiterConnexion, blocReseau, verifierEchecs, noterEchec, oublierEchecs, nouvelId, sha256, COOKIE };

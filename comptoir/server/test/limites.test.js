@@ -46,8 +46,8 @@ test('attaque répartie sur un compte : le marchand se connecte quand même depu
   // Le marchand se connecte une fois chez lui : son appareil reçoit le cookie signé
   const r0 = await appel({ email: 'cible@exemple.ch', motDePasse: 'un mot de passe solide' }, '203.0.113.9');
   const appareil = r0.headers.getSetCookie().find(c => c.startsWith('comptoir_appareil=')).split(';')[0];
-  // 25 adresses × 3 échecs : seuil du compte (60) dépassé
-  for (let k = 1; k <= 25; k++) for (let n = 0; n < 3; n++) await appel({ email: 'cible@exemple.ch', motDePasse: 'faux' }, `198.51.100.${k}`);
+  // 25 adresses de blocs /24 différents × 3 échecs : seuil du compte (60) dépassé
+  for (let k = 1; k <= 25; k++) for (let n = 0; n < 3; n++) await appel({ email: 'cible@exemple.ch', motDePasse: 'faux' }, `198.51.${k}.1`);
   assert.equal((await appel({ email: 'cible@exemple.ch', motDePasse: 'un mot de passe solide' }, '192.0.2.77')).status, 429, 'appareil inconnu : bloqué');
   assert.equal((await appel({ email: 'cible@exemple.ch', motDePasse: 'un mot de passe solide' }, '192.0.2.77', appareil)).status, 200, 'son appareil passe toujours');
   // IPv6 : trois adresses du même /64 partagent la même limite
