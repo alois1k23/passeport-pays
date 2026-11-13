@@ -1331,5 +1331,5 @@ Jusqu'ici, un marchand ne pouvait pas changer l'adresse de son compte. Et une se
     - **Bas à moyen** : un intrus pouvait installer, puis attendre quelques minutes avant de demander. Si la session date de moins de 24 heures, la période retirée part de son ouverture (testé avec une invitation faite 10 minutes avant la demande).
     - Membres : jugés par la date de leur invitation (un membre invité avant, arrivé pendant, reste) ; chaque retrait est noté dans le journal du compte, listé dans l'e-mail, et ses e-mails sont effacés comme au retrait d'un membre.
     - Non corrigé : une double authentification d'avant la demande que l'intrus aurait désactivée ne peut pas être rétablie (le secret est détruit). Le mot de passe invalidé et toutes les sessions fermées couvrent le risque ; la titulaire la réactive.
-- Vérification complète (7 étapes) réussie avant la troisième ronde ; ensuite 224 tests sur 224, parcours de bout en bout 57/57.
+- Vérification complète (7 étapes) réussie après la troisième ronde, avec 224 tests sur 224 et le parcours de bout en bout à 57/57.
 
