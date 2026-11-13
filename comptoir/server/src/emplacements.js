@@ -77,15 +77,18 @@ function creer(db) {
       return pris;
     },
     /* Retour ou annulation : remet les unités là d'où elles venaient (ou dans l'emplacement principal). */
+    // Renvoie, par emplacement d'origine, les unités reprises de la répartition (retour partiel : le reste servira au suivant).
     remettre(bid, pid, vid, n, repartition, { reference, maintenant = Date.now() } = {}) {
-      if (!api.actif(bid) || n <= 0) return;
+      const repris = {};
+      if (!api.actif(bid) || n <= 0) return repris;
       const l = lister(bid), ids = new Set(l.map(e => e.id));
       let reste = n;
       for (const [eid, k0] of Object.entries(repartition || {})) {
         if (!ids.has(eid) || !reste) continue;
-        const k = Math.min(k0, reste); poser(bid, pid, vid, eid, qte(pid, vid, eid) + k); noter(bid, pid, vid, eid, k, 'retour', reference, maintenant); reste -= k;
+        const k = Math.min(k0, reste); poser(bid, pid, vid, eid, qte(pid, vid, eid) + k); noter(bid, pid, vid, eid, k, 'retour', reference, maintenant); reste -= k; repris[eid] = k;
       }
       if (reste) { const e = l[0]; poser(bid, pid, vid, e.id, qte(pid, vid, e.id) + reste); noter(bid, pid, vid, e.id, reste, 'retour', reference, maintenant); }
+      return repris;
     },
     /* Correction du total depuis la fiche produit : l'écart va à l'emplacement principal (une baisse prend ensuite ailleurs). */
     ajusterTotal(bid, pid, vid, ecart, { maintenant = Date.now() } = {}) {

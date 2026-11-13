@@ -46,6 +46,10 @@ function dateCourte(t) { const d = new Date(t); return d.toLocaleDateString('fr-
 function dateHeure(t) { return new Date(t).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
 function pct(n) { return (n > 0 ? '+' : '') + Math.round(n * 100) + ' %'; }
 function pill(statut) { const s = STATUTS[statut]; return `<span class="pill ${s.ton}">${s.nom}</span>`; }
+/* Montant conservé d'une vente : total moins les retours partiels remboursés (avoirs partiels). */
+function netVente(c) { return c.total - (c.retoursPartiels || []).reduce((a, p) => a + p.montant, 0) / 100; }
+/* Unités conservées d'une ligne (moins celles rendues lors de retours partiels). */
+function qteGardee(c, i) { return c.lignes[i].qte - (c.retoursPartiels || []).reduce((a, p) => a + p.lignes.filter(x => x.index === i).reduce((b, x) => b + x.qte, 0), 0); }
 function compteVentes(c) { return !['annulee', 'remboursee', 'attente'].includes(c.statut) && c.canal !== 'carte'; }   // carte cadeau vendue : comptée quand elle sert, pas deux fois
 function toast(msg, lien) {
   const t = $('#toast');
@@ -250,7 +254,7 @@ function vueFonctionVerrouillee(route, ab) {
 
 function statsPeriode(debut, fin) {
   const cs = etat.commandes.filter(c => c.date >= debut && c.date < fin && compteVentes(c));
-  const ca = cs.reduce((a, c) => a + c.total, 0);
+  const ca = cs.reduce((a, c) => a + netVente(c), 0);
   return { ca, n: cs.length, panier: cs.length ? ca / cs.length : 0 };
 }
 
@@ -401,7 +405,7 @@ function vueCommandes() {
   { const visibles = new Set(liste.map(c => c.id)); for (const id of [...ui.selection]) if (!visibles.has(id)) ui.selection.delete(id); }
   const sel = [...ui.selection];
   const toutCoche = page.length && page.every(c => ui.selection.has(c.id));
-  const ca = liste.filter(compteVentes).reduce((a, c) => a + c.total, 0);
+  const ca = liste.filter(compteVentes).reduce((a, c) => a + netVente(c), 0);
   return `
   <div class="tete"><div><h1>Commandes</h1><p class="sous">${liste.length.toLocaleString('fr-FR')} commande${liste.length > 1 ? 's' : ''} · ${euros(ca)} encaissés sur la sélection</p></div>
     <div class="rangee"><button class="btn fantome" data-action="export-commandes">Exporter CSV</button></div></div>
@@ -535,11 +539,12 @@ function detailCommande(c) {
     ${partieFournisseurATransmettre(c) ? `<div class="bloc"><p class="sous">Commande mixte : les articles du fournisseur ne lui sont pas encore transmis.</p><button class="btn petit" data-action="transmettre-partie" data-id="${c.id}">Transmettre la partie fournisseur</button></div>` : ''}
     ${c.retour ? `<div class="bloc encart ${c.retour.statut === 'demande' ? 'alerte-encart' : ''}" role="note"><span class="pill ${c.retour.statut === 'demande' ? 'warn' : 'good'}">${c.retour.statut === 'demande' ? 'Retour demandé' : 'Retour remboursé'}</span> <span class="sous">le ${new Date(c.retour.date).toLocaleDateString('fr-CH')} · ${euros(c.retour.montant)}</span>
       <ul class="sous">${c.retour.lignes.map(l => `<li>${l.qte} × ${esc(l.nom)}</li>`).join('')}</ul>${c.retour.motif ? `<p class="sous">Motif : ${esc(c.retour.motif)}</p>` : ''}
-      ${c.retour.statut === 'demande' ? '<p class="sous">À réception des articles, remboursez la commande (bouton « Rembourser »). Pour un retour partiel, remboursez le montant des articles depuis votre compte de paiement.</p>' : ''}</div>` : ''}
+      ${c.retour.statut === 'demande' ? '<p class="sous">À réception des articles : retour de tous les articles, bouton « Rembourser » ; retour d’une partie, « Rembourser les articles retournés » (avoir partiel).</p>' : ''}</div>` : ''}
     ${c.risque && c.risque.niveau !== 'faible' ? `<div class="bloc encart ${c.risque.niveau === 'eleve' ? 'alerte-encart' : ''}" role="note"><span class="pill ${c.risque.niveau === 'eleve' ? 'bad' : 'warn'}">Risque ${c.risque.niveau === 'eleve' ? 'élevé' : 'moyen'} · ${c.risque.score}/100</span>
       <ul class="sous">${c.risque.raisons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
       <p class="sous">${c.risque.niveau === 'eleve' ? 'Vérifiez avant d’expédier ou de transmettre au fournisseur : en cas de carte volée, le paiement est annulé par la banque des semaines plus tard (litige). Un e-mail ou un appel au client lève souvent le doute.' : 'Quelques signaux inhabituels : un coup d’œil suffit.'}</p></div>` : ''}
     ${c.moyen === 'facture' ? `<div class="bloc"><span class="pill info">Facture QR</span> <span class="sous">Référence ${esc(c.referenceQr || '')}${c.echeance ? ` · échéance ${new Date(c.echeance).toLocaleDateString('fr-CH')}` : ''}</span>${typeof SERVEUR !== 'undefined' && SERVEUR.connecte ? ` <a class="lien" href="/api/admin/commandes/${encodeURIComponent(c.id)}/facture-qr" target="_blank" rel="noopener">Voir la facture QR</a>` : ''}</div>` : ''}
+    ${typeof blocRetoursPartiels === 'function' ? blocRetoursPartiels(c) : ''}
     <div class="bloc actions">${fluxPour(c).map(([s, nom], i) => `<button class="btn ${i ? 'fantome' : ''} ${s === 'annulee' || s === 'remboursee' ? 'danger' : ''}" data-action="statut" data-id="${c.id}" data-statut="${s}">${nom}</button>`).join('') || '<p class="sous">Aucune action possible : commande clôturée.</p>'}</div>
     <div class="bloc"><h3>Historique</h3><ol class="frise">${[...c.historique].reverse().map(h => `<li><span>${esc(h.texte)}</span><time>${dateHeure(h.date)}</time></li>`).join('')}</ol></div>
     <div class="bloc"><label for="note-${c.id}"><h3>Note interne</h3></label><textarea id="note-${c.id}" rows="2" data-champ="note" data-id="${c.id}" placeholder="Visible uniquement par vous">${esc(c.note)}</textarea></div>

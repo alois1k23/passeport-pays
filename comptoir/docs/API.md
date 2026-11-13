@@ -99,6 +99,7 @@ Ajoutez une adresse `https://` dans **Paramètres > Intégrations** et choisisse
 - `commande.expediee`
 - `commande.livree`
 - `commande.remboursee`
+- `commande.remboursement_partiel` : une partie des articles a été remboursée (retour partiel). `donnees` contient la commande (sans données personnelles du client), plus `avoir` (numéro de l'avoir partiel), `montant` et `lignesRendues` (`nom`, `qte`, `montant`).
 - `commande.annulee`
 - `commande.retiree` : retrait en magasin et ventes à la caisse
 - `produit.rupture` : stock tombé à zéro, quelle qu'en soit la cause (vente en ligne, caisse, API)

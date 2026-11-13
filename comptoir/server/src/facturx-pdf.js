@@ -136,7 +136,7 @@ function composer(c, config, { avoir, devise }) {
 
   if (avoir) {
     p.rectangle(MARGE, y - 8, L - 2 * MARGE, 22, [0.96, 0.96, 0.97]);
-    p.ecrire(MARGE + 8, y, t.couper(`Avoir annulant la facture ${c.facture} du ${dateFr(c.dateFacture || c.date)} (commande ${c.statut === 'remboursee' ? 'remboursée' : 'annulée'}).`, 9, L - 2 * MARGE - 16, 'r', 1)[0], { taille: 9 });
+    p.ecrire(MARGE + 8, y, t.couper(c.avoir.libelle ? `${c.avoir.libelle.replace(/\.$/, '')} (facture du ${dateFr(c.dateFacture || c.date)}).` : `Avoir annulant la facture ${c.facture} du ${dateFr(c.dateFacture || c.date)} (commande ${c.statut === 'remboursee' ? 'remboursée' : 'annulée'}).`, 9, L - 2 * MARGE - 16, 'r', 1)[0], { taille: 9 });
     y -= 30;
   }
 
@@ -215,6 +215,7 @@ function composer(c, config, { avoir, devise }) {
     mentions.push(`Montant à payer : ${argent(ttc)}${c.echeance ? `, au plus tard le ${dateFr(c.echeance)}` : ''}.`);
     if (e.iban) mentions.push(`IBAN : ${String(e.iban).replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim()}${c.referenceQr ? ` · Référence : ${c.referenceQr}` : ''}`);
   }
+  if (avoir && c.carteCadeau && c.carteCadeau.montant > 0 && c.avoir && c.avoir.libelle) mentions.push(`Dont ${brut(c.carteCadeau.montant)} recrédités sur la carte cadeau ····${c.carteCadeau.fin}.`);
   if (!avoir && c.carteCadeau && c.carteCadeau.montant > 0) mentions.push(`Dont ${brut(c.carteCadeau.montant)} réglés par carte cadeau ····${c.carteCadeau.fin}.`);
   // Vente entre professionnels (commande issue d'un devis) : mentions de l'art. L441-9 du Code de commerce (France).
   if (!avoir && c.canal === 'devis') {

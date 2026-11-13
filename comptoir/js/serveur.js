@@ -641,7 +641,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action="facture-xml"]'); if (!el) return;
   try {
-    const r = await fetch(`/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/${el.dataset.format === 'pdf' ? 'facture-pdf' : 'facture-electronique'}${el.dataset.avoir ? '?avoir=1' : ''}`, { credentials: 'same-origin' });
+    const r = await fetch(`/api/admin/commandes/${encodeURIComponent(el.dataset.id)}/${el.dataset.format === 'pdf' ? 'facture-pdf' : 'facture-electronique'}${el.dataset.avoir ? `?avoir=${encodeURIComponent(el.dataset.avoir)}` : ''}`, { credentials: 'same-origin' });
     if (!r.ok) { let m = 'Téléchargement impossible.'; try { m = (await r.json()).erreur || m; } catch { /* ignoré */ } toast(m); return; }
     const nom = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || (el.dataset.format === 'pdf' ? 'facture.pdf' : 'facture.xml');
     const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');

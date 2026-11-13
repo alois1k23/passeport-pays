@@ -17,6 +17,7 @@ const FacturxPdf = require('./facturx-pdf');
 const CartesCadeaux = require('./cartes-cadeaux');
 const Devis = require('./devis');
 const Fidelite = require('./fidelite');
+const Retours = require('./retours-partiels');
 const Pii = require('./pii');
 const Emplacements = require('./emplacements');
 const JournalInalterable = require('./journal-inalterable');
@@ -307,7 +308,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (l.varianteId && Array.isArray(d.variantes) && !v) { if (sens < 0) l.retireStock = 0; continue; }   // variante supprimée depuis : rien à rendre ni à retirer, la somme reste juste
       if (v) {
         if (sens < 0) { const retire = Math.min(l.qte, Math.max(0, v.stock || 0)); l.retireStock = retire; v.stock = (v.stock || 0) - retire; if (emplacements) l.emplacements = EMP.retirer(boutiqueId, l.produitId, v.id, retire, { canal }); }
-        else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; v.stock = (v.stock || 0) + remis; l.retireStock = 0; if (emplacements) { EMP.remettre(boutiqueId, l.produitId, v.id, remis, l.emplacements); delete l.emplacements; } }
+        else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; v.stock = (v.stock || 0) + remis; l.retireStock = 0; if (emplacements) { l.emplacementsRepris = EMP.remettre(boutiqueId, l.produitId, v.id, remis, l.emplacements); delete l.emplacements; } }
         const avantTotal = d.stock || 0;
         d.stock = d.variantes.reduce((a, x) => a + (x.stock || 0), 0);
         if (sens < 0 && avantTotal > 0 && d.stock <= 0) integ.emettre(boutiqueId, 'produit.rupture', { id: l.produitId, nom: d.nom, stock: 0 });
@@ -321,7 +322,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         if (emplacements) l.emplacements = EMP.retirer(boutiqueId, l.produitId, '', retire, { canal });
         if (retire > 0 && d.stock <= 0 && d.type !== 'drop') integ.emettre(boutiqueId, 'produit.rupture', { id: l.produitId, nom: d.nom, stock: 0 });   // passage à zéro (vente en ligne, caisse, paiement manuel)
       }
-      else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; d.stock = (d.stock || 0) + remis; l.retireStock = 0; if (emplacements) { EMP.remettre(boutiqueId, l.produitId, '', remis, l.emplacements); delete l.emplacements; } }
+      else { const remis = typeof l.retireStock === 'number' ? l.retireStock : l.qte; d.stock = (d.stock || 0) + remis; l.retireStock = 0; if (emplacements) { l.emplacementsRepris = EMP.remettre(boutiqueId, l.produitId, '', remis, l.emplacements); delete l.emplacements; } }
       db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(JSON.stringify(d), l.produitId);
     }
   };
@@ -1334,8 +1335,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const j = 86400000, maintenant = Date.now();
     const abos = db.prepare("SELECT formule, devise, COUNT(*) n FROM abonnements WHERE statut = 'actif' GROUP BY formule, devise").all();
     const mrr = {}; for (const a of abos) mrr[a.devise] = (mrr[a.devise] || 0) + a.n * ((Formules.FORMULES[a.formule] || {}).prix || 0);
-    const ventes = d => db.prepare("SELECT COUNT(*) n, COALESCE(SUM(json_extract(donnees, '$.total')), 0) t FROM commandes WHERE date > ? AND statut NOT IN ('attente', 'annulee', 'remboursee')").get(maintenant - d * j);
-    const volumeParDevise = db.prepare("SELECT COALESCE(json_extract(b.config, '$.boutique.devise'), 'EUR') AS devise, SUM(json_extract(c.donnees, '$.total')) AS t FROM commandes c JOIN boutiques b ON b.id = c.boutique_id WHERE c.date > ? AND c.statut NOT IN ('attente', 'annulee', 'remboursee') GROUP BY devise").all(maintenant - 30 * j);
+    const ventes = d => db.prepare("SELECT COUNT(*) n, COALESCE(SUM(json_extract(donnees, '$.total') - COALESCE((SELECT SUM(json_extract(r.value, '$.montant')) FROM json_each(donnees, '$.retoursPartiels') r), 0) / 100.0), 0) t FROM commandes WHERE date > ? AND statut NOT IN ('attente', 'annulee', 'remboursee')").get(maintenant - d * j);
+    const volumeParDevise = db.prepare("SELECT COALESCE(json_extract(b.config, '$.boutique.devise'), 'EUR') AS devise, SUM(json_extract(c.donnees, '$.total') - COALESCE((SELECT SUM(json_extract(r.value, '$.montant')) FROM json_each(c.donnees, '$.retoursPartiels') r), 0) / 100.0) AS t FROM commandes c JOIN boutiques b ON b.id = c.boutique_id WHERE c.date > ? AND c.statut NOT IN ('attente', 'annulee', 'remboursee') GROUP BY devise").all(maintenant - 30 * j);
     const v1 = ventes(1), v7 = ventes(7), v30 = ventes(30);
     let sauvegarde = 'aucune';
     try {
@@ -1780,7 +1781,14 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (c.refFournisseur) throw erreur(409, 'La partie fournisseur est déjà transmise.', 'deja_transmise');
     return { commande: await transmettreAuFournisseur(ctx.boutique, c, false) };
   });
-  r.post('/api/admin/commandes/:id/statut', exigerMarchand, async ctx => {
+  // Remboursements en cours, par commande : un remboursement (complet ou partiel) à la fois, jamais deux en parallèle.
+  const remboursementsEnCours = new Set();
+  const avecVerrou = async (id, fn) => {
+    if (remboursementsEnCours.has(id)) throw erreur(409, 'Un remboursement de cette commande est déjà en cours : patientez quelques secondes.', 'remboursement_en_cours');
+    remboursementsEnCours.add(id);
+    try { return await fn(); } finally { remboursementsEnCours.delete(id); }
+  };
+  const changerStatut = async ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     const cible = ctx.corps.statut;
     if (cible === 'remboursee' && c.retour && c.retour.statut === 'demande') c.retour.statut = 'rembourse';
@@ -1808,7 +1816,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     if (cible === 'remboursee') {
       const p = db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'paye'").get(c.id);
-      if (p && p.fournisseur === 'stripe') await paiement.rembourser({ paiement: p });
+      // Après des retours partiels, Stripe rembourse ce qui reste du paiement (rien à appeler s'il a déjà tout rendu).
+      if (p && p.fournisseur === 'stripe' && Retours.deja(c).argent < p.montant_centimes) await paiement.rembourser({ paiement: p, cle: `remb-${p.id}-complet` });
       if (p) db.prepare("UPDATE paiements SET statut = 'rembourse' WHERE id = ?").run(p.id);
       // Pendant le remboursement, un webhook a pu modifier la commande (litige, préparation) : on repart de la version à jour.
       const frais = commandeDeBoutique(ctx.boutique.id, c.id);
@@ -1818,7 +1827,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (retourDemande && c.retour) c.retour.statut = 'rembourse';
       if (c.refFournisseur && ctx.corps.fournisseurAnnule) historique(c, `Remboursement après annulation déclarée chez le fournisseur (réf. ${c.refFournisseur})`);
     }
-    const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: 'Expédiée', livree: 'Livrée', prete: 'Prête à retirer, client prévenu', retiree: 'Remise au client', remboursee: `Remboursée (${formatMontant(c.total, config)})`, annulee: 'Annulée' };
+    const textes = { payee: 'Paiement reçu', preparation: 'Préparation commencée', expediee: 'Expédiée', livree: 'Livrée', prete: 'Prête à retirer, client prévenu', retiree: 'Remise au client', remboursee: `Remboursée (${formatMontant(Retours.resteAvoir(c) / 100, config)}${(c.retoursPartiels || []).length ? ', reste après les retours partiels' : ''})`, annulee: 'Annulée' };
     // Numéro de suivi : celui que le marchand a reçu du transporteur. Jamais inventé pour une vraie commande
     // (le client recevrait un faux numéro) ; seul le mode simulation en fabrique un, pour la démonstration.
     if (cible === 'expediee' && !c.suivi) {
@@ -1851,7 +1860,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (cible === 'payee' && !c.facture) { c.facture = prochaineFacture(ctx.boutique.id, Date.now()); c.dateFacture = Date.now(); }
     if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
     // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
-    if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: c.total };
+    if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: Retours.resteAvoir(c) / 100 };
     if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1, canalStock(c));   // vendu : le stock baisse comme pour un paiement en ligne
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1, canalStock(c));
     // Carte cadeau vendue : remboursable seulement si elle n'a pas servi ; elle est alors désactivée.
@@ -1861,19 +1870,21 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Fidélité : points gagnés retirés, points utilisés rendus (une seule fois). Des points gagnés déjà dépensés ne
     // peuvent pas être repris : l'écart est noté dans l'historique (à déduire du remboursement si le marchand le souhaite).
     if ((cible === 'remboursee' || cible === 'annulee') && c.fidelite && !c.fidelite.annule && c.client && c.client.email) {
-      const repris = c.fidelite.gagnes ? FID.debiter(ctx.boutique.id, c.client.email, c.fidelite.gagnes, { commandeId: c.id, type: 'annulation' }) : 0;
+      const aReprendre = Math.max(0, (c.fidelite.gagnes || 0) - Retours.deja(c).points);   // une partie a pu être reprise aux retours partiels
+      const repris = aReprendre ? FID.debiter(ctx.boutique.id, c.client.email, aReprendre, { commandeId: c.id, type: 'annulation' }) : 0;
       if (c.fidelite.debite && !c.fidelite.liberee) FID.crediter(ctx.boutique.id, c.client.email, c.fidelite.debite, { commandeId: c.id, type: 'remboursement' });
       if (c.fidelite.gagnes || c.fidelite.debite) {
         c.fidelite.annule = Date.now();
-        const reg = FID.reglages(ctx.boutique.id), manque = (c.fidelite.gagnes || 0) - repris;
+        const reg = FID.reglages(ctx.boutique.id), manque = aReprendre - repris;
         historique(c, `Points de fidélité de la commande annulés${manque > 0 ? ` ; ${manque} points gagnés avaient déjà été utilisés (valeur ${formatMontant(FID.valeur(reg, manque) / 100, config)}), non repris` : ''}`);
       }
     }
     // Partie payée par carte cadeau : rendue sur la carte (le reste est remboursé par le moyen de paiement d'origine).
     if ((cible === 'remboursee' || cible === 'annulee') && c.carteCadeau && !c.carteCadeau.liberee && !c.carteCadeau.rendue) {
-      Cartes.crediter(c.carteCadeau.id, Math.round(c.carteCadeau.montant * 100), { commandeId: c.id, texte: `Commande n° ${c.numero} ${cible === 'annulee' ? 'annulée' : 'remboursée'}`, type: 'remboursement' });
+      const rendu = Math.round(c.carteCadeau.montant * 100) - Retours.deja(c).carte;   // moins ce qui a été recrédité aux retours partiels
+      if (rendu > 0) Cartes.crediter(c.carteCadeau.id, rendu, { commandeId: c.id, texte: `Commande n° ${c.numero} ${cible === 'annulee' ? 'annulée' : 'remboursée'}`, type: 'remboursement' });
       c.carteCadeau.rendue = Date.now();
-      historique(c, `${formatMontant(c.carteCadeau.montant, config)} recrédités sur la carte cadeau ····${c.carteCadeau.fin}`);
+      if (rendu > 0) historique(c, `${formatMontant(rendu / 100, config)} recrédités sur la carte cadeau ····${c.carteCadeau.fin}`);
     }
     c.statut = cible;
     historique(c, textes[cible] + (cible === 'expediee' ? (c.suivi ? `, suivi ${c.suivi}` : ', sans numéro de suivi') : ''));
@@ -1883,6 +1894,88 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (cible === 'prete' && EmailsClients.langueDe(c)) { const m = EmailsClients.pret(c, { ...optionsEmail(ctx.boutique, c, config), adresse: config.magasin.adresse || '', horaires: config.magasin.horaires }); envoyerEmail(ctx.boutique.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
     else if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\nVotre commande vous attend en boutique : ${config.magasin.adresse || ''}${config.magasin.horaires ? `\nHoraires : ${config.magasin.horaires}` : ''}.\nPrésentez ce numéro de commande : ${c.numero}.\n\nVotre commande : ${lienCommande(ctx.boutique, c.id)}\n\n${config.boutique.nom}`);
     return { commande: c };
+  };
+  r.post('/api/admin/commandes/:id/statut', exigerMarchand, ctx => ['remboursee', 'annulee'].includes(ctx.corps.statut) ? avecVerrou(ctx.params.id, () => changerStatut(ctx)) : changerStatut(ctx));
+  /* Retour partiel : une partie des articles (et éventuellement la livraison) est remboursée, avec un avoir partiel
+     numéroté dans la suite des factures et scellé au journal. Corps : { lignes: [{ index, qte }], port, remettreEnStock,
+     motif, apercu }. Avec apercu: true, rien ne bouge : le calcul est renvoyé (montant, répartition argent / carte). */
+  r.post('/api/admin/commandes/:id/retour-partiel', exigerMarchand, ctx => {
+    if (ctx.role === 'commandes') throw erreur(403, 'Rembourser est réservé au propriétaire ou à la gestion complète.', 'role');
+    const bid = ctx.boutique.id, config = lireConfig(ctx.boutique);
+    const preparer = c => {
+      if (!transitionsPossibles(c).includes('remboursee') || c.avoir) throw erreur(409, `Une commande « ${c.statut} » ne peut pas être remboursée.`, 'statut');
+      if (c.litige) throw erreur(409, 'Un litige bancaire existe sur cette commande : le remboursement passe par la banque du client, pas par un retour.', 'litige');
+      const p = db.prepare("SELECT * FROM paiements WHERE commande_id = ? AND statut = 'paye'").get(c.id);
+      const carte = c.carteCadeau && !c.carteCadeau.liberee ? Retours.cts(c.carteCadeau.montant) : 0;
+      const argentPaye = p ? p.montant_centimes : Math.max(0, Retours.cts(c.total) - carte);
+      const calcul = Retours.calculer(c, ctx.corps, { argentPaye });
+      if (c.refFournisseur && ['payee', 'preparation', 'fournisseur'].includes(c.statut) && calcul.lignes.some(x => c.lignes[x.index].type === 'drop') && !ctx.corps.fournisseurAnnule)
+        throw erreur(409, `La partie fournisseur est déjà commandée (réf. ${c.refFournisseur}) : annulez ces articles chez le fournisseur d’abord, puis confirmez.`, 'fournisseur_a_annuler');
+      return { p, calcul, mode: p && p.fournisseur === 'stripe' ? 'stripe' : p ? p.fournisseur : 'manuel' };
+    };
+    const c0 = commandeDeBoutique(bid, ctx.params.id);
+    if (ctx.corps.apercu === true) { const { calcul, mode } = preparer(c0); return { apercu: { ...calcul, mode, lignes: calcul.lignes.map(x => ({ ...x, nom: c0.lignes[x.index].nom })) } }; }
+    return avecVerrou(c0.id, async () => {
+      const c = commandeDeBoutique(bid, c0.id), { p, calcul, mode } = preparer(c);
+      const rang = (c.retoursPartiels || []).length + 1;
+      // L'argent part d'abord (clé d'idempotence : un nouvel essai après une coupure ne rembourse pas deux fois).
+      if (calcul.argent && mode === 'stripe') await paiement.rembourser({ paiement: p, montant: calcul.argent, cle: `retour-${c.id}-${rang}-${calcul.argent}` });
+      try {
+        return transaction(db, () => {
+          const f = commandeDeBoutique(bid, c.id);
+          // Pendant le remboursement, un webhook a pu changer la commande : on refait le calcul sur la version à jour.
+          const verif = preparer(f).calcul;
+          if (verif.montant !== calcul.montant || verif.argent !== calcul.argent || (f.retoursPartiels || []).length + 1 !== rang) throw erreur(409, 'La commande a changé pendant le remboursement : vérifiez-la avant de continuer.', 'commande_changee');
+          const piece = { numero: prochaineFacture(bid, Date.now(), 'AV'), date: Date.now(), lignes: calcul.lignes, port: calcul.port, montant: calcul.montant, argent: calcul.argent, carte: calcul.carte, mode,
+            stock: ctx.corps.remettreEnStock !== false, motif: String(ctx.corps.motif || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200) || null };
+          // Stock : les unités vraiment retirées à la vente reviennent (ou sont sorties du compte si l'article est abîmé).
+          for (const x of calcul.lignes) {
+            const l = f.lignes[x.index];
+            const pris = typeof l.retireStock === 'number' ? l.retireStock : Math.max(0, l.qte - Retours.deja(f).qte[x.index]);
+            const n = Math.min(x.qte, pris);
+            if (n <= 0) continue;
+            const repartition = l.emplacements ? { ...l.emplacements } : null;
+            if (piece.stock) {
+              const tmp = { ...l, qte: n, retireStock: n, emplacements: repartition };
+              ajusterStock(bid, [tmp], +1, canalStock(f));
+              if (l.emplacements) for (const [eid, k] of Object.entries(tmp.emplacementsRepris || {})) { l.emplacements[eid] -= k; if (l.emplacements[eid] <= 0) delete l.emplacements[eid]; }
+            } else if (l.emplacements) {
+              let reste = n; for (const eid of Object.keys(l.emplacements)) { const k = Math.min(reste, l.emplacements[eid]); l.emplacements[eid] -= k; reste -= k; if (l.emplacements[eid] <= 0) delete l.emplacements[eid]; if (!reste) break; }
+            }
+            l.retireStock = pris - n;
+          }
+          if (piece.carte) Cartes.crediter(f.carteCadeau.id, piece.carte, { commandeId: f.id, texte: `Retour partiel, commande n° ${f.numero}`, type: 'remboursement' });
+          // Points gagnés avec la commande : la part des articles rendus est reprise (ce qui a déjà été dépensé ne l'est pas).
+          if (f.fidelite && f.fidelite.gagnes && !f.fidelite.annule && f.client && f.client.email) {
+            const vises = Math.min(f.fidelite.gagnes - Retours.deja(f).points, Math.round(f.fidelite.gagnes * piece.montant / Math.max(1, Retours.cts(f.total))));
+            if (vises > 0) { piece.points = vises; piece.pointsRepris = FID.debiter(bid, f.client.email, vises, { commandeId: f.id, type: 'annulation' }); }
+          }
+          f.retoursPartiels = [...(f.retoursPartiels || []), piece];
+          // Demande de retour du client entièrement couverte par les retours partiels : marquée remboursée.
+          if (f.retour && f.retour.statut === 'demande' && (f.retour.lignes || []).every(x => Number.isInteger(x.ligne) && Retours.deja(f).qte[x.ligne] >= x.qte)) f.retour.statut = 'rembourse';
+          const liste = calcul.lignes.map(x => `${x.qte} × ${f.lignes[x.index].nom}`).join(', ');
+          historique(f, `Retour partiel ${piece.numero} : ${formatMontant(piece.montant / 100, config)} remboursés (${liste}${piece.port ? `${liste ? ', ' : ''}livraison` : ''})${piece.carte ? `, dont ${formatMontant(piece.carte / 100, config)} sur la carte cadeau ····${f.carteCadeau.fin}` : ''}${mode === 'manuel' && piece.argent ? ` ; ${formatMontant(piece.argent / 100, config)} à rendre au client par vos soins (virement, espèces)` : ''}${piece.stock ? '' : ' ; articles non remis en stock'}${piece.motif ? ` ; motif : ${piece.motif}` : ''}`);
+          enregistrerCommande(f);   // scelle l'avoir partiel au journal
+          try { integ.emettre(bid, 'commande.remboursement_partiel', { ...commandeApi(f, config.boutique.devise || 'CHF', { client: false }), avoir: piece.numero, montant: piece.montant / 100, lignesRendues: calcul.lignes.map(x => ({ nom: f.lignes[x.index].nom, qte: x.qte, montant: x.montant / 100 })) }); } catch (e) { journal.error('[webhook]', e.message); }
+          noterActivite(ctx.marchand.id, 'remboursement', `Retour partiel ${piece.numero} (commande n° ${f.numero}, ${formatMontant(piece.montant / 100, config)})`, ctx);
+          // Client prévenu (dans sa langue) : montant, articles, part recréditée sur la carte.
+          if (f.client && f.client.email && !f.client.illisible) {
+            const lignes = calcul.lignes.map(x => `- ${x.qte} × ${f.lignes[x.index].nom} : ${formatMontant(x.montant / 100, config)}`).concat(piece.port ? [`- ${formatMontant(piece.port / 100, config)}`] : []).join('\n');
+            const o = { ...optionsEmail(ctx.boutique, f, config), montant: formatMontant(piece.montant / 100, config), lignes, carte: piece.carte ? formatMontant(piece.carte / 100, config) : '', manuel: mode === 'manuel' };
+            const m = EmailsClients.langueDe(f) ? EmailsClients.remboursementPartiel(f, o) : { sujet: `Remboursement partiel de votre commande n° ${f.numero}`, corps: `Bonjour ${f.client.nom},\n\nNous avons remboursé ${o.montant} pour ces articles :\n${lignes}${o.carte ? `\n\nDont ${o.carte} recrédités sur votre carte cadeau.` : ''}\n\n${o.manuel ? 'Le remboursement se fait selon les modalités convenues avec nous (par exemple par virement).' : 'Le montant revient sur votre moyen de paiement d’origine ; selon votre banque, comptez quelques jours.'} L’avoir ${piece.numero} est joint à votre commande.\n\nVotre commande : ${o.lienCommande}\n\n${config.boutique.nom}` };
+            envoyerEmail(bid, f.client.email, m.sujet, m.corps, { langue: f.langue });
+          }
+          return { commande: f, avoir: piece.numero };
+        });
+      } catch (e) {
+        // L'argent est déjà parti : le marchand doit le savoir, et un nouvel essai identique ne rembourse pas une seconde fois.
+        if (calcul.argent && mode === 'stripe') {
+          journal.error('[retour-partiel] remboursement Stripe fait, avoir non créé', c.id, e.message);
+          throw erreur(e.statut === 409 ? 409 : 500, `${formatMontant(calcul.argent / 100, config)} ont été remboursés chez Stripe, mais l’avoir n’a pas été créé${e.statut ? ` (${e.message})` : ''}. Réessayez le même retour : le client ne sera pas remboursé deux fois.`, 'avoir_non_cree');
+        }
+        throw e;
+      }
+    });
   });
   // Idempotence de la caisse : une même clé de ticket n'enregistre qu'une vente (double clic, renvoi après coupure).
   const ticketsVus = new Map();
@@ -2392,9 +2485,13 @@ ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.
      Même contrôle pour le XML seul et pour le PDF Factur-X qui le contient : rien n'est produit s'il manque une mention
      ou si les montants du XML sont incohérents. */
   const factureStructuree = ctx => {
-    const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id), config = lireConfig(ctx.boutique);
-    const avoir = ctx.query.get('avoir') === '1';
-    if (avoir && !c.avoir) throw erreur(404, 'Cette commande n’a pas d’avoir.', 'introuvable');
+    const c0 = commandeDeBoutique(ctx.boutique.id, ctx.params.id), config = lireConfig(ctx.boutique);
+    // ?avoir=1 : avoir final ; ?avoir=AV-… : un avoir partiel (retour d'une partie des articles).
+    const q = ctx.query.get('avoir'), piece = q && q !== '1' ? (c0.retoursPartiels || []).find(p => p.numero === q) : null;
+    if (q && q !== '1' && !piece) throw erreur(404, 'Avoir introuvable pour cette commande.', 'introuvable');
+    const avoir = !!q;
+    if (q === '1' && !c0.avoir) throw erreur(404, 'Cette commande n’a pas d’avoir.', 'introuvable');
+    const c = piece ? Retours.vuePartielle(c0, piece) : q === '1' && (c0.retoursPartiels || []).length ? Retours.vueReste(c0) : c0;
     const manque = FactureElectronique.manques(c, config);
     if (manque.length) throw erreur(409, `Facture électronique impossible : il manque : ${manque.join(', ')}. À compléter dans Paramètres, Conformité.`, 'incomplet');
     const devise = config.boutique.devise || 'EUR';
@@ -3283,7 +3380,7 @@ ${bloc}</main></body></html>`;
       if (!cmds.length) continue;
       const vendue = c => !['attente', 'annulee', 'remboursee'].includes(c.statut) && c.canal !== 'carte';   // carte cadeau vendue : pas du chiffre d'affaires (compté quand elle sert)
       const sem = cmds.filter(c => c.date >= lundi - 7 * 86400000 && c.date < lundi && vendue(c)), avant = cmds.filter(c => c.date < lundi - 7 * 86400000 && vendue(c));
-      const ca = l => l.reduce((a, c) => a + c.total, 0), f = m => formatMontant(m, config);
+      const ca = l => l.reduce((a, c) => a + c.total - Retours.deja(c).total / 100, 0), f = m => formatMontant(m, config);   // moins les retours partiels
       const evol = (x, y) => y ? `${x >= y ? '+' : '−'}${Math.abs(Math.round((x - y) / y * 100))} % par rapport à la semaine d’avant` : 'première semaine de ventes';
       const parProduit = {};
       for (const c of sem) for (const l of c.lignes || []) { const k = l.nom; parProduit[k] = parProduit[k] || { q: 0, m: 0 }; parProduit[k].q += l.qte; parProduit[k].m += l.prix * l.qte; }
@@ -3397,7 +3494,7 @@ ${bloc}</main></body></html>`;
     if (delaiRetour(b, c) <= Date.now()) throw erreur(409, 'Le délai de retour de cette commande est dépassé.', 'retour_hors_delai');
     const voulus = Array.isArray(ctx.corps.lignes) ? ctx.corps.lignes : [];
     // Chaque ligne repérée par sa position (deux tailles du même produit sont deux lignes distinctes)
-    const lignes = c.lignes.map((l, i) => { const v = voulus.find(x => x && Number(x.ligne) === i); const q = v ? Math.max(0, Math.min(l.qte, parseInt(v.qte, 10) || 0)) : 0; return q ? { produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: q, prix: l.prix } : null; }).filter(Boolean);
+    const lignes = c.lignes.map((l, i) => { const v = voulus.find(x => x && Number(x.ligne) === i); const q = v ? Math.max(0, Math.min(l.qte, parseInt(v.qte, 10) || 0)) : 0; return q ? { ligne: i, produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: q, prix: l.prix } : null; }).filter(Boolean);
     if (!lignes.length) throw erreur(400, 'Choisissez au moins un article à retourner.', 'retour_vide');
     const motif = String(ctx.corps.motif || '').trim().slice(0, 500);
     c.retour = { date: Date.now(), lignes, motif, statut: 'demande', montant: prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0)) };

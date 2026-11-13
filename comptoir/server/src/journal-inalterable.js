@@ -13,6 +13,7 @@
    de caisse (art. 286, I-3° bis du CGI). Le sceau ne contient aucune donnée personnelle du client (effacement RGPD possible). */
 'use strict';
 const crypto = require('node:crypto');
+const Retours = require('./retours-partiels');
 
 const ORIGINE = '0'.repeat(64);
 const centimes = n => Math.round(Number(n || 0) * 100);
@@ -22,8 +23,15 @@ const lendemain = jour => { const d = new Date(`${jour}T12:00:00Z`); d.setUTCDat
 const pause = () => new Promise(r => setImmediate(r));
 const numeroDe = ref => { const m = /-(\d+)$/.exec(String(ref || '')); return m ? Number(m[1]) : null; };
 
-/* Contenu scellé d'une pièce, champs dans un ordre fixe. */
-function contenuPiece(type, c) {
+/* Contenu scellé d'une pièce, champs dans un ordre fixe.
+   Avoir partiel (retour d'une partie des articles) : ref = son numéro ; scellé avec ses seules lignes et son montant.
+   Avoir final d'une commande qui a eu des avoirs partiels : scellé avec ce qui restait. */
+function contenuPiece(type, c, ref) {
+  if (type === 'avoir-partiel') {
+    const piece = (c.retoursPartiels || []).find(p => p.numero === ref);
+    return piece ? contenuPiece('avoir', Retours.vuePartielle(c, piece)).replace('{"type":"avoir"', '{"type":"avoir-partiel"') : null;
+  }
+  if (type === 'avoir' && c.retoursPartiels && c.retoursPartiels.length && c.avoir) c = Retours.vueReste(c);
   const avoir = type === 'avoir';
   const lignes = (c.lignes || []).map(l => [String(l.nom), Number(l.qte), centimes(l.prix), typeof l.tauxTva === 'number' ? Math.round(l.tauxTva * 1000) : null]);
   return JSON.stringify({
@@ -76,12 +84,18 @@ function creer(db, cle) {
 
   /* Scelle la facture (ou le ticket) et l'avoir d'une commande s'ils ne le sont pas encore. Idempotent.
      Une commande a au plus une facture et un avoir : un second numéro pour la même commande est refusé (conflit signalé). */
-  function sceller(boutiqueId, c, le = Date.now(), leAvoir = le) {
+  function sceller(boutiqueId, c, le = Date.now(), leAvoir = le, { reprise = false } = {}) {
     const faits = [], conflits = [];
     const existant = types => db.prepare(`SELECT ref FROM journal_inalterable WHERE boutique_id = ? AND commande_id = ? AND type IN (${types.map(() => '?').join(', ')})`).get(boutiqueId, c.id, ...types);
     if (c.facture) {
       const type = c.canal === 'magasin' ? 'ticket' : 'facture', e = existant(['facture', 'ticket']);
       if (!e) { ajouter(boutiqueId, type, c.facture, c.id, contenuPiece(type, c), le); faits.push(c.facture); } else if (e.ref !== c.facture) conflits.push(`${c.facture} (déjà ${e.ref})`);
+    }
+    // Avoirs partiels, dans l'ordre (avant l'avoir final, qui ne vient qu'après eux).
+    for (const piece of c.retoursPartiels || []) {
+      if (!piece.numero) continue;
+      const e = db.prepare("SELECT 1 FROM journal_inalterable WHERE boutique_id = ? AND type = 'avoir-partiel' AND ref = ?").get(boutiqueId, piece.numero);
+      if (!e) { ajouter(boutiqueId, 'avoir-partiel', piece.numero, c.id, contenuPiece('avoir-partiel', c, piece.numero), reprise ? piece.date : leAvoir); faits.push(piece.numero); }
     }
     if (c.avoir && c.avoir.numero) {
       const e = existant(['avoir']);
@@ -94,7 +108,8 @@ function creer(db, cle) {
   function nonScellees(boutiqueId = null) {
     return db.prepare(`SELECT c.* FROM commandes c WHERE ${boutiqueId ? 'c.boutique_id = ? AND' : ''} (
         (json_extract(c.donnees, '$.facture') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.commande_id = c.id AND j.type IN ('facture', 'ticket')))
-        OR (json_extract(c.donnees, '$.avoir.numero') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.commande_id = c.id AND j.type = 'avoir')))`)
+        OR (json_extract(c.donnees, '$.avoir.numero') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.commande_id = c.id AND j.type = 'avoir'))
+        OR (json_type(c.donnees, '$.retoursPartiels') = 'array' AND EXISTS (SELECT 1 FROM json_each(c.donnees, '$.retoursPartiels') r WHERE NOT EXISTS (SELECT 1 FROM journal_inalterable j WHERE j.boutique_id = c.boutique_id AND j.type = 'avoir-partiel' AND j.ref = json_extract(r.value, '$.numero')))))`)
       .all(...(boutiqueId ? [boutiqueId] : []));
   }
 
@@ -107,7 +122,7 @@ function creer(db, cle) {
     for (const [bid, cmds] of parBoutique) {
       cmds.sort((a, b) => (a.dateFacture || a.date) - (b.dateFacture || b.date));
       db.exec('BEGIN');
-      try { for (const c of cmds) n += sceller(bid, c, c.dateFacture || c.date, (c.avoir && c.avoir.date) || c.dateFacture || c.date).faits.length; db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
+      try { for (const c of cmds) n += sceller(bid, c, c.dateFacture || c.date, (c.avoir && c.avoir.date) || c.dateFacture || c.date, { reprise: true }).faits.length; db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
     }
     return n;
   }
@@ -132,7 +147,7 @@ function creer(db, cle) {
       try {
         const totalJour = liste.reduce((a, x) => a + x.total, 0);
         grandTotal += totalJour;
-        const contenu = JSON.stringify({ jour, pieces: liste.length, factures: liste.filter(x => x.type !== 'avoir').length, avoirs: liste.filter(x => x.type === 'avoir').length, totalJour, grandTotal, seqs: liste.map(x => x.seq) });
+        const contenu = JSON.stringify({ jour, pieces: liste.length, factures: liste.filter(x => x.type !== 'avoir' && x.type !== 'avoir-partiel').length, avoirs: liste.filter(x => x.type === 'avoir' || x.type === 'avoir-partiel').length, totalJour, grandTotal, seqs: liste.map(x => x.seq) });
         const { seq, empreinte } = ajouter(boutiqueId, 'cloture', jour, null, contenu, maintenant);
         const marquer = db.prepare('UPDATE journal_inalterable SET cloture_seq = ? WHERE boutique_id = ? AND seq = ?');
         for (const x of liste) marquer.run(seq, boutiqueId, x.seq);
@@ -196,8 +211,8 @@ function creer(db, cle) {
         const num = numeroDe(e.ref); if (num !== null) { if (numeros.has(num)) noter(`Numéro ${num} utilisé deux fois.`); numeros.add(num); }
         const c = e.commande_id ? commandes.get(e.commande_id) : null;
         if (!c) { noter(`${e.ref} : la commande a été supprimée.`); continue; }
-        const refActuelle = e.type === 'avoir' ? (c.avoir && c.avoir.numero) : c.facture;
-        if (refActuelle !== e.ref || contenuPiece(e.type, c) !== e.contenu) noter(`${e.ref} : la pièce ne correspond plus à son sceau (montant, articles ou numéro modifiés).`);
+        const refActuelle = e.type === 'avoir-partiel' ? ((c.retoursPartiels || []).some(p => p.numero === e.ref) ? e.ref : null) : e.type === 'avoir' ? (c.avoir && c.avoir.numero) : c.facture;
+        if (refActuelle !== e.ref || contenuPiece(e.type, c, e.ref) !== e.contenu) noter(`${e.ref} : la pièce ne correspond plus à son sceau (montant, articles ou numéro modifiés).`);
       }
       await pause();
     }

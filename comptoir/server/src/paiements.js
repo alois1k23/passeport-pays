@@ -85,12 +85,14 @@ function prestataireStripe({ cleSecrete, secretWebhook, secretWebhookConnect, fe
       if (!p.ref_externe || !/^cs_/.test(p.ref_externe)) return;
       await appeler(`checkout/sessions/${p.ref_externe}/expire`, [], p.compte || null);
     },
-    async rembourser({ paiement }) {
+    // montant (centimes) : remboursement partiel ; sans montant, Stripe rembourse tout ce qui n'a pas encore été remboursé.
+    // cle : clé d'idempotence (une requête répétée après une coupure ne rembourse pas deux fois).
+    async rembourser({ paiement, montant, cle }) {
       if (!paiement.ref_externe) return { ok: false };
       // ref_externe = session Checkout ; le remboursement passe par le payment_intent, sur le compte qui a encaissé.
       const s = await lire(`checkout/sessions/${paiement.ref_externe}`, paiement.compte || null);
       if (!s.payment_intent) throw erreur(502, 'Stripe : paiement introuvable pour le remboursement.', 'stripe');
-      await appeler('refunds', [['payment_intent', s.payment_intent]], paiement.compte || null);
+      await appeler('refunds', [['payment_intent', s.payment_intent], ...(montant ? [['amount', montant]] : [])], paiement.compte || null, cle);
       return { ok: true };
     },
     /* Compte Stripe du marchand (Express) : créé par la plateforme, activé par le marchand chez Stripe (identité, IBAN). */

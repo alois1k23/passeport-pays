@@ -41,14 +41,16 @@ function vendues(debut, fin) {
 /* Décompose une commande : TVA, achat, import/douane, paiement, port, bénéfice. */
 function decomposer(c) {
   // Taux figé sur la commande (celui de la facture) ; à défaut, le taux actuel.
-  const ttc = c.total, tva = window.tva ? window.tva(c).tva : ttc - ttc / (1 + (typeof c.tauxTva === 'number' ? c.tauxTva : tauxTvaVente()));   // par taux (normal et réduit)
+  // Retours partiels : seul le montant conservé compte (TVA au prorata), et les unités rendues ne coûtent rien.
+  const ttc = netVente(c), tva0 = window.tva ? window.tva(c).tva : c.total - c.total / (1 + (typeof c.tauxTva === 'number' ? c.tauxTva : tauxTvaVente()));   // par taux (normal et réduit)
+  const tva = c.total ? tva0 * ttc / c.total : 0;
   let achat = 0, douane = 0;
-  for (const l of c.lignes) {
-    const p = etat.produits.find(x => x.id === l.produitId);
-    if (!p) { achat += l.prix * 0.4 * l.qte; continue; }
+  c.lignes.forEach((l, i) => {
+    const q = qteGardee(c, i), p = etat.produits.find(x => x.id === l.produitId);
+    if (!p) { achat += l.prix * 0.4 * q; return; }
     const m = margeProduit(p, { prix: l.prix, cpa: 0 });
-    achat += m.achat * l.qte; douane += (m.importTva + m.douane) * l.qte;
-  }
+    achat += m.achat * q; douane += (m.importTva + m.douane) * q;
+  });
   // Frais de paiement estimés : aucun en espèces, terminal ou TWINT en boutique 1,7 %, en ligne 2,5 % + 0.30.
   // Part payée par carte cadeau : aucun frais (déjà encaissée à la vente de la carte).
   const reste = Math.max(0, ttc - (c.carteCadeau ? c.carteCadeau.montant || 0 : 0));
@@ -75,7 +77,7 @@ function contributionPeriode(liste, id) {
 }
 
 function mesures(liste) {
-  const ca = liste.reduce((a, c) => a + c.total, 0);
+  const ca = liste.reduce((a, c) => a + netVente(c), 0);
   const net = liste.reduce((a, c) => a + decomposer(c).net, 0);
   return { ca, net, n: liste.length, panier: liste.length ? ca / liste.length : 0, visites: liste.length / TAUX_CONVERSION_ESTIME };
 }
@@ -119,7 +121,7 @@ function ongletVentes(t, tp, d0, f0, d1, f1) {
   for (const c of liste) { const d = new Date(c.date); grille[(d.getDay() + 6) % 7][Math.floor(d.getHours() / 2)]++; }
   let pic = [0, 0]; grille.forEach((l, i) => l.forEach((v, j) => { if (v > grille[pic[0]][pic[1]]) pic = [i, j]; }));
   // Répartitions
-  const grouper = (cle, nommer) => { const o = {}; for (const c of liste) { const k = cle(c); o[k] = (o[k] || 0) + c.total; } return Object.entries(o).map(([k, v]) => ({ nom: nommer(k), v })).sort((x, y) => y.v - x.v); };
+  const grouper = (cle, nommer) => { const o = {}; for (const c of liste) { const k = cle(c); o[k] = (o[k] || 0) + netVente(c); } return Object.entries(o).map(([k, v]) => ({ nom: nommer(k), v })).sort((x, y) => y.v - x.v); };
   const villes = grouper(c => c.client.ville || 'En boutique', k => k).slice(0, 8);
   const livraisons = grouper(c => c.canal === 'magasin' ? 'magasin' : c.livraison, k => k === 'magasin' ? 'Vente en personne' : (TOUTES_LIVRAISONS[k] || { nom: k }).nom);
   const ev = (x, y) => y ? x / y - 1 : null;
@@ -190,14 +192,14 @@ function ongletClients(t, tp, d0, f0, d1, f1) {
   const stats = (d, f) => {
     const l = dans(d, f), clients = new Set(l.map(c => c.client.email));
     const nouveaux = [...clients].filter(e => premiere[e] >= d).length;
-    return { clients: clients.size, nouveaux, recurrents: clients.size - nouveaux, ca: l.reduce((s, c) => s + c.total, 0) };
+    return { clients: clients.size, nouveaux, recurrents: clients.size - nouveaux, ca: l.reduce((s, c) => s + netVente(c), 0) };
   };
   const cur = stats(d0, f0), prev = stats(d1, f1);
   const parT = t.map(x => stats(x.debut, x.fin));
   const nbCmd = {}; web.forEach(c => { nbCmd[c.client.email] = (nbCmd[c.client.email] || 0) + 1; });
   const tousClients = Object.keys(nbCmd).length || 1;
   const reachat = Object.values(nbCmd).filter(n => n > 1).length / tousClients;
-  const ltv = web.reduce((s, c) => s + c.total, 0) / tousClients;
+  const ltv = web.reduce((s, c) => s + netVente(c), 0) / tousClients;
   // Cohortes mensuelles (6 derniers mois)
   const maintenant = new Date();
   const cohortes = [];
