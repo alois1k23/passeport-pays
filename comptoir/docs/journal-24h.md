@@ -1158,3 +1158,27 @@ Un relecteur indépendant a confronté les six documents (`API.md`, `FONCTIONNAL
   - rotation des clés, secrets de webhooks, mode sécurisé ;
   - le numéro IDE de l'exploitant n'est pas contrôlé par `--verifier`.
 - **README** : il annonçait encore « à faire » la disponibilité des domaines, les certificats HTTPS automatiques et les e-mails transactionnels, qui sont faits. Il renvoie maintenant à `API.md`.
+
+### Cycle 61 (09 h 45) : mode sécurisé et durée de vie des sessions (chantier 54)
+
+Jusqu'ici, une session restait valable tant qu'elle servait, et un cookie copié (poste partagé, extension malveillante) suffisait à tout faire. Deux protections :
+
+- **Durée de vie absolue de 90 jours** : une session se renouvelle tant qu'elle sert, mais jamais au-delà de 90 jours après la connexion. Les sessions plus anciennes que la règle comptent leurs 90 jours à partir du déploiement.
+- **Identité confirmée récemment (mode sécurisé)** pour les actions qui ouvrent un accès durable aux données ou détournent l'argent :
+  - créer une clé d'API ou un webhook, renouveler un secret ;
+  - inviter un membre de l'équipe ;
+  - changer l'IBAN qui reçoit les paiements par facture QR, ou activer la facture QR.
+  Il faut une connexion de moins de 15 minutes, ou une confirmation du mot de passe, et du code si la double authentification est active.
+  - L'espace marchand ouvre une fenêtre native (focus gardé, Échap annule, focus rendu), puis la requête repart d'elle-même.
+  - Un compte « clé d'accès seule » se reconnecte avec sa clé, depuis un lien de la fenêtre.
+  - Changer l'IBAN prévient aussi le propriétaire par e-mail.
+  - L'export complet redemandait déjà mot de passe et code.
+
+**Relecture indépendante** : aucun contournement des actions protégées. Constats corrigés :
+- **Moyen** : l'IBAN de la boutique se changeait avec le seul cookie. Toutes les factures QR suivantes auraient été payées sur le compte d'un tiers. Il est maintenant protégé, avec alerte par e-mail (testé : refusé sans confirmation, rien n'est enregistré, puis accepté et signalé).
+- L'état de la double authentification était lu au chargement de la page seulement. Après l'avoir activée, la fenêtre n'avait pas de champ de code, et la confirmation échouait jusqu'au rechargement. Il est relu à chaque ouverture.
+- Au premier redémarrage, les anciennes sessions, volées comprises, auraient compté comme « confirmées » pendant 15 minutes. Elles sont maintenant datées d'il y a plus de 15 minutes (testé).
+- Les échecs de confirmation ont un plafond quotidien (30) et sont notés au journal du compte.
+- Fenêtre : explication reliée (`aria-describedby`), focus sur le champ en cause après une erreur, lien « Se reconnecter avec ma clé d'accès ».
+
+Vérifié dans Chromium, sur bureau et sur mobile : la fenêtre s'ouvre, le focus est dans le mot de passe, et la clé d'API est créée après confirmation. 209 tests sur 209 ; parcours de bout en bout : 57 contrôles, 0 anomalie.

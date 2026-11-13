@@ -475,7 +475,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   }
   for (const sql of ['ALTER TABLE sessions ADD COLUMN cree_le INTEGER', 'ALTER TABLE sessions ADD COLUMN vu_le INTEGER', 'ALTER TABLE sessions ADD COLUMN appareil TEXT', 'ALTER TABLE sessions ADD COLUMN reseau TEXT', 'ALTER TABLE sessions ADD COLUMN cle_acces TEXT', 'ALTER TABLE sessions ADD COLUMN identite_le INTEGER']) { try { db.exec(sql); } catch { /* déjà là */ } }
   // Sessions d'avant la durée de vie absolue : elle court à partir d'aujourd'hui (pas de déconnexion surprise).
-  db.prepare('UPDATE sessions SET cree_le = ? WHERE cree_le IS NULL').run(Date.now());
+  // (créée « il y a un peu plus de 15 minutes » : elle ne compte pas comme une identité confirmée récemment).
+  db.prepare('UPDATE sessions SET cree_le = ? WHERE cree_le IS NULL').run(Date.now() - 16 * 60000);
   // Description sobre de l'appareil (navigateur et système), sans empreinte détaillée.
   const decrireAppareil = ua => {
     const u = String(ua || '');
@@ -1865,11 +1866,14 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const m = db.prepare('SELECT * FROM marchands WHERE id = ?').get(ctx.marchand.id);
     // Compte qui n'accepte que sa clé d'accès : le mot de passe ne suffit pas ; il se reconnecte avec sa clé.
     if (m.cle_seule) throw erreur(403, 'Votre compte n’accepte que votre clé d’accès : reconnectez-vous avec elle pour continuer.', 'cle_seule');
-    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    auth.verifierEchecs(['identite-jour:' + m.id], 30);   // au plus 30 échecs par jour, en plus de la limite par quart d'heure
+    if (!(await auth.essayerMotDePasse(['mdp:' + m.id], Number(env.LIMITE_ESSAIS) || 10, String(ctx.corps.motDePasse || ''), m.mot_de_passe))) {
+      auth.noterEchec(['identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'mot de passe', ctx); throw erreur(401, 'Mot de passe incorrect.', 'identifiants');
+    }
     const df = deuxFacteursDe(m.id);
     if (df && df.actif) {
       auth.verifierEchecs(['2fa-gestion:' + m.id], 5);
-      if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id]); throw erreur(400, 'Code incorrect.', 'code_2fa'); }
+      if (!verifierSecondFacteur(df, ctx.corps.code, ctx)) { auth.noterEchec(['2fa-gestion:' + m.id, 'identite-jour:' + m.id]); noterActivite(m.id, 'echec-identite', 'code', ctx); throw erreur(400, ctx.corps.code ? 'Code incorrect.' : 'Saisissez le code de votre application d’authentification.', 'code_2fa'); }
     }
     db.prepare('UPDATE sessions SET identite_le = ? WHERE jeton_hash = ? AND marchand_id = ?').run(Date.now(), auth.sha256(String(ctx.cookies[auth.COOKIE] || '')), m.id);
     noterActivite(m.id, 'identite-confirmee', null, ctx);
@@ -2005,7 +2009,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       config.entreprise = { ...config.entreprise, ...Object.fromEntries(['iban', 'raison', 'adresse', 'siret', 'tvaIntra', 'regime', 'forme', 'email'].map(k => [k, (avant.entreprise || {})[k]])) };
       config.reglages = { ...config.reglages, factureQr: (avant.reglages || {}).factureQr, echeanceJours: (avant.reglages || {}).echeanceJours };
     }
+    // Propriétaire : changer l'IBAN (où arrivent les paiements par facture QR) ou activer la facture QR demande une identité
+    // confirmée récemment, et le propriétaire est prévenu par e-mail. Un cookie volé ne suffit pas à détourner les paiements.
+    const ibanAvant = String((avant.entreprise || {}).iban || '').replace(/\s/g, '').toUpperCase(), ibanApres = String((config.entreprise || {}).iban || '').replace(/\s/g, '').toUpperCase();
+    const qrActivee = !!(config.reglages && config.reglages.factureQr) && !(avant.reglages && avant.reglages.factureQr);
+    if (ctx.role === 'proprietaire' && ((ibanAvant && ibanApres !== ibanAvant) || (qrActivee && ibanApres))) exigerIdentite(ctx);
     db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(config), ctx.boutique.id);
+    if (ibanAvant && ibanApres !== ibanAvant) {
+      noterActivite(ctx.marchand.id, 'iban-modifie', ibanApres ? `…${ibanApres.slice(-4)}` : 'retiré', ctx);
+      envoyerEmail(null, ctx.marchand.email, 'IBAN de votre boutique modifié', `Bonjour,\n\nL’IBAN qui reçoit les paiements par facture QR de votre boutique vient d’être modifié (se termine maintenant par ${ibanApres ? ibanApres.slice(-4) : '— retiré'}).\n\nCe n’était pas vous ? Remettez votre IBAN dans Paramètres, changez votre mot de passe et déconnectez les autres appareils.\n\nL’équipe Comptoir`);
+    }
     return { ok: true };
   });
   r.post('/api/admin/reinitialiser', exigerMarchand, ctx => {

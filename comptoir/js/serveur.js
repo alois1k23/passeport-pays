@@ -173,22 +173,26 @@ function modeHorsEspace() {
 
 /* Confirmation d'identité (mot de passe, et code si la double authentification est active) dans une fenêtre native
    <dialog> : focus gardé dans la fenêtre, Échap annule, le focus revient à l'élément d'origine. Résout true si confirmée. */
-function confirmerIdentite() {
+async function confirmerIdentite() {
+  // État de la double authentification relu à l'ouverture (activée ou désactivée depuis le chargement de la page).
+  try { const s = await (await fetch('/api/session', { cache: 'no-store', credentials: 'same-origin' })).json(); SERVEUR.deuxFacteurs = !!s.deuxFacteurs; } catch { /* état connu gardé */ }
   return new Promise(resoudre => {
     const retour = document.activeElement;
     const d = document.createElement('dialog');
-    d.className = 'dialogue-identite'; d.setAttribute('aria-labelledby', 'identite-titre');
+    d.className = 'dialogue-identite'; d.setAttribute('aria-labelledby', 'identite-titre'); d.setAttribute('aria-describedby', 'identite-explication');
     d.innerHTML = `<form method="dialog" class="pile">
       <h2 id="identite-titre">Confirmez votre identité</h2>
-      <p class="sous">Cette action donne un accès durable aux données de votre boutique. Elle demande votre mot de passe${SERVEUR.deuxFacteurs ? ' et un code de votre application d’authentification' : ''} (valable 15 minutes).</p>
+      <p class="sous" id="identite-explication">Cette action donne un accès durable aux données de votre boutique. Elle demande votre mot de passe${SERVEUR.deuxFacteurs ? ' et un code de votre application d’authentification' : ''} (valable 15 minutes).</p>
       <label class="champ"><span>Mot de passe</span><input type="password" name="motDePasse" autocomplete="current-password" required></label>
       ${SERVEUR.deuxFacteurs ? '<label class="champ"><span>Code de vérification (ou code de secours)</span><input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>' : ''}
       <p class="erreur" role="alert" hidden></p>
+      <p class="sous" data-cle-seule hidden>Votre compte n’accepte que votre clé d’accès. <a href="#" data-reconnecter>Se reconnecter avec ma clé d’accès</a>, puis recommencez : l’action sera permise pendant 15 minutes.</p>
       <div class="rangee"><button class="btn" value="ok">Confirmer</button><button class="btn fantome" type="button" data-annuler>Annuler</button></div>
     </form>`;
     document.body.appendChild(d);
     const fin = ok => { d.close(); d.remove(); if (retour && document.contains(retour)) retour.focus(); resoudre(ok); };
     d.querySelector('[data-annuler]').addEventListener('click', () => fin(false));
+    d.querySelector('[data-reconnecter]').addEventListener('click', async e => { e.preventDefault(); await fetch('/api/auth/deconnexion', { method: 'POST', credentials: 'same-origin' }).catch(() => {}); location.href = '/app?connexion=1'; });
     d.addEventListener('cancel', e => { e.preventDefault(); fin(false); });
     d.querySelector('form').addEventListener('submit', async e => {
       e.preventDefault();
@@ -197,9 +201,14 @@ function confirmerIdentite() {
       try {
         const rep = await fetch('/api/admin/compte/confirmer-identite', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motDePasse: f.get('motDePasse'), code: f.get('code') || undefined }) });
         const json = await rep.json().catch(() => ({}));
-        if (!rep.ok) throw new Error(json.erreur || `Erreur ${rep.status}`);
+        if (!rep.ok) { const e2 = new Error(json.erreur || `Erreur ${rep.status}`); e2.code = json.code; throw e2; }
         fin(true);
-      } catch (x) { err.textContent = x.message; err.hidden = false; bouton.disabled = false; d.querySelector('input').focus(); }
+      } catch (x) {
+        err.textContent = x.message; err.hidden = false; bouton.disabled = false;
+        if (x.code === 'cle_seule') { d.querySelector('[data-cle-seule]').hidden = false; d.querySelector('[data-reconnecter]').focus(); return; }
+        // Le focus va au champ en cause : le code s'il est faux, sinon le mot de passe.
+        (x.code === 'code_2fa' && d.querySelector('input[name=code]') || d.querySelector('input[name=motDePasse]')).focus();
+      }
     });
     d.showModal();
     d.querySelector('input').focus();

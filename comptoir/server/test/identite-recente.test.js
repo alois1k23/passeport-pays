@@ -69,3 +69,38 @@ test('session : durée de vie absolue de 90 jours, même utilisée chaque jour',
     assert.equal(db.prepare('SELECT COUNT(*) n FROM sessions').get().n, 0);
   } finally { s.close(); }
 });
+
+test('IBAN : le changer (ou activer la facture QR) demande une identité récente, et le propriétaire est prévenu', async () => {
+  const { db, s, c } = await demarrer();
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'iban@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Iban', pays: 'ch' } } });
+    const conf = (await c('GET', '/api/admin/etat')).j;
+    conf.entreprise = { ...(conf.entreprise || {}), raison: 'Iban Sàrl', iban: 'CH93 0076 2011 6238 5295 7' };
+    assert.equal((await c('PUT', '/api/admin/config', { config: conf })).s, 200, 'juste après la connexion : permis');
+    vieillir(db, 20);
+    // Autre réglage, même IBAN : permis sans confirmation (l'enregistrement automatique n'est pas gêné).
+    conf.boutique.slogan = 'Nouveau slogan';
+    assert.equal((await c('PUT', '/api/admin/config', { config: conf })).s, 200);
+    // IBAN d'un tiers : refusé sans identité confirmée, et rien n'est enregistré.
+    conf.entreprise.iban = 'CH56 0483 5012 3456 7800 9';
+    const refus = await c('PUT', '/api/admin/config', { config: conf });
+    assert.equal(refus.s, 403); assert.equal(refus.j.code, 'identite_a_confirmer');
+    assert.match(JSON.parse(db.prepare('SELECT config FROM boutiques').get().config).entreprise.iban, /0076/);
+    await c('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'un mot de passe solide' });
+    assert.equal((await c('PUT', '/api/admin/config', { config: conf })).s, 200);
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'iban@exemple.ch' AND sujet = 'IBAN de votre boutique modifié'").get(), 'propriétaire prévenu');
+    assert.ok((await c('GET', '/api/admin/compte/securite')).j.journal.some(x => x.type === 'iban-modifie'));
+  } finally { s.close(); }
+});
+
+test('sessions d’avant la règle : pas comptées comme identité récente au premier démarrage', async () => {
+  const { db: _d, s, c } = await demarrer();
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'vieille@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Vieille' } } });
+    _d.prepare('UPDATE sessions SET cree_le = NULL, identite_le = NULL').run();
+    // Redémarrage : la migration donne à ces sessions une date « d'il y a plus de 15 minutes ».
+    creerApp({ db: _d, env: { ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: 'http://x', journal: { log() {}, error() {} } });
+    const sess = _d.prepare('SELECT cree_le FROM sessions').get();
+    assert.ok(sess.cree_le < Date.now() - 15 * 60000 && sess.cree_le > Date.now() - 20 * 60000);
+  } finally { s.close(); }
+});
