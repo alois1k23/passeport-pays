@@ -1374,18 +1374,25 @@ La relecture du chantier 62 l'a montré : un compte « clé d'accès seule » ne
 La relecture du chantier 63 laissait un défaut. Un voleur de cookie qui tapait de faux mots de passe dans les écrans qui les redemandent (confirmation d'identité, suppression du compte, export complet, gestion des clés d'accès et de la double authentification, changement de mot de passe) épuisait les compteurs du compte. Il bloquait ainsi la titulaire pendant un quart d'heure, et pouvait recommencer à volonté.
 
 - **Correction d'un commentaire** : la limite de 30 confirmations refusées était dite « par jour ». Elle est en réalité par quart d'heure (le compteur des échecs repart après 15 minutes). Commentaire corrigé.
-- **Compteur par session** : chaque mot de passe, code ou signature de clé d'accès refusé dans une session y est compté. C'est vrai pour les 10 contrôles de mot de passe faits dans une session ; la page de connexion a son propre compteur et n'est pas touchée.
+- **Compteur par session** : y sont comptés les mots de passe refusés dans les 10 écrans qui le redemandent, ainsi que les codes et signatures de clé d'accès refusés dans la confirmation d'identité. Les codes refusés sur les autres écrans (ajout d'une clé, désactivation de la double authentification, export) gardent leur propre limite et ne comptent pas ici. La page de connexion a son propre compteur.
 - **Au 5e refus** :
   - la session est fermée ;
   - l'événement va au journal du compte ;
   - la titulaire reçoit un e-mail (« si c'était vous, reconnectez-vous ; sinon, changez votre mot de passe ») ;
   - la réponse porte le code `session_fermee`, et l'application renvoie à la connexion après 4 secondes, le message restant lisible.
 - **Remise à zéro** : une confirmation réussie remet le compteur à zéro.
-- **Effet** : un voleur n'a plus que 5 essais par cookie volé. Il lui faudrait 6 sessions volées pour atteindre la limite du compte, au lieu d'un seul cookie et de la patience. Les réponses sans rapport à la confirmation par clé d'accès (défi ou clé d'ailleurs) ne comptent toujours pas.
+- **Effet visé** : un voleur n'a plus que 5 essais par cookie volé. Les réponses sans rapport à la confirmation par clé d'accès (défi ou clé d'ailleurs) ne comptent toujours pas.
 - **Tests** :
   - essais répartis entre trois routes : comptés ensemble ;
   - une réussite remet le compteur à zéro ;
   - au 5e refus : session fermée, les autres sessions restent, e-mail et journal ;
   - l'ancien test de la suppression du compte (limite atteinte en moins de 1001 essais) vérifie maintenant la fermeture au 5e.
 - 226 tests sur 226, parcours de bout en bout 57/57, fuzzing sans anomalie.
+- **Relecture indépendante**, constats corrigés :
+  - **Moyen** : le compteur ne montait qu'après le calcul du mot de passe (asynchrone). Des requêtes parallèles passaient donc toutes, environ 10 essais au lieu de 5, et la limite du compte (10 mots de passe par quart d'heure) restait atteignable avec un seul cookie. L'essai est maintenant réservé avant le calcul, par une mise à jour atomique qui refuse au-delà de 5, puis rendu si le mot de passe est juste. Testé avec 12 requêtes simultanées : au plus 5 calculées, les autres refusées d'emblée. Avec la limite du compte à 10, deux cookies volés restent nécessaires pour la bloquer un quart d'heure ; l'affirmation « 6 sessions volées » a été retirée.
+  - **Moyen** : l'appareil de la session fermée restait « reconnu », donc soumis aux limites assouplies de connexion. Il est maintenant oublié, comme à une déconnexion à distance (testé).
+  - **Bas à moyen** : en s'inscrivant avec l'adresse d'autrui, on pouvait lui envoyer environ 190 e-mails « session fermée » par jour. Il n'en part plus qu'un toutes les 6 heures, et seulement à une adresse confirmée (testé). Une seule fermeture par session, même si plusieurs requêtes échouent ensemble.
+  - **Bas** : la documentation disait que tous les codes refusés comptaient ; elle est corrigée (voir plus haut).
+  - **Bas** : l'export complet, qui n'utilise pas le client commun, renvoie maintenant aussi à la connexion.
+- Après corrections : 227 tests sur 227, parcours de bout en bout 57/57.
 

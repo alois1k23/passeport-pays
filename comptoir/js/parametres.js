@@ -431,7 +431,7 @@ document.addEventListener('submit', async e => {
   const d = Object.fromEntries(new FormData(f)), bouton = f.querySelector('button'); bouton.disabled = true;
   try {
     const r = await fetch('/api/admin/export-complet', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motDePasse: d.motDePasse, code: d.code || undefined }) });
-    if (!r.ok) { let m = 'Export impossible.'; try { m = (await r.json()).erreur || m; } catch { /* ignoré */ } toast(m); return; }
+    if (!r.ok) { let m = 'Export impossible.', code; try { const j = await r.json(); m = j.erreur || m; code = j.code; } catch { /* ignoré */ } toast(m); if (code === 'session_fermee') setTimeout(() => { location.href = '/app?connexion=1'; }, 4000); return; }
     const nom = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [])[1] || 'comptoir-export.json';
     const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
     a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);

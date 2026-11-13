@@ -129,6 +129,7 @@ test('essais de mot de passe refusés dans une session : au 5e, la session est f
   const { db, s, c } = await demarrer();
   try {
     await c('POST', '/api/auth/inscription', { email: 'vol@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Vol' } } });
+    await c('POST', '/api/auth/verifier-email', { jeton: db.prepare("SELECT corps FROM emails WHERE sujet LIKE 'Confirmez%'").get().corps.match(/verifier-email=([\w-]+)/)[1] });
     const jeton = db.prepare('SELECT jeton_hash FROM sessions').get().jeton_hash;
     // Une seconde session (la titulaire, sur un autre appareil) : intacte.
     db.prepare("INSERT INTO sessions (jeton_hash, marchand_id, expire_le, cree_le, vu_le) SELECT 'autre', marchand_id, expire_le, cree_le, vu_le FROM sessions").run();
@@ -146,5 +147,27 @@ test('essais de mot de passe refusés dans une session : au 5e, la session est f
     assert.ok(db.prepare("SELECT 1 FROM sessions WHERE jeton_hash = 'autre'").get(), 'les autres sessions restent');
     assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'vol@exemple.ch' AND sujet = 'Session fermée après des essais de confirmation refusés'").get());
     assert.ok(db.prepare("SELECT 1 FROM journal_compte WHERE type = 'session-fermee-echecs'").get());
+    // Reconnexion et 5 nouveaux refus : session fermée de nouveau, mais pas de second e-mail avant 6 heures.
+    await c('POST', '/api/auth/connexion', { email: 'vol@exemple.ch', motDePasse: 'un mot de passe solide' });
+    for (let k = 0; k < 5; k++) await c('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'encore ' + k });
+    assert.equal((await c('GET', '/api/session')).j.connecte, false);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet LIKE 'Session fermée%'").get().n, 1);
   } finally { s.close(); }
 });
+
+test('essais en parallèle : pas plus de 5 mots de passe calculés par session ; appareil oublié ; e-mail limité', async () => {
+  const { db, s, c } = await demarrer();
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'para@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Para' } } });
+    const h = db.prepare('SELECT jeton_hash, marchand_id FROM sessions').get();
+    db.prepare('INSERT INTO appareils_connus (empreinte, marchand_id, cree_le, vu_le, session) VALUES (?, ?, ?, ?, ?)').run('app-test', h.marchand_id, Date.now(), Date.now(), h.jeton_hash);
+    const reps = await Promise.all(Array.from({ length: 12 }, (_, k) => c('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'mauvais ' + k })));
+    assert.ok(reps.every(r => r.s === 401));
+    assert.ok(db.prepare("SELECT COUNT(*) n FROM journal_compte WHERE type = 'echec-identite'").get().n <= 5, 'au plus 5 essais calculés');
+    assert.equal(reps.filter(r => r.j.code === 'session_fermee').length >= 7, true);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM sessions').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM appareils_connus').get().n, 0, 'appareil du voleur oublié');
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet LIKE 'Session fermée%'").get().n, 0, 'adresse non confirmée : pas d’e-mail');
+  } finally { s.close(); }
+});
+
