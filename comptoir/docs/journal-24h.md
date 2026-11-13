@@ -106,6 +106,10 @@ La feuille de route peut évoluer selon les constats des relectures.
 55. **Sauvegardes vérifiées** : chaque sauvegarde est relue et contrôlée (intégrité, journal des ventes) automatiquement, et l'échec est signalé.
 56. **Démonstration publiée** mise à jour.
 
+**Treizième phase** (la douzième est terminée le 13 novembre vers 10 h) :
+
+57. **Relecture adversariale transversale** des nouveautés de la matinée : ce qui casse quand elles se combinent (rotation des clés et données ajoutées après, réservations et codes, remboursements automatiques et états de paiement, mode sécurisé et enregistrement automatique), plus le vérificateur complet.
+
 ## Cycles
 
 ### Cycle 1 (22 h 35) : compteurs anti-abus persistants, arrêt propre du serveur
