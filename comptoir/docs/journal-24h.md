@@ -52,7 +52,7 @@ La feuille de route peut évoluer selon les constats des relectures.
 24. **Fidélité** : expiration des points prise en compte dans les statistiques et le solde affiché.
 25. **Relecture adversariale des nouveautés** (retours partiels, cartes cadeaux, devis, fidélité, emplacements), puis corrections.
 
-**Cinquième phase** (la quatrième est terminée le 13 novembre vers 5 h 10) :
+**Cinquième phase** (la quatrième est terminée le 13 novembre vers 4 h 35) :
 
 26. **Comptabilité des avoirs partiels** : export pour la fiduciaire et décompte de TVA avec chaque avoir tel qu'émis, ventilé taux par taux.
 27. **API publique** : avoirs et retours partiels lisibles par les intégrations (`/api/v1`).
@@ -647,7 +647,7 @@ Deux audits indépendants en parallèle : chemins d'argent (retours, gestes, car
 - Un logiciel comptable ou un ERP peut ainsi rapprocher chaque remboursement de sa pièce. Documenté dans `docs/API.md`, y compris le champ `geste` du webhook `commande.remboursement_partiel`.
 - 1 nouveau test, par une vraie clé d'API : 173 tests sur 173.
 - **Relecture indépendante des chantiers 26 à 28**, constats corrigés :
-  - **Grave (API)** : une facture QR annulée avant paiement apparaissait « remboursée » de tout son montant, ce qui aurait trompé un logiciel comptable. \`rembourse\` ne compte plus que l'argent réellement rendu, et cet avoir porte le type \`annulation\`.
+  - **Grave (API)** : une facture QR annulée avant paiement apparaissait « remboursée » de tout son montant, ce qui aurait trompé un logiciel comptable. `rembourse` ne compte plus que l'argent réellement rendu, et cet avoir porte le type `annulation`.
   - **Export des cartes** :
     - une carte dont la vente avait été remboursée ou contestée était comptée comme « soldes non utilisables », donc gain possible ; elle a désormais sa propre ligne, « Cartes annulées ».
     - le solde en fin de période suit l'ordre d'inscription des mouvements, celui du cumul, et non leur date ;
