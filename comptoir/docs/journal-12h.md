@@ -729,3 +729,15 @@ Constats corrigés :
 
 - **Boutique** : les jours et les heures de la liste des créneaux sont formés dans la langue affichée (fr, de, it, en), à l'heure de Lausanne. Vérifié dans Chromium en allemand : « Montag, 16. November », champ « Abholzeit », « Zeit wählen… ».
 - **E-mail « commande prête »** : il rappelle le créneau choisi, dans la langue du client (testé).
+
+### Cycle 34 (00 h 35) : vérification complète (npm run verifier)
+
+Lancée après les chantiers 79 à 95 :
+
+- tests automatiques et parcours de bout en bout ;
+- achat au clavier dans la boutique et espace marchand au clavier ;
+- simulation de 60 jours (100 marchands, 372 s) ;
+- fuzzing HTTP de toutes les routes avec des corps hostiles ;
+- charge réduite (100 boutiques, 15 s).
+
+Les **7 étapes sont réussies**. Après les corrections de la relecture 92-93 et le chantier 96 : 254 tests sur 254, parcours de bout en bout 57/57.
