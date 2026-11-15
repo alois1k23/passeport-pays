@@ -2951,8 +2951,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     });
     if (aPrevoirReassort) suiteReassort(ctx.boutique, c);
     if (cible === 'expediee') emailExpedition(ctx.boutique, c, config);
-    if (cible === 'prete' && EmailsClients.langueDe(c)) { const m = EmailsClients.pret(c, { ...optionsEmail(ctx.boutique, c, config), adresse: config.magasin.adresse || '', horaires: config.magasin.horaires }); envoyerEmail(ctx.boutique.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
-    else if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\nVotre commande vous attend en boutique : ${config.magasin.adresse || ''}${config.magasin.horaires ? `\nHoraires : ${config.magasin.horaires}` : ''}.\nPrésentez ce numéro de commande : ${c.numero}.\n\nVotre commande : ${lienCommande(ctx.boutique, c.id)}\n\n${config.boutique.nom}`);
+    if (cible === 'prete' && EmailsClients.langueDe(c)) { const m = EmailsClients.pret(c, { ...optionsEmail(ctx.boutique, c, config), adresse: config.magasin.adresse || '', horaires: config.magasin.horaires }); envoyerEmail(ctx.boutique.id, c.client.email, m.sujet, c.retraitCreneau ? m.corps.replace(/\n\n/, `\n\n${texteCreneau(c)}\n\n`) : m.corps, { langue: c.langue }); }
+    else if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\n${c.retraitCreneau ? `${texteCreneau(c)}\n\n` : ''}Votre commande vous attend en boutique : ${config.magasin.adresse || ''}${config.magasin.horaires ? `\nHoraires : ${config.magasin.horaires}` : ''}.\nPrésentez ce numéro de commande : ${c.numero}.\n\nVotre commande : ${lienCommande(ctx.boutique, c.id)}\n\n${config.boutique.nom}`);
     return { commande: c };
   };
   r.post('/api/admin/commandes/:id/statut', exigerMarchand, ctx => ['remboursee', 'annulee'].includes(ctx.corps.statut) ? avecVerrou(ctx.params.id, () => changerStatut(ctx)) : changerStatut(ctx));
@@ -5389,7 +5389,7 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
     if (!config.magasin.clickCollect) return { creneaux: [] };
     ctx.entetes['Cache-Control'] = 'no-store';
     auth.limiter('creneaux:' + reseauIp(ctx.ip), 120 * facteurLimites, 600000, 'Trop de demandes : réessayez dans quelques minutes.');
-    return { creneaux: creneauxLibres(b, config).slice(0, 600).map(x => ({ debut: x.debut, libelle: Creneaux.libelle(x.debut, x.fin) })) };
+    return { creneaux: creneauxLibres(b, config).slice(0, 600).map(x => ({ debut: x.debut, fin: x.fin, libelle: Creneaux.libelle(x.debut, x.fin) })) };
   });
   r.get('/api/public/:slug/image/:id', ctx => {
     const b = boutiqueOuverte(ctx.params.slug);

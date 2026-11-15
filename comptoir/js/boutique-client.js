@@ -789,7 +789,11 @@ function champCreneau() {
   }
   const msg = vue.creneauMessage ? `<p class="sf-note" role="alert">${esc(vue.creneauMessage)}</p>` : '';
   if (!vue.creneaux.length) return msg + '<p class="sf-note" role="alert">Aucun créneau de retrait libre pour l’instant : choisissez la livraison, ou revenez plus tard.</p>';
-  const jours = [...new Set(vue.creneaux.map(c => c.libelle.split(',')[0]))];
-  return `${msg}<label class="champ"><span>Créneau de retrait</span><select name="creneau" required data-creneau-retrait><option value="">Choisir un créneau…</option>${jours.map(j => `<optgroup label="${esc(j)}">${vue.creneaux.filter(c => c.libelle.startsWith(j + ',')).map(c => `<option value="${c.debut}" ${String(vue.creneau) === String(c.debut) ? 'selected' : ''}>${esc(c.libelle.split(', ').slice(1).join(', '))}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
+  // Jours et heures dans la langue de la boutique affichée (heure de Lausanne).
+  const loc = { fr: 'fr-CH', de: 'de-CH', it: 'it-CH', en: 'en-GB' }[typeof Traductions !== 'undefined' ? Traductions.langue : 'fr'] || 'fr-CH';
+  const fJour = ms => new Intl.DateTimeFormat(loc, { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(ms));
+  const fH = ms => new Intl.DateTimeFormat(loc, { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+  const jours = [...new Set(vue.creneaux.map(c => fJour(c.debut)))];
+  return `${msg}<label class="champ"><span>Créneau de retrait</span><select name="creneau" required data-creneau-retrait><option value="">Choisir un créneau…</option>${jours.map(j => `<optgroup label="${esc(j)}">${vue.creneaux.filter(c => fJour(c.debut) === j).map(c => `<option value="${c.debut}" ${String(vue.creneau) === String(c.debut) ? 'selected' : ''}>${esc(`${fH(c.debut)} – ${fH(c.fin || c.debut)}`)}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
 }
 document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-creneau-retrait]')) { vue.creneau = e.target.value; vue.creneauMessage = ''; } });

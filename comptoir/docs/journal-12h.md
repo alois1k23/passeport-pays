@@ -721,6 +721,11 @@ Constats corrigés :
     - le réglage n'est plus montré au rôle « Commandes », qui ne peut pas l'enregistrer.
   - **Traductions** : les nouveaux textes de la boutique (créneau, emballage cadeau) sont traduits en allemand, italien et anglais.
 - **Noté** :
-  - les intitulés des jours dans la liste des créneaux restent en français ;
+  - (les jours des créneaux sont traduits depuis le cycle 33) ;
   - l'inventaire corrige le total sans le répartir par emplacement de stock ;
-  - l'e-mail « commande prête » ne rappelle pas le créneau.
+  - (l'e-mail « commande prête » rappelle le créneau depuis le cycle 33).
+
+### Cycle 33 (00 h 25) : créneaux dans la langue du client (chantier 96)
+
+- **Boutique** : les jours et les heures de la liste des créneaux sont formés dans la langue affichée (fr, de, it, en), à l'heure de Lausanne. Vérifié dans Chromium en allemand : « Montag, 16. November », champ « Abholzeit », « Zeit wählen… ».
+- **E-mail « commande prête »** : il rappelle le créneau choisi, dans la langue du client (testé).

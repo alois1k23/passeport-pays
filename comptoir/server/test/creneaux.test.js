@@ -69,6 +69,11 @@ test('créneaux à la commande : obligatoire, revérifié, dernière place', asy
     const cmd = (await c('GET', '/api/admin/etat')).j.commandes.find(x => x.id === ok.j.commandeId);
     assert.equal(cmd.retraitCreneau, liste[0].debut); assert.equal(cmd.retraitCreneauFin, liste[0].debut + 3600000);
     assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'ana@exemple.ch' AND corps LIKE '%Retrait prévu : %'").get(), 'créneau dans la confirmation');
+    // Commande prête : l'e-mail rappelle le créneau.
+    for (const st of ['preparation', 'prete']) assert.equal((await c('POST', `/api/admin/commandes/${ok.j.commandeId}/statut`, { statut: st })).s, 200);
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE '%prête%' AND corps LIKE '%Retrait prévu : %'").get(), 'créneau rappelé quand la commande est prête');
+    const l2 = (await c('GET', `/api/public/${slug}/creneaux`, null, { avecCookie: false })).j.creneaux;
+    assert.ok(l2.every(x => typeof x.fin === 'number' && x.fin > x.debut), 'fin transmise (libellé formé dans la langue du client)');
     // Commande annulée : la place se libère.
     db.prepare("UPDATE commandes SET statut = 'annulee' WHERE id = ?").run(ok.j.commandeId);
     assert.ok((await c('GET', `/api/public/${slug}/creneaux`, null, { avecCookie: false })).j.creneaux.some(x => x.debut === liste[0].debut));
