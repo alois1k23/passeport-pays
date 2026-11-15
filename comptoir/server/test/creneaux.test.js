@@ -77,6 +77,11 @@ test('créneaux à la commande : obligatoire, revérifié, dernière place', asy
     // Commande annulée : la place se libère.
     db.prepare("UPDATE commandes SET statut = 'annulee' WHERE id = ?").run(ok.j.commandeId);
     assert.ok((await c('GET', `/api/public/${slug}/creneaux`, null, { avecCookie: false })).j.creneaux.some(x => x.debut === liste[0].debut));
+    // Les commandes payées ne comptent pas dans la limite des créneaux retenus sans payer.
+    const libres = (await c('GET', `/api/public/${slug}/creneaux`, null, { avecCookie: false })).j.creneaux;
+    for (let i = 0; i < 2; i++) { const o = await commander({ creneau: libres[10 + i].debut }, `paye${i}@exemple.ch`); assert.equal(o.s, 201, JSON.stringify(o.j)); await fetch(o.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' }); }
+    db.prepare("UPDATE commandes SET statut = 'annulee' WHERE statut = 'attente'").run();
+    assert.equal((await commander({ creneau: libres[12].debut }, 'paye2@exemple.ch')).s, 201, 'deux retraits payés n’empêchent pas un troisième');
     // Livraison à domicile : aucun créneau demandé.
     assert.equal((await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: pid, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Max', email: 'max@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, { avecCookie: false })).s, 201);
   } finally { s.close(); }

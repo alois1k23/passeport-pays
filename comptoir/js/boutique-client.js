@@ -791,8 +791,9 @@ function champCreneau() {
   if (!vue.creneaux.length) return msg + '<p class="sf-note" role="alert">Aucun créneau de retrait libre pour l’instant : choisissez la livraison, ou revenez plus tard.</p>';
   // Jours et heures dans la langue de la boutique affichée (heure de Lausanne).
   const loc = { fr: 'fr-CH', de: 'de-CH', it: 'it-CH', en: 'en-GB' }[typeof Traductions !== 'undefined' ? Traductions.langue : 'fr'] || 'fr-CH';
-  const fJour = ms => new Intl.DateTimeFormat(loc, { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(ms));
-  const fH = ms => new Intl.DateTimeFormat(loc, { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+  const dJour = new Intl.DateTimeFormat(loc, { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }), dH = new Intl.DateTimeFormat(loc, { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' });   // créés une fois
+  const fH = ms => dH.format(new Date(ms));
+  const jourDe = new Map(vue.creneaux.map(c => [c.debut, dJour.format(new Date(c.debut))])), fJour = ms => jourDe.get(ms);
   const jours = [...new Set(vue.creneaux.map(c => fJour(c.debut)))];
   return `${msg}<label class="champ"><span>Créneau de retrait</span><select name="creneau" required data-creneau-retrait><option value="">Choisir un créneau…</option>${jours.map(j => `<optgroup label="${esc(j)}">${vue.creneaux.filter(c => fJour(c.debut) === j).map(c => `<option value="${c.debut}" ${String(vue.creneau) === String(c.debut) ? 'selected' : ''}>${esc(`${fH(c.debut)} – ${fH(c.fin || c.debut)}`)}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
 }

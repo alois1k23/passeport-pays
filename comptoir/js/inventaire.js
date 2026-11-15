@@ -38,7 +38,7 @@ function vueInventaire() {
       <ul>${INV_CONFLITS.map(x => `<li>${esc(x.nom)} : stock ${x.stockVu} au début, ${x.actuel} maintenant, ${x.compte} compté</li>`).join('')}</ul>
       <div class="rangee"><button class="btn petit" data-action="inventaire-forcer">Appliquer quand même</button><button class="btn petit fantome" data-action="inventaire-recompter">Recompter ces articles</button></div></div>` : '';
   return `<section class="carte"><div class="carte-tete"><h2>Inventaire</h2><button class="btn petit fantome" data-action="inventaire-fermer">Fermer</button></div>
-    <p class="sous">Lisez les codes-barres (chaque lecture ajoute 1) ou saisissez les quantités. Seuls les articles comptés sont modifiés. « En rayon attendu » compte aussi les articles vendus mais pas encore expédiés ou retirés : ils sont retirés du stock disponible à l’application. ${INV.debut ? `Comptage commencé le ${new Date(INV.debut).toLocaleString('fr-CH', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}.` : ''}</p>
+    <p class="sous">Lisez les codes-barres (chaque lecture ajoute 1) ou saisissez les quantités. Seuls les articles comptés sont modifiés. « En rayon attendu » compte aussi les articles des commandes payées, en préparation ou prêtes au retrait, pas encore partis : ils sont retirés du stock disponible à l’application. Expédiez ou marquez « retirées » les commandes déjà emballées avant de compter. ${INV.debut ? `Comptage commencé le ${new Date(INV.debut).toLocaleString('fr-CH', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}.` : ''}</p>
     ${INV_EMPL && INV_EMPL.emplacements && INV_EMPL.emplacements.length ? `<label class="champ"><span>Emplacement compté</span><select data-inv-emplacement><option value="">Tous (stock total)</option>${INV_EMPL.emplacements.map(e => `<option value="${esc(e.id)}" ${INV.emplacement === e.id ? 'selected' : ''}>${esc(e.nom)}</option>`).join('')}</select></label>` : ''}
     <label class="champ"><span>Code-barres (lecteur, puis Entrée)</span><input id="inv-scan" data-inventaire-scan inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="20" enterkeyhint="done"></label>
     ${conflits}
@@ -79,8 +79,8 @@ async function appliquerInventaire(forcer) {
   const lignes = Object.entries(INV.comptes).map(([cle, compte]) => { const a = arts.find(x => x.cle === cle); return a && { produitId: a.produitId, varianteId: a.varianteId, compte, stockVu: INV.vus[cle] ?? a.stock }; }).filter(Boolean);
   try {
     const r = await api('POST', '/api/admin/inventaire', { lignes, ...(INV.emplacement ? { emplacementId: INV.emplacement } : {}), ...(forcer ? { forcer: true } : {}) });
-    INV_EMPL = null;
     INV.comptes = {}; INV.vus = {}; INV.debut = 0; INV_CONFLITS = null; garderInventaire();
+    try { await chargerContexteInventaire(); } catch { /* relu à la prochaine ouverture */ }   // emplacements et articles en rayon à jour pour le comptage suivant
     await rafraichir(`Inventaire appliqué : ${r.appliques} article${r.appliques > 1 ? 's' : ''}, ${r.ecarts.length} écart${r.ecarts.length > 1 ? 's' : ''} corrigé${r.ecarts.length > 1 ? 's' : ''}.`);
   } catch (err) {
     if (err.code === 'inventaire_conflit' && err.donnees) { INV_CONFLITS = err.donnees.conflits; rendre(); document.querySelector('[data-action="inventaire-forcer"]')?.focus(); return; }

@@ -772,3 +772,26 @@ Les **7 étapes sont réussies**. Après les corrections de la relecture 92-93 e
 - **Après** : CLS de 0,027 sur la page produit et 0 sur l'accueil, LCP 1,23 s, blocage 64 à 72 ms. La fiche a été revue en capture d'écran, sur bureau et sur téléphone.
 - **Limite** : la mesure se fait en local, sans le temps de réponse d'un vrai serveur ni d'un CDN.
 - 254 tests sur 254, parcours de bout en bout 57/57.
+
+### Cycle 37 (00 h 30) : relecture indépendante des chantiers 94 à 97
+
+Plusieurs points ont été confirmés :
+
+- **Inventaire** : l'annulation par conflit défait bien tout ; les articles « en rayon » sont calculés juste (quantités réellement retirées, variantes, retours remis en stock, emplacements) ; un envoi ou une annulation ne fait jamais compter deux fois ; aucun stock négatif.
+- **Créneaux** : même règle de réservation que le stock ; jours du calendrier et chevauchements justes ; formatage à l'heure de Lausanne quel que soit l'appareil.
+- **Marque** : nettoyée et échappée partout.
+- **E-mail « prête »** : le remplacement ne peut pas être détourné.
+
+Constats corrigés :
+
+- **Moyen, créneaux** : la limite de 2 créneaux retenus par réseau comptait aussi les commandes payées. Un client qui avait déjà deux retraits payés (ou un bureau derrière une seule adresse) se voyait refuser une troisième commande. Seules les commandes en attente de paiement comptent maintenant (testé).
+- **Moyen, inventaire par emplacement** : après une première application, le choix de l'emplacement disparaissait alors que l'emplacement restait retenu. Le comptage suivant comparait au stock total et tombait en faux conflit. Les emplacements et les articles en rayon sont maintenant relus après chaque application. Vérifié dans Chromium : un deuxième comptage du même emplacement juste après passe sans conflit.
+- **Bas** :
+  - **Lot** : après un retour partiel non remis en stock, ses composants étaient encore comptés « en rayon ». Ils sont plafonnés à ce qui reste du lot.
+  - **Liste des créneaux** : elle est construite sans recréer un formateur de date par créneau.
+  - **Écran d'inventaire** : il dit quels statuts comptent comme « en rayon » (payée, en préparation, prête) et demande d'expédier ou de marquer « retirées » les commandes déjà emballées avant de compter.
+- **Noté** :
+  - le flux produits peut annoncer épuisé un article retenu 35 minutes par une commande non payée, avec un cache de 15 minutes ;
+  - le flux n'a pas de limite de fréquence propre ;
+  - la limite de créneaux par réseau se contourne en changeant d'adresse IP, comme toute limite par réseau.
+- 254 tests sur 254, parcours de bout en bout 57/57.

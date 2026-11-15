@@ -2589,7 +2589,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       for (const l of d.lignes || []) {
         if (l.type === 'drop' || l.numerique || !l.produitId) continue;
         const q = typeof l.retireStock === 'number' ? l.retireStock : (Number(l.qte) || 0);
-        if (Array.isArray(l.composantsRetires) && l.composantsRetires.length) { for (const c of l.composantsRetires) { const n = part(c, Number(c.retireStock ?? c.qte) || 0); if (n) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + n; } continue; }
+        // Lot : ses composants, au plus ce qui reste du lot après un retour partiel (composants non remis en stock compris).
+        if (Array.isArray(l.composantsRetires) && l.composantsRetires.length) { for (const c of l.composantsRetires) { const parLot = (Number(c.qte) || 0) / Math.max(1, Number(l.qte) || 1), plafond = Math.round(parLot * q); const n = Math.min(part(c, Number(c.retireStock ?? c.qte) || 0), eid ? Infinity : plafond); if (n > 0) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + n; } continue; }
         const comps = composantsDe(bid, l);
         if (comps.length && comps[0].produitId !== l.produitId) { if (!eid) for (const c of comps) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + c.qte; continue; }
         const k = `${l.produitId}|${l.varianteId || ''}`, n = part(l, q); if (n) e[k] = (e[k] || 0) + n;
@@ -3592,7 +3593,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         const debut = Number(ctx.corps.creneau);
         if (!Number.isFinite(debut) || !debut) throw erreur(400, 'Choisissez un créneau de retrait.', 'creneau_requis');
         // Un même réseau ne retient pas plus de 2 créneaux sans payer (sinon un robot bloquerait tous les créneaux).
-        if (creneauxPris(b.id, now).filter(x => x.reseau && x.reseau === empreinteReseau).length >= 2) throw erreur(429, 'Vous avez déjà des retraits réservés en attente de paiement : terminez-les avant d’en réserver un autre.', 'creneau_limite');
+        if (creneauxPris(b.id, now).filter(x => x.attente && x.reseau && x.reseau === empreinteReseau).length >= 2) throw erreur(429, 'Vous avez déjà des retraits réservés en attente de paiement : terminez-les avant d’en réserver un autre.', 'creneau_limite');
         const libre = creneauxLibres(b, config, now).find(x => x.debut === debut);
         if (!libre) throw erreur(409, 'Ce créneau de retrait vient d’être pris ou n’est plus disponible : choisissez-en un autre.', 'creneau_pris');
         c.retraitCreneau = debut; c.retraitCreneauFin = libre.fin;
@@ -5380,7 +5381,7 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
      sauf paiement abandonné). Commandes récentes seulement (index boutique + date). */
   const reservationActive = (date, d, maintenant) => { const depuis = Math.max(date, d.reserveDepuis || 0); return !(d.abandonneeLe >= depuis) && depuis > maintenant - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 35 * 60000); };
   const creneauxPris = (bid, maintenant = Date.now(), sauf = '') => db.prepare("SELECT id, date, statut, donnees FROM commandes WHERE boutique_id = ? AND date > ? AND id <> ? AND statut NOT IN ('annulee', 'remboursee', 'livree', 'retiree') AND json_extract(donnees, '$.retraitCreneau') > ?").all(bid, maintenant - 30 * 86400000, sauf, maintenant - 86400000)
-    .map(r => ({ r, d: JSON.parse(r.donnees) })).filter(({ r, d }) => r.statut !== 'attente' || reservationActive(r.date, d, maintenant)).map(({ d }) => ({ debut: Number(d.retraitCreneau), fin: Number(d.retraitCreneauFin) || Number(d.retraitCreneau) + 60000, reseau: d.reseau }));
+    .map(r => ({ r, d: JSON.parse(r.donnees) })).filter(({ r, d }) => r.statut !== 'attente' || reservationActive(r.date, d, maintenant)).map(({ r, d }) => ({ debut: Number(d.retraitCreneau), fin: Number(d.retraitCreneauFin) || Number(d.retraitCreneau) + 60000, reseau: d.reseau, attente: r.statut === 'attente' }));
   const creneauxLibres = (b, config, maintenant = Date.now(), sauf = '') => Creneaux.liste(Creneaux.regles(config), maintenant, creneauxPris(b.id, maintenant, sauf));
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
