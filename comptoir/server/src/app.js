@@ -2603,7 +2603,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const b = boutiqueOuverte(ctx.params.slug);
     auth.verifierEchecs([`pro-connexion:${b.id}:${reseauIp(ctx.ip)}`], 20 * facteurLimites);
     const r0 = PRO.connecter(b.id, ctx.corps.email, ctx.corps.demande, ctx.corps.code);
-    if (!r0) { auth.noterEchec([`pro-connexion:${b.id}:${reseauIp(ctx.ip)}`]); throw erreur(401, 'Code incorrect ou expiré.', 'pro_code'); }
+    if (r0 && r0.bloque) {   // 20e échec sur ce compte en 24 h : bloqué jusqu'au lendemain, le marchand est prévenu
+      const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id);
+      if (mch) envoyerEmail(null, mch.email, 'Espace pro : connexions bloquées pour un client', `Bonjour,\n\nLe compte pro « ${r0.bloque.raison} » a reçu 20 codes faux en 24 heures : ses connexions sont bloquées jusqu’à demain. Si votre client n’y est pour rien, quelqu’un essaie peut-être d’accéder à ses prix.\n\nL’équipe Comptoir`);
+    }
+    if (!r0 || r0.bloque) { auth.noterEchec([`pro-connexion:${b.id}:${reseauIp(ctx.ip)}`]); throw erreur(401, 'Code incorrect ou expiré.', 'pro_code'); }
     return { jeton: r0.jeton, pro: { raison: r0.client.raison, remise: r0.client.remise, facture: r0.client.facture && factureProPossible(lireConfig(b)) } };
   });
   r.post('/api/public/:slug/pro/moi', ctx => {
@@ -3139,6 +3143,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const email = valider.email(ctx.corps.email).toLowerCase();
     const commandes = commandesDuClient(ctx.boutique.id, email);
     const ouvertes = commandes.filter(c => ['attente', 'payee', 'preparation', 'fournisseur', 'prete'].includes(c.statut));
+    if (!ouvertes.length) { const cp = PRO.parEmail(ctx.boutique.id, email); if (cp) PRO.supprimer(ctx.boutique.id, cp.id); }   // compte pro effacé avec le reste
     if (ouvertes.length) throw erreur(409, `Commande n° ${ouvertes[0].numero} encore en cours : effacez les données une fois qu’elle est expédiée ou annulée (l’adresse sert à la livraison).`, 'commande_en_cours');
     db.exec('PRAGMA secure_delete = ON');   // effacement : les données retirées ne restent pas lisibles dans le fichier
     try {
@@ -3298,7 +3303,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
     // Tarif professionnel : la remise du compte remplace les paliers (prix unitaire arrondi au centime, comme les remises).
     if (pro && pro.remise > 0) {
-      calcul.lignes = lignesBrutes.map(l => ({ ...l, prixInitial: l.prix, prix: prix.arrondi(l.prix * (1 - pro.remise / 100)) }));
+      // Les offres du panier ne s'appliquent pas au tarif pro : leurs lignes deviennent des lignes ordinaires.
+      calcul.lignes = lignesBrutes.map(({ offre, ...l }) => ({ ...l, prixInitial: l.prix, prix: prix.arrondi(l.prix * (1 - pro.remise / 100)) }));
+      calcul.sousTotal = prix.arrondi(lignesBrutes.reduce((a, l) => a + l.prix * l.qte, 0));
       calcul.apresRemise = prix.arrondi(calcul.lignes.reduce((a, l) => a + l.prix * l.qte, 0));
       calcul.remise = prix.arrondi(calcul.sousTotal - calcul.apresRemise);
       calcul.motif = { type: 'pro', libelle: `Tarif professionnel (−${pro.remise} %)` };
@@ -3338,7 +3345,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const devise = config.boutique.devise || 'EUR';
     // Paiement sur facture QR : pas de paiement en ligne ; facture émise tout de suite, payable à l'échéance.
     const parFacture = ctx.corps.moyen === 'facture';
+    let plafondVerifie = false;
     if (parFacture && pro && pro.facture && factureProPossible(config)) {
+      plafondVerifie = true;
       // Plafond du compte : factures pro encore impayées + cette commande.
       const encours = db.prepare("SELECT COALESCE(SUM(json_extract(donnees, '$.total')), 0) t FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND json_extract(donnees, '$.moyen') = 'facture' AND json_extract(donnees, '$.pro.id') = ?").get(b.id, pro.id).t;
       if (Math.round((encours + total) * 100) > Math.round(pro.plafond * 100)) throw erreur(409, `Plafond de facture atteint (${formatMontant(pro.plafond, config)}, dont ${formatMontant(encours, config)} encore à régler) : payez en ligne ou réglez une facture.`, 'pro_plafond');
@@ -3346,7 +3355,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Facture QR : numéro de facture et e-mail envoyés tout de suite, d'où des limites plus serrées (comptabilité, e-mails à des tiers).
     if (parFacture) {
       auth.limiter(`facture-ip:${b.id}:${ctx.ip}`, 5 * facteurLimites, 3600000, 'Trop de commandes sur facture en peu de temps. Réessayez plus tard ou payez en ligne.');
-      if (!pro) auth.limiter(`facture-email:${b.id}:${String(client.email || '').toLowerCase()}`, 3 * facteurLimites, 86400000, 'Trop de commandes sur facture pour cette adresse aujourd’hui.');
+      if (!plafondVerifie) auth.limiter(`facture-email:${b.id}:${String(client.email || '').toLowerCase()}`, 3 * facteurLimites, 86400000, 'Trop de commandes sur facture pour cette adresse aujourd’hui.');
       auth.limiter(`facture-boutique:${b.id}`, 200 * facteurLimites, 86400000, 'Commandes sur facture momentanément indisponibles : payez en ligne.');
     }
     // Carte cadeau : un moyen de paiement (pas une remise : la TVA porte sur les articles). Montant réservé en la débitant
@@ -3375,7 +3384,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, ...(codeBienvenue ? { codeBienvenue: true } : {}), ...(codePromo ? { codePromo } : {}), client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
-      if (pro) c.pro = { id: pro.id, raison: pro.raison, ide: pro.ide, remise: pro.remise };   // tarif et facture du compte pro
+      if (pro) { c.pro = { id: pro.id, remise: pro.remise }; c.client.entreprise = pro.raison; if (pro.ide) c.client.ide = pro.ide; }   // raison sociale et IDE : avec les données chiffrées du client
       if (avecNumerique) c.consentementNumerique = now;   // preuve du consentement (livraison immédiate, rétractation)
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
       // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.

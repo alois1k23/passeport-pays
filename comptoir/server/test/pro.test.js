@@ -49,11 +49,23 @@ test('clients professionnels de bout en bout', async () => {
     const o1 = await commander({ moyen: 'facture' });
     assert.equal(o1.s, 201, JSON.stringify(o1.j));
     const c1 = JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(o1.j.commandeId).donnees);
-    assert.equal(c1.lignes[0].prix, 85); assert.equal(c1.moyen, 'facture'); assert.equal(c1.pro.raison, 'Hôtel du Lac SA');
+    assert.equal(c1.lignes[0].prix, 85); assert.equal(c1.moyen, 'facture'); assert.equal(c1.pro.id, cpt.j.client.id);
+    assert.ok(!db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(o1.j.commandeId).donnees.includes('Hôtel du Lac'), 'raison sociale chiffrée avec le client');
+    assert.equal((await c('GET', '/api/admin/etat')).j.commandes.find(x => x.id === o1.j.commandeId).client.entreprise, 'Hôtel du Lac SA');
     // Plafond : 150, une facture de 85 (+ port) encore impayée : une seconde est refusée.
     assert.equal((await commander({ moyen: 'facture' })).j.code, 'pro_plafond');
     // Sans compte pro, la facture n'est pas proposée par cette boutique.
     assert.equal((await pub('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: pid, qte: 1 }], livraison: 'poste-eco', client: client('x@exemple.ch'), moyen: 'facture' })).j.code, 'moyen_invalide');
+    // 20 codes faux en 24 h sur le compte (tous réseaux) : bloqué, même avec le bon code ; le marchand est prévenu.
+    for (let k = 0; k < 20; k++) {
+      const dd = await pub('POST', `/api/public/${slug}/pro/code`, { email: 'achats@hoteldulac.ch' });
+      await pub('POST', `/api/public/${slug}/pro/connexion`, { email: 'achats@hoteldulac.ch', demande: dd.j.demande, code: '000000' === mails()[0].corps.match(/: (\d{6})/)[1] ? '111111' : '000000' });
+    }
+    const avantBlocage = mails().length;
+    const d3 = await pub('POST', `/api/public/${slug}/pro/code`, { email: 'achats@hoteldulac.ch' });
+    assert.equal(mails().length, avantBlocage, 'bloqué : plus de code envoyé');
+    assert.equal((await pub('POST', `/api/public/${slug}/pro/connexion`, { email: 'achats@hoteldulac.ch', demande: d3.j.demande, code: '123456' })).j.code, 'pro_code');
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE sujet = 'Espace pro : connexions bloquées pour un client'").get());
     // Compte supprimé : la session ne vaut plus rien.
     assert.equal((await c('DELETE', `/api/admin/pro/${cpt.j.client.id}`)).s, 200);
     assert.equal((await pub('POST', `/api/public/${slug}/pro/moi`, { jeton })).j.pro, null);

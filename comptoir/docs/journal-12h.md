@@ -213,14 +213,14 @@ Vendre aux professionnels (hôtels, restaurants, revendeurs) avec leurs propres 
 - **Côté client, « Espace pro » dans le pied de page** :
   - e-mail, puis code à 6 chiffres reçu par e-mail : 15 minutes, 5 essais, lié à la demande du navigateur qui l'a faite ;
   - même réponse qu'une adresse ait un compte pro ou non (aucun e-mail envoyé sinon) ;
-  - au plus 5 codes par adresse et 10 par réseau et par heure, et 20 échecs de connexion par réseau ;
+  - au plus 5 codes par adresse et 10 par réseau et par heure ; 20 échecs de connexion par réseau, et 20 par compte sur 24 heures tous réseaux confondus (voir la relecture) ;
   - ensuite, un jeton de 30 jours, dont seule l'empreinte est gardée ;
   - le panier affiche « Tarif professionnel (−15 %) », masque le code promo et propose la facture si le compte y a droit.
 - **Commande** : tout est relu par le serveur à partir du jeton.
   - La remise du compte remplace les paliers, avec les mêmes arrondis au centime que le panier.
   - Il faut commander avec l'adresse du compte pro. Aucun cumul avec un code promo ou des points.
   - La facture est possible même si la boutique ne la propose pas au public, et le plafond compte les factures pro encore impayées.
-  - Le compte pro est gardé avec la commande. Un compte supprimé ferme sa session.
+  - La raison sociale et le numéro de TVA sont gardés avec les données chiffrées du client de la commande, et affichés dans son détail côté marchand. Un compte supprimé ferme sa session.
 - **Limites, notées** :
   - la facture PDF n'affiche pas encore la raison sociale ni le numéro de TVA de l'acheteur (ils sont dans la commande) ;
   - pas d'autoliquidation de la TVA pour les clients professionnels de l'Union européenne ;
@@ -237,4 +237,14 @@ Vendre aux professionnels (hôtels, restaurants, revendeurs) avec leurs propres 
   - aucune erreur de page ;
   - la capture mobile a fait passer le tableau des comptes pro en cartes (colonnes qui se chevauchaient).
 - 242 tests sur 242, parcours de bout en bout 57/57.
+- **Relecture indépendante** : rien de critique. Tiennent les réponses identiques (pas de repérage des comptes), le plafond face aux commandes simultanées, l'absence de CSRF (jeton dans le corps, pas de cookie), l'échappement de tout affichage, l'interdiction au rôle « Commandes », la reprise d'un paiement (montant déjà remisé), la TVA par ligne remisée. Constats corrigés :
+  - **Moyen** : un pro sans droit à la facture, dans une boutique qui la propose au public, échappait à la limite de factures par adresse. Cette limite n'est maintenant levée que si le plafond pro a réellement été vérifié.
+  - **Moyen** : avec le tarif pro, une ligne d'offre du panier gardait sa quantité brute, et la remise enregistrée devenait négative (le total restait juste). Les offres ne s'appliquent plus au tarif pro, et le sous-total est recalculé.
+  - **Bas** :
+    - force brute des codes : 25 essais par heure et par compte restaient possibles depuis plusieurs réseaux. Au 20e échec en 24 heures, le compte est bloqué (plus de code, plus de connexion) et le marchand est prévenu (testé) ;
+    - la raison sociale et le numéro de TVA étaient en clair dans la commande ; ils rejoignent les données chiffrées du client (testé) ;
+    - l'effacement d'un client (droit à l'effacement) supprime aussi son compte pro ;
+    - l'en-tête du module annonçait des prix hors taxes : ce sont des prix TTC remisés.
+  - **Noté** : le plafond ne compte que les factures encore en attente. Un marchand qui expédie à crédit en marquant la commande payée libère le plafond avant le paiement réel.
+- Après corrections : 242 tests sur 242, parcours de bout en bout 57/57.
 

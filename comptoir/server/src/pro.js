@@ -1,4 +1,4 @@
-/* Comptoir — clients professionnels : remise propre, prix affichés hors taxes, paiement sur facture avec plafond.
+/* Comptoir — clients professionnels : remise propre (prix TTC remisés), paiement sur facture avec plafond.
    - Le marchand ouvre les comptes pro (e-mail, raison sociale, numéro de TVA ou IDE, remise, facture et plafond) ;
      e-mail et raison sociale sont chiffrés au repos comme les données des clients des commandes.
    - Le client pro se connecte dans la boutique avec un code à usage unique reçu par e-mail (6 chiffres, 15 minutes,
@@ -15,6 +15,7 @@ function creerPro({ db, erreur, pii }) {
   db.exec(`CREATE TABLE IF NOT EXISTS clients_pro (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, donnees TEXT NOT NULL, remise REAL NOT NULL DEFAULT 0, facture INTEGER NOT NULL DEFAULT 0, plafond_centimes INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS clients_pro_boutique ON clients_pro(boutique_id);
     CREATE TABLE IF NOT EXISTS pro_codes (demande_hash TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, client_id TEXT NOT NULL, code_hash TEXT NOT NULL, expire_le INTEGER NOT NULL, essais INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS pro_echecs (client_id TEXT PRIMARY KEY, echecs INTEGER NOT NULL, depuis INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS pro_sessions (jeton_hash TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, client_id TEXT NOT NULL, expire_le INTEGER NOT NULL);`);
 
   const P = () => pii();
@@ -56,10 +57,14 @@ function creerPro({ db, erreur, pii }) {
 
   /* Code de connexion : renvoie { demande, code, client } si l'adresse a un compte pro, sinon une demande factice
      (même réponse pour le navigateur : rien ne dit si l'adresse est cliente pro). */
+  // Échecs de connexion par compte, sur 24 heures (tous réseaux confondus) : au 20e, plus de code ni de connexion.
+  const echecs = id => { const e = db.prepare('SELECT * FROM pro_echecs WHERE client_id = ?').get(id); return e && e.depuis > Date.now() - 86400000 ? e.echecs : 0; };
+  const noterEchec = id => db.prepare('INSERT INTO pro_echecs (client_id, echecs, depuis) VALUES (?, 1, ?) ON CONFLICT (client_id) DO UPDATE SET echecs = CASE WHEN depuis > ? THEN echecs + 1 ELSE 1 END, depuis = CASE WHEN depuis > ? THEN depuis ELSE excluded.depuis END RETURNING echecs').get(id, Date.now(), Date.now() - 86400000, Date.now() - 86400000).echecs;
+  const MAX_ECHECS = 20;
   function nouveauCode(bid, email) {
     const c = parEmail(bid, email), demande = crypto.randomBytes(18).toString('base64url');
     db.prepare('DELETE FROM pro_codes WHERE expire_le < ?').run(Date.now());
-    if (!c) return { demande, code: null, client: null };
+    if (!c || echecs(c.id) >= MAX_ECHECS) return { demande, code: null, client: null };   // bloqué : même réponse, aucun e-mail
     const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
     db.prepare('DELETE FROM pro_codes WHERE client_id = ?').run(c.id);   // un seul code valable à la fois
     db.prepare('INSERT INTO pro_codes (demande_hash, boutique_id, client_id, code_hash, expire_le) VALUES (?, ?, ?, ?, ?)').run(sha256(demande), bid, c.id, sha256(`${c.id}:${code}`), Date.now() + DUREE_CODE);
@@ -67,6 +72,13 @@ function creerPro({ db, erreur, pii }) {
   }
   /* Connexion : code juste pour cette demande → jeton de 30 jours (empreinte seule gardée). 5 essais par code. */
   function connecter(bid, email, demande, code) {
+    const cible = parEmail(bid, email);
+    if (cible && echecs(cible.id) >= MAX_ECHECS) return null;
+    const res = connecter1(bid, email, demande, code);
+    if (!res && cible && noterEchec(cible.id) === MAX_ECHECS) return { bloque: cible };
+    return res;
+  }
+  function connecter1(bid, email, demande, code) {
     const r = db.prepare('SELECT * FROM pro_codes WHERE demande_hash = ? AND boutique_id = ?').get(sha256(String(demande || '')), bid);
     const c = r && db.prepare('SELECT * FROM clients_pro WHERE id = ? AND boutique_id = ?').get(r.client_id, bid);
     const client = c && lire(c);
@@ -76,6 +88,7 @@ function creerPro({ db, erreur, pii }) {
     }
     if (!crypto.timingSafeEqual(Buffer.from(r.code_hash, 'hex'), Buffer.from(sha256(`${client.id}:${code}`), 'hex'))) { db.prepare('UPDATE pro_codes SET essais = essais + 1 WHERE demande_hash = ?').run(r.demande_hash); return null; }
     db.prepare('DELETE FROM pro_codes WHERE client_id = ?').run(client.id);
+    db.prepare('DELETE FROM pro_echecs WHERE client_id = ?').run(client.id);
     const jeton = crypto.randomBytes(32).toString('base64url');
     db.prepare('DELETE FROM pro_sessions WHERE expire_le < ?').run(Date.now());
     db.prepare('INSERT INTO pro_sessions (jeton_hash, boutique_id, client_id, expire_le) VALUES (?, ?, ?, ?)').run(sha256(jeton), bid, client.id, Date.now() + DUREE_SESSION);
@@ -90,7 +103,7 @@ function creerPro({ db, erreur, pii }) {
     return client && !client.illisible ? client : null;
   }
   const deconnecter = (bid, jeton) => db.prepare('DELETE FROM pro_sessions WHERE jeton_hash = ? AND boutique_id = ?').run(sha256(String(jeton || '')), bid).changes > 0;
-  const toutSupprimer = bid => { for (const t of ['clients_pro', 'pro_codes', 'pro_sessions']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(bid); };
+  const toutSupprimer = bid => { db.prepare('DELETE FROM pro_echecs WHERE client_id IN (SELECT id FROM clients_pro WHERE boutique_id = ?)').run(bid); for (const t of ['clients_pro', 'pro_codes', 'pro_sessions']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(bid); };
   // Ménage : codes expirés, sessions échues.
   const menage = (m = Date.now()) => { db.prepare('DELETE FROM pro_codes WHERE expire_le < ?').run(m); db.prepare('DELETE FROM pro_sessions WHERE expire_le < ?').run(m); };
   return { liste, parEmail, enregistrer, supprimer, nouveauCode, connecter, deJeton, deconnecter, toutSupprimer, menage, MAX_CLIENTS };
