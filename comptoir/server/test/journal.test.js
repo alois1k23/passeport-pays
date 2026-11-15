@@ -47,8 +47,18 @@ test('journal de bout en bout', async () => {
     assert.match(plan, /\/journal\/entretenir-le-lin</); assert.doesNotMatch(plan, /entretenir-le-lin-2/);
     assert.equal((await c('GET', `/api/public/${slug}`)).j.journal, 1);
     // Publication, modification, suppression.
-    assert.equal((await c('PUT', `/api/admin/articles/${a2.id}`, { titre: 'Le lin en hiver', corps: 'Publié', publie: true })).j.article.slug, 'le-lin-en-hiver');
+    // Renommé : l'adresse reste (liens déjà partagés), sauf adresse demandée.
+    assert.equal((await c('PUT', `/api/admin/articles/${a2.id}`, { titre: 'Le lin en hiver', corps: 'Publié', publie: true })).j.article.slug, 'entretenir-le-lin-2');
+    assert.equal((await c('PUT', `/api/admin/articles/${a2.id}`, { titre: 'Le lin en hiver', slug: 'le-lin-en-hiver', corps: 'Publié', publie: true })).j.article.slug, 'le-lin-en-hiver');
     assert.equal((await fetch(`${base}/s/${slug}/journal/le-lin-en-hiver`)).status, 200);
+    assert.equal((await c('GET', '/api/admin/articles')).j.articles.find(a => a.id === a2.id).corps, 'Publié', 'texte rendu à l’éditeur');
+    // Abonnement terminé : le journal n'est plus servi.
+    db.prepare("UPDATE abonnements SET statut = 'resilie'").run();
+    assert.equal((await fetch(`${base}/s/${slug}/journal/le-lin-en-hiver`)).status, 404);
+    assert.doesNotMatch(await (await fetch(`${base}/s/${slug}/journal`)).text(), /Le lin en hiver/);
+    db.prepare("UPDATE abonnements SET statut = 'actif'").run();
+    // Résumé tiré du texte : pas de calcul coûteux sur un texte piégé.
+    const t0 = Date.now(); require('../src/articles').texteBrut('['.repeat(40000)); assert.ok(Date.now() - t0 < 50);
     assert.equal((await c('DELETE', `/api/admin/articles/${a1.id}`)).s, 200);
     assert.equal((await fetch(`${base}/s/${slug}/journal/entretenir-le-lin`)).status, 404);
     { const ap = await c('POST', '/api/admin/articles/apercu', { corps: '**ok**' }); assert.equal(ap.s, 200, JSON.stringify(ap)); assert.match(ap.j.rendu, /<strong>ok<\/strong>/); }

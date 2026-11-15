@@ -290,7 +290,14 @@ Les autres plateformes ont un blog intégré ; c'est un levier de référencemen
   - aucune erreur de page ni de console.
 - 244 tests sur 244, parcours de bout en bout 57/57, fuzzing sans constat.
 
-### Cycle 7 (22 h 55) : facture d'un client pro (chantier 77)
+- **Relecture indépendante** : aucune injection possible (les balises ajoutées ne contiennent jamais de guillemet, et une adresse ne peut pas sortir de son attribut), aucun accès à l'article d'une autre boutique, aucun brouillon visible, rôle « Commandes » refusé, feuille de style bien autorisée. Constats corrigés :
+  - **Moyen** : le résumé tiré du texte (quand le marchand n'en écrit pas) utilisait une expression coûteuse. Un texte piégé de 40 000 « [ » prenait 600 ms à chaque affichage de l'article, de quoi bloquer le serveur en le rechargeant. Calcul borné aux 2 000 premiers caractères avec une expression linéaire (testé).
+  - **Moyen** : l'adresse d'un article changeait à chaque renommage, ce qui cassait les liens déjà partagés. Elle reste maintenant, sauf adresse demandée explicitement (testé).
+  - **Moyen** : une boutique sans abonnement actif continuait de servir ses articles en entier : hébergement gratuit de textes et de liens sur le domaine de la plateforme, utile pour du hameçonnage. Son journal n'est plus servi (404, liste vide, testé).
+  - **Bas** : les listes et le compteur public ne lisent plus le texte des articles ; l'éditeur du marchand reçoit les articles complets. Les liens de l'aperçu s'ouvrent dans un nouvel onglet, sans perdre la saisie.
+- Après corrections : 244 tests sur 244.
+
+### Cycle 7 (22 h 50) : facture d'un client pro (chantier 77)
 
 La relecture du chantier 74 avait noté que la facture d'un client pro ne montrait que le nom de la personne. Désormais :
 

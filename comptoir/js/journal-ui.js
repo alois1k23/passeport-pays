@@ -48,7 +48,7 @@ document.addEventListener('click', async e => {
   if (a === 'journal-apercu') {
     const v = lireFormJournal(); if (!v) return;
     JOURNAL_UI.edite = { ...JOURNAL_UI.edite, ...v };
-    try { JOURNAL_UI.apercu = (await api('POST', '/api/admin/articles/apercu', { corps: v.corps })).rendu; } catch (err) { toast(err.message); }   // rendu du serveur : texte déjà échappé
+    try { JOURNAL_UI.apercu = (await api('POST', '/api/admin/articles/apercu', { corps: v.corps })).rendu.replace(/<a href=/g, '<a target="_blank" href='); } catch (err) { toast(err.message); }   // rendu du serveur (texte déjà échappé) ; liens de l'aperçu dans un nouvel onglet
     rendre(); return;
   }
   if (a === 'journal-supprimer') {

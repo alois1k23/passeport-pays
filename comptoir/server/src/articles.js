@@ -33,21 +33,25 @@ function versHtml(texte) {
   fermerPara(); fermerListe();
   return blocs.join('\n');
 }
-const texteBrut = texte => String(texte || '').replace(/^#{2,3}\s+/gm, '').replace(/\*\*|\*/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
+const texteBrut = texte => String(texte || '').slice(0, 2000).replace(/^#{2,3}\s+/gm, '').replace(/\*\*|\*/g, '').replace(/\[([^\]\n]{0,120})\]\([^)\s]{0,500}\)/g, '$1').replace(/\s+/g, ' ').trim();
 const slugDe = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'article';
 
 function creerArticles({ db, erreur }) {
   db.exec(`CREATE TABLE IF NOT EXISTS articles (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, slug TEXT NOT NULL, titre TEXT NOT NULL, resume TEXT NOT NULL DEFAULT '', corps TEXT NOT NULL DEFAULT '', publie INTEGER NOT NULL DEFAULT 0, publie_le INTEGER, cree_le INTEGER NOT NULL, maj_le INTEGER NOT NULL, UNIQUE (boutique_id, slug));
     CREATE INDEX IF NOT EXISTS articles_boutique ON articles(boutique_id, publie, publie_le);`);
   const lire = r => r && { id: r.id, slug: r.slug, titre: r.titre, resume: r.resume, corps: r.corps, publie: !!r.publie, publieLe: r.publie_le, creeLe: r.cree_le, majLe: r.maj_le };
-  const liste = (bid, { publies = false } = {}) => db.prepare(`SELECT * FROM articles WHERE boutique_id = ? ${publies ? 'AND publie = 1' : ''} ORDER BY COALESCE(publie_le, cree_le) DESC`).all(bid).map(lire);
+  // Listes sans le texte des articles (léger) ; le texte n'est lu que pour un article.
+  const liste = (bid, { publies = false } = {}) => db.prepare(`SELECT id, slug, titre, resume, '' corps, publie, publie_le, cree_le, maj_le FROM articles WHERE boutique_id = ? ${publies ? 'AND publie = 1' : ''} ORDER BY COALESCE(publie_le, cree_le) DESC`).all(bid).map(lire);
+  const compter = bid => db.prepare('SELECT COUNT(*) n FROM articles WHERE boutique_id = ? AND publie = 1').get(bid).n;
+  const complet = (bid, id) => lire(db.prepare('SELECT * FROM articles WHERE id = ? AND boutique_id = ?').get(String(id), bid));
   const publie = (bid, slug) => lire(db.prepare('SELECT * FROM articles WHERE boutique_id = ? AND slug = ? AND publie = 1').get(bid, String(slug || '')));
   function enregistrer(bid, a, id = null) {
     const titre = ligne(a.titre).slice(0, 140);
     if (!titre) throw erreur(400, 'Donnez un titre à l’article.', 'article_titre');
     const corps = String(a.corps || '').slice(0, MAX_CORPS), resume = ligne(a.resume).slice(0, 300);
-    const voulu = slugDe(a.slug || titre);
     const avant = id ? db.prepare('SELECT * FROM articles WHERE id = ? AND boutique_id = ?').get(id, bid) : null;
+    // Adresse stable : un article renommé garde la sienne (les liens déjà partagés restent bons), sauf adresse demandée.
+    const voulu = a.slug ? slugDe(a.slug) : avant ? avant.slug : slugDe(titre);
     if (id && !avant) throw erreur(404, 'Article introuvable.', 'introuvable');
     if (!id && db.prepare('SELECT COUNT(*) n FROM articles WHERE boutique_id = ?').get(bid).n >= MAX_ARTICLES) throw erreur(409, `${MAX_ARTICLES} articles au plus.`, 'articles_trop');
     // Adresse unique dans la boutique : suffixe -2, -3… si elle est prise.
@@ -61,7 +65,7 @@ function creerArticles({ db, erreur }) {
   }
   const supprimer = (bid, id) => db.prepare('DELETE FROM articles WHERE id = ? AND boutique_id = ?').run(String(id), bid).changes > 0;
   const toutSupprimer = bid => db.prepare('DELETE FROM articles WHERE boutique_id = ?').run(bid);
-  return { liste, publie, enregistrer, supprimer, toutSupprimer };
+  return { liste, compter, complet, publie, enregistrer, supprimer, toutSupprimer };
 }
 
 module.exports = { creerArticles, versHtml, texteBrut, slugDe, esc };

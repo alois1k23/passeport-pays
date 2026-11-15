@@ -2590,7 +2590,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     await Promise.all([suivant(), suivant(), suivant(), suivant()]);
   }
   /* ---------- Journal (blog) ---------- */
-  r.get('/api/admin/articles', exigerMarchand, ctx => ({ articles: ART.liste(ctx.boutique.id) }));
+  r.get('/api/admin/articles', exigerMarchand, ctx => ({ articles: ART.liste(ctx.boutique.id).map(a => ART.complet(ctx.boutique.id, a.id)) }));   // texte compris (édition)
   r.post('/api/admin/articles', exigerMarchand, ctx => ({ statut: 201, corps: { article: ART.enregistrer(ctx.boutique.id, ctx.corps) } }));
   r.put('/api/admin/articles/:id', exigerMarchand, ctx => ({ article: ART.enregistrer(ctx.boutique.id, ctx.corps, String(ctx.params.id)) }));
   r.delete('/api/admin/articles/:id', exigerMarchand, ctx => { if (!ART.supprimer(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Article introuvable.', 'introuvable'); return { ok: true }; });
@@ -3214,7 +3214,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       boutique: { ...config.boutique, sections: sectionsPubliques },
       magasin: { clickCollect: !!config.magasin.clickCollect, adresse: config.magasin.adresse || '' },
       entreprise: { raison: config.entreprise.raison, adresse: config.entreprise.adresse, email: config.entreprise.email, forme: config.entreprise.forme, siret: config.entreprise.siret, regime: config.entreprise.regime, tvaIntra: config.entreprise.tvaIntra, mediateur: config.entreprise.mediateur, telephone: config.entreprise.telephone, retoursJours: Number(config.entreprise.retoursJours) || 0 },
-      produits, avisRecents, journal: ART.liste(b.id, { publies: true }).length,
+      produits, avisRecents, journal: ART.compter(b.id),
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: Remises.offresDe(config).seuilPort,
       cartesCadeaux: (() => { const v = Cartes.reglagesVente(b.id); return v.actif ? { montants: v.montants } : null; })(),
@@ -5019,7 +5019,9 @@ ${bloc}</main></body></html>`;
     const ouverte = abo.etat(b.marchand_id).actif;
     const urlArt = a => `${base}/journal/${encodeURIComponent(a.slug)}`;
     const date = t => new Date(t).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Zurich' });
-    const arts = ART.liste(b.id, { publies: true });
+    // Boutique sans abonnement actif : son journal n'est plus servi (pas d'hébergement gratuit de textes et de liens).
+    const arts = ouverte ? ART.liste(b.id, { publies: true }) : [];
+    if (!ouverte) article = null;
     const titre = article ? `${article.titre} · ${nom}` : `Journal · ${nom}`;
     const description = (article ? (article.resume || Articles.texteBrut(article.corps)) : `Les articles de ${nom}.`).slice(0, 158);
     const canonique = article ? urlArt(article) : `${base}/journal`;
@@ -5263,7 +5265,7 @@ ${FEUILLE_4}</head>
           if (chemin === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, racine)); }
           if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(`User-agent: *\nAllow: /\nAllow: /api/public/*/image/\nDisallow: /api/\nSitemap: ${racine}sitemap.xml\n`); }
           const mj = /^\/journal(?:\/([\w-]+))?\/?$/.exec(chemin);
-          if (mj) { const art = mj[1] ? ART.publie(b.id, mj[1]) : null; return envoyerHtml(res, mj[1] && !art ? 404 : 200, pageJournal(b, { racine, article: art })); }
+          if (mj) { const art = mj[1] && abo.etat(b.marchand_id).actif ? ART.publie(b.id, mj[1]) : null; return envoyerHtml(res, mj[1] && !art ? 404 : 200, pageJournal(b, { racine, article: art })); }
           const pid = chemin.startsWith('/p/') ? decodeURIComponent(chemin.slice(3)) : null;
           return envoyerHtml(res, pid && !produitVisible(b, pid) ? 404 : 200, pageBoutique(b, { racine, produitId: pid, langue: url.searchParams.get('lang') }));
         }
@@ -5282,7 +5284,7 @@ ${FEUILLE_4}</head>
           const mJournal = /^\/s\/([\w-]+)\/journal(?:\/([\w-]+))?\/?$/.exec(chemin);
           if (mJournal) {
             const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mJournal[1]);
-            if (b) { const a = mJournal[2] ? ART.publie(b.id, mJournal[2]) : null; return envoyerHtml(res, mJournal[2] && !a ? 404 : 200, pageJournal(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, article: a })); }
+            if (b) { const a = mJournal[2] && abo.etat(b.marchand_id).actif ? ART.publie(b.id, mJournal[2]) : null; return envoyerHtml(res, mJournal[2] && !a ? 404 : 200, pageJournal(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, article: a })); }
           }
           const mPlan = /^\/s\/([\w-]+)\/sitemap\.xml$/.exec(chemin);
           if (mPlan) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mPlan[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, `${urlPublique}/s/${b.slug}/`)); } }
