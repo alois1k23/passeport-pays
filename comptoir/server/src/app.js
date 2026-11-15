@@ -755,7 +755,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       boutique: b,
       entreprise: config.entreprise || {},
       magasin: config.magasin || {},
-      reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8, factureQr: !!(config.reglages && config.reglages.factureQr), rapportHebdo: !(config.reglages && config.reglages.rapportHebdo === false), echeanceJours: Math.max(10, Math.min(60, Math.round(Number(config.reglages && config.reglages.echeanceJours) || 30))) },
+      reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8, factureQr: !!(config.reglages && config.reglages.factureQr), rapportHebdo: !(config.reglages && config.reglages.rapportHebdo === false), emballageCadeau: !!(config.reglages && config.reglages.emballageCadeau), echeanceJours: Math.max(10, Math.min(60, Math.round(Number(config.reglages && config.reglages.echeanceJours) || 30))) },
       campagnes: config.campagnes || {},
       rdv: config.rdv || null,
       cookies: config.cookies || null,
@@ -1119,7 +1119,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
       notifierEquipe(res.boutique, { titre: `${res.c.parent ? 'Complément' : 'Nouvelle commande'} n° ${res.c.numero}`, texte: `${formatMontant(res.c.total, config)}${res.c.risque && res.c.risque.niveau === 'eleve' ? ' · risque de fraude élevé, à vérifier' : ''}`, url: '/app#commandes' }).catch(() => {});
       if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
-        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
+        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${res.c.cadeau ? 'Emballage cadeau demandé (le message éventuel est dans la commande et sur le bon de préparation).\n' : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
     }
     if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop') && res.c.risque && res.c.risque.niveau === 'eleve') {
       const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.id));
@@ -3333,6 +3333,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       paiement: paiement.nom,
       paiementsActifs: paiementsActifs(b) || factureQrPossible(config),
       factureQr: factureQrPossible(config) ? { echeanceJours: config.reglages.echeanceJours, enLigne: paiementsActifs(b) } : null,
+      cadeau: !!(config.reglages && config.reglages.emballageCadeau),   // emballage cadeau offert, avec message
       moyens: paiement.nom === 'stripe' ? (moyensDe(b.id) || {}) : null,   // TWINT ou Bancontact : annoncés seulement s'ils sont activés   // sinon la boutique prévient avant que le client remplisse le panier
       hebergeur: env.HEBERGEUR || null   // identité de l'hébergeur (obligatoire dans les mentions légales en France)
     };
@@ -3505,6 +3506,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
       if (pro) { c.pro = { id: pro.id, remise: pro.remise }; c.client.entreprise = pro.raison; if (pro.ide) c.client.ide = pro.ide; }   // raison sociale et IDE : avec les données chiffrées du client
       if (avecNumerique) c.consentementNumerique = now;   // preuve du consentement (livraison immédiate, rétractation)
+      // Emballage cadeau (offert, si la boutique le propose) : le message, écrit par le client, est rangé avec ses données
+      // chiffrées (et effacé avec elles) ; il figure sur le bon de préparation, jamais les prix.
+      if (ctx.corps.cadeau === true && config.reglages && config.reglages.emballageCadeau && !avecNumerique) { c.cadeau = true; const msg = String(ctx.corps.messageCadeau || '').replace(/\r/g, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 300); if (msg) c.client.messageCadeau = msg; }
       // Rappel de réassort demandé (case cochée par le client) : produits qui le proposent, délai le plus court.
       if (ctx.corps.rappelReassort === true) {
         const rl = lignes.filter(l => !l.varianteId && (produits.find(p => p.id === l.produitId) || {}).reassortJours);

@@ -1504,3 +1504,6 @@ details.en-ligne form { margin-top: 6px; }
 .apercu-journal h3 { font-size: 1.05rem; margin: 12px 0 4px; }
 
 [data-var-ean] { width: 10.5em; max-width: 100%; font-variant-numeric: tabular-nums; }   /* code-barres d'une variante : tient sur un écran de téléphone */
+
+.message-cadeau { white-space: pre-line; overflow-wrap: anywhere; font-style: italic; margin: 4px 0 0; }
+.bon-cadeau { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 12px; }

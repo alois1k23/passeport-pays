@@ -586,3 +586,22 @@ La relecture a contrôlé les tables d'encodage EAN-13 et EAN-8 face à la norme
 - **Flux en direct** : le test prenait la première mise à jour reçue. Sous charge, ce pouvait être celle de la commande créée, et non celle de la commande payée. Il attend maintenant celle qui porte la commande payée, avec une marge de 10 secondes au lieu de 3. Le code du serveur n'a pas changé, il était juste.
 - **Confirmation d'identité, 12 essais simultanés** : la règle vérifiée (au plus 5 mots de passe calculés) tenait toujours. Mais selon l'ordre d'arrivée, un essai refusé reçoit « session fermée » ou « non connecté » (session déjà supprimée), et le test n'acceptait que la première réponse. Il accepte maintenant les deux et affiche les codes reçus en cas d'échec. La règle de sécurité est inchangée.
 - **Essai sous charge** : quatre exécutions simultanées de ces deux tests et de la suite de l'API, sans aucun échec.
+
+### Cycle 26 (23 h 50) : emballage cadeau et message (chantier 90)
+
+- **Réglage** : dans Paramètres > Livraison, « Proposer l'emballage cadeau ». L'emballage est offert : un supplément payant toucherait aux factures, à la TVA et aux écritures comptables, ce qui demande sa propre relecture.
+- **Boutique** :
+  - la case « C'est un cadeau : emballage offert » fait apparaître le champ du message (300 caractères), sans perdre ce qui est déjà saisi ;
+  - le focus va au champ du message ;
+  - la case n'existe pas pour un panier entièrement numérique.
+- **Message** :
+  - nettoyé (caractères de contrôle et d'inversion de sens retirés, lignes vides réduites), 300 caractères au plus ;
+  - rangé avec les données chiffrées du client, il est effacé avec elles ;
+  - une demande faite à une boutique qui ne propose pas l'emballage est ignorée.
+- **Marchand** :
+  - la commande affiche « Emballage cadeau demandé » et le message ;
+  - le bon de préparation l'affiche dans un encadré, sans les prix ;
+  - l'e-mail de nouvelle commande le signale, sans recopier le message (les e-mails sont gardés 7 jours).
+- **Tests** : demande ignorée sans le réglage, réglage, message nettoyé et coupé à 300 caractères, chiffrement, e-mail au marchand, effacement.
+- **Vérifié dans Chromium**, bureau et mobile : réglage, case et message dans le panier (saisie gardée), commande payée, détail de la commande, bon de préparation. Aucune erreur.
+- 251 tests sur 251, parcours de bout en bout 57/57.

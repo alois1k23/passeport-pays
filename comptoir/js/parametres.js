@@ -66,7 +66,10 @@ function vueParametres() {
       </tbody></table></div>
       <div class="pad-x pad-b"><p class="sous">Livraison offerte dès <b>${seuilPort() > 0 ? euros(seuilPort()) : 'jamais'}</b> (hors envoi express).</p>
         <label class="champ"><span>Livraison offerte dès (${devise()}, 0 = jamais)</span><input type="number" min="0" max="1000" step="5" value="${seuilPort()}" data-seuil></label>
-        <p class="sous">Commandes passées après 14 h : expédiées le jour ouvrable suivant. Pour les produits en dropshipping, le délai affiché est celui du fournisseur.</p></div></section>`;
+        <p class="sous">Commandes passées après 14 h : expédiées le jour ouvrable suivant. Pour les produits en dropshipping, le délai affiché est celui du fournisseur.</p></div></section>
+      <section class="carte"><div class="carte-tete"><h2>Emballage cadeau</h2>${statut(!!(etat.reglages && etat.reglages.emballageCadeau), 'Proposé', 'Non proposé')}</div>
+        <p class="sous">Au moment de commander, le client peut demander un emballage cadeau (offert) et écrire un message de 300 caractères au plus. Le message figure sur le bon de préparation, sans les prix.</p>
+        <label class="case"><input type="checkbox" data-reglage="emballageCadeau" ${etat.reglages && etat.reglages.emballageCadeau ? 'checked' : ''}> Proposer l’emballage cadeau</label></section>`;
   } else if (s === 'emails') {
     const service = enLigne() ? SERVEUR.emails : null;
     const notif = typeof Notification === 'undefined' ? 'indisponible' : Notification.permission;
