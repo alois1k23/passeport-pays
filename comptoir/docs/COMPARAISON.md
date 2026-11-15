@@ -21,6 +21,21 @@ Il s'agit d'une comparaison des fonctions écrites. Elle ne dit rien de la matur
 | Caisse et stock unique | Natifs (formule Pro), avec vente hors ligne | Shopify POS (non vérifié ici) | Non vérifié | Par extensions | Par modules | Non vérifié |
 | Hébergement des données | Là où l'exploitant installe Comptoir (serveur en Suisse conseillé) | Europe par défaut pour les nouveaux marchands européens, avec transferts internationaux | Amérique du Nord et Europe (AWS, GCP) | Hébergeur choisi | Hébergeur choisi | En Suisse (source tierce) |
 
+## Ajouté à Comptoir depuis le relevé
+
+Ces fonctions ont été ajoutées après le relevé du 15 novembre. L'équivalent chez les autres plateformes n'a pas été vérifié : elles ne sont donc pas comparées ici.
+
+- Codes-barres (EAN, UPC, GTIN), aussi par variante, avec lecture au lecteur en caisse.
+- Étiquettes code-barres imprimables et codes internes.
+- Inventaire au lecteur de codes-barres, avec contrôle des ventes faites pendant le comptage.
+- Flux produits pour Google Shopping et Meta (marque, code-barres, variantes, précommandes).
+- Rappels de réassort, à la demande du client.
+- Rappel des précommandes au marchand.
+- Emballage cadeau avec message.
+- Créneaux de retrait en magasin.
+- Favoris dans la boutique.
+- Produits présentés sous les articles du journal.
+
 ## Ce que le tableau montre
 
 - **Avantages écrits de Comptoir :**
