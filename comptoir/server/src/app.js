@@ -2580,28 +2580,34 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
      recompter, ou à forcer). Tout ou rien, dans une transaction ; lots, dropshipping et produits numériques exclus. */
   /* Articles vendus (payés) mais encore en rayon : commandes payées, en préparation ou prêtes au retrait. Le stock les a
      déjà déduits ; un comptage physique les trouve encore sur l'étagère. Clé « produit|variante ». */
-  function engagesEnRayon(bid) {
+  function engagesEnRayon(bid, eid = '') {
     const e = {};
+    // Par emplacement : seulement ce qui a été pris dans cet emplacement à la vente (répartition notée sur la ligne).
+    const part = (x, q) => eid ? Number((x.emplacements || {})[eid]) || 0 : q;
     for (const r0 of db.prepare("SELECT donnees FROM commandes WHERE boutique_id = ? AND statut IN ('payee', 'preparation', 'prete')").all(bid)) {
       const d = JSON.parse(r0.donnees);
       for (const l of d.lignes || []) {
         if (l.type === 'drop' || l.numerique || !l.produitId) continue;
         const q = typeof l.retireStock === 'number' ? l.retireStock : (Number(l.qte) || 0);
+        if (Array.isArray(l.composantsRetires) && l.composantsRetires.length) { for (const c of l.composantsRetires) { const n = part(c, Number(c.retireStock ?? c.qte) || 0); if (n) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + n; } continue; }
         const comps = composantsDe(bid, l);
-        if (comps.length && comps[0].produitId !== l.produitId) { for (const c of comps) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + c.qte; continue; }
-        const k = `${l.produitId}|${l.varianteId || ''}`; e[k] = (e[k] || 0) + q;
+        if (comps.length && comps[0].produitId !== l.produitId) { if (!eid) for (const c of comps) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + c.qte; continue; }
+        const k = `${l.produitId}|${l.varianteId || ''}`, n = part(l, q); if (n) e[k] = (e[k] || 0) + n;
       }
     }
     return e;
   }
-  r.get('/api/admin/inventaire/engages', exigerMarchand, ctx => ({ engages: engagesEnRayon(ctx.boutique.id) }));
+  r.get('/api/admin/inventaire/engages', exigerMarchand, ctx => ({ engages: engagesEnRayon(ctx.boutique.id, String(ctx.query.get('emplacement') || '')) }));
   r.post('/api/admin/inventaire', exigerMarchand, ctx => {
     if (Array.isArray(ctx.corps.lignes) && ctx.corps.lignes.length > 10000) throw erreur(413, '10 000 articles au plus par inventaire : appliquez-le en plusieurs fois.', 'inventaire_trop');
     const lignes = Array.isArray(ctx.corps.lignes) ? ctx.corps.lignes : [];
     if (!lignes.length) throw erreur(400, 'Aucun article compté.', 'inventaire_vide');
-    const engages = engagesEnRayon(ctx.boutique.id);
+    // Inventaire d'un seul emplacement (magasin, entrepôt…) : les quantités comptées remplacent celles de cet emplacement.
+    const eid = typeof ctx.corps.emplacementId === 'string' && ctx.corps.emplacementId ? ctx.corps.emplacementId : '';
+    if (eid && !EMP.lister(ctx.boutique.id).some(e => e.id === eid)) throw erreur(400, 'Emplacement inconnu.', 'inventaire_emplacement');
+    const engages = engagesEnRayon(ctx.boutique.id, eid);
     const forcer = ctx.corps.forcer === true, conflits = [], appliques = [];
-    transaction(db, () => {
+    try { transaction(db, () => {
       const parProduit = new Map();
       for (const l of lignes) {
         const compte = Number(l && l.compte);
@@ -2612,17 +2618,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         if (!p || p.type === 'drop' || p.numerique || (Array.isArray(p.composants) && p.composants.length)) throw erreur(400, 'Article introuvable ou sans stock propre.', 'inventaire_article');
         const v = vid ? (p.variantes || []).find(x => x.id === vid) : null;
         if (vid ? !v : (Array.isArray(p.variantes) && p.variantes.length)) throw erreur(400, `${p.nom} : précisez la variante.`, 'inventaire_variante');
-        const actuel = v ? v.stock : p.stock;
+        const actuel = eid ? EMP.quantite(pid, vid, eid) : v ? v.stock : p.stock;
         if (!forcer && Number(l.stockVu) !== actuel) { conflits.push({ produitId: pid, varianteId: vid || null, nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, stockVu: Number(l.stockVu), actuel, compte }); continue; }
         // Le comptage voit aussi les articles déjà vendus mais pas encore partis : ils sont retirés du stock disponible.
         const nouveau = Math.max(0, compte - (engages[`${pid}|${vid}`] || 0));
-        if (v) v.stock = nouveau; else p.stock = nouveau;
+        const total = eid ? EMP.inventorier(ctx.boutique.id, pid, vid, eid, nouveau) : nouveau;   // emplacement : le total suit la somme
+        if (v) v.stock = total; else p.stock = total;
         if (v) p.stock = p.variantes.reduce((a, x) => a + x.stock, 0);
         appliques.push({ nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, avant: actuel, apres: nouveau, compte });
       }
-      if (conflits.length && !forcer) return;   // rien n'est appliqué tant qu'un conflit n'est pas réglé
+      if (conflits.length && !forcer) throw Object.assign(new Error('conflit'), { conflitInventaire: true });   // tout est annulé (emplacements compris) tant qu'un conflit n'est pas réglé
       for (const [pid, p] of parProduit) if (p) { db.prepare('UPDATE produits SET donnees = ? WHERE id = ? AND boutique_id = ?').run(serialiserProduit(pid, p), pid, ctx.boutique.id); reconcilierProduit(ctx.boutique.id, pid); }
-    });
+    }); } catch (e) { if (!e.conflitInventaire) throw e; }
     if (conflits.length && !forcer) return { statut: 409, corps: { erreur: 'Des ventes ont changé le stock pendant le comptage : recomptez ces articles ou appliquez quand même.', code: 'inventaire_conflit', conflits } };
     const ecarts = appliques.filter(x => x.avant !== x.apres);
     noterActivite(ctx.marchand.id, 'inventaire', `${appliques.length} article${appliques.length > 1 ? 's' : ''} compté${appliques.length > 1 ? 's' : ''}, ${ecarts.length} écart${ecarts.length > 1 ? 's' : ''}`, ctx);

@@ -722,7 +722,7 @@ Constats corrigés :
   - **Traductions** : les nouveaux textes de la boutique (créneau, emballage cadeau) sont traduits en allemand, italien et anglais.
 - **Noté** :
   - (les jours des créneaux sont traduits depuis le cycle 33) ;
-  - l'inventaire corrige le total sans le répartir par emplacement de stock ;
+  - (l'inventaire par emplacement est fait au cycle 35) ;
   - (l'e-mail « commande prête » rappelle le créneau depuis le cycle 33).
 
 ### Cycle 33 (00 h 25) : créneaux dans la langue du client (chantier 96)
@@ -741,3 +741,17 @@ Lancée après les chantiers 79 à 95 :
 - charge réduite (100 boutiques, 15 s).
 
 Les **7 étapes sont réussies**. Après les corrections de la relecture 92-93 et le chantier 96 : 254 tests sur 254, parcours de bout en bout 57/57.
+
+### Cycle 35 (00 h 30) : inventaire par emplacement (chantier 97)
+
+- **Écran d'inventaire** : avec plusieurs emplacements (magasin, entrepôt, dépôt), un choix « Emplacement compté » apparaît. On compte alors un seul emplacement :
+  - le stock affiché est celui de cet emplacement ;
+  - les articles vendus encore en rayon sont ceux qui ont été pris dans cet emplacement à la vente (répartition notée sur chaque ligne de commande) ;
+  - changer d'emplacement efface le comptage en cours, après confirmation.
+- **Serveur** :
+  - la quantité comptée est posée dans l'emplacement, avec un mouvement « inventaire » au registre ;
+  - le total de la fiche produit devient la somme des emplacements ;
+  - un conflit (vente pendant le comptage) annule tout, emplacements compris, alors qu'avant les écritures déjà faites seraient restées ;
+  - un emplacement inconnu est refusé.
+- **Tests** : emplacement inconnu, conflit sans aucune écriture, quantité posée dans le bon emplacement, total égal à la somme, mouvement « inventaire » au registre.
+- **Vérifié dans Chromium**, bureau et mobile : entrepôt choisi (stock 6), 5 lectures au lecteur, application. Résultat : entrepôt 5, magasin 4 inchangé, total 9. Aucune erreur.

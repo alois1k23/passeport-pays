@@ -98,6 +98,15 @@ function creer(db) {
       let reste = -ecart;
       for (const e of l) { if (!reste) break; const d = qte(pid, vid, e.id), k = Math.min(d, reste); if (k) { poser(bid, pid, vid, e.id, d - k); noter(bid, pid, vid, e.id, -k, 'correction', null, maintenant); reste -= k; } }
     },
+    quantite: (pid, vid, eid) => qte(pid, vid, eid),
+    /* Inventaire d'un emplacement : la quantité comptée y est posée (mouvement « inventaire ») ; renvoie le nouveau total
+       de l'article, tous emplacements confondus (la fiche produit le reprend). */
+    inventorier(bid, pid, vid, eid, n, maintenant = Date.now()) {
+      if (!lister(bid).some(e => e.id === eid)) throw erreur(400, 'Emplacement inconnu.', 'invalide');
+      const avant = qte(pid, vid, eid);
+      poser(bid, pid, vid, eid, n); noter(bid, pid, vid, eid, n - avant, 'inventaire', 'inventaire', maintenant);
+      return db.prepare('SELECT COALESCE(SUM(quantite), 0) n FROM stock_emplacements WHERE boutique_id = ? AND produit_id = ? AND variante_id = ?').get(bid, pid, cleVariante(vid)).n;
+    },
     /* Transfert entre deux emplacements : le total ne change pas. */
     transferer(bid, { produitId, varianteId, de, vers, quantite }, maintenant = Date.now()) {
       const l = lister(bid), n = Number(quantite);

@@ -5,18 +5,23 @@
 // Comptage gardé par boutique (deux comptes dans le même navigateur ne se mélangent pas) ; valeurs relues et bornées.
 const cleInventaire = () => `comptoir-inventaire-${(typeof SERVEUR !== 'undefined' && SERVEUR.slug) || 'local'}`;
 const entiers = o => Object.fromEntries(Object.entries(o && typeof o === 'object' ? o : {}).filter(([k, v]) => typeof k === 'string' && Number.isInteger(v) && v >= 0 && v <= 1e6));
-let INV = { comptes: {}, vus: {}, debut: 0, cle: '' }, INV_CONFLITS = null, INV_ENGAGES = {};
+let INV = { comptes: {}, vus: {}, debut: 0, cle: '', emplacement: '' }, INV_CONFLITS = null, INV_ENGAGES = {}, INV_EMPL = null;
 function chargerInventaire() {
   if (INV.cle === cleInventaire()) return;
   INV = { comptes: {}, vus: {}, debut: 0, cle: cleInventaire() };
-  try { const v = JSON.parse(localStorage.getItem(INV.cle) || 'null'); if (v && typeof v === 'object') INV = { comptes: entiers(v.comptes), vus: entiers(v.vus), debut: Number(v.debut) || 0, cle: cleInventaire() }; } catch { /* ignoré */ }
+  try { const v = JSON.parse(localStorage.getItem(INV.cle) || 'null'); if (v && typeof v === 'object') INV = { comptes: entiers(v.comptes), vus: entiers(v.vus), debut: Number(v.debut) || 0, cle: cleInventaire(), emplacement: typeof v.emplacement === 'string' ? v.emplacement : '' }; } catch { /* ignoré */ }
 }
 function garderInventaire() { try { localStorage.setItem(INV.cle || cleInventaire(), JSON.stringify(INV)); } catch { /* ignoré */ } }
 // Articles qui ont un stock propre : produits simples et variantes (ni lot, ni dropshipping, ni numérique).
 function articlesInventaire() {
   return etat.produits.filter(p => p.type !== 'drop' && !p.numerique && !(Array.isArray(p.composants) && p.composants.length)).flatMap(p => Array.isArray(p.variantes) && p.variantes.length
-    ? p.variantes.map(v => ({ cle: `${p.id}|${v.id}`, produitId: p.id, varianteId: v.id, nom: `${p.nom} (${v.valeurs.join(' / ')})`, stock: v.stock, ean: v.ean || '' }))
-    : [{ cle: `${p.id}|`, produitId: p.id, varianteId: null, nom: p.nom, stock: p.stock, ean: p.ean || '' }]);
+    ? p.variantes.map(v => ({ cle: `${p.id}|${v.id}`, produitId: p.id, varianteId: v.id, nom: `${p.nom} (${v.valeurs.join(' / ')})`, stock: stockIci(p.id, v.id, v.stock), ean: v.ean || '' }))
+    : [{ cle: `${p.id}|`, produitId: p.id, varianteId: null, nom: p.nom, stock: stockIci(p.id, '', p.stock), ean: p.ean || '' }]);
+}
+// Stock de l'emplacement compté (ou total, sans emplacement choisi).
+function stockIci(pid, vid, total) {
+  if (!INV.emplacement || !INV_EMPL) return total;
+  return Number((((INV_EMPL.repartition || {})[pid] || {})[vid || ''] || {})[INV.emplacement]) || 0;
 }
 function vueInventaire() {
   chargerInventaire();
@@ -34,6 +39,7 @@ function vueInventaire() {
       <div class="rangee"><button class="btn petit" data-action="inventaire-forcer">Appliquer quand même</button><button class="btn petit fantome" data-action="inventaire-recompter">Recompter ces articles</button></div></div>` : '';
   return `<section class="carte"><div class="carte-tete"><h2>Inventaire</h2><button class="btn petit fantome" data-action="inventaire-fermer">Fermer</button></div>
     <p class="sous">Lisez les codes-barres (chaque lecture ajoute 1) ou saisissez les quantités. Seuls les articles comptés sont modifiés. « En rayon attendu » compte aussi les articles vendus mais pas encore expédiés ou retirés : ils sont retirés du stock disponible à l’application. ${INV.debut ? `Comptage commencé le ${new Date(INV.debut).toLocaleString('fr-CH', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}.` : ''}</p>
+    ${INV_EMPL && INV_EMPL.emplacements && INV_EMPL.emplacements.length ? `<label class="champ"><span>Emplacement compté</span><select data-inv-emplacement><option value="">Tous (stock total)</option>${INV_EMPL.emplacements.map(e => `<option value="${esc(e.id)}" ${INV.emplacement === e.id ? 'selected' : ''}>${esc(e.nom)}</option>`).join('')}</select></label>` : ''}
     <label class="champ"><span>Code-barres (lecteur, puis Entrée)</span><input id="inv-scan" data-inventaire-scan inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="20" enterkeyhint="done"></label>
     ${conflits}
     <div class="table-wrap"><table class="table compacte table-cartes"><thead><tr><th>Article</th><th class="num">En rayon attendu</th><th class="num">Compté</th><th class="num">Écart</th></tr></thead><tbody>${lignes}</tbody></table></div>
@@ -72,7 +78,8 @@ async function appliquerInventaire(forcer) {
   const arts = articlesInventaire();
   const lignes = Object.entries(INV.comptes).map(([cle, compte]) => { const a = arts.find(x => x.cle === cle); return a && { produitId: a.produitId, varianteId: a.varianteId, compte, stockVu: INV.vus[cle] ?? a.stock }; }).filter(Boolean);
   try {
-    const r = await api('POST', '/api/admin/inventaire', { lignes, ...(forcer ? { forcer: true } : {}) });
+    const r = await api('POST', '/api/admin/inventaire', { lignes, ...(INV.emplacement ? { emplacementId: INV.emplacement } : {}), ...(forcer ? { forcer: true } : {}) });
+    INV_EMPL = null;
     INV.comptes = {}; INV.vus = {}; INV.debut = 0; INV_CONFLITS = null; garderInventaire();
     await rafraichir(`Inventaire appliqué : ${r.appliques} article${r.appliques > 1 ? 's' : ''}, ${r.ecarts.length} écart${r.ecarts.length > 1 ? 's' : ''} corrigé${r.ecarts.length > 1 ? 's' : ''}.`);
   } catch (err) {
@@ -87,7 +94,7 @@ document.addEventListener('click', e => {
     ui.inventaire = !ui.inventaire; rendre();
     if (ui.inventaire) (async () => {
       // Stock et commandes à jour au début du comptage (pas une copie chargée il y a des heures), articles vendus encore en rayon.
-      try { if (typeof rechargerEtat === 'function') await rechargerEtat(); INV_ENGAGES = (await api('GET', '/api/admin/inventaire/engages')).engages || {}; } catch (err) { toast(err.message); }
+      try { if (typeof rechargerEtat === 'function') await rechargerEtat(); await chargerContexteInventaire(); } catch (err) { toast(err.message); }
       rendre(); document.getElementById('inv-scan')?.focus();
     })();
   }
@@ -96,4 +103,19 @@ document.addEventListener('click', e => {
   else if (a === 'inventaire-appliquer') appliquerInventaire(false);
   else if (a === 'inventaire-forcer') appliquerInventaire(true);
   else if (a === 'inventaire-recompter') { for (const x of INV_CONFLITS || []) { const cle = `${x.produitId}|${x.varianteId || ''}`; delete INV.comptes[cle]; delete INV.vus[cle]; } INV_CONFLITS = null; garderInventaire(); rendre(); document.getElementById('inv-scan')?.focus(); }
+});
+
+// Contexte du comptage : emplacements et leur répartition, articles vendus encore en rayon (pour l'emplacement choisi).
+async function chargerContexteInventaire() {
+  chargerInventaire();
+  try { INV_EMPL = await api('GET', '/api/admin/emplacements'); } catch { INV_EMPL = null; }
+  if (INV.emplacement && !(INV_EMPL && (INV_EMPL.emplacements || []).some(e => e.id === INV.emplacement))) INV.emplacement = '';
+  INV_ENGAGES = (await api('GET', `/api/admin/inventaire/engages${INV.emplacement ? `?emplacement=${encodeURIComponent(INV.emplacement)}` : ''}`)).engages || {};
+}
+document.addEventListener('change', async e => {
+  if (!e.target.matches || !e.target.matches('[data-inv-emplacement]')) return;
+  if (Object.keys(INV.comptes).length && !confirm('Changer d’emplacement efface le comptage en cours. Continuer ?')) { e.target.value = INV.emplacement; return; }
+  INV.emplacement = e.target.value; INV.comptes = {}; INV.vus = {}; INV.debut = 0; INV_CONFLITS = null; garderInventaire();
+  try { await chargerContexteInventaire(); } catch (err) { toast(err.message); }
+  rendre(); document.querySelector('[data-inv-emplacement]')?.focus();
 });

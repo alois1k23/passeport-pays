@@ -45,5 +45,19 @@ test('inventaire : application, conflit, forcer, refus', async () => {
     assert.deepEqual((await c('GET', '/api/admin/inventaire/engages')).j.engages, {});
     assert.equal((await c('POST', '/api/admin/inventaire', { lignes: Array.from({ length: 10001 }, () => ({ produitId: a, compte: 1, stockVu: 7 })) })).j.code, 'inventaire_trop');
     assert.ok(db.prepare("SELECT 1 FROM journal_compte WHERE type = 'inventaire'").get());
+    // Inventaire d'un seul emplacement : la quantité comptée y est posée, le total suit ; un conflit annule tout.
+    const mag = (await c('POST', '/api/admin/emplacements', { nom: 'Magasin', type: 'magasin' })).j.emplacement.id;
+    const ent = (await c('POST', '/api/admin/emplacements', { nom: 'Entrepôt', type: 'entrepot' })).j.emplacement.id;
+    assert.equal((await c('POST', '/api/admin/emplacements/transferts', { produitId: a, de: mag, vers: ent, quantite: 3 })).s, 200);   // magasin 4, entrepôt 3 (total 7)
+    const rep = async () => (await c('GET', '/api/admin/emplacements')).j.repartition[a][''];
+    assert.deepEqual(await rep(), { [mag]: 4, [ent]: 3 });
+    assert.equal((await c('POST', '/api/admin/inventaire', { emplacementId: 'faux', lignes: [{ produitId: a, compte: 1, stockVu: 4 }] })).j.code, 'inventaire_emplacement');
+    const conflit2 = await c('POST', '/api/admin/inventaire', { emplacementId: mag, lignes: [{ produitId: a, compte: 2, stockVu: 9 }, { produitId: t, varianteId: 'S', compte: 1, stockVu: 3 }] });
+    assert.equal(conflit2.j.code, 'inventaire_conflit');
+    assert.deepEqual(await rep(), { [mag]: 4, [ent]: 3 }, 'rien appliqué, emplacements compris');
+    assert.equal((await c('POST', '/api/admin/inventaire', { emplacementId: mag, lignes: [{ produitId: a, compte: 2, stockVu: 4 }] })).s, 200);
+    assert.deepEqual(await rep(), { [mag]: 2, [ent]: 3 });
+    assert.equal((await stock()).a, 5, 'total = somme des emplacements');
+    assert.ok((await c('GET', '/api/admin/emplacements')).j.mouvements.some(m => m.type === 'inventaire' && m.quantite === -2));
   } finally { s.close(); }
 });
