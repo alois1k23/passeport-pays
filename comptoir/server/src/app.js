@@ -2653,6 +2653,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!['payee', 'preparation', 'expediee', 'livree', 'prete', 'retiree'].includes(c.statut)) throw erreur(409, 'Seule une commande payée reçoit des liens de téléchargement.', 'statut');
     // Vente en caisse hors ligne (sans e-mail) : le marchand indique l'adresse du client une fois ; elle reste ensuite.
     if (!(c.client && c.client.email)) {
+      if (c.canal !== 'magasin' || (c.client && c.client.nom === 'Client effacé')) throw erreur(409, 'Cette commande n’a plus d’adresse e-mail (client effacé) : aucun lien ne peut être envoyé.', 'sans_email');
+      exigerEmailVerifie(ctx, 'envoyer des fichiers à une adresse saisie');
       const email = ctx.corps && ctx.corps.email ? valider.email(ctx.corps.email) : '';
       if (!email) throw erreur(400, 'Indiquez l’e-mail du client pour lui envoyer ses fichiers.', 'sans_email');
       c.client = { ...(c.client || {}), email };
@@ -2983,6 +2985,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const enBase = cleTicket && db.prepare('SELECT reponse FROM tickets_caisse WHERE cle = ?').get(cleTicket);
     if (enBase) return JSON.parse(enBase.reponse);
     for (const [k, v] of ticketsVus) if (Date.now() - v.le > 3600000) ticketsVus.delete(k);
+    ctx.cleTicket = cleTicket;
     const reponse = encaisserCaisse(ctx);
     if (cleTicket) { ticketsVus.set(cleTicket, { ...reponse, le: Date.now() }); db.prepare('INSERT OR IGNORE INTO tickets_caisse (cle, reponse, le) VALUES (?, ?, ?)').run(cleTicket, JSON.stringify(reponse), Date.now()); }
     return reponse;
@@ -3009,8 +3012,19 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Produit numérique vendu en caisse : le fichier part par e-mail, l'adresse du client est donc demandée (sauf vente
     // faite hors ligne, déjà encaissée : le marchand renverra les liens depuis la commande).
     const avecNumerique = lignes.some(l => l.numerique);
-    const emailNumerique = ctx.corps.email ? valider.email(ctx.corps.email) : '';
-    if (avecNumerique && !emailNumerique && !horsLigne) throw erreur(400, 'Produit numérique : indiquez l’e-mail du client pour lui envoyer le fichier.', 'caisse_email');
+    let emailNumerique = '', noteEmail = '';
+    if (avecNumerique) {
+      // Vente hors ligne (déjà encaissée) : jamais refusée pour l'adresse ; sans adresse utilisable, les liens s'envoient
+      // ensuite depuis la commande. En ligne : adresse valide exigée, compte au courriel vérifié (une adresse saisie par le
+      // marchand reçoit un e-mail de la boutique), et nombre d'adresses saisies par jour limité.
+      try { emailNumerique = ctx.corps.email ? valider.email(ctx.corps.email) : ''; } catch (e) { if (!horsLigne) throw e; noteEmail = 'e-mail du client invalide'; }
+      if (!emailNumerique && !horsLigne) throw erreur(400, 'Produit numérique : indiquez l’e-mail du client pour lui envoyer le fichier.', 'caisse_email');
+      if (emailNumerique && !emailVerifie(ctx.marchand.id)) { if (!horsLigne) exigerEmailVerifie(ctx, 'envoyer des fichiers à un client'); emailNumerique = ''; noteEmail = 'adresse e-mail du compte pas encore confirmée'; }
+      if (emailNumerique) { try { auth.limiter('liens-saisis:' + ctx.boutique.id, 100 * facteurLimites, 86400000, 'Trop de fichiers envoyés depuis la caisse aujourd’hui : envoyez les liens depuis la commande demain.'); } catch (e) { if (!horsLigne) throw e; emailNumerique = ''; noteEmail = 'limite d’envois du jour atteinte'; } }
+      // En ligne, un produit numérique sans fichier n'est pas vendu (le client partirait sans rien).
+      const sansFichier = lignes.find(l => l.numerique && !NUM.fichierDe(l.produitId));
+      if (sansFichier && !horsLigne) throw erreur(409, `« ${sansFichier.nom} » n’a pas encore de fichier : ajoutez-le dans la fiche produit avant de le vendre.`, 'sans_fichier');
+    }
     let aEnvoyer = null;   // liens créés dans la transaction, e-mail envoyé seulement une fois la vente enregistrée
     const rep = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(ctx.boutique.id).compteur_commande;
@@ -3026,7 +3040,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       insererCommande(id, ctx.boutique.id, numero, now, 'retiree', auth.nouvelId(), donnees);
       if (carte && !Cartes.debiter(carte.id, centimesCarte, { commandeId: id, texte: `Ticket n° ${numero}`, maintenant: Date.now() })) throw erreur(409, 'Le solde de la carte cadeau vient de changer : vérifiez-le et réessayez.', 'carte_solde');
       sceller(ctx.boutique.id, { id, numero, date: now, statut: 'retiree', ...donnees });   // ticket de caisse scellé à l'encaissement
-      if (avecNumerique && emailNumerique) aEnvoyer = { c: { numero, lignes, client: donnees.client }, liens: NUM.creerLiens(ctx.boutique.id, { id, lignes }), config };
+      if (avecNumerique) {
+        const liens = emailNumerique ? NUM.creerLiens(ctx.boutique.id, { id, lignes }) : [];
+        const c2 = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id));
+        if (liens.length) { aEnvoyer = { c: { numero, lignes, client: donnees.client }, liens, config }; historique(c2, `Liens de téléchargement envoyés au client (${liens.length} fichier${liens.length > 1 ? 's' : ''})`); }
+        else { c2.alerteNumerique = true; historique(c2, `Produit numérique vendu sans envoi de lien${noteEmail ? ` (${noteEmail})` : ''} : envoyez les liens au client depuis la commande.`); }
+        enregistrerCommande(c2);
+      }
       if (horsLigne) {
         const manque = lignes.filter(l => typeof l.retireStock === 'number' && l.retireStock < l.qte);
         const c2 = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id));
@@ -3036,9 +3056,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         c2.lignes = lignes; enregistrerCommande(c2);
       }
       integ.emettre(ctx.boutique.id, 'commande.retiree', commandeApi({ id, numero, date: now, statut: 'retiree', ...donnees, canal: donnees.canal || 'caisse' }, config.boutique.devise || 'CHF'));
-      return { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config), ...(carte ? { carteCadeau: formatMontant(centimesCarte / 100, config), ...(reste ? { reste: formatMontant(reste, config) } : {}), soldeCarte: formatMontant(Cartes.disponible(db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(carte.id)) / 100, config) } : {}) } };
+      const reponseTicket = { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config), ...(carte ? { carteCadeau: formatMontant(centimesCarte / 100, config), ...(reste ? { reste: formatMontant(reste, config) } : {}), soldeCarte: formatMontant(Cartes.disponible(db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(carte.id)) / 100, config) } : {}) } };
+      // Clé du ticket gardée dans la même transaction que la vente : un ticket rejoué après une erreur n'est jamais compté deux fois.
+      if (ctx.cleTicket) db.prepare('INSERT OR IGNORE INTO tickets_caisse (cle, reponse, le) VALUES (?, ?, ?)').run(ctx.cleTicket, JSON.stringify(reponseTicket), Date.now());
+      return reponseTicket;
     });
-    if (aEnvoyer) envoyerLiens(ctx.boutique, aEnvoyer.c, aEnvoyer.liens, aEnvoyer.config);
+    if (aEnvoyer) try { envoyerLiens(ctx.boutique, aEnvoyer.c, aEnvoyer.liens, aEnvoyer.config); } catch (e) { journal.error('[caisse] liens', e.message); }   // vente enregistrée : jamais de 500 (le ticket serait rejoué)
     return rep;
   }
   /* ---------- Réseaux sociaux ---------- */

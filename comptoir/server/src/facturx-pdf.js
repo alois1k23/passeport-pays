@@ -110,7 +110,8 @@ function composer(c, config, { avoir, devise }) {
   const argent = n => brut(signe * n);
   const tauxLigne = l => typeof l.tauxTva === 'number' ? l.tauxTva : typeof c.tauxTva === 'number' ? c.tauxTva : defaut;
   // Client professionnel : l'entreprise est l'acheteur (nom, numéro de TVA ou IDE), la personne vient « à l'attention de ».
-  const client = c.client && c.client.entreprise ? { ...c.client, nom: c.client.entreprise, tva: c.client.tva || c.client.ide || '', adresse: [`À l’attention de ${c.client.nom}`, c.client.adresse].filter(Boolean).join(' · ') } : (c.client || {});
+  const client = c.client && c.client.entreprise ? { ...c.client, nom: c.client.entreprise, tva: c.client.tva || c.client.ide || '', attention: c.client.nom ? `À l’attention de ${c.client.nom}` : '' } : (c.client || {});
+  const numClient = FactureElectronique.numeroAcheteur(client.tva);
   const numero = avoir ? c.avoir.numero : c.facture;
   const dateDoc = avoir ? c.avoir.date : (c.dateFacture || c.date);
   const paye = FactureElectronique.estPayee(c);
@@ -144,7 +145,7 @@ function composer(c, config, { avoir, devise }) {
   // Client
   p.ecrire(MARGE, y, avoir ? 'Client' : 'Facturé à', { taille: 8.5, couleur: gris }); y -= 14;
   for (const morceau of t.couper(client.nom || 'Client', 10, 300, 'b', 2)) { p.ecrire(MARGE, y, morceau, { taille: 10, s: 'b' }); y -= 13; }
-  for (const ligne of [client.adresse, [client.npa, client.ville].filter(Boolean).join(' '), client.email, client.tva ? `N° TVA ${client.tva}` : ''].filter(Boolean)) {
+  for (const ligne of [client.attention, client.adresse, [client.npa, client.ville].filter(Boolean).join(' '), client.email, numClient ? `${numClient.tva ? 'N° TVA' : 'IDE'} ${numClient.affiche}` : ''].filter(Boolean)) {
     for (const morceau of t.couper(ligne, 9, 300, 'r', 2)) { p.ecrire(MARGE, y, morceau, { taille: 9, couleur: gris }); y -= 12; }
   }
   if (c.numero) { p.ecrire(MARGE, y, `Commande n° ${c.numero} du ${dateFr(c.date)}`, { taille: 9, couleur: gris }); y -= 12; }

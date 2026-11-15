@@ -97,6 +97,12 @@ test('produit numérique de bout en bout', async () => {
     // Vente en caisse d'un produit numérique : e-mail du client demandé, liens envoyés après l'encaissement.
     assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'especes', cle: 'num-1' })).j.code, 'caisse_email');
     assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'especes', cle: 'num-2', email: 'pas-un-email' })).s, 400);
+    // Compte dont l'adresse n'est pas confirmée : pas d'e-mail vers une adresse saisie (sinon, envoi de messages à n'importe qui).
+    assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'twint', cle: 'num-2b', email: 'marc@exemple.ch' })).j.code, 'email_non_verifie');
+    db.prepare('UPDATE marchands SET email_verifie_le = ?').run(Date.now());
+    // Produit numérique sans fichier : refusé en caisse.
+    const sansFichier = (await c('POST', '/api/admin/produits', { produit: { nom: 'Sans fichier', prix: 3, stock: 10, numerique: true } })).j.id;
+    assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: sansFichier, qte: 1 }], moyen: 'twint', cle: 'num-2c', email: 'marc@exemple.ch' })).j.code, 'sans_fichier');
     const vente = await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'twint', cle: 'num-3', email: 'Marc@Exemple.ch' });
     assert.equal(vente.s, 201, JSON.stringify(vente.j));
     const mailCaisse = db.prepare("SELECT destinataire, corps FROM emails WHERE sujet = ?").get(`Vos téléchargements : commande n° ${vente.j.numero}`);
@@ -114,6 +120,18 @@ test('produit numérique de bout en bout', async () => {
     assert.equal((await c('POST', `/api/admin/commandes/${horsLigne.j.id}/telechargements`, { email: 'zoe@exemple.ch' })).j.envoyes, 1);
     assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'zoe@exemple.ch' AND sujet LIKE 'Vos téléchargements%'").get(), 'liens envoyés à l’adresse donnée');
     assert.equal((await c('POST', `/api/admin/commandes/${horsLigne.j.id}/telechargements`, {})).j.envoyes, 1, 'adresse gardée sur la commande');
+    // Vente hors ligne avec une adresse mal tapée : acceptée quand même (déjà encaissée), signalée sur la commande.
+    const typo = await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'especes', cle: 'num-5', horsLigneLe: Date.now() - 60000, email: 'jean@gmail' });
+    assert.equal(typo.s, 201, JSON.stringify(typo.j));
+    const cTypo = (await c('GET', '/api/admin/etat')).j.commandes.find(x => x.id === typo.j.id);
+    assert.equal(cTypo.alerteNumerique, true);
+    assert.ok(cTypo.historique.some(h => /e-mail du client invalide/.test(h.texte)));
+    // Commande en ligne dont le client a été effacé : aucune adresse ne peut y être remise.
+    const cmdEff = await commander({ consentementNumerique: true });
+    await fetch(cmdEff.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    const eff = await c('POST', '/api/admin/clients/effacer', { email: 'lea@exemple.ch' });
+    assert.equal(eff.s, 200, JSON.stringify(eff.j));
+    assert.equal((await c('POST', `/api/admin/commandes/${cmdEff.j.commandeId}/telechargements`, { email: 'autre@exemple.ch' })).j.code, 'sans_email');
     // Un autre marchand ne touche pas au fichier.
     cookie = '';
     await c('POST', '/api/auth/inscription', { email: 'autre@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Autre' } } });

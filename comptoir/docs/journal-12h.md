@@ -339,3 +339,29 @@ La relecture du chantier 74 avait noté que la facture d'un client pro ne montra
 - **Tests** : rien 10 jours avant, un rappel à J-2 même si le calcul repasse, un rappel de retard, rien après l'expédition.
 - **Navigateur** : rien à vérifier, puisque la fonction ne touche pas l'interface (e-mail seulement).
 - 244 tests sur 244.
+
+### Cycle 11 (23 h 35) : relecture indépendante des chantiers 77 et 78
+
+Aucune faille bloquante. Constats corrigés :
+
+- **Moyen, e-mails vers des adresses saisies** : la caisse et le renvoi de liens envoyaient un e-mail de la boutique à n'importe quelle adresse tapée, même depuis un compte dont l'adresse n'était pas confirmée. Quelqu'un aurait pu s'en servir pour envoyer des messages à des inconnus. Corrigé :
+  - adresse du compte confirmée exigée (comme pour les devis et les invitations) ;
+  - 100 adresses saisies par jour et par boutique au plus (testé).
+- **Moyen, vente hors ligne bloquée** : une vente faite hors ligne avec une adresse mal tapée (« jean@gmail ») était refusée au retour du réseau, et restait coincée dans la file. Désormais :
+  - une vente hors ligne n'est jamais refusée pour l'adresse ;
+  - la commande est signalée « envoyez les liens depuis la commande » (testé) ;
+  - l'adresse n'est contrôlée que si le ticket contient un produit numérique.
+- **Bas, caisse et produit sans fichier** : en caisse, un produit numérique sans fichier se vendait sans rien envoyer. Il est maintenant refusé en ligne et signalé hors ligne. L'envoi des liens est noté dans l'historique de la commande.
+- **Bas, ticket compté deux fois** : une erreur après l'enregistrement de la vente, mais avant celui de la clé du ticket, pouvait faire compter la vente deux fois au renvoi. La clé est maintenant enregistrée dans la même transaction que la vente, et l'envoi de l'e-mail ne peut plus produire d'erreur 500.
+- **Bas, données effacées** : une commande dont le client a été effacé ne peut plus recevoir une nouvelle adresse. Seule une vente en caisse sans adresse le peut (testé).
+- **Bas, numéro du client pro** : le PDF, le XML et la facture QR appliquaient des règles différentes. Il n'y a plus qu'une règle :
+  - une IDE suisse sans la mention TVA, MWST ou IVA n'est pas un numéro de TVA : elle est affichée « IDE » et n'est plus transmise comme numéro de TVA ;
+  - les minuscules et la mention en fin de numéro sont gérées ;
+  - « À l'attention de » a sa propre ligne sur le PDF (l'adresse n'est plus coupée).
+- **Sans objet** :
+  - une ligne numérique ne peut pas être retournée (exclue des retours depuis le chantier 71) ;
+  - un lien reste donc valable tant que la commande n'est pas remboursée en entier.
+- **Noté, non changé** :
+  - les e-mails de caisse partent en français (la langue du client n'est pas connue au comptoir) ;
+  - le lien de téléchargement figure dans le corps de l'e-mail gardé 7 jours, que le marchand voit déjà. Le commentaire « jamais gardé en clair » ne concerne que la table des liens.
+- Après corrections : tests de la caisse, du numérique et des clients pro réussis, parcours de bout en bout 57/57, caisse revérifiée dans Chromium (bureau et mobile). Dans la suite complète, le test du flux en direct a échoué une fois (délai dépassé, machine chargée par d'autres tests). Relancé seul trois fois, il a réussi chaque fois : il ne touche à rien de ce qui a changé.
