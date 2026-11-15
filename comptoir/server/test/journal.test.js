@@ -52,6 +52,17 @@ test('journal de bout en bout', async () => {
     assert.equal((await c('PUT', `/api/admin/articles/${a2.id}`, { titre: 'Le lin en hiver', slug: 'le-lin-en-hiver', corps: 'Publié', publie: true })).j.article.slug, 'le-lin-en-hiver');
     assert.equal((await fetch(`${base}/s/${slug}/journal/le-lin-en-hiver`)).status, 200);
     assert.equal((await c('GET', '/api/admin/articles')).j.articles.find(a => a.id === a2.id).corps, 'Publié', 'texte rendu à l’éditeur');
+    // Produits présentés sous l'article : seulement ceux de la boutique, et seulement s'ils sont en vente.
+    const pA = (await c('POST', '/api/admin/produits', { produit: { nom: 'Torchon <lin>', prix: 18, stock: 5 } })).j.id;
+    const pB = (await c('POST', '/api/admin/produits', { produit: { nom: 'Nappe', prix: 60, stock: 5 } })).j.id;
+    const avecP = (await c('PUT', `/api/admin/articles/${a2.id}`, { titre: 'Le lin en hiver', corps: 'Publié', publie: true, produits: [pA, pB, 'p_autre_boutique', pA] })).j.article;
+    assert.deepEqual(avecP.produits, [pA, pB], 'inconnus et doublons retirés');
+    let pageP = await (await fetch(`${base}/s/${slug}/journal/le-lin-en-hiver`)).text();
+    assert.match(pageP, /Dans la boutique/); assert.match(pageP, new RegExp(`/p/${pA}"`)); assert.match(pageP, /Torchon &lt;lin&gt;/); assert.match(pageP, /CHF 60\.00/);
+    await c('PUT', `/api/admin/produits/${pB}`, { produit: { nom: 'Nappe', prix: 60, stock: 5, actif: false } });
+    pageP = await (await fetch(`${base}/s/${slug}/journal/le-lin-en-hiver`)).text();
+    assert.doesNotMatch(pageP, /Nappe/, 'produit masqué : plus présenté');
+    assert.equal((await c('PUT', `/api/admin/articles/${a2.id}`, { titre: 'Le lin en hiver', corps: 'Publié', publie: true, produits: Array.from({ length: 9 }, () => pA) })).j.article.produits.length, 1);
     // Abonnement terminé : le journal n'est plus servi.
     db.prepare("UPDATE abonnements SET statut = 'resilie'").run();
     assert.equal((await fetch(`${base}/s/${slug}/journal/le-lin-en-hiver`)).status, 404);

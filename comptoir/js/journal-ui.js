@@ -27,6 +27,7 @@ function vueJournal() {
       <label class="champ"><span>Résumé (affiché dans la liste et par Google, facultatif)</span><input name="resume" maxlength="300" value="${esc(e.resume || '')}"></label>
       <label class="champ"><span>Texte</span><textarea name="corps" rows="14" aria-describedby="aide-journal">${esc(e.corps || '')}</textarea></label>
       <p class="sous" id="aide-journal">Mise en forme : « ## » en début de ligne pour un intertitre, **gras**, *italique*, « - » pour une liste, [texte](https://adresse) pour un lien. Ligne vide entre deux paragraphes.</p>
+      ${(() => { const ps = (typeof etat !== 'undefined' && etat.produits ? etat.produits : []).filter(p => p.actif); const choisis = new Set(e.produits || []); return ps.length ? `<fieldset class="journal-produits"><legend>Produits présentés sous l’article (6 au plus)</legend><div class="journal-produits-liste">${ps.map(p => `<label class="case"><input type="checkbox" name="produits" value="${esc(p.id)}" ${choisis.has(p.id) ? 'checked' : ''}> ${esc(p.nom)}</label>`).join('')}</div></fieldset>` : ''; })()}
       <label class="case"><input type="checkbox" name="publie" ${e.publie ? 'checked' : ''}> Publié (visible dans la boutique)</label>
       <div class="rangee"><button class="btn">Enregistrer</button><button type="button" class="btn fantome" data-action="journal-apercu">Aperçu</button><button type="button" class="btn fantome" data-action="journal-annuler">Annuler</button></div>
       ${JOURNAL_UI.apercu ? `<div class="encart apercu-journal" aria-label="Aperçu">${JOURNAL_UI.apercu}</div>` : ''}
@@ -37,7 +38,7 @@ function vueJournal() {
 function lireFormJournal() {
   const f = document.querySelector('form[data-form="journal"]'); if (!f) return null;
   const d = new FormData(f);
-  return { titre: d.get('titre'), resume: d.get('resume'), corps: d.get('corps'), publie: d.get('publie') === 'on' };
+  return { titre: d.get('titre'), resume: d.get('resume'), corps: d.get('corps'), produits: d.getAll('produits').slice(0, 6), publie: d.get('publie') === 'on' };
 }
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-action^="journal-"]'); if (!b) return;
@@ -56,6 +57,11 @@ document.addEventListener('click', async e => {
     try { await api('DELETE', `/api/admin/articles/${encodeURIComponent(b.dataset.id)}`); toast('Article supprimé.'); JOURNAL_UI.donnees = null; } catch (err) { toast(err.message); }
     rendre();
   }
+});
+// Six produits au plus sous un article.
+document.addEventListener('change', e => {
+  if (e.target.name !== 'produits' || !e.target.closest('[data-form="journal"]')) return;
+  if (e.target.checked && e.target.form.querySelectorAll('[name="produits"]:checked').length > 6) { e.target.checked = false; toast('Six produits au plus sous un article.'); }
 });
 document.addEventListener('submit', async e => {
   const f = e.target.closest('[data-form="journal"]'); if (!f) return;

@@ -366,7 +366,7 @@ Aucune faille bloquante. Constats corrigés :
   - le lien de téléchargement figure dans le corps de l'e-mail gardé 7 jours, que le marchand voit déjà. Le commentaire « jamais gardé en clair » ne concerne que la table des liens.
 - Après corrections : tests de la caisse, du numérique et des clients pro réussis, parcours de bout en bout 57/57, caisse revérifiée dans Chromium (bureau et mobile). Dans la suite complète, le test du flux en direct a échoué une fois (délai dépassé, machine chargée par d'autres tests). Relancé seul trois fois, il a réussi chaque fois : il ne touche à rien de ce qui a changé.
 
-### Cycle 12 (23 h 10) : rappels de réassort (chantier 80)
+### Cycle 12 (23 h 05) : rappels de réassort (chantier 80)
 
 Pour un produit qui s'épuise, le client peut demander à être prévenu au moment de recommander. Ce n'est pas un abonnement payant : un débit automatique demanderait de garder un moyen de paiement et un mandat, ce qui n'est pas fait ici.
 
@@ -390,3 +390,19 @@ Pour un produit qui s'épuise, le client peut demander à être prévenu au mome
   - rappel en allemand ;
   - effacement du client.
 - **Vérifié dans Chromium**, bureau et mobile : champ de la fiche, case non cochée dans le panier, commande, rappel, lien du panier rempli, page d'arrêt. Aucune erreur.
+
+### Cycle 13 (23 h 10) : produits sous les articles du journal (chantier 81)
+
+Un article de conseils (« Entretenir le lin ») mène maintenant directement aux produits dont il parle.
+
+- **Éditeur** : le marchand coche jusqu'à six produits ; une septième case est refusée avec un message.
+- **Page de l'article** : une section « Dans la boutique », rendue par le serveur, avec photo, nom, prix et lien vers la page du produit. Elle est lisible sans JavaScript.
+- **Contrôles** :
+  - le serveur ne garde que des produits de la boutique, sans doublon, six au plus ;
+  - un produit masqué, épuisé ou supprimé disparaît de la page sans toucher à l'article ;
+  - les noms sont échappés.
+- **Tests** : produit d'une autre boutique et doublon retirés, nom piégé échappé, prix affiché, produit masqué retiré, limite de six.
+- **Vérifié dans Chromium**, bureau et mobile :
+  - choix des produits dans l'éditeur ;
+  - cartes affichées sous l'article, avec les photos chargées malgré la politique de sécurité du contenu ;
+  - aucune erreur.

@@ -5,7 +5,7 @@
 'use strict';
 const crypto = require('node:crypto');
 
-const MAX_ARTICLES = 300, MAX_CORPS = 40000;
+const MAX_ARTICLES = 300, MAX_CORPS = 40000, MAX_PRODUITS = 6;
 const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ligne = t => String(t || '').replace(/[\u0000-\u001f\u007f‪-‮⁦-⁩]/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -39,16 +39,20 @@ const slugDe = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-
 function creerArticles({ db, erreur }) {
   db.exec(`CREATE TABLE IF NOT EXISTS articles (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, slug TEXT NOT NULL, titre TEXT NOT NULL, resume TEXT NOT NULL DEFAULT '', corps TEXT NOT NULL DEFAULT '', publie INTEGER NOT NULL DEFAULT 0, publie_le INTEGER, cree_le INTEGER NOT NULL, maj_le INTEGER NOT NULL, UNIQUE (boutique_id, slug));
     CREATE INDEX IF NOT EXISTS articles_boutique ON articles(boutique_id, publie, publie_le);`);
-  const lire = r => r && { id: r.id, slug: r.slug, titre: r.titre, resume: r.resume, corps: r.corps, publie: !!r.publie, publieLe: r.publie_le, creeLe: r.cree_le, majLe: r.maj_le };
+  try { db.exec("ALTER TABLE articles ADD COLUMN produits TEXT NOT NULL DEFAULT '[]'"); } catch { /* déjà là */ }   // produits présentés sous l'article
+  const lireProduits = t => { try { const v = JSON.parse(t || '[]'); return Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, MAX_PRODUITS) : []; } catch { return []; } };
+  const lire = r => r && { id: r.id, slug: r.slug, titre: r.titre, resume: r.resume, corps: r.corps, produits: lireProduits(r.produits), publie: !!r.publie, publieLe: r.publie_le, creeLe: r.cree_le, majLe: r.maj_le };
   // Listes sans le texte des articles (léger) ; le texte n'est lu que pour un article.
-  const liste = (bid, { publies = false } = {}) => db.prepare(`SELECT id, slug, titre, resume, '' corps, publie, publie_le, cree_le, maj_le FROM articles WHERE boutique_id = ? ${publies ? 'AND publie = 1' : ''} ORDER BY COALESCE(publie_le, cree_le) DESC`).all(bid).map(lire);
+  const liste = (bid, { publies = false } = {}) => db.prepare(`SELECT id, slug, titre, resume, '' corps, produits, publie, publie_le, cree_le, maj_le FROM articles WHERE boutique_id = ? ${publies ? 'AND publie = 1' : ''} ORDER BY COALESCE(publie_le, cree_le) DESC`).all(bid).map(lire);
   const compter = bid => db.prepare('SELECT COUNT(*) n FROM articles WHERE boutique_id = ? AND publie = 1').get(bid).n;
   const complet = (bid, id) => lire(db.prepare('SELECT * FROM articles WHERE id = ? AND boutique_id = ?').get(String(id), bid));
   const publie = (bid, slug) => lire(db.prepare('SELECT * FROM articles WHERE boutique_id = ? AND slug = ? AND publie = 1').get(bid, String(slug || '')));
-  function enregistrer(bid, a, id = null) {
+  /* existe(id) : le produit appartient à la boutique (contrôle fait par l'appelant, qui connaît les produits). */
+  function enregistrer(bid, a, id = null, existe = () => true) {
     const titre = ligne(a.titre).slice(0, 140);
     if (!titre) throw erreur(400, 'Donnez un titre à l’article.', 'article_titre');
     const corps = String(a.corps || '').slice(0, MAX_CORPS), resume = ligne(a.resume).slice(0, 300);
+    const produits = [...new Set((Array.isArray(a.produits) ? a.produits : []).filter(x => typeof x === 'string' && x.length <= 40 && existe(x)))].slice(0, MAX_PRODUITS);
     const avant = id ? db.prepare('SELECT * FROM articles WHERE id = ? AND boutique_id = ?').get(id, bid) : null;
     // Adresse stable : un article renommé garde la sienne (les liens déjà partagés restent bons), sauf adresse demandée.
     const voulu = a.slug ? slugDe(a.slug) : avant ? avant.slug : slugDe(titre);
@@ -59,8 +63,8 @@ function creerArticles({ db, erreur }) {
     while (db.prepare('SELECT 1 FROM articles WHERE boutique_id = ? AND slug = ? AND id IS NOT ?').get(bid, slug, id)) slug = `${voulu}-${n++}`.slice(0, 90);
     const pub = a.publie === true, maintenant = Date.now();
     const publieLe = pub ? (avant && avant.publie_le) || maintenant : null;
-    if (avant) db.prepare('UPDATE articles SET slug = ?, titre = ?, resume = ?, corps = ?, publie = ?, publie_le = ?, maj_le = ? WHERE id = ?').run(slug, titre, resume, corps, pub ? 1 : 0, publieLe, maintenant, id);
-    else { id = 'art_' + crypto.randomBytes(8).toString('hex'); db.prepare('INSERT INTO articles (id, boutique_id, slug, titre, resume, corps, publie, publie_le, cree_le, maj_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, bid, slug, titre, resume, corps, pub ? 1 : 0, publieLe, maintenant, maintenant); }
+    if (avant) db.prepare('UPDATE articles SET slug = ?, titre = ?, resume = ?, corps = ?, produits = ?, publie = ?, publie_le = ?, maj_le = ? WHERE id = ?').run(slug, titre, resume, corps, JSON.stringify(produits), pub ? 1 : 0, publieLe, maintenant, id);
+    else { id = 'art_' + crypto.randomBytes(8).toString('hex'); db.prepare('INSERT INTO articles (id, boutique_id, slug, titre, resume, corps, produits, publie, publie_le, cree_le, maj_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, bid, slug, titre, resume, corps, JSON.stringify(produits), pub ? 1 : 0, publieLe, maintenant, maintenant); }
     return lire(db.prepare('SELECT * FROM articles WHERE id = ?').get(id));
   }
   const supprimer = (bid, id) => db.prepare('DELETE FROM articles WHERE id = ? AND boutique_id = ?').run(String(id), bid).changes > 0;
