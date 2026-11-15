@@ -135,12 +135,12 @@ Shopify, Wix ou WooCommerce vendent des fichiers à télécharger (livres, musiq
 
 Vendre un article avant qu'il arrive (nouvelle collection, livre à paraître, réassort) est courant sur les autres plateformes, souvent par une extension payante. Le modèle choisi ne change aucune règle de stock, et ne fait donc courir aucun risque de vente en double :
 
-- **Fiche produit** : case « Précommande » et date d'expédition prévue, de demain à un an (vérifiée par le serveur). Le stock indique combien d'exemplaires peuvent être précommandés. Un produit numérique n'est jamais en précommande.
+- **Fiche produit** : case « Précommande » et date d'expédition prévue, de demain à un an (jour de Lausanne, vérifié par le serveur). Le stock indique combien d'exemplaires peuvent être précommandés. Un produit numérique n'est jamais en précommande.
 - **Boutique** :
   - la carte et la fiche du produit affichent « Précommande · expédition prévue le … » au lieu du délai habituel ;
   - le bouton devient « Précommander », puis « Précommandes complètes » quand le plafond est atteint ;
-  - le panier prévient qu'une commande mixte est expédiée en une fois, à partir de la date la plus tardive.
-- **Commande** : chaque ligne précommandée garde sa date. Elle figure dans l'e-mail de confirmation, en français, allemand, italien et anglais : la date de livraison doit être annoncée (France, Code de la consommation L216-1). Elle figure aussi dans le détail de la commande côté marchand, et la liste des produits porte un badge.
+  - le panier annonce la date d'expédition (la plus tardive si plusieurs articles), toute la commande partant en une fois, et le choix de livraison montre cette date au lieu du délai habituel.
+- **Commande** : chaque ligne précommandée garde sa date. Elle figure dans l'e-mail de confirmation, en français, allemand, italien et anglais : la date de livraison doit être annoncée (France, Code de la consommation L111-1 3°). Elle figure aussi dans le détail de la commande côté marchand, et la liste des produits porte un badge.
 - **Date dépassée** (fiche non mise à jour) : plus annoncée, plus reportée sur les nouvelles commandes ; l'article se vend normalement.
 - **Au passage** : le récapitulatif des e-mails nommait le mode « numérique » par son code ; il dit maintenant « envoi par e-mail ».
 - **Limites, notées** :
@@ -155,4 +155,9 @@ Vendre un article avant qu'il arrive (nouvelle collection, livre à paraître, r
   - fiche marchand, badge, carte, fiche produit, bouton « Précommander », note du panier ;
   - aucune erreur de page.
 - 240 tests sur 240, parcours de bout en bout 57/57.
+- **Relecture indépendante** : pas de faille d'injection (chaque chemin d'écriture réécrit la date au format AAAA-MM-JJ, et chaque affichage l'échappe) ; variantes cohérentes. Constats corrigés :
+  - **Grave : produit bloqué après sa date.** Une fois la date passée, le serveur refusait tout enregistrement du produit : fiche (même pour changer le prix), synchronisation par l'API (qui renvoie la fiche entière), et même la restauration complète de la boutique, faite d'un seul bloc. Une date passée retire maintenant simplement la précommande, sans erreur, comme le journal l'annonçait (testé : prix modifié après la date). Le champ de date n'a plus de minimum qui bloquait le formulaire.
+  - **Moyen** : « à partir de demain » était vérifié sur l'heure UTC (la date du jour passait jusqu'à midi UTC). C'est désormais le jour de Lausanne.
+  - **Moyen** : au passage en caisse, le choix de livraison affichait encore « 2 à 3 jours » à côté de la précommande. Il affiche la date d'expédition prévue.
+  - **Bas** : le panier et l'e-mail emploient la même formulation (« expédition prévue le … ») ; la référence juridique est corrigée (L111-1 3°, et non L216-1).
 

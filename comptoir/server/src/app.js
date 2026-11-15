@@ -232,9 +232,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   }
   const avecImage = p => p.image === IMG ? { ...p, image: imageDe(p.id) } : p;
   const NUM = creerNumerique({ db, erreur });   // produits numériques : fichiers et liens de téléchargement
+  /* Lots et coffrets : un produit composé d'autres produits en stock. Son stock est calculé à la lecture (le nombre de
+     lots que permettent ses composants) ; à la vente, ce sont les composants qui sont décomptés. */
+  const stockLots = produits => {
+    const parId = new Map(produits.map(p => [p.id, p]));
+    for (const p of produits) if (Array.isArray(p.composants) && p.composants.length) {
+      p.stock = Math.max(0, Math.min(...p.composants.map(c => { const x = parId.get(c.produitId); return x && !x.supprime ? Math.floor(Math.max(0, x.stock || 0) / c.qte) : 0; })));
+    }
+    return produits;
+  };
   const listerProduits = (boutiqueId, avecSupprimes = false) =>
-    db.prepare(`SELECT id, donnees FROM produits WHERE boutique_id = ? ${avecSupprimes ? '' : 'AND supprime = 0'} ORDER BY ordre, rowid`).all(boutiqueId)
-      .map(p => ({ ...JSON.parse(p.donnees), id: p.id }));
+    stockLots(db.prepare(`SELECT id, donnees, supprime FROM produits WHERE boutique_id = ? ${avecSupprimes ? '' : 'AND supprime = 0'} ORDER BY ordre, rowid`).all(boutiqueId)
+      .map(p => ({ ...JSON.parse(p.donnees), id: p.id, ...(p.supprime ? { supprime: 1 } : {}) })));
   /* Données personnelles des clients chiffrées au repos (pii.js) : déchiffrées à la lecture, chiffrées à l'écriture,
      et un index aveugle de l'e-mail (colonne email_index) pour retrouver les commandes d'un client. */
   let PII = null;
@@ -725,14 +734,28 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Référence d'origine d'un produit importé (Shopify, WooCommerce…) : un nouvel import du même fichier ne le recrée pas.
     // Produit numérique (fichier livré par e-mail après paiement) : pas de livraison ; le stock sert de plafond (édition limitée).
     if (type === 'stock' && p.numerique === true) propre.numerique = true;
+    // Lot : 2 à 10 composants (produit, quantité). L'existence des composants est vérifiée par la route (même boutique).
+    if (type === 'stock' && !propre.numerique && Array.isArray(p.composants) && p.composants.length) {
+      const comps = [];
+      for (const c of p.composants.slice(0, 11)) {
+        const id = String(c && c.produitId || '').slice(0, 40), q = Number(c && c.qte);
+        if (!id || !Number.isInteger(q) || q < 1 || q > 20) throw erreur(400, 'Lot : chaque composant a une quantité de 1 à 20.', 'lot_invalide');
+        const ex = comps.find(x => x.produitId === id); if (ex) ex.qte = Math.min(20, ex.qte + q); else comps.push({ produitId: id, qte: q });
+      }
+      if (comps.length < 2 || comps.length > 10) throw erreur(400, 'Un lot réunit de 2 à 10 produits différents.', 'lot_invalide');
+      propre.composants = comps; propre.stock = 0;   // stock calculé à la lecture ; un lot n'a pas de variantes
+    }
     // Précommande : article pas encore disponible (sortie, réassort), vendu avec une date d'expédition annoncée (de demain à
     // un an). Le stock fixe combien d'exemplaires peuvent être précommandés.
+    // Dates comparées au jour de Lausanne. Une date passée (fiche ou synchronisation non mises à jour) retire simplement la
+    // précommande, sans bloquer l'enregistrement : prix, stock et restauration restent toujours possibles.
     if (type === 'stock' && !propre.numerique && p.precommande === true) {
-      const d = Date.parse(String(p.expeditionPrevue || ''));
-      if (!Number.isFinite(d)) throw erreur(400, 'Précommande : indiquez la date d’expédition prévue.', 'precommande_date');
-      const jour = new Date(d); jour.setUTCHours(12, 0, 0, 0);
-      if (jour.getTime() < Date.now() || jour.getTime() > Date.now() + 366 * 86400000) throw erreur(400, 'Précommande : la date d’expédition doit être dans l’année qui vient.', 'precommande_date');
-      propre.precommande = true; propre.expeditionPrevue = jour.toISOString().slice(0, 10);
+      const brut = String(p.expeditionPrevue || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(brut) || !Number.isFinite(Date.parse(brut + 'T12:00:00Z'))) throw erreur(400, 'Précommande : indiquez la date d’expédition prévue.', 'precommande_date');
+      const iso = new Date(Date.parse(brut + 'T12:00:00Z')).toISOString().slice(0, 10);
+      const jourCh = decalage => new Date(Date.now() + decalage * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Zurich' });
+      if (iso > jourCh(366)) throw erreur(400, 'Précommande : la date d’expédition doit être dans l’année qui vient.', 'precommande_date');
+      if (iso > jourCh(0)) { propre.precommande = true; propre.expeditionPrevue = iso; }
     }
     if (typeof p.refImport === 'string' && p.refImport) propre.refImport = p.refImport.replace(/[\u0000-\u001f]/g, '').slice(0, 80);
     if (p.cout !== undefined && p.cout !== null && p.cout !== '') propre.cout = prix.arrondi(valider.nombre(p.cout, 'Le coût', { min: 0, max: 100000 }));
@@ -747,7 +770,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Variantes (produits en stock et en dropshipping) : 2 options au plus (ex. Taille × Couleur), 20 valeurs chacune, 60 combinaisons.
     // L'identifiant d'une variante est sa combinaison (« M/Bleu ») ; le stock du produit est la somme des variantes.
     // Dropshipping : pas de stock propre (celui du fournisseur), mais une référence fournisseur par variante, transmise avec la commande.
-    if ((type === 'stock' || type === 'drop') && Array.isArray(p.options) && p.options.length) {
+    if ((type === 'stock' || type === 'drop') && !propre.composants && Array.isArray(p.options) && p.options.length) {
       const options = p.options.slice(0, 2).map(o => ({ nom: String(o && o.nom || '').trim().slice(0, 30), valeurs: [...new Set((Array.isArray(o && o.valeurs) ? o.valeurs : []).map(v => String(v).replace(/[\/|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 30)).filter(Boolean))].slice(0, 20) })).filter(o => o.nom && o.valeurs.length);
       if (options.length) {
         const combis = options.reduce((acc, o) => acc.flatMap(a => o.valeurs.map(v => [...a, v])), [[]]);

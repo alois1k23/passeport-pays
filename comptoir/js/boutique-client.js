@@ -169,6 +169,8 @@ function rendreBrut() {
   const delai = drops.length ? [Math.max(...drops.map(p => p.delai[0])), Math.max(...drops.map(p => p.delai[1]))] : null;
   const ch = donnees.boutique.pays === 'ch';
   const numerique = panierNumerique();
+  // Précommande dans le panier : date d'expédition la plus tardive (la commande part en une fois).
+  const datePre = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && enPrecommande(p)).map(p => p.expeditionPrevue).sort().pop() || null;
   const retrait = vue.livraison === 'retrait';
   const th = donnees.boutique.theme;
   let cookies = null;
@@ -195,10 +197,10 @@ function rendreBrut() {
           <form id="form-carte" class="code-promo"><input name="carte" placeholder="Carte cadeau" aria-label="Code de la carte cadeau" value="${esc(vue.carte ? vue.carte.code : '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"><button class="sf-btn sf-btn-ligne">${vue.carte ? 'Retirer' : 'Utiliser'}</button></form>
           ${vue.carteMessage ? `<p class="mini" role="status">${esc(vue.carteMessage)}</p>` : ''}
           ${fidReg ? blocFidelite(fidReg, remiseFid, pointsGagnes) : ''}
-          ${(() => { const dates = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && enPrecommande(p)).map(p => p.expeditionPrevue).sort(); return dates.length ? `<p class="sf-note"><b>Précommande</b> : votre commande sera expédiée en une fois, à partir du ${esc(dateIsoCourte(dates[dates.length - 1]))}.</p>` : ''; })()}
+          ${datePre ? `<p class="sf-note"><b>Précommande</b> : expédition prévue le ${esc(dateIsoCourte(datePre))}, toute la commande en une fois.</p>` : ''}
           ${numerique ? '<p class="sf-note">Livraison : <b>envoi par e-mail</b>. Vos fichiers arrivent dès le paiement, sans frais de port.</p>' : ''}<fieldset class="modes-livraison"${numerique ? ' hidden' : ''}><legend>Livraison</legend>${Object.entries(donnees.livraisons).map(([k, m]) => `
             <label class="${vue.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${esc(k)}" data-c="livraison" ${vue.livraison === k ? 'checked' : ''}>
-            <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : esc(fenetreLivraison(k === 'poste-prio' && !delai ? [1, 1] : delai || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
+            <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : datePre ? `Expédition prévue le ${esc(dateIsoCourte(datePre))}` : esc(fenetreLivraison(k === 'poste-prio' && !delai ? [1, 1] : delai || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
           <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div>${remiseFid ? `<div class="remise"><span>Points de fidélité</span><span>−${euros(remiseFid)}</span></div>` : ''}<div class="total"><span>Total</span><span>${euros(total - remiseFid + port)}</span></div>${partCarte ? `<div class="remise"><span>Carte cadeau ····${esc(vue.carte.fin)}</span><span>−${euros(partCarte)}</span></div><div class="total"><span>À payer</span><span>${euros(aPayer)}</span></div>` : ''}</div>
           <form id="commande">
             <label class="champ"><span>Nom et prénom</span><input name="nom" required autocomplete="name"></label>

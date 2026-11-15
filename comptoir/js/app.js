@@ -648,7 +648,7 @@ function vueProduits() {
       <label class="case"><input id="pf-actif" type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Visible dans la boutique</label>
       ${typeof blocFichierNumerique === 'function' ? blocFichierNumerique(p) : ''}
       ${p.type !== 'drop' ? `<label class="case"><input id="pf-precommande" type="checkbox" name="precommande" ${p.precommande ? 'checked' : ''}> Précommande : vendu avant d’être disponible, avec une date d’expédition annoncée</label>
-      <label class="champ"><span>Date d’expédition prévue (si précommande)</span><input id="pf-expedition" type="date" name="expeditionPrevue" value="${esc(p.expeditionPrevue || '')}" min="${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}"></label>
+      <label class="champ"><span>Date d’expédition prévue (si précommande)</span><input id="pf-expedition" type="date" name="expeditionPrevue" value="${esc(p.expeditionPrevue || '')}"></label>
       <p class="sous">En précommande, le stock indique combien d’exemplaires peuvent être précommandés.</p>` : ''}
       <label class="case"><input id="pf-taux" type="checkbox" name="tauxReduit" ${p.tauxReduit ? 'checked' : ''}> TVA à taux réduit (denrées alimentaires : ${estSuisse() ? '2,6 %' : etat.boutique.pays === 'be' ? '6 %' : '5,5 %'})</label>
       <div class="rangee"><button class="btn">Enregistrer</button>${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome" data-action="dupliquer-produit" data-id="${p.id}">Dupliquer</button>` : ''}${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome danger" data-action="supprimer-produit" data-id="${p.id}">Supprimer</button>` : ''}</div>

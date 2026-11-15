@@ -17,12 +17,15 @@ test('précommande : date validée, annoncée, reprise dans la commande et l’e
     await c('POST', '/api/auth/inscription', { email: 'pre@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Pre', pays: 'ch', secteur: 'maison' }, entreprise: { raison: 'Pre Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'pre@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } } });
     const produit = extra => ({ nom: 'Calendrier 2027', prix: 25, stock: 50, precommande: true, ...extra });
     assert.equal((await c('POST', '/api/admin/produits', { produit: produit({}) })).j.code, 'precommande_date', 'date exigée');
-    assert.equal((await c('POST', '/api/admin/produits', { produit: produit({ expeditionPrevue: jour(-3) }) })).j.code, 'precommande_date', 'date passée');
+    // Date passée : enregistré, mais sans précommande (jamais bloqué).
+    const passe = (await c('POST', '/api/admin/produits', { produit: produit({ expeditionPrevue: jour(-3) }) })).j.id;
+    assert.ok(passe);
     assert.equal((await c('POST', '/api/admin/produits', { produit: produit({ expeditionPrevue: jour(400) }) })).j.code, 'precommande_date', 'plus d’un an');
     const pid = (await c('POST', '/api/admin/produits', { produit: produit({ expeditionPrevue: jour(20) }) })).j.id;
     // Un produit numérique n'est jamais en précommande (livré tout de suite).
     const num = (await c('POST', '/api/admin/produits', { produit: { nom: 'Fichier', prix: 5, stock: 10, numerique: true, precommande: true, expeditionPrevue: jour(20) } })).j.id;
     const etat = (await c('GET', '/api/admin/etat')).j;
+    assert.equal(etat.produits.find(p => p.id === passe).precommande, undefined);
     assert.equal(etat.produits.find(p => p.id === pid).expeditionPrevue, jour(20));
     assert.equal(etat.produits.find(p => p.id === num).precommande, undefined);
     const pub = (await c('GET', `/api/public/${etat.serveur.slug}`, null, { avecCookie: false })).j.produits.find(p => p.id === pid);
@@ -39,5 +42,10 @@ test('précommande : date validée, annoncée, reprise dans la commande et l’e
     const cmd2 = await c('POST', `/api/public/${etat.serveur.slug}/commandes`, { lignes: [{ produitId: pid, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Max Rey', email: 'max@exemple.ch', adresse: 'Rue 4', npa: '1003', ville: 'Lausanne' } }, { avecCookie: false });
     assert.equal(cmd2.s, 201);
     assert.equal(JSON.parse(db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(cmd2.j.commandeId).donnees).lignes[0].precommande, undefined);
+    // Fiche à la date dépassée : on peut toujours changer le prix (formulaire, ou synchronisation qui renvoie tout).
+    const fiche = (await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === pid);
+    const maj = await c('PUT', `/api/admin/produits/${pid}`, { produit: { ...fiche, prix: 27 } });
+    assert.equal(maj.s, 200, JSON.stringify(maj.j));
+    assert.equal((await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === pid).precommande, undefined);
   } finally { s.close(); }
 });
