@@ -26,7 +26,7 @@ function creerReassort({ db, pii, signer }) {
   function creer(bid, d, maintenant = Date.now()) {
     const jours = Math.round(Number(d.jours));
     if (!d.email || !Number.isFinite(jours) || jours < JOURS_MIN || jours > JOURS_MAX) return null;
-    const lignes = (d.lignes || []).filter(l => l && typeof l.produitId === 'string').slice(0, 20).map(l => ({ produitId: l.produitId, qte: Math.max(1, Math.min(20, Math.round(Number(l.qte) || 1))) }));
+    const lignes = (d.lignes || []).filter(l => l && typeof l.produitId === 'string').slice(0, 20).map(l => ({ produitId: l.produitId, ...(typeof l.varianteId === 'string' && l.varianteId ? { varianteId: l.varianteId.slice(0, 80) } : {}), qte: Math.max(1, Math.min(20, Math.round(Number(l.qte) || 1))) }));
     if (!lignes.length) return null;
     const idx = index(bid, d.email), cle = lignes.map(l => l.produitId).sort().join(',');
     db.prepare('DELETE FROM reassorts WHERE boutique_id = ? AND email_index = ? AND cle_produits = ?').run(bid, idx, cle);   // même client, mêmes produits : la nouvelle commande remplace

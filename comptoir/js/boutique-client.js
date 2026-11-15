@@ -194,7 +194,7 @@ function rendreBrut() {
   const datePre = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && enPrecommande(p)).map(p => p.expeditionPrevue).sort().pop() || null;
   const retrait = vue.livraison === 'retrait';
   // Rappel de réassort : délai le plus court parmi les produits du panier qui le proposent (case jamais cochée d'office).
-  const joursReassort = vue.panier.map(l => !l.varianteId && donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.reassortJours).map(p => p.reassortJours).sort((a, b) => a - b)[0] || null;
+  const joursReassort = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.reassortJours).map(p => p.reassortJours).sort((a, b) => a - b)[0] || null;
   const th = donnees.boutique.theme;
   let cookies = null;
   try { cookies = localStorage.getItem('comptoir-cookies'); } catch { /* ignoré */ }

@@ -857,7 +857,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (p.reassortJours !== undefined && p.reassortJours !== null && p.reassortJours !== '' && p.reassortJours !== 0) {
       const j = joursValides(p.reassortJours);
       if (!j) throw erreur(400, 'Rappel de réassort : de 7 à 180 jours.', 'reassort_jours');
-      if (!propre.numerique && !(Array.isArray(propre.variantes) && propre.variantes.length)) propre.reassortJours = j;
+      if (!propre.numerique) propre.reassortJours = j;   // variantes comprises : le rappel remet la même variante au panier
     }
     if (type === 'drop') Object.assign(propre, { portF: Number(p.portF) || 0, entrepot: ['CH', 'UE', 'CN'].includes(p.entrepot) ? p.entrepot : 'UE', delai: Array.isArray(p.delai) ? p.delai.slice(0, 2).map(Number) : [3, 7], fournisseur: String(p.fournisseur || '').slice(0, 80), source: String(p.source || '').slice(0, 40), codeFournisseur: p.codeFournisseur || 'demo' });
     return propre;
@@ -3604,8 +3604,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         c.cadeau = true; const msg = String(ctx.corps.messageCadeau || '').replace(/\r/g, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 300); if (msg) c.client.messageCadeau = msg; }
       // Rappel de réassort demandé (case cochée par le client) : produits qui le proposent, délai le plus court.
       if (ctx.corps.rappelReassort === true) {
-        const rl = lignes.filter(l => !l.varianteId && (produits.find(p => p.id === l.produitId) || {}).reassortJours);
-        if (rl.length) c.reassort = { jours: Math.min(...rl.map(l => produits.find(p => p.id === l.produitId).reassortJours)), lignes: rl.map(l => ({ produitId: l.produitId, qte: l.qte })), demandeLe: now };
+        const rl = lignes.filter(l => (produits.find(p => p.id === l.produitId) || {}).reassortJours);
+        if (rl.length) c.reassort = { jours: Math.min(...rl.map(l => produits.find(p => p.id === l.produitId).reassortJours)), lignes: rl.map(l => ({ produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), qte: l.qte })), demandeLe: now };
       }
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
       // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.
@@ -4972,12 +4972,14 @@ ${bloc}</main></body></html>`;
           if (!RE.reserver(r, maintenant)) continue;   // pris par un autre processus
           reserve = true; traites++;
           if (!sb.actif) continue;   // boutique sans abonnement : rappel sauté
-          const dispo = r.lignes.map(l => ({ l, p: sb.produits.find(p => p.id === l.produitId) })).filter(x => x.p && x.p.reassortJours && (x.p.type === 'drop' || x.p.stock > 0));
+          // Variante : la même que la commande, si elle existe encore et a du stock.
+          const dispo = r.lignes.map(l => { const p = sb.produits.find(q => q.id === l.produitId); const v = p && l.varianteId ? (p.variantes || []).find(w => w.id === l.varianteId) : null; return { l, p, v }; })
+            .filter(x => x.p && x.p.reassortJours && (x.l.varianteId ? x.v && (x.p.type === 'drop' || x.v.stock > 0) : !(Array.isArray(x.p.variantes) && x.p.variantes.length) && (x.p.type === 'drop' || x.p.stock > 0)));
           if (!dispo.length) continue;   // momentanément épuisé : rappel sauté, le suivant viendra
           const langue = EmailsClients.langueDe({ langue: r.langue });
-          const panier = `${urlBoutique(sb.b)}?panier=${dispo.map(x => `${encodeURIComponent(x.p.id)}:${x.l.qte}`).join(',')}${langue ? `&lang=${langue}` : ''}`;
+          const panier = `${urlBoutique(sb.b)}?panier=${encodeURIComponent(dispo.map(x => `${x.p.id}:${x.l.qte}${x.v ? `:${encodeURIComponent(x.v.id)}` : ''}`).join(','))}${langue ? `&lang=${langue}` : ''}`;
           const stop = `${urlPublique}/reassort/arreter?j=${encodeURIComponent(r.jeton)}${langue ? `&lang=${langue}` : ''}`;
-          const liste = dispo.map(x => `- ${x.l.qte} × ${x.p.nom}`).join('\n');
+          const liste = dispo.map(x => `- ${x.l.qte} × ${x.p.nom}${x.v ? ` (${x.v.valeurs.join(' / ')})` : ''}`).join('\n');
           const m = EmailsClients.reassort({ langue, client: { nom: r.nom } }, { nomBoutique: sb.config.boutique.nom, liste, panier, stop });
           if (m) envoyerEmail(r.boutiqueId, r.email, m.sujet, m.corps, { langue, lienArret: stop });
           else envoyerEmail(r.boutiqueId, r.email, `Le moment de recommander chez ${sb.config.boutique.nom} ?`, `Bonjour${r.nom ? ` ${r.nom}` : ''},\n\nIl y a quelque temps, vous avez commandé chez ${sb.config.boutique.nom} :\n${liste}\n\nComme vous l’avez demandé, voici votre rappel pour recommander. Votre panier est prêt (rien n’est débité sans votre commande) :\n${panier}\n\nNe plus recevoir ces rappels : ${stop}\n\n${sb.config.boutique.nom}`, { lienArret: stop });

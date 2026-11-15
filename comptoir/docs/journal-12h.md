@@ -864,3 +864,11 @@ Constats corrigés :
 
 - **Produits › Lien de panier** : chaque variante a sa ligne, avec son propre prix (« T-shirt (M) 32.00 »). Avant, les produits à variantes étaient exclus et le client devait choisir lui-même sur la fiche. Le marchand qui envoie un panier par WhatsApp fixe maintenant la taille ou la couleur.
 - **Vérifié dans Chromium**, bureau et mobile : 2 T-shirts taille M ajoutés dans le composeur, lien généré, lien ouvert. Résultat : panier « 2 × T-shirt (M) » à 32. Aucune erreur.
+
+### Cycle 44 (00 h 50) : rappels de réassort pour les produits à variantes (chantier 104)
+
+- **Rappels** : un produit à variantes (mouture, pointure, parfum) peut maintenant proposer le rappel de réassort. La demande garde la variante commandée. Le rappel la remet au panier (« 3 × Chaussettes (41-46) ») tant qu'elle existe et a du stock ; sinon, elle est sautée pour ce rappel.
+- **Liens** : le lien du panier dans l'e-mail est entièrement encodé.
+- **Tests** : rappel d'une variante, texte et lien de panier avec la variante.
+- **Vérifié dans Chromium**, bureau et mobile : panier « 2 × Café (Moulu) » par lien, case de rappel proposée (21 jours). Aucune erreur.
+- 256 tests sur 256, parcours de bout en bout 57/57.

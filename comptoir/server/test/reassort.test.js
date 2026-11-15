@@ -72,6 +72,18 @@ test('rappel de réassort : demandé, envoyé, arrêté, effacé', async () => {
     assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts WHERE commande_id = ?').get(remb.commandeId).n, 1);
     assert.equal((await c('POST', `/api/admin/commandes/${remb.commandeId}/statut`, { statut: 'remboursee' })).s, 200);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts WHERE commande_id = ?').get(remb.commandeId).n, 0, 'remboursée : plus de rappel');
+    // Produit à variantes : le rappel remet la même variante au panier.
+    const tee = (await c('POST', '/api/admin/produits', { produit: { nom: 'Chaussettes', prix: 12, reassortJours: 60, options: [{ nom: 'Pointure', valeurs: ['36-40', '41-46'] }], variantes: [{ id: '36-40', valeurs: ['36-40'], stock: 9 }, { id: '41-46', valeurs: ['41-46'], stock: 9 }] } })).j.id;
+    const rv = await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: tee, varianteId: '41-46', qte: 3 }], livraison: 'poste-eco', rappelReassort: true, client: { nom: 'Zoé', email: 'zoe@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, { avecCookie: false });
+    assert.equal(rv.s, 201, JSON.stringify(rv.j));
+    await fetch(rv.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    db.prepare('UPDATE reassorts SET prochain = ? WHERE commande_id = ?').run(Date.now() - 1000, rv.j.commandeId);
+    gerer.automatisationsEcheances(Date.now() + 71 * 86400000);   // calcul au plus une fois par heure : après le dernier passage du test
+    const mv = db.prepare("SELECT corps FROM emails WHERE destinataire = 'zoe@exemple.ch' AND sujet LIKE 'Le moment%'").get();
+    assert.ok(mv, 'rappel envoyé'); assert.match(mv.corps, /- 3 × Chaussettes \(41-46\)/);
+    assert.equal(decodeURIComponent(mv.corps.match(/\?panier=([^\s&]+)/)[1]), `${tee}:3:41-46`);
+    db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(rv.j.commandeId);
+    cookie = ''; await c('POST', '/api/auth/connexion', { email: 're@exemple.ch', motDePasse: 'un mot de passe solide' });   // session effacée par l'entretien avancé dans le temps
     // Arrêt par le marchand, depuis la commande.
     const parM = await commander('tel@exemple.ch', { rappelReassort: true });
     assert.ok((await c('GET', '/api/admin/etat')).j.reassortsActifs.includes(parM.commandeId));
