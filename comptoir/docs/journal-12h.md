@@ -499,3 +499,22 @@ Suite des constats « non faits » de la relecture.
   - deux lectures au scanner donnent 2 articles au ticket, avec le focus conservé ;
   - code inconnu signalé.
 - **Simulation de 60 jours** (100 marchands, horloge virtuelle), refaite après les chantiers 79 à 85 : 9 216 commandes, 0 anomalie, 0 erreur dans le journal du serveur, temps médian 2 ms et 95e centile 8 ms.
+
+### Cycle 20 (23 h 30) : relecture indépendante des chantiers 81 à 85
+
+Pas d'injection, pas de fuite entre boutiques, et la politique de sécurité du contenu est respectée. Les images sous les articles s'affichent aussi sur un domaine personnalisé. Le désabonnement en un clic des messageries est compatible avec la route d'arrêt. La boucle des rappels ne peut pas tourner sans fin. Constats corrigés :
+
+- **Moyen** : une erreur passagère après la réservation d'un rappel (base occupée au moment d'enregistrer l'e-mail) supprimait la demande du client. Une erreur ne supprime plus jamais une demande : elle est seulement reportée au rappel suivant.
+- **Bas** :
+  - **Détail de commande** : il affichait « rappel arrêté » pour une demande remplacée par une commande plus récente. Le texte dit maintenant exactement ce qu'il en est. Après « Arrêter le rappel », le focus va au texte mis à jour. L'arrêt reste possible pour une boutique en lecture seule (abonnement terminé).
+  - **Éditeur du journal** : un produit choisi puis masqué disparaissait de la sélection à l'enregistrement suivant. Il reste coché, avec la mention « masqué ». Une modification par l'API qui n'envoie pas la liste des produits garde la sélection existante (testé).
+  - **Favoris** :
+    - le cœur annonçait son état deux fois aux lecteurs d'écran : il a maintenant un nom fixe (« Nappe en favori ») et l'état « enfoncé » ;
+    - le filtre « Mes favoris » n'apparaît plus que dans la première section de produits ;
+    - un cœur retiré dans la vue « Mes favoris » renvoie le focus au cœur suivant (vérifié dans Chromium), avec une annonce « Retiré des favoris » ;
+    - le nombre de résultats d'une recherche n'est plus affiché par-dessus la vue des favoris.
+  - **Confirmation d'une précommande** : elle dit maintenant « 30 jours après l'expédition », et non « dans 30 jours » (testé).
+  - **« À faire »** : il compte des commandes, et non des lignes.
+- **Sans objet** : le jeton d'arrêt était déjà masqué dans le journal des e-mails du marchand (le paramètre « j= » est masqué partout).
+- **Noté** : une commande marquée payée à la main ne déclenche pas d'e-mail de confirmation, donc le client découvre son rappel au premier envoi. Ce comportement existe depuis le début pour ces commandes.
+- Après corrections : 248 tests sur 248, parcours de bout en bout 57/57.

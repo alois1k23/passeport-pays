@@ -52,7 +52,9 @@ function creerArticles({ db, erreur }) {
     const titre = ligne(a.titre).slice(0, 140);
     if (!titre) throw erreur(400, 'Donnez un titre à l’article.', 'article_titre');
     const corps = String(a.corps || '').slice(0, MAX_CORPS), resume = ligne(a.resume).slice(0, 300);
-    const produits = [...new Set((Array.isArray(a.produits) ? a.produits : []).filter(x => typeof x === 'string' && x.length <= 40 && existe(x)))].slice(0, MAX_PRODUITS);
+    const avantProduits = id ? (db.prepare('SELECT produits FROM articles WHERE id = ? AND boutique_id = ?').get(id, bid) || {}).produits : null;
+    // Clé absente (autre client de l'API) : la sélection existante est gardée.
+    const produits = !('produits' in Object(a)) && avantProduits ? lireProduits(avantProduits) : [...new Set((Array.isArray(a.produits) ? a.produits : []).filter(x => typeof x === 'string' && x.length <= 40 && existe(x)))].slice(0, MAX_PRODUITS);
     const avant = id ? db.prepare('SELECT * FROM articles WHERE id = ? AND boutique_id = ?').get(id, bid) : null;
     // Adresse stable : un article renommé garde la sienne (les liens déjà partagés restent bons), sauf adresse demandée.
     const voulu = a.slug ? slugDe(a.slug) : avant ? avant.slug : slugDe(titre);

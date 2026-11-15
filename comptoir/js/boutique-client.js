@@ -405,7 +405,12 @@ document.addEventListener('click', e => {
     else if (sf.dataset.sf === 'fav') {
       const id = sf.dataset.id; if (FAVORIS.has(id)) FAVORIS.delete(id); else FAVORIS.add(id);
       garderFavoris(); if (!FAVORIS.size) vueVitrine.favoris = false;
-      rendre(); document.querySelector(`[data-sf="fav"][data-id="${CSS.escape(id)}"]`)?.focus();   // le focus reste sur le même cœur
+      const coeurs = [...document.querySelectorAll('[data-sf="fav"]')], rang = coeurs.indexOf(sf);
+      rendre();
+      // Le focus reste sur le même cœur ; si sa carte a disparu (vue « Mes favoris »), il va au cœur suivant ou au bouton du filtre.
+      const meme = document.querySelector(`[data-sf="fav"][data-id="${CSS.escape(id)}"]`), apres = [...document.querySelectorAll('[data-sf="fav"]')];
+      (meme || apres[Math.min(rang, apres.length - 1)] || document.querySelector('[data-sf="favoris"]') || document.querySelector('.sf-produits h2'))?.focus();
+      if (typeof annoncer === 'function') annoncer(FAVORIS.has(id) ? 'Ajouté aux favoris.' : 'Retiré des favoris.');
     }
     else if (sf.dataset.sf === 'favoris') { vueVitrine.favoris = !vueVitrine.favoris; rendre(); document.querySelector('[data-sf="favoris"]')?.focus(); }
     else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }

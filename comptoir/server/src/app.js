@@ -1086,7 +1086,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const config = lireConfig(res.boutique);
     if (res.liens && res.liens.length) envoyerLiens(res.boutique, res.c, res.liens, config);
     const arretReassort = suiteReassort(res.boutique, res.c);
-    const noteReassort = arretReassort ? `\n\n${EmailsClients.noteReassort(res.c, res.c.reassort.jours, arretReassort)}` : '';
+    const noteReassort = arretReassort ? `\n\n${EmailsClients.noteReassort(res.c, res.c.reassort.jours, arretReassort, (res.c.lignes || []).some(l => l.precommande))}` : '';
     if (res.c.alerteNumerique) { const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id); if (mch) envoyerEmail(null, mch.email, `Action requise : commande n° ${res.c.numero} sans fichier à télécharger`, `Bonjour,\n\nLa commande n° ${res.c.numero} contient un produit numérique, mais aucun fichier n’était attaché au moment du paiement : le client n’a reçu aucun lien.\n\nAjoutez le fichier dans la fiche produit, puis « Renvoyer de nouveaux liens » depuis la commande.\n${urlPublique}/app#commandes\n\nL’équipe Comptoir`); }
     // Carte cadeau vendue : le client a reçu sa carte (ou son avis d'envoi) ; le marchand est simplement informé.
     if (res.c.canal === 'carte') {
@@ -1241,7 +1241,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Les commandes déjà payées doivent pouvoir être expédiées, transmises ou remboursées : les clients ont payé.
     // Le marchand doit toujours pouvoir couper ses intégrations (clés, webhooks), même abonnement terminé.
     // Factures (QR, électronique) : à conserver des années, donc toujours téléchargeables.
-    const suiviCommande = /^POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre)$/.test(route) || /^GET \/api\/admin\/commandes\/[\w-]+\/(facture-qr|facture-electronique|facture-pdf)$/.test(route) || /^POST \/api\/admin\/integrations\/(cles\/[\w-]+\/revoquer|webhooks\/[\w-]+\/supprimer)$/.test(route);
+    const suiviCommande = /^POST \/api\/admin\/commandes\/[\w-]+\/(statut|transmettre|reassort\/arreter)$/.test(route) || /^GET \/api\/admin\/commandes\/[\w-]+\/(facture-qr|facture-electronique|facture-pdf)$/.test(route) || /^POST \/api\/admin\/integrations\/(cles\/[\w-]+\/revoquer|webhooks\/[\w-]+\/supprimer)$/.test(route);
     if (['resilie', 'impaye'].includes(e.statut) && (LECTURE_SEULE.has(route) || suiviCommande)) { ctx.lectureSeule = true; return; }
     throw erreur(402, ['resilie', 'impaye'].includes(e.statut) ? 'Abonnement terminé : vos données restent consultables et exportables ; reprenez un abonnement pour modifier votre boutique.' : 'Choisissez une formule et réglez votre abonnement pour accéder à votre boutique.', 'abonnement_requis');
   };
@@ -4813,7 +4813,7 @@ ${bloc}</main></body></html>`;
     let n = 0;
     for (const [bid, tousPre] of parBoutique) {
       // Rappel déjà fait pour ce produit et cette date : les commandes ne sont pas relues (déchiffrées) pour rien.
-      const produitsPre = tousPre.filter(p => { const retard = p.date <= hier; if (!retard && p.date < aujourdhui) return false; return !db.prepare('SELECT 1 FROM envois_auto WHERE boutique_id = ? AND cle = ?').get(bid, `precommande${retard ? '-retard' : ''}:${p.id}:${p.date}`); });
+      const produitsPre = tousPre.filter(p => { const retard = p.date <= hier; return !db.prepare('SELECT 1 FROM envois_auto WHERE boutique_id = ? AND cle = ?').get(bid, `precommande${retard ? '-retard' : ''}:${p.id}:${p.date}`); });
       if (!produitsPre.length) continue;
       const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid);
       if (!b || !abo.etat(b.marchand_id).actif) continue;
@@ -4847,6 +4847,7 @@ ${bloc}</main></body></html>`;
     for (let lot = RE.dus(maintenant); lot.length && Date.now() < limiteTemps; lot = RE.dus(maintenant)) {
       let traites = 0;
       for (const r of lot) {
+        let reserve = false;
         try {
           if (!cache.has(r.boutiqueId)) { const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.boutiqueId); cache.set(r.boutiqueId, b ? { b, actif: abo.etat(b.marchand_id).actif, config: lireConfig(b), produits: listerProduits(b.id).filter(vendable), existants: existants(b.id) } : null); }
           const sb = cache.get(r.boutiqueId);
@@ -4854,7 +4855,7 @@ ${bloc}</main></body></html>`;
           // client désinscrit : la demande est supprimée (pas de données gardées pour rien).
           if (!sb || !r.lignes.some(l => sb.existants.has(l.produitId)) || maintenant - r.creeLe > 730 * 86400000 || estDesinscrit(r.boutiqueId, r.email)) { RE.supprimerId(r.id); traites++; continue; }
           if (!RE.reserver(r, maintenant)) continue;   // pris par un autre processus
-          traites++;
+          reserve = true; traites++;
           if (!sb.actif) continue;   // boutique sans abonnement : rappel sauté
           const dispo = r.lignes.map(l => ({ l, p: sb.produits.find(p => p.id === l.produitId) })).filter(x => x.p && x.p.reassortJours && (x.p.type === 'drop' || x.p.stock > 0));
           if (!dispo.length) continue;   // momentanément épuisé : rappel sauté, le suivant viendra
@@ -4866,7 +4867,13 @@ ${bloc}</main></body></html>`;
           if (m) envoyerEmail(r.boutiqueId, r.email, m.sujet, m.corps, { langue, lienArret: stop });
           else envoyerEmail(r.boutiqueId, r.email, `Le moment de recommander chez ${sb.config.boutique.nom} ?`, `Bonjour${r.nom ? ` ${r.nom}` : ''},\n\nIl y a quelque temps, vous avez commandé chez ${sb.config.boutique.nom} :\n${liste}\n\nComme vous l’avez demandé, voici votre rappel pour recommander. Votre panier est prêt (rien n’est débité sans votre commande) :\n${panier}\n\nNe plus recevoir ces rappels : ${stop}\n\n${sb.config.boutique.nom}`, { lienArret: stop });
           n++;
-        } catch (e) { journal.error('[reassort]', r.id, e.message); try { RE.reserver(r, maintenant) || RE.supprimerId(r.id); } catch { /* ignoré */ } traites++; }
+        } catch (e) {
+          // Erreur passagère : la demande du client n'est jamais supprimée pour ça ; pas encore réservée, elle est simplement
+          // reportée au rappel suivant (sinon elle bloquerait le lot à chaque passage).
+          journal.error('[reassort]', r.id, e.message);
+          if (!reserve) try { RE.reserver(r, maintenant); } catch { /* ignoré */ }
+          traites++;
+        }
       }
       if (!traites) break;   // rien n'a avancé (tout pris ailleurs) : on s'arrête
     }

@@ -59,6 +59,7 @@ test('journal de bout en bout', async () => {
     assert.deepEqual(avecP.produits, [pA, pB], 'inconnus et doublons retirés');
     let pageP = await (await fetch(`${base}/s/${slug}/journal/le-lin-en-hiver`)).text();
     assert.match(pageP, /Dans la boutique/); assert.match(pageP, new RegExp(`/p/${pA}"`)); assert.match(pageP, /Torchon &lt;lin&gt;/); assert.match(pageP, /CHF 60\.00/);
+    assert.deepEqual((await c('PUT', `/api/admin/articles/${a2.id}`, { titre: 'Le lin en hiver', corps: 'Publié', publie: true })).j.article.produits, [pA, pB], 'clé absente : sélection gardée');
     await c('PUT', `/api/admin/produits/${pB}`, { produit: { nom: 'Nappe', prix: 60, stock: 5, actif: false } });
     pageP = await (await fetch(`${base}/s/${slug}/journal/le-lin-en-hiver`)).text();
     assert.doesNotMatch(pageP, /Nappe/, 'produit masqué : plus présenté');

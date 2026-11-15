@@ -154,20 +154,21 @@ function renduSection(s, etat, mode) {
       const dispo = prods.filter(x => !p.categorie || x.categorie === p.categorie);
       const cats = [...new Set(dispo.map(x => x.categorie).filter(Boolean))];
       const filtres = tout ? dispo.filter(x => !vueVitrine.cat || x.categorie === vueVitrine.cat) : dispo;
+      const premiere = (etat.boutique.sections || []).find(x => x.type === 'produits');
       const recherche = mode !== 'edition' && dispo.length >= 8, q = recherche ? vueVitrine.q.trim() : '';
       // Favoris du visiteur (gardés sur son appareil seulement, jamais envoyés) : cœur sur chaque carte, filtre « Mes favoris ».
       const fav = mode !== 'edition' && typeof FAVORIS !== 'undefined' ? FAVORIS : null;
-      const favDispo = fav ? prods.filter(x => fav.has(x.id)) : [];
+      // Filtre « Mes favoris » : sur la première section de produits seulement (une seule liste, pas de doublons).
+      const favDispo = fav && (!premiere || premiere.id === s.id) ? prods.filter(x => fav.has(x.id)) : [];
       const voirFav = !!(fav && vueVitrine.favoris && favDispo.length);
       const liste = voirFav ? favDispo : q ? dispo.filter(x => correspondRecherche(x, q)) : tout ? filtres : dispo.slice(0, Number(p.nombre) || 4);
-      const premiere = (etat.boutique.sections || []).find(x => x.type === 'produits');
       return `<section class="sf-produits" id="${!premiere || premiere.id === s.id ? 'sf-collection' : 'sf-collection-' + esc(s.id)}">
         <h2>${esc(tout ? 'Tous nos produits' : p.titre)}</h2>
-        ${recherche ? `<div class="sf-recherche"><input type="search" data-sf-recherche="${esc(s.id)}" value="${esc(vueVitrine.q)}" placeholder="Rechercher un produit" aria-label="Rechercher un produit" autocomplete="off">${q ? `<span class="sf-nb" role="status">${liste.length} résultat${liste.length > 1 ? 's' : ''}</span>` : ''}</div>` : ''}
+        ${recherche ? `<div class="sf-recherche"><input type="search" data-sf-recherche="${esc(s.id)}" value="${esc(vueVitrine.q)}" placeholder="Rechercher un produit" aria-label="Rechercher un produit" autocomplete="off">${q && !voirFav ? `<span class="sf-nb" role="status">${liste.length} résultat${liste.length > 1 ? 's' : ''}</span>` : ''}</div>` : ''}
         ${tout && cats.length > 1 ? `<div class="sf-cats" role="group" aria-label="Catégories"><button type="button" class="${!vueVitrine.cat ? 'actif' : ''}" data-sf="cat" data-v="" aria-pressed="${!vueVitrine.cat}">Tout (${dispo.length})</button>${cats.map(c => `<button type="button" class="${vueVitrine.cat === c ? 'actif' : ''}" data-sf="cat" data-v="${esc(c)}" aria-pressed="${vueVitrine.cat === c}">${esc(c)}</button>`).join('')}</div>` : ''}
-        ${favDispo.length ? `<p class="sf-favoris"><button type="button" class="sf-btn sf-btn-ligne" data-sf="favoris" aria-pressed="${voirFav}">${voirFav ? 'Voir tous les produits' : `♥ Mes favoris (${favDispo.length})`}</button></p>` : ''}
+        ${favDispo.length ? `<p class="sf-favoris"><button type="button" class="sf-btn sf-btn-ligne" data-sf="favoris">${voirFav ? 'Voir tous les produits' : `♥ Mes favoris (${favDispo.length})`}</button></p>` : ''}
         <div class="sf-grille">${liste.map(x => `
-          <article class="sf-carte">${fav ? `<button type="button" class="sf-fav" data-sf="fav" data-id="${esc(x.id)}" aria-pressed="${fav.has(x.id)}" aria-label="${fav.has(x.id) ? 'Retirer' : 'Ajouter'} ${esc(x.nom)} ${fav.has(x.id) ? 'des' : 'aux'} favoris">${fav.has(x.id) ? '♥' : '♡'}</button>` : ''}
+          <article class="sf-carte">${fav ? `<button type="button" class="sf-fav" data-sf="fav" data-id="${esc(x.id)}" aria-pressed="${fav.has(x.id)}" aria-label="${esc(x.nom)} en favori">${fav.has(x.id) ? '♥' : '♡'}</button>` : ''}
             <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>
             <div class="sf-carte-infos"><h3 data-sans-traduction><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${prixBarreAffiche(x, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(x, etat))}</s> ` : ''}${(pv => pv.length && Math.min(...pv) !== Math.max(...pv) ? `dès ${euros(Math.min(...pv))}` : euros(pv.length ? pv[0] : x.prix))(Array.isArray(x.variantes) ? x.variantes.map(v => typeof v.prix === 'number' ? v.prix : x.prix) : [])}</span></div>
             ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}${enPrecommande(x) ? `<small class="sf-delai sf-precommande">Précommande · expédition prévue le ${esc(dateIsoCourte(x.expeditionPrevue))}</small>` : ''}<small class="sf-delai"${enPrecommande(x) ? ' hidden' : ''}>${esc(fenetreLivraison(delaiProduit(x)))}</small>

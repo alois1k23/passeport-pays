@@ -94,6 +94,7 @@ test('rappel de réassort : demandé, envoyé, arrêté, effacé', async () => {
     const rp = await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: plaid, qte: 1 }], livraison: 'poste-eco', rappelReassort: true, client: { nom: 'Noé', email: 'noe@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, { avecCookie: false });
     await fetch(rp.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
     assert.ok(db.prepare('SELECT prochain FROM reassorts WHERE commande_id = ?').get(rp.j.commandeId).prochain > Date.now() + 85 * 86400000, 'après l’expédition annoncée');
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'noe@exemple.ch' AND corps LIKE '%recommander 30 jours après l’expédition%'").get(), 'confirmation : délai après l’expédition');
     db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(rp.j.commandeId);
     // Commande en allemand : rappel en allemand. Effacement du client : sa demande disparaît.
     await commander('max@exemple.ch', { rappelReassort: true, langue: 'de' });
