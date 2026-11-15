@@ -541,3 +541,20 @@ Pour les produits faits maison, sans code fabricant, qu'on veut quand même pass
 - **Contrôle du dessin** : un test relit les barres avec un décodeur écrit à part. Ce décodeur reconnaît chaque chiffre à la largeur de ses barres et de ses espaces, comme un lecteur, sans utiliser les tables d'encodage. Il retrouve le premier chiffre par la parité, et le test vérifie 50 codes internes.
 - **Limite honnête** : aucune étiquette n'a été lue par un vrai scanner. Aucun décodeur n'est installé ici et je n'ai pas installé de code téléchargé. Un essai avec un lecteur réel reste à faire.
 - **Vérifié dans Chromium**, bureau et mobile : code interne créé puis enregistré, trois étiquettes (deux variantes et un produit), aperçu d'impression A4 en PDF propre. Aucune erreur.
+
+### Cycle 23 (23 h 40) : flux produits pour Google Shopping et Meta (chantier 89)
+
+- **Adresse** : `/s/<boutique>/produits.xml`, et `/produits.xml` sur un domaine personnalisé. Le flux suit le format RSS 2.0 avec l'espace de noms Google, que Meta lit aussi. Il est mis en cache 15 minutes.
+- **Contenu** :
+  - un article par produit, ou par variante, regroupées par `item_group_id` ;
+  - titre, description en texte, lien vers la page produit, photo, prix TTC dans la devise de la boutique, disponibilité, marque, catégorie ;
+  - le code-barres (`gtin`) quand il existe, sinon `identifier_exists=no` ;
+  - une précommande est marquée `preorder`, avec sa date.
+- **Exclusions** :
+  - les produits masqués et les produits numériques ne figurent pas dans le flux ;
+  - une boutique sans abonnement actif publie un flux vide, ce qui évite une vitrine gratuite chez Google ;
+  - les caractères de contrôle sont retirés et tout est échappé.
+- **Interface** : le bouton « Google Shopping » de la page Produits donne l'adresse à copier (sélectionnée d'un clic) et les étapes. Il signale aussi les produits sans code-barres. Les noms de menus de Google et de Meta ne sont pas recopiés, car ils changent souvent.
+- **Tests** : en-tête XML, échappement d'un nom piégé, caractère de contrôle, prix, gtin, variantes (épuisée, prix propre, sans code), précommande, exclusions, flux vide d'une boutique fermée.
+- **Vérifié dans Chromium**, bureau et mobile : fenêtre, adresse sélectionnée d'un clic, flux relu par l'analyseur XML du navigateur (aucune erreur, noms piégés intacts). Aucune erreur.
+- **Limite** : le flux n'a pas été soumis à Google Merchant Center, ce qui demande un compte. La conformité suit la spécification publiée, de mémoire, sans contrôle en ligne.

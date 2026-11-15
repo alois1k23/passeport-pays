@@ -633,7 +633,7 @@ function vueProduits() {
   const cats = SECTEURS[etat.boutique.secteur].categories;
   return `
   <div class="tete"><div><h1>Produits</h1><p class="sous">${etat.produits.length} produits · ${etat.produits.filter(x => x.actif && !x.aVerifier && (typeof SERVEUR === 'undefined' || SERVEUR.fournisseurDemoVendable !== false || x.codeFournisseur !== 'demo')).length} en ligne</p></div>
-    <div class="rangee">${etat.produits.some(x => x.actif && (x.ean || (x.variantes || []).some(v => v.ean))) && typeof Gtin !== 'undefined' ? '<button class="btn fantome" data-action="etiquettes-ean">Étiquettes code-barres</button>' : ''}<button class="btn fantome" data-action="reassort">Réassort</button><button class="btn fantome" data-action="lien-panier">Lien de panier</button><button class="btn fantome" data-action="importer-catalogue">Importer un catalogue</button><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
+    <div class="rangee">${etat.produits.some(x => x.actif && (x.ean || (x.variantes || []).some(v => v.ean))) && typeof Gtin !== 'undefined' ? '<button class="btn fantome" data-action="etiquettes-ean">Étiquettes code-barres</button>' : ''}<button class="btn fantome" data-action="reassort">Réassort</button>${typeof enLigne === 'function' && enLigne() ? '<button class="btn fantome" data-action="flux-produits">Google Shopping</button>' : ''}<button class="btn fantome" data-action="lien-panier">Lien de panier</button><button class="btn fantome" data-action="importer-catalogue">Importer un catalogue</button><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
     <input type="file" id="photo-input" accept="image/*" multiple hidden><input type="file" id="import-csv" accept=".csv,text/csv,text/plain" hidden aria-label="Fichier CSV du catalogue"></div>
   <p class="astuce">Ajoutez des produits du <a class="lien" href="#sourcing">catalogue fournisseurs</a> (dropshipping) ou prenez vos propres produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
   ${ui.lienPanier && typeof vueLienPanier === 'function' ? vueLienPanier() : ''}
@@ -1214,6 +1214,18 @@ document.addEventListener('click', e => {
       if (champ && code) { champ.value = code; champ.focus(); toast(`Code interne ${code} : enregistrez la fiche pour le garder.`); }
       break;
     }
+    case 'flux-produits': {
+      const racine = String(SERVEUR.urlBoutique || (etat.serveur && etat.serveur.urlBoutique) || `/s/${SERVEUR.slug}`).replace(/\/$/, '');
+      const url = /^https?:/.test(racine) ? `${racine}/produits.xml` : `${location.origin}${racine}/produits.xml`;
+      const sansCode = etat.produits.filter(p => p.actif && !p.numerique && !p.ean && !(p.variantes || []).some(v => v.ean)).length;
+      ui.modal = { type: 'html', html: `<h2>Google Shopping et Meta</h2>
+        <p>Votre catalogue est publié en flux produits, mis à jour à chaque visite des robots : prix, stock, photos, précommandes et variantes.</p>
+        <label class="champ"><span>Adresse du flux</span><input readonly value="${esc(url)}" data-copier-flux></label>
+        <ol class="sous"><li>Google Merchant Center : ajoutez une source de produits par adresse de fichier, avec une récupération planifiée, et collez l’adresse.</li><li>Meta (Facebook, Instagram) : dans le gestionnaire de catalogue, ajoutez une source de données par flux planifié, avec la même adresse.</li></ol><p class="sous">Les menus de ces services changent souvent : cherchez « flux » ou « source de données » dans leur aide.</p>
+        ${sansCode ? `<p class="encart">${sansCode} produit${sansCode > 1 ? 's' : ''} sans code-barres : ${sansCode > 1 ? 'ils restent' : 'il reste'} dans le flux (« sans identifiant »), mais un code EAN améliore la diffusion.</p>` : ''}
+        <p class="sous">Les produits numériques et les produits masqués n’y figurent pas.</p>` };
+      rendreModal(); break;
+    }
     case 'etiquettes-ean': ui.modal = { type: 'html', html: `<h2>Étiquettes code-barres</h2>${etiquettesEan()}` }; rendreModal(); break;
     case 'bon-un': ui.modal = { type: 'html', html: `<h2>Bon de préparation</h2>${bonsPreparation([id])}` }; rendreModal(); break;
     case 'groupe-vider': ui.selection.clear(); rendre(); break;
@@ -1459,3 +1471,6 @@ document.addEventListener('click', async e => {
   try { await api('POST', `/api/admin/commandes/${encodeURIComponent(b.dataset.id)}/reassort/arreter`, {}); etat.reassortsActifs = (etat.reassortsActifs || []).filter(x => x !== b.dataset.id); toast('Rappel arrêté.'); rendre(); const t = [...document.querySelectorAll('.bloc p.sous')].find(x => /Rappel de réassort/.test(x.textContent)); if (t) { t.tabIndex = -1; t.focus(); } }
   catch (err) { toast(err.message); b.disabled = false; }
 });
+
+// Adresse du flux produits : sélectionnée d'un clic (prête à copier).
+for (const t of ['focusin', 'click']) document.addEventListener(t, e => { if (e.target.matches && e.target.matches('[data-copier-flux]')) { const i = e.target; setTimeout(() => i.select(), 0); } });

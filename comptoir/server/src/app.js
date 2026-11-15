@@ -5238,6 +5238,27 @@ ${bloc}</main></body></html>`;
 <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>
 ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom)}</a> · <a href="${escHtml(base)}/journal">Journal</a></header><main>${corps}</main><footer><a href="${escHtml(base)}/">Retour à la boutique ${escHtml(nom)}</a></footer></body></html>`;
   }
+  /* Flux produits (RSS 2.0 avec l'espace de noms Google, accepté aussi par Meta) : un article par produit, ou par variante
+     (même item_group_id). Seulement les produits en vente ; boutique sans abonnement actif : flux vide. Produits
+     numériques exclus (règles des annonces Shopping). Prix TTC dans la devise de la boutique. */
+  function fluxProduits(b, racine) {
+    const base = racine.replace(/\/$/, ''), config = lireConfig(b), devise = config.boutique.devise || (config.boutique.pays === 'ch' ? 'CHF' : 'EUR');
+    const ouverte = abo.etat(b.marchand_id).actif;
+    const produits = ouverte ? listerProduits(b.id).filter(vendable).filter(p => !p.numerique) : [];
+    const texte = t => String(t || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ').replace(/[\ud800-\udfff]/g, '');
+    const x = t => escHtml(texte(t));
+    const prixG = n => `${Number(n).toFixed(2)} ${devise}`;
+    const jour = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Zurich' });
+    const items = [];
+    for (const p of produits) {
+      const image = p.image ? `${urlPublique}/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : '';
+      const pre = p.precommande && String(p.expeditionPrevue || '') >= jour;
+      const commun = (id, titre, prixV, stock, ean, groupe) => `<item><g:id>${x(id)}</g:id><title>${x(titre).slice(0, 150)}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}</item>`;
+      if (Array.isArray(p.variantes) && p.variantes.length) for (const v of p.variantes) items.push(commun(`${p.id}-${v.id}`, `${p.nom} – ${v.valeurs.join(' / ')}`, typeof v.prix === 'number' ? v.prix : p.prix, v.stock, v.ean, p.id));
+      else items.push(commun(p.id, p.nom, p.prix, p.stock, p.ean, null));
+    }
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>${x(config.boutique.nom)}</title><link>${x(base + '/')}</link><description>${x(`Produits de ${config.boutique.nom}`)}</description>\n${items.join('\n')}\n</channel></rss>\n`;
+  }
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
     const produits = abo.etat(b.marchand_id).actif ? listerProduits(b.id).filter(vendable) : [];
@@ -5480,11 +5501,12 @@ ${FEUILLE_4}</head>
         && db.prepare("SELECT 1 FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote)) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Introuvable'); return;
       }
-      if (hote && hote !== hotePrincipal && req.method === 'GET' && (chemin === '/' || chemin === '/index.html' || /^\/p\/[\w-]+$/.test(chemin) || /^\/journal(\/[\w-]+)?\/?$/.test(chemin) || chemin === '/sitemap.xml' || chemin === '/robots.txt')) {
+      if (hote && hote !== hotePrincipal && req.method === 'GET' && (chemin === '/' || chemin === '/index.html' || /^\/p\/[\w-]+$/.test(chemin) || /^\/journal(\/[\w-]+)?\/?$/.test(chemin) || chemin === '/sitemap.xml' || chemin === '/produits.xml' || chemin === '/robots.txt')) {
         const b = db.prepare("SELECT * FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote);
         if (b) {
           const racine = `https://${hote}/`;
           if (chemin === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, racine)); }
+          if (chemin === '/produits.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' }); return res.end(fluxProduits(b, racine)); }
           if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(`User-agent: *\nAllow: /\nAllow: /api/public/*/image/\nDisallow: /api/\nSitemap: ${racine}sitemap.xml\n`); }
           const mj = /^\/journal(?:\/([\w-]+))?\/?$/.exec(chemin);
           if (mj) { const art = mj[1] && abo.etat(b.marchand_id).actif ? ART.publie(b.id, mj[1]) : null; return envoyerHtml(res, mj[1] && !art ? 404 : 200, pageJournal(b, { racine, article: art })); }
@@ -5508,6 +5530,8 @@ ${FEUILLE_4}</head>
             const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mJournal[1]);
             if (b) { const a = mJournal[2] && abo.etat(b.marchand_id).actif ? ART.publie(b.id, mJournal[2]) : null; return envoyerHtml(res, mJournal[2] && !a ? 404 : 200, pageJournal(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, article: a })); }
           }
+          const mFlux = /^\/s\/([\w-]+)\/produits\.xml$/.exec(chemin);
+          if (mFlux) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mFlux[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' }); return res.end(fluxProduits(b, domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`)); } }
           const mPlan = /^\/s\/([\w-]+)\/sitemap\.xml$/.exec(chemin);
           if (mPlan) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mPlan[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, `${urlPublique}/s/${b.slug}/`)); } }
           if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('User-agent: *\nAllow: /\nAllow: /s/\nDisallow: /app\nDisallow: /demo\nAllow: /api/public/*/image/\nDisallow: /api/\nDisallow: /paiement-simule/\nDisallow: /abonnement-simule/\n'); }
