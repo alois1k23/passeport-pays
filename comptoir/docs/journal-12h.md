@@ -38,7 +38,7 @@ Ordre de priorité : ce qui fait venir un marchand d'une autre plateforme, puis 
 
 ## Cycles
 
-### Cycle 1 (22 h 10) : import du catalogue depuis une autre plateforme (chantier 70)
+### Cycle 1 (21 h 40) : import du catalogue depuis une autre plateforme (chantier 70)
 
 Changer de plateforme demandait jusqu'ici de ressaisir chaque produit à la main ; c'est le premier frein quand un marchand compare. Désormais, dans Produits, « Importer un catalogue » lit l'export CSV de Shopify, WooCommerce, PrestaShop ou d'un simple tableur.
 
