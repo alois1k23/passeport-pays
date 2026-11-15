@@ -5316,7 +5316,11 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
   function fluxProduits(b, racine) {
     const base = racine.replace(/\/$/, ''), config = lireConfig(b), devise = config.boutique.devise || (config.boutique.pays === 'ch' ? 'CHF' : 'EUR');
     const ouverte = abo.etat(b.marchand_id).actif;
-    const produits = ouverte ? listerProduits(b.id).filter(vendable).filter(p => !p.numerique) : [];
+    // Stock annoncé : celui qui reste une fois déduites les commandes en attente de paiement (comme à la commande), pour que
+    // Google n'annonce pas « en stock » un article que la boutique refuserait.
+    const reserve = ouverte ? reservationsAutres(b.id, '') : {};
+    const ajuste = p => p.composants || p.type === 'drop' || !reserve[p.id] ? p : { ...p, stock: Math.max(0, p.stock - reserve[p.id]), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(v => ({ ...v, stock: Math.max(0, v.stock - (reserve[`${p.id}:${v.id}`] || 0)) })) } : {}) };
+    const produits = ouverte ? stockLots(listerProduits(b.id).map(ajuste)).filter(vendable).filter(p => !p.numerique) : [];
     // Caractères refusés par XML 1.0 retirés (contrôle, U+FFFE/U+FFFF, demi-paires isolées) ; émojis et caractères complets gardés.
     const texte = t => String(t || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffe\uffff]/g, ' ').replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '');
     const x = t => escHtml(texte(t));

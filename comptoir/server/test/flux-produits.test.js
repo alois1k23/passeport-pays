@@ -13,7 +13,7 @@ test('flux produits : contenu, variantes, échappement, boutique fermée', async
   let cookie = '';
   const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
   try {
-    await c('POST', '/api/auth/inscription', { email: 'flux@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Lin & <Co>', pays: 'ch' } } });
+    await c('POST', '/api/auth/inscription', { email: 'flux@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Lin & <Co>', pays: 'ch' }, entreprise: { raison: 'Lin Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'flux@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } } });
     const { url } = (await c('POST', '/api/abonnement/commencer', { formule: 'croissance' })).j; await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
     const nappe = (await c('POST', '/api/admin/produits', { produit: { nom: 'Nappe "Été" <brodée>', prix: 60, stock: 4, ean: '4006381333931', description: 'Lin\u0001 lavé', categorie: 'Table' } })).j.id;
     const ts = (await c('POST', '/api/admin/produits', { produit: { nom: 'T-shirt', prix: 30, options: [{ nom: 'Taille', valeurs: ['S', 'M'] }], variantes: [{ id: 'S', valeurs: ['S'], stock: 0, ean: '96385074' }, { id: 'M', valeurs: ['M'], stock: 2, prix: 32 }] } })).j.id;
@@ -48,6 +48,11 @@ test('flux produits : contenu, variantes, échappement, boutique fermée', async
     assert.ok(titre, 'article présent');
     assert.doesNotMatch(titre[1], /&[a-z#0-9]*$/, 'pas d’entité coupée'); assert.match(titre[2], /^ok  fin 🎄$/);
     assert.doesNotMatch(xml2, /\ufffe/);
+    // Dernier exemplaire retenu par une commande en attente de paiement : annoncé épuisé.
+    const unique = (await c('POST', '/api/admin/produits', { produit: { nom: 'Pièce unique', prix: 80, stock: 1 } })).j.id;
+    const enAttente = await fetch(`${base}/api/public/${slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: unique, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Lou', email: 'lou@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }) });
+    assert.equal(enAttente.status, 201, await enAttente.clone().text());
+    assert.match(await (await fetch(`${base}/s/${slug}/produits.xml`)).text(), new RegExp(`<g:id>${unique}</g:id>.*?<g:availability>out of stock</g:availability>`));
     // Abonnement terminé : flux vide (pas de vitrine gratuite chez Google).
     db.prepare("UPDATE abonnements SET statut = 'resilie'").run();
     assert.equal(((await (await fetch(`${base}/s/${slug}/produits.xml`)).text()).match(/<item>/g) || []).length, 0);

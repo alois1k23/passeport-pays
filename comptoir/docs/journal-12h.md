@@ -650,7 +650,7 @@ Constats corrigés :
   - **Panier** : cocher « C'est un cadeau » ne décoche plus la case des nouveautés ni celle du rappel (vérifié dans Chromium).
   - **Intégrations** : l'API et les webhooks indiquent l'emballage cadeau et son message, pour un outil d'expédition.
 - **Noté, non fait** :
-  - le flux utilise le stock brut, sans déduire les commandes en attente de paiement ;
+  - (le stock du flux déduit les commandes en attente depuis le cycle 31) ;
   - (la marque par produit est faite au cycle 30) ;
   - les variantes partagent le lien du produit, sans variante présélectionnée.
 - 252 tests sur 252, parcours de bout en bout 57/57.
@@ -688,3 +688,8 @@ Constats corrigés :
 - **Import CSV** : « Vendor » (Shopify), « Brands » (WooCommerce), « Manufacturer » (PrestaShop) et « marque » (tableur) sont repris.
 - **Tests** : marque nettoyée (espaces, caractère de contrôle) dans le flux et dans les données structurées, import Shopify.
 - **Vérifié dans Chromium**, bureau et mobile : saisie, enregistrement, réaffichage. Une marque vidée disparaît. Aucune erreur.
+
+### Cycle 31 (00 h 15) : stock du flux aligné sur celui de la commande (chantier 95)
+
+- **Flux produits** : le stock annoncé est celui qui reste une fois déduites les commandes en attente de paiement. C'est le même calcul que celui de la commande et de la reprise de paiement (y compris les composants des lots). Google n'annonce plus « en stock » un dernier exemplaire que la boutique refuserait de vendre.
+- **Test** : pièce unique retenue par une commande non payée, annoncée « out of stock ».
