@@ -558,3 +558,25 @@ Pour les produits faits maison, sans code fabricant, qu'on veut quand même pass
 - **Tests** : en-tête XML, échappement d'un nom piégé, caractère de contrôle, prix, gtin, variantes (épuisée, prix propre, sans code), précommande, exclusions, flux vide d'une boutique fermée.
 - **Vérifié dans Chromium**, bureau et mobile : fenêtre, adresse sélectionnée d'un clic, flux relu par l'analyseur XML du navigateur (aucune erreur, noms piégés intacts). Aucune erreur.
 - **Limite** : le flux n'a pas été soumis à Google Merchant Center, ce qui demande un compte. La conformité suit la spécification publiée, de mémoire, sans contrôle en ligne.
+
+### Cycle 24 (23 h 40) : relecture indépendante des chantiers 86 à 88
+
+La relecture a contrôlé les tables d'encodage EAN-13 et EAN-8 face à la norme GS1 : elles sont justes. Un code de référence publié (5901234123457) donne exactement les barres attendues. Le chiffre de contrôle, les marges de début, de milieu et de fin et l'échappement sont justes aussi, et il n'y a pas de course sur l'unicité. Constats corrigés :
+
+- **Moyen, duplication** : « Dupliquer » échouait pour tout produit qui avait un code-barres (code déjà pris). La copie part maintenant sans code, ni pour le produit ni pour ses variantes (vérifié dans Chromium).
+- **Moyen, même article sous trois formes** : un article en UPC-A (12 chiffres), en EAN-13 commençant par 0 ou en GTIN-14 était compté comme trois codes. L'unicité laissait passer les trois, et un lecteur réglé en EAN-13 ne retrouvait pas un produit enregistré en 12 chiffres.
+  - Il existe maintenant une forme de référence (13 chiffres, 8 pour un EAN-8), utilisée pour l'enregistrement, l'unicité, l'import et la caisse (testé).
+  - Un lecteur qui envoie « 0036000291452 » retrouve le produit saisi « 036000291452 » (vérifié dans Chromium).
+- **Moyen, lecture juste après une vente** : le focus passait au premier bouton produit. Les chiffres du lecteur y étaient perdus, puis son « Entrée » ajoutait ce premier produit au lieu de l'article lu. Corrigé de deux façons :
+  - après une vente, le focus revient au champ code-barres ;
+  - sur la page Caisse, une suite rapide de chiffres terminée par Entrée, tapée hors d'un champ de saisie, est lue comme un code-barres, et l'Entrée ne déclenche plus le bouton qui a le focus (vérifié dans Chromium, le curseur étant sur un bouton produit).
+- **Bas** :
+  - **Stock** : un article lu au-delà du stock affiche « plus en stock » au lieu de ne rien faire en silence (vérifié).
+  - **Réinitialisation et restauration** : une boutique réinitialisée ou restaurée avec deux fois le même code n'échappe plus au contrôle. Le second produit est gardé sans code, au lieu de partager le code ou de perdre sa composition de lot (testé).
+  - **Import WooCommerce** : les variantes reprennent aussi leur propre code.
+  - **Planche d'étiquettes** : cellules fixes de 70 × 37 mm (3 × 8 sur une planche A4), marges claires GS1 (11 et 7 modules), texte d'introduction retiré à l'impression. Les produits en dropshipping et les GTIN-14 sont exclus. Les bons de préparation gardent leurs marges d'impression (page nommée).
+- **Noté** :
+  - pas de bouton « code interne » pour une variante (le serveur contrôle de toute façon l'unicité) ;
+  - un code UPC-E (8 chiffres compressés) est refusé, faute de conversion ;
+  - en mode démonstration sans serveur, les codes ne sont pas contrôlés.
+- Après corrections : 249 tests sur 250 dans la suite complète, parcours de bout en bout 57/57. L'échec est un test de connexion qui lance 12 essais simultanés (« au plus 5 mots de passe calculés ») et dépend de la charge de la machine. Relancé seul trois fois, il a réussi chaque fois, et il ne touche à rien de ce qui a changé. C'est le deuxième test sensible au temps relevé cette nuit (avec le flux en direct) : à rendre plus robuste.

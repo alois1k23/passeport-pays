@@ -79,11 +79,21 @@ test('code-barres : fiche, unicité, page produit', async () => {
     const ts = (await c('POST', '/api/admin/produits', { produit: { nom: 'T-shirt', prix: 30, options: opts, variantes: [{ id: 'S', valeurs: ['S'], stock: 2, ean: '96385074' }, { id: 'M', valeurs: ['M'], stock: 2 }] } })).j.id;
     assert.equal((await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === ts).variantes.find(v => v.id === 'S').ean, '96385074');
     assert.equal((await c('POST', '/api/admin/produits', { produit: { nom: 'Bonnet', prix: 20, stock: 1, ean: '96385074' } })).j.code, 'ean_doublon', 'code d’une variante d’un autre produit');
+    // Même article en UPC-A (12), EAN-13 (0…) ou GTIN-14 (00…) : un seul code, rangé en 13 chiffres.
+    const upc = (await c('POST', '/api/admin/produits', { produit: { nom: 'Soda', prix: 2, stock: 5, ean: '036000291452' } })).j.id;
+    assert.equal((await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === upc).ean, '0036000291452');
+    assert.equal((await c('POST', '/api/admin/produits', { produit: { nom: 'Soda bis', prix: 2, stock: 5, ean: '00036000291452' } })).j.code, 'ean_doublon');
     // Import d'un produit dont le code-barres est déjà dans la boutique : importé sans le code, avec un avertissement.
     const imp = await c('POST', '/api/admin/produits/importer-csv', { csv: 'Nom,Prix,EAN13\nBiscuit,4,4006381333931\n' });
     assert.equal(imp.s, 200, JSON.stringify(imp.j));
     assert.ok(JSON.stringify(imp.j).includes('code-barres déjà utilisé'));
     const bis = (await c('GET', '/api/admin/etat')).j.produits.find(p => p.nom === 'Biscuit');
     assert.ok(bis && !bis.ean);
+    // Réinitialisation (ou restauration) avec deux fois le même code : le second produit est gardé, sans code.
+    const config = (await c('GET', '/api/admin/etat')).j;
+    const re = await c('POST', '/api/admin/reinitialiser', { config: { boutique: config.boutique, entreprise: config.entreprise }, produits: [{ nom: 'Un', prix: 3, stock: 1, ean: '96385074' }, { nom: 'Deux', prix: 3, stock: 1, ean: '96385074' }] });
+    assert.equal(re.s, 200, JSON.stringify(re.j));
+    const apres = (await c('GET', '/api/admin/etat')).j.produits;
+    assert.equal(apres.find(p => p.nom === 'Un').ean, '96385074'); assert.equal(apres.find(p => p.nom === 'Deux').ean, undefined);
   } finally { s.close(); }
 });

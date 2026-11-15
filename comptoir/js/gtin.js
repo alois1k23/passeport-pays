@@ -40,7 +40,17 @@ function barres(t) {
   return '101' + d.slice(1, 7).map((x, i) => (par[i] === 'L' ? L : G)[x]).join('') + '01010' + d.slice(7).map(x => R[x]).join('') + '101';
 }
 
-const api = { normaliser, valide, codeInterne, barres };
+/* Forme de référence d'un code : le même article en UPC-A (12 chiffres), en EAN-13 commençant par 0 ou en GTIN-14
+   commençant par 0 est un seul et même code. Rangé en 13 chiffres (8 pour un EAN-8) : unicité et lecture au scanner
+   comparent toujours cette forme. */
+function canonique(t) {
+  let c = normaliser(t);
+  if (c.length === 12) c = '0' + c;
+  if (c.length === 14 && c[0] === '0') c = c.slice(1);
+  return c;
+}
+
+const api = { normaliser, canonique, valide, codeInterne, barres };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 else racine.Gtin = api;
 })(typeof window !== 'undefined' ? window : globalThis);

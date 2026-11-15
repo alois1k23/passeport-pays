@@ -610,23 +610,44 @@ function vueCartesCadeaux() {
   </section>`;
 }
 // Lecture au scanner (le lecteur tape les chiffres puis Entrée) : le produit au code-barres est ajouté au ticket.
-document.addEventListener('keydown', e => {
-  if (e.key !== 'Enter' || !e.target.dataset || e.target.dataset.caisse !== 'scan') return;
-  e.preventDefault();
-  const code = typeof Gtin !== 'undefined' ? Gtin.normaliser(e.target.value) : String(e.target.value).replace(/[\s-]/g, '');
-  e.target.value = '';
+function lireCodeCaisse(brut) {
+  const code = typeof Gtin !== 'undefined' ? Gtin.canonique(brut) : String(brut).replace(/[\s-]/g, '');
   if (!code) return;
+  const canon = c => typeof Gtin !== 'undefined' ? Gtin.canonique(c) : String(c);
   const actifs = etat.produits.filter(x => x.actif && x.type !== 'drop');
   // Code d'une variante (taille, couleur) d'abord, puis code du produit.
-  const pv = actifs.map(x => ({ p: x, v: (x.variantes || []).find(v => v.ean === code) })).find(x => x.v);
-  const p = pv ? pv.p : actifs.find(x => x.ean === code), v = pv ? pv.v : null;
+  const pv = actifs.map(x => ({ p: x, v: (x.variantes || []).find(v => v.ean && canon(v.ean) === code) })).find(x => x.v);
+  const p = pv ? pv.p : actifs.find(x => x.ean && canon(x.ean) === code), v = pv ? pv.v : null;
   if (!p) { toast(`Code-barres inconnu : ${code}. Ajoutez-le dans la fiche du produit.`); return; }
   if (!v && Array.isArray(p.variantes) && p.variantes.length) { toast(`${p.nom} : choisissez la variante dans la liste.`); return; }
   const bouton = document.querySelector(`[data-action="caisse-ajout"][data-id="${CSS.escape(p.id)}"][data-variante="${CSS.escape(v ? v.id : '')}"]:not([disabled])`);
-  if (!bouton) { toast(`${p.nom}${v ? ` (${v.valeurs.join(' / ')})` : ''} : plus en stock.`); return; }
+  const ligne = ui.caisse.find(x => x.produitId === p.id && (x.varianteId || '') === (v ? v.id : ''));
+  if (!bouton || (ligne && ligne.qte >= (v ? v.stock : p.stock))) { toast(`${p.nom}${v ? ` (${v.valeurs.join(' / ')})` : ''} : plus en stock.`); return; }
   bouton.click();
   setTimeout(() => document.getElementById('cs-scan')?.focus(), 0);   // prêt pour l'article suivant
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.dataset || e.target.dataset.caisse !== 'scan') return;
+  e.preventDefault();
+  const brut = e.target.value; e.target.value = '';
+  lireCodeCaisse(brut);
 });
+/* Lecteur utilisé alors que le curseur n'est pas dans le champ (après une vente, un toucher sur un produit) : une suite
+   rapide de chiffres terminée par Entrée, hors champ de saisie, est lue comme un code-barres. Sans cela, l'Entrée du
+   lecteur « cliquerait » le bouton qui a le focus. */
+const tamponScan = { chiffres: '', dernier: 0 };
+document.addEventListener('keydown', e => {
+  if (location.hash !== '#magasin' || !document.getElementById('cs-scan')) return;
+  const t = e.target, editable = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  if (editable) return;
+  const maintenant = Date.now();
+  if (/^\d$/.test(e.key)) { if (maintenant - tamponScan.dernier > 80) tamponScan.chiffres = ''; tamponScan.chiffres += e.key; tamponScan.dernier = maintenant; return; }
+  if (e.key === 'Enter' && tamponScan.chiffres.length >= 8 && maintenant - tamponScan.dernier <= 80) {
+    e.preventDefault(); e.stopPropagation();
+    const code = tamponScan.chiffres; tamponScan.chiffres = '';
+    lireCodeCaisse(code);
+  }
+}, true);
 document.addEventListener('input', e => {
   if (e.target.dataset && e.target.dataset.caisse === 'carte') ui.carteCaisse = e.target.value;
   if (e.target.dataset && e.target.dataset.caisse === 'email') ui.emailCaisse = e.target.value;

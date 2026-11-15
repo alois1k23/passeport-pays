@@ -465,17 +465,18 @@ function vueCommandes() {
 function svgEan(code) {
   const b = typeof Gtin !== 'undefined' ? Gtin.barres(code) : null;
   if (!b) return '';
-  const marge = 9, l = b.length + marge * 2, h = 50;
-  const rects = [...b].map((x, i) => x === '1' ? `<rect x="${i + marge}" y="0" width="1" height="${h}"/>` : '').join('');
+  // Marges claires GS1 : 11 modules à gauche et 7 à droite (EAN-13), 7 et 7 (EAN-8).
+  const mg = b.length === 95 ? 11 : 7, md = 7, l = b.length + mg + md, h = 50;
+  const rects = [...b].map((x, i) => x === '1' ? `<rect x="${i + mg}" y="0" width="1" height="${h}"/>` : '').join('');
   return `<svg class="ean-svg" viewBox="0 0 ${l} ${h}" preserveAspectRatio="none" role="img" aria-label="Code-barres ${esc(code)}"><g fill="#000">${rects}</g></svg>`;
 }
 function etiquettesEan() {
-  const items = etat.produits.filter(p => p.actif).flatMap(p => [
+  const items = etat.produits.filter(p => p.actif && p.type !== 'drop').flatMap(p => [
     ...(p.ean ? [{ nom: p.nom, detail: '', prix: p.prix, ean: p.ean }] : []),
     ...(p.variantes || []).filter(v => v.ean).map(v => ({ nom: p.nom, detail: v.valeurs.join(' / '), prix: typeof v.prix === 'number' ? v.prix : p.prix, ean: v.ean }))
-  ]);
+  ]).filter(x => Gtin.barres(x.ean));   // GTIN-14 (code de carton) : pas d'étiquette EAN
   const imprimable = typeof SERVEUR !== 'undefined' && SERVEUR.actif;
-  return `<p class="sous">${items.length} étiquette${items.length > 1 ? 's' : ''}. Imprimez sur une planche autocollante A4 (3 colonnes), à 100 % (sans mise à l’échelle) pour que les scanners les lisent.</p>
+  return `<p class="sous etiq-intro">${items.length} étiquette${items.length > 1 ? 's' : ''}. Imprimez sur une planche autocollante A4 (3 colonnes), à 100 % (sans mise à l’échelle) pour que les scanners les lisent.</p>
     <div class="bons"><div class="etiquettes">${items.map(x => `<div class="etiq"><b>${esc(x.nom)}</b>${x.detail ? `<span class="sous">${esc(x.detail)}</span>` : ''}<span class="etiq-prix">${esc(euros(x.prix))}</span>${svgEan(x.ean)}<span class="mono etiq-code">${esc(x.ean)}</span></div>`).join('')}</div></div>
     <div class="rangee">${imprimable ? '<button class="btn" data-action="imprimer">Imprimer</button>' : '<span class="sous">L’impression est disponible dans l’application installée.</span>'}</div>`;
 }
@@ -621,7 +622,8 @@ function produitsFiltres() {
 }
 async function dupliquerProduit(id) {
   const p = etat.produits.find(x => x.id === id);
-  const { id: _, historiquePrix, ...copie } = { ...p, nom: `${p.nom} (copie)`, actif: false, aVerifier: true };
+  const { id: _, historiquePrix, ean: _ean, ...copie } = { ...p, nom: `${p.nom} (copie)`, actif: false, aVerifier: true };
+  if (Array.isArray(copie.variantes)) copie.variantes = copie.variantes.map(({ ean, ...v }) => v);   // codes-barres : uniques, jamais copiés
   if (typeof SERVEUR !== 'undefined' && SERVEUR.connecte) { await api('POST', '/api/admin/produits', { produit: copie }); await rechargerEtat(); }
   else { etat.produits.push({ ...copie, id: nouvelId('p'), historiquePrix: [{ date: Date.now(), prix: copie.prix }] }); sauver(); }
   ui.produitEdite = { ...etat.produits[etat.produits.length - 1] };

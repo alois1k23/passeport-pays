@@ -838,7 +838,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
           const ref = type === 'drop' && v.ref ? String(v.ref).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60) : '';
           // Code-barres propre à la variante (taille, couleur) : lu au scanner en caisse.
           if (type === 'stock' && v.ean && String(v.ean).trim() && !Gtin.valide(v.ean)) throw erreur(400, `Code-barres invalide pour la variante ${valeurs.join(' / ')}.`, 'ean_invalide');
-          const eanV = type === 'stock' && v.ean && String(v.ean).trim() ? Gtin.normaliser(v.ean) : '';
+          const eanV = type === 'stock' && v.ean && String(v.ean).trim() ? Gtin.canonique(v.ean) : '';
           return { id, valeurs, stock: type === 'drop' ? 999 : valider.entier(v.stock ?? 0, 'Le stock de la variante', { min: 0, max: 1e6 }), ...(prixV !== null ? { prix: prixV } : {}), ...(ref ? { ref } : {}), ...(eanV ? { ean: eanV } : {}) };
         });
         if (type !== 'drop') propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
@@ -848,7 +848,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // données structurées de la page produit (gtin).
     if (p.ean !== undefined && p.ean !== null && String(p.ean).trim() !== '') {
       if (!Gtin.valide(p.ean)) throw erreur(400, 'Code-barres invalide : 8, 12, 13 ou 14 chiffres, avec un chiffre de contrôle juste.', 'ean_invalide');
-      propre.ean = Gtin.normaliser(p.ean);
+      propre.ean = Gtin.canonique(p.ean);
     }
     // Rappel de réassort (7 à 180 jours) : produits sans variantes ni fichier, le lien de panier les remplit directement.
     if (p.reassortJours !== undefined && p.reassortJours !== null && p.reassortJours !== '' && p.reassortJours !== 0) {
@@ -892,7 +892,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const id = nouveaux[i];
       const q = Array.isArray(p.composants) ? { ...p, composants: p.composants.map(c => ({ ...c, produitId: ids.get(String(c && c.produitId || '')) || '' })) } : p;
       let propre;
-      try { propre = verifierLot(boutiqueId, produitDuNavigateur(q), id); } catch { propre = produitDuNavigateur({ ...q, composants: undefined }); }   // lot invalide : gardé comme produit simple
+      // Code-barres déjà pris : codes retirés (le reste est gardé) ; lot invalide : gardé comme produit simple.
+      const sansCodes = x => ({ ...x, ean: undefined, ...(Array.isArray(x.variantes) ? { variantes: x.variantes.map(v => ({ ...v, ean: undefined })) } : {}) });
+      try { propre = verifierLot(boutiqueId, produitDuNavigateur(q), id); }
+      catch (e) {
+        const q2 = e && e.code === 'ean_doublon' ? sansCodes(q) : { ...q, composants: undefined };
+        try { propre = verifierLot(boutiqueId, produitDuNavigateur(q2), id); } catch { propre = produitDuNavigateur(sansCodes({ ...q2, composants: undefined })); }
+      }
       db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, boutiqueId, serialiserProduit(id, propre), i);
       reconcilierProduit(boutiqueId, id);
     });

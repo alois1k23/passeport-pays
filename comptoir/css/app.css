@@ -909,6 +909,7 @@ li.fait a { color: var(--muted); text-decoration: line-through; text-decoration-
 .bon { border: 1px solid var(--line); border-radius: var(--r-petit); padding: 16px; display: grid; gap: 12px; background: var(--surface); }
 .bon header { display: flex; justify-content: space-between; gap: 12px; }
 .bon-adresse { display: grid; gap: 1px; font-size: .875rem; }
+@page etiquettes { size: A4; margin: 0; }   /* planche autocollante A4 : 3 × 8 étiquettes de 70 × 37 mm (les bons de préparation gardent leurs marges) */
 @media print {
   body * { visibility: hidden !important; }
   #modal, #modal .bons, #modal .bons * { visibility: visible !important; }
@@ -916,8 +917,9 @@ li.fait a { color: var(--muted); text-decoration: line-through; text-decoration-
   #modal .modal-fond, #modal .modal-x, #modal h2, #modal .rangee { display: none !important; }
   #modal .modal-corps { box-shadow: none; border: 0; max-height: none; width: 100%; padding: 0; }
   .bon { break-after: page; border: 0; }
-  .etiquettes { grid-template-columns: repeat(3, 1fr) !important; gap: 0 !important; }
-  .etiq { border: 1px dashed #bbb !important; break-inside: avoid; }
+  .etiquettes { page: etiquettes; grid-template-columns: repeat(3, 70mm) !important; grid-auto-rows: 37mm; gap: 0 !important; }
+  .etiq { border: 1px dashed #bbb !important; border-radius: 0 !important; break-inside: avoid; align-content: center; overflow: hidden; }
+  .etiq-intro { display: none !important; }
 }
 .etiquettes { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 .etiq { display: grid; gap: 2px; justify-items: center; text-align: center; padding: 10px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #000; }

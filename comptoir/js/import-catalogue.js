@@ -89,7 +89,7 @@ function convertir(texte) {
     if (v._ean !== undefined) return v._ean;
     v._ean = '';
     if (!v.ean || !G) return '';
-    const e = G.normaliser(v.ean);
+    const e = G.canonique(v.ean);
     if (!G.valide(e)) erreurs.push({ ligne: v.ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » (${v.valeurs.join(' / ')}) : code-barres invalide, ignoré.` });
     else if (eansVus.has(e)) erreurs.push({ ligne: v.ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » (${v.valeurs.join(' / ')}) : code-barres ${e} déjà utilisé, ignoré.` });
     else { eansVus.add(e); v._ean = e; }
@@ -97,7 +97,7 @@ function convertir(texte) {
   };
   const ajouter = (p, ligne, eanBrut) => {
     if (eanBrut && G) {
-      const e = G.normaliser(eanBrut);
+      const e = G.canonique(eanBrut);
       if (!G.valide(e)) erreurs.push({ ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » : code-barres « ${String(eanBrut).slice(0, 20)} » invalide, ignoré.` });
       else if (eansVus.has(e)) erreurs.push({ ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » : code-barres ${e} déjà utilisé plus haut, ignoré.` });
       else { eansVus.add(e); p.ean = e; }
@@ -152,13 +152,13 @@ function convertir(texte) {
       const prixV = prixOk(col(x.r, 'Sale price') || col(x.r, 'Regular price'), x.ligne, 'Prix');
       if (Number.isNaN(prixV) || !vals.length) continue;
       p._vars = p._vars || []; p._noms = p._noms || noms;
-      p._vars.push({ valeurs: vals.slice(0, p._noms.length), prix: prixV, stock: stockOk(col(x.r, 'Stock')) });
+      p._vars.push({ valeurs: vals.slice(0, p._noms.length), prix: prixV, stock: stockOk(col(x.r, 'Stock')), ean: col(x.r, 'GTIN, UPC, EAN, or ISBN', 'GTIN', 'EAN'), ligne: x.ligne });
     }
     for (const p of produits) {
       if (p._vars && p._vars.length) {
         if (p.prix === null) p.prix = p._vars[0].prix;
         p.options = p._noms.map((n, k) => ({ nom: n, valeurs: [...new Set(p._vars.map(v => v.valeurs[k]).filter(Boolean))] }));
-        p.variantes = p._vars.map(v => ({ id: v.valeurs.join('/'), valeurs: v.valeurs, stock: v.stock, ...(v.prix !== null && v.prix !== p.prix ? { prix: v.prix } : {}), stockSaisi: true }));
+        p.variantes = p._vars.map(v => ({ id: v.valeurs.join('/'), valeurs: v.valeurs, stock: v.stock, ...(v.prix !== null && v.prix !== p.prix ? { prix: v.prix } : {}), ...(eanVariante(p, v) ? { ean: eanVariante(p, v) } : {}), stockSaisi: true }));
         p.stock = p._vars.reduce((a, v) => a + v.stock, 0);
       }
       if (p.prix === null) erreurs.push({ ligne: p._ligne, message: `« ${p.nom.slice(0, 40)} » sans prix ignoré.` });
