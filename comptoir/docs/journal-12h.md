@@ -580,3 +580,9 @@ La relecture a contrôlé les tables d'encodage EAN-13 et EAN-8 face à la norme
   - un code UPC-E (8 chiffres compressés) est refusé, faute de conversion ;
   - en mode démonstration sans serveur, les codes ne sont pas contrôlés.
 - Après corrections : 249 tests sur 250 dans la suite complète, parcours de bout en bout 57/57. L'échec est un test de connexion qui lance 12 essais simultanés (« au plus 5 mots de passe calculés ») et dépend de la charge de la machine. Relancé seul trois fois, il a réussi chaque fois, et il ne touche à rien de ce qui a changé. C'est le deuxième test sensible au temps relevé cette nuit (avec le flux en direct) : à rendre plus robuste.
+
+### Cycle 25 (23 h 45) : deux tests sensibles à la charge rendus fiables (chantier 91)
+
+- **Flux en direct** : le test prenait la première mise à jour reçue. Sous charge, ce pouvait être celle de la commande créée, et non celle de la commande payée. Il attend maintenant celle qui porte la commande payée, avec une marge de 10 secondes au lieu de 3. Le code du serveur n'a pas changé, il était juste.
+- **Confirmation d'identité, 12 essais simultanés** : la règle vérifiée (au plus 5 mots de passe calculés) tenait toujours. Mais selon l'ordre d'arrivée, un essai refusé reçoit « session fermée » ou « non connecté » (session déjà supprimée), et le test n'acceptait que la première réponse. Il accepte maintenant les deux et affiche les codes reçus en cas d'échec. La règle de sécurité est inchangée.
+- **Essai sous charge** : quatre exécutions simultanées de ces deux tests et de la suite de l'API, sans aucun échec.

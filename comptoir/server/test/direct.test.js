@@ -23,10 +23,12 @@ test('flux en direct : commande payée poussée, fermeture à la déconnexion', 
     const pub = (await c('GET', `/api/public/${ins.j.slug}`)).j;
     const cmd = (await fetch(`${base}/api/public/${ins.j.slug}/commandes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lignes: [{ produitId: pub.produits[0].id, qte: 1 }], livraison: 'poste-eco', client: { nom: 'A B', email: 'ab@x.ch', adresse: 'Rue 1', npa: '1003', ville: 'Lausanne' } }) }).then(r => r.json()));
     await fetch(cmd.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
-    const t0 = Date.now(); while (!recu.join('').includes('event: maj') && Date.now() - t0 < 3000) await new Promise(r => setTimeout(r, 30));
-    const txt = recu.join(''), maj = /event: maj\ndata: (.*)\n/.exec(txt);
-    assert.ok(maj, 'mise à jour poussée : ' + txt);
-    assert.ok(JSON.parse(maj[1]).nouvelles.some(n => n.numero === cmd.numero), 'numéro de la nouvelle commande transmis');
+    // Plusieurs mises à jour peuvent arriver (commande créée, puis payée) : on attend celle qui porte la commande payée,
+    // avec une marge large (machine chargée par les autres tests).
+    const majs = () => [...recu.join('').matchAll(/event: maj\ndata: (.*)\n/g)].map(m => JSON.parse(m[1]));
+    const t0 = Date.now(); while (!majs().some(m => (m.nouvelles || []).some(n => n.numero === cmd.numero)) && Date.now() - t0 < 10000) await new Promise(r => setTimeout(r, 30));
+    assert.ok(majs().length, 'mise à jour poussée : ' + recu.join(''));
+    assert.ok(majs().some(m => (m.nouvelles || []).some(n => n.numero === cmd.numero)), 'numéro de la nouvelle commande transmis');
     // Sans session : refus
     assert.equal((await fetch(base + '/api/admin/flux')).status, 401);
     // Déconnexion : le flux se ferme (contrôle de session)

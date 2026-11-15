@@ -164,7 +164,9 @@ test('essais en parallèle : pas plus de 5 mots de passe calculés par session ;
     const reps = await Promise.all(Array.from({ length: 12 }, (_, k) => c('POST', '/api/admin/compte/confirmer-identite', { motDePasse: 'mauvais ' + k })));
     assert.ok(reps.every(r => r.s === 401));
     assert.ok(db.prepare("SELECT COUNT(*) n FROM journal_compte WHERE type = 'echec-identite'").get().n <= 5, 'au plus 5 essais calculés');
-    assert.equal(reps.filter(r => r.j.code === 'session_fermee').length >= 7, true);
+    // Les essais au-delà du 5e sont refusés sans calcul : « session fermée », ou « non connecté » si la session a déjà été
+    // supprimée quand la requête arrive (l'ordre dépend de la charge de la machine).
+    assert.equal(reps.filter(r => ['session_fermee', 'non_connecte'].includes(r.j.code)).length >= 7, true, JSON.stringify(reps.map(r => r.j.code)));
     assert.equal(db.prepare('SELECT COUNT(*) n FROM sessions').get().n, 0);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM appareils_connus').get().n, 0, 'appareil du voleur oublié');
     assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet LIKE 'Session fermée%'").get().n, 0, 'adresse non confirmée : pas d’e-mail');
