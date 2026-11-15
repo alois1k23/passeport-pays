@@ -83,6 +83,10 @@ test('rappel de réassort : demandé, envoyé, arrêté, effacé', async () => {
     assert.ok(mv, 'rappel envoyé'); assert.match(mv.corps, /- 3 × Chaussettes \(41-46\)/);
     assert.equal(decodeURIComponent(mv.corps.match(/\?panier=([^\s&]+)/)[1]), `${tee}:3:41-46`);
     db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(rv.j.commandeId);
+    // Deux pointures commandées séparément : chacune garde son rappel (clé produit|variante).
+    for (const v of ['36-40', '41-46']) { const o = await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: tee, varianteId: v, qte: 1 }], livraison: 'poste-eco', rappelReassort: true, client: { nom: 'Léo', email: 'leo@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, { avecCookie: false }); await fetch(o.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' }); }
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM reassorts WHERE cle_produits LIKE ?").get(`${tee}|%`).n, 2);
+    db.prepare("DELETE FROM reassorts WHERE cle_produits LIKE ?").run(`${tee}|%`);
     cookie = ''; await c('POST', '/api/auth/connexion', { email: 're@exemple.ch', motDePasse: 'un mot de passe solide' });   // session effacée par l'entretien avancé dans le temps
     // Arrêt par le marchand, depuis la commande.
     const parM = await commander('tel@exemple.ch', { rappelReassort: true });

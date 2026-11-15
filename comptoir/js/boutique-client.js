@@ -87,9 +87,16 @@ async function demarrer() {
     const lignes = q.get('panier').split(',').slice(0, 20).map(x => x.split(':')).map(([id, n, vid]) => { const p = donnees.produits.find(y => y.id === id); const v = p && aVariantes(p) && vid ? p.variantes.find(w => w.id === dec(vid)) : null; return { p, v, n: Math.max(1, Math.min(20, parseInt(n, 10) || 1)) }; })
       .filter(x => x.p && (aVariantes(x.p) ? x.v && (x.p.type === 'drop' || x.v.stock > 0) : (x.p.type === 'drop' || x.p.stock > 0)));
     if (lignes.length) {
-      vue.panier = lignes.map(({ p, v, n }) => v ? ligneVariante(p, v, p.type === 'drop' ? n : Math.min(n, v.stock)) : ({ produitId: p.id, nom: p.nom, prix: p.prix, qte: p.type === 'drop' ? n : Math.min(n, p.stock) }));
+      // Ajouté au panier existant (rien n'est perdu) : même article, quantités additionnées, toujours plafonnées au stock.
+      for (const { p, v, n } of lignes) {
+        const max = p.type === 'drop' ? 20 : Math.min(20, v ? v.stock : p.stock), l = vue.panier.find(x => x.produitId === p.id && (x.varianteId || '') === (v ? v.id : '') && !x.offre);
+        if (l) l.qte = Math.min(max, l.qte + n); else vue.panier.push(v ? ligneVariante(p, v, Math.min(n, max)) : { produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(n, max) });
+      }
       garderPanier(); vue.ouvert = true; mesurer('panier', { valeur: 'lien' });
     }
+    // Articles du lien qui ne sont plus en vente (variante renommée, produit retiré, épuisé) : le client le sait.
+    const demandes = q.get('panier').split(',').filter(Boolean).length;
+    if (lignes.length < Math.min(20, demandes)) vue.message = lignes.length ? '<p>Certains articles de ce lien ne sont plus disponibles : les autres sont dans votre panier.</p>' : '<p>Les articles de ce lien ne sont plus disponibles.</p>';
     history.replaceState(null, '', location.pathname + (q.get('lang') ? `?lang=${encodeURIComponent(q.get('lang'))}` : ''));
     if (q.get('code')) { rendre(); appliquerCode(q.get('code').slice(0, 40)); return; }
   }
@@ -353,7 +360,9 @@ async function suivreCommande(id, jeton, annule) {
       const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(id)}?jeton=${encodeURIComponent(jeton || '')}`);
       if (!rep.ok) { vue.message = '<p>Commande introuvable.</p>'; break; }
       const c = await rep.json();
-      if (c.statut !== 'attente') { vue.panier = []; garderPanier(); }
+      // Panier vidé seulement au retour du paiement de cette commande (pas en rouvrant le suivi d'une ancienne commande).
+      let retourPaiement = false; try { retourPaiement = !!sessionStorage.getItem('comptoir-paiement-' + id); } catch { /* ignoré */ }
+      if (c.statut !== 'attente' && retourPaiement) { vue.panier = []; garderPanier(); }
       // Date de livraison estimée : délai le plus long des articles, ou celui du mode choisi ; retrait : adresse du magasin.
       const prods = c.lignes.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(Boolean);
       const drops = prods.filter(p => p.type === 'drop' && p.delai);
@@ -367,7 +376,7 @@ async function suivreCommande(id, jeton, annule) {
         ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) || ['carte', 'numerique'].includes(c.livraison) ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
-        ${c.statut !== 'attente' && c.livraison !== 'carte' ? (() => { const ls = c.lignes.filter(l => l.produitId && donnees.produits.some(p => p.id === l.produitId)); return ls.length ? `<p><a class="sf-btn sf-btn-ligne" href="${esc(racineBoutique)}?panier=${encodeURIComponent(ls.slice(0, 20).map(l => `${l.produitId}:${l.qte}${l.varianteId ? `:${encodeURIComponent(l.varianteId)}` : ''}`).join(','))}">Commander à nouveau</a></p>` : ''; })() : ''}
+        ${c.statut !== 'attente' && c.livraison !== 'carte' ? (() => { const ls = c.lignes.filter(l => l.produitId && donnees.produits.some(p => p.id === l.produitId)); return ls.length ? `<p><a class="sf-btn sf-btn-ligne" href="${esc(racineBoutique)}?panier=${encodeURIComponent([...ls.reduce((m, l) => { const k = `${l.produitId}:${l.varianteId || ''}`; m.set(k, { ...l, qte: (m.get(k) ? m.get(k).qte : 0) + l.qte }); return m; }, new Map()).values()].slice(0, 20).map(l => `${l.produitId}:${Math.min(20, l.qte)}${l.varianteId ? `:${encodeURIComponent(l.varianteId)}` : ''}`).join(','))}">Commander à nouveau</a></p>` : ''; })() : ''}
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
         ${documentsCommande(c, id, jeton)}
         ${c.retour && c.retour.statut === 'demande' ? `<p class="encart">Retour demandé le ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : renvoyez les articles à l’adresse reçue par e-mail.</p>` : c.retourPossible ? `${c.retour ? `<p class="encart">Retour du ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : remboursé.</p>` : ''}<details class="retour-client"><summary>Demander un retour</summary><form data-retour="${esc(id)}" data-jeton="${esc(jeton)}">

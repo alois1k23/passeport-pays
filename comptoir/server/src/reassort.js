@@ -28,7 +28,10 @@ function creerReassort({ db, pii, signer }) {
     if (!d.email || !Number.isFinite(jours) || jours < JOURS_MIN || jours > JOURS_MAX) return null;
     const lignes = (d.lignes || []).filter(l => l && typeof l.produitId === 'string').slice(0, 20).map(l => ({ produitId: l.produitId, ...(typeof l.varianteId === 'string' && l.varianteId ? { varianteId: l.varianteId.slice(0, 80) } : {}), qte: Math.max(1, Math.min(20, Math.round(Number(l.qte) || 1))) }));
     if (!lignes.length) return null;
-    const idx = index(bid, d.email), cle = lignes.map(l => l.produitId).sort().join(',');
+    // Clé : couples produit|variante sans doublon (deux tailles commandées séparément gardent chacune leur rappel).
+    const fus = new Map(); for (const l of lignes) { const k = `${l.produitId}|${l.varianteId || ''}`; fus.set(k, { ...l, qte: Math.min(20, (fus.get(k) ? fus.get(k).qte : 0) + l.qte) }); }
+    lignes.splice(0, lignes.length, ...fus.values());
+    const idx = index(bid, d.email), cle = [...fus.keys()].sort().join(',');
     db.prepare('DELETE FROM reassorts WHERE boutique_id = ? AND email_index = ? AND cle_produits = ?').run(bid, idx, cle);   // même client, mêmes produits : la nouvelle commande remplace
     if (db.prepare('SELECT COUNT(*) n FROM reassorts WHERE boutique_id = ?').get(bid).n >= MAX_PAR_BOUTIQUE) return { plein: true };
     const id = 'ra_' + crypto.randomBytes(9).toString('hex');
@@ -58,7 +61,8 @@ function creerReassort({ db, pii, signer }) {
   function repousser(bid, email, produitIds, maintenant = Date.now()) {
     const ids = new Set(produitIds);
     for (const r of db.prepare('SELECT id, cle_produits, jours FROM reassorts WHERE boutique_id = ? AND email_index = ?').all(bid, index(bid, email)))
-      if (r.cle_produits.split(',').some(x => ids.has(x))) db.prepare('UPDATE reassorts SET prochain = ? WHERE id = ?').run(maintenant + r.jours * 86400000, r.id);
+      // Même produit, quelle que soit la variante.
+      if (r.cle_produits.split(',').some(x => ids.has(x.split('|')[0]))) db.prepare('UPDATE reassorts SET prochain = ? WHERE id = ?').run(maintenant + r.jours * 86400000, r.id);
   }
   const commandesActives = bid => db.prepare('SELECT commande_id FROM reassorts WHERE boutique_id = ? AND commande_id IS NOT NULL').all(bid).map(r => r.commande_id);
   const supprimerCommande = commandeId => db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(commandeId).changes;

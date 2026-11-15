@@ -4964,11 +4964,13 @@ ${bloc}</main></body></html>`;
       for (const r of lot) {
         let reserve = false;
         try {
-          if (!cache.has(r.boutiqueId)) { const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.boutiqueId); cache.set(r.boutiqueId, b ? { b, actif: abo.etat(b.marchand_id).actif, config: lireConfig(b), produits: listerProduits(b.id).filter(vendable), existants: existants(b.id) } : null); }
+          if (!cache.has(r.boutiqueId)) { const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.boutiqueId); cache.set(r.boutiqueId, b ? (tous => ({ b, actif: abo.etat(b.marchand_id).actif, config: lireConfig(b), tous, produits: tous.filter(vendable), existants: existants(b.id) }))(listerProduits(b.id)) : null); }
           const sb = cache.get(r.boutiqueId);
           // Plus rien à rappeler (produits supprimés ou sans rappel, boutique supprimée), demande de plus de deux ans,
           // client désinscrit : la demande est supprimée (pas de données gardées pour rien).
-          if (!sb || !r.lignes.some(l => sb.existants.has(l.produitId)) || maintenant - r.creeLe > 730 * 86400000 || estDesinscrit(r.boutiqueId, r.email)) { RE.supprimerId(r.id); traites++; continue; }
+          // Ligne morte : produit supprimé ou sans rappel, variante disparue (renommée), ou produit passé à variantes.
+          const vivante = l => { if (!sb.existants.has(l.produitId)) return false; const p = sb.tous.find(x => x.id === l.produitId); if (!p) return false; const aVar = Array.isArray(p.variantes) && p.variantes.length; return l.varianteId ? aVar && p.variantes.some(v => v.id === l.varianteId) : !aVar; };
+          if (!sb || !r.lignes.some(vivante) || maintenant - r.creeLe > 730 * 86400000 || estDesinscrit(r.boutiqueId, r.email)) { RE.supprimerId(r.id); traites++; continue; }
           if (!RE.reserver(r, maintenant)) continue;   // pris par un autre processus
           reserve = true; traites++;
           if (!sb.actif) continue;   // boutique sans abonnement : rappel sauté

@@ -3,6 +3,9 @@
    (mêmes contrôles de prix, de stock et de risque : le lien ne fixe aucun prix). */
 const LIEN_PANIER = { qte: {}, code: '' };
 function lienPanierUrl() {
+  // Seulement les lignes encore affichées (produit masqué, variante renommée depuis : retirées du lien).
+  const valides = new Set(etat.produits.filter(p => p.actif && !p.aVerifier).flatMap(p => Array.isArray(p.variantes) && p.variantes.length ? p.variantes.map(v => `${p.id}|${v.id}`) : [p.id]));
+  for (const k of Object.keys(LIEN_PANIER.qte)) if (!valides.has(k)) delete LIEN_PANIER.qte[k];
   // Clé « produit » ou « produit|variante » ; la variante est encodée en plus (ses valeurs peuvent contenir « , » ou « : »).
   const lignes = Object.entries(LIEN_PANIER.qte).filter(([, n]) => n > 0).map(([cle, n]) => { const [id, vid] = cle.split('|'); return vid ? `${id}:${n}:${encodeURIComponent(vid)}` : `${id}:${n}`; });
   if (!lignes.length) return '';

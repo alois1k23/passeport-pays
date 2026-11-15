@@ -880,3 +880,20 @@ Constats corrigés :
 - **Traductions** : titre traduit en allemand, italien et anglais.
 - **Vérifié dans Chromium**, bureau et mobile : 4 produits ouverts, liste dans le bon ordre, produit ouvert exclu, liste gardée après rechargement. L'audit d'accessibilité de la boutique ne relève rien de nouveau.
 - 256 tests sur 256, parcours de bout en bout 57/57.
+
+### Cycle 46 (00 h 55) : relecture indépendante des chantiers 102 à 104
+
+Aucune faille. Le double encodage des variantes fait correctement l'aller-retour sur les trois chemins (rappel par e-mail, suivi de commande, composeur), y compris pour des valeurs comme « M, L:1/Bleu », « 50% + coton », « a&b#c?d=e » ou des émojis. Aucune injection n'est possible par `?panier=` ni dans les e-mails. Les prix et le stock restent toujours contrôlés par le serveur. Constats corrigés :
+
+- **Bas-moyen, panier** :
+  - un lien de panier (marchand, « Commander à nouveau », rappel) remplaçait le panier du client sans prévenir. Les articles du lien s'ajoutent maintenant au panier existant, quantités additionnées et plafonnées au stock ;
+  - rouvrir le suivi d'une ancienne commande vidait le panier en cours. Il n'est plus vidé qu'au retour du paiement de cette commande.
+  
+  Vérifié dans Chromium : 2 savons au panier, suivi rouvert (panier gardé), « Commander à nouveau ». Résultat : 3 savons et 2 T-shirts.
+- **Bas, articles disparus** : un article du lien qui n'est plus en vente (variante renommée, produit retiré) disparaissait sans un mot. Un message le dit maintenant (« Certains articles de ce lien ne sont plus disponibles… ») (vérifié).
+  - Une demande de rappel dont toutes les lignes sont mortes (variante renommée ou disparue, produit passé à variantes) est supprimée au passage suivant, au lieu de traîner un an.
+- **Bas, clé des rappels** : la clé de remplacement ignorait la variante, donc deux pointures commandées séparément s'écrasaient. La clé est maintenant faite des couples produit et variante, sans doublon, et les lignes identiques sont fusionnées (testé : deux rappels gardés). Une nouvelle commande du même produit repousse les rappels de toutes ses variantes ; ce choix est assumé et noté dans le code.
+- **Bas** :
+  - le composeur de lien de panier oublie les lignes de produits masqués ou de variantes renommées depuis ;
+  - « Commander à nouveau » fusionne les lignes identiques.
+- 256 tests sur 256, parcours de bout en bout 57/57.
