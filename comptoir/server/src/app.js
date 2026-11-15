@@ -4715,9 +4715,47 @@ ${bloc}</main></body></html>`;
       }
     } finally { verificationNocturne = false; }
   }
+  /* Précommandes : le marchand est prévenu (une fois par produit et par date) trois jours avant la date d'expédition
+     annoncée, s'il a des commandes payées à expédier ; puis de nouveau si la date est passée et qu'il en reste. */
+  let dernierRappelPre = 0;
+  function rappelsPrecommandes(maintenant = Date.now()) {
+    if (maintenant - dernierRappelPre < 3600000) return 0;
+    dernierRappelPre = maintenant;
+    const jour = d => new Date(maintenant + d * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Zurich' });
+    const aujourdhui = jour(0), dans3 = jour(3), hier = jour(-1);
+    const parBoutique = new Map();
+    for (const r of db.prepare("SELECT id, boutique_id, donnees FROM produits WHERE supprime = 0 AND json_extract(donnees, '$.precommande') = 1").all()) {
+      let p; try { p = JSON.parse(r.donnees); } catch { continue; }
+      const date = String(p.expeditionPrevue || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > dans3 || date < jour(-30)) continue;
+      if (!parBoutique.has(r.boutique_id)) parBoutique.set(r.boutique_id, []);
+      parBoutique.get(r.boutique_id).push({ id: r.id, nom: String(p.nom || ''), date });
+    }
+    let n = 0;
+    for (const [bid, produitsPre] of parBoutique) {
+      const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid);
+      if (!b || !abo.etat(b.marchand_id).actif) continue;
+      const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id); if (!mch) continue;
+      const cmds = db.prepare("SELECT * FROM commandes WHERE boutique_id = ? AND statut IN ('payee', 'preparation')").all(bid).map(lireCommande);
+      for (const p of produitsPre) {
+        const concernees = cmds.filter(c => (c.lignes || []).some(l => l.produitId === p.id && l.precommande));
+        if (!concernees.length) continue;
+        const qte = concernees.reduce((a, c) => a + c.lignes.filter(l => l.produitId === p.id).reduce((x, l) => x + (Number(l.qte) || 0), 0), 0);
+        const retard = p.date <= hier, dateFr = p.date.split('-').reverse().join('.');
+        if (!retard && p.date < aujourdhui) continue;
+        if (!relances.reserverEnvoi(db, bid, `precommande${retard ? '-retard' : ''}:${p.id}:${p.date}`, maintenant)) continue;
+        const numeros = concernees.slice(0, 30).map(c => `n° ${c.numero}`).join(', ') + (concernees.length > 30 ? '…' : '');
+        envoyerEmail(null, mch.email, retard ? `Précommandes en retard : ${p.nom}` : `Précommandes à expédier le ${dateFr} : ${p.nom}`,
+          `Bonjour,\n\n${retard ? `La date d'expédition annoncée pour « ${p.nom} » (${dateFr}) est passée, et ${concernees.length} commande${concernees.length > 1 ? 's' : ''} n'${concernees.length > 1 ? 'ont' : 'a'} pas encore été expédiée${concernees.length > 1 ? 's' : ''}` : `Vous avez annoncé l'expédition de « ${p.nom} » pour le ${dateFr}. ${concernees.length} commande${concernees.length > 1 ? 's' : ''} payée${concernees.length > 1 ? 's' : ''} l'attend${concernees.length > 1 ? 'ent' : ''}`} (${qte} article${qte > 1 ? 's' : ''}) : ${numeros}.\n\n${retard ? 'Prévenez vos clients du nouveau délai, ou remboursez ceux qui le souhaitent, depuis Commandes.' : 'Préparez le stock à temps. En cas de retard, prévenez vos clients et changez la date sur la fiche du produit.'}\n\n${urlPublique}/app#commandes\n\nComptoir`);
+        n++;
+      }
+    }
+    return n;
+  }
   function automatisationsEcheances(maintenant = Date.now()) {
     let n = 0;
     entretien(maintenant);
+    try { rappelsPrecommandes(maintenant); } catch (e) { journal.error('[precommandes]', e.message); }
     try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
     try { alertesRetourStock(maintenant); } catch (e) { journal.error('[retour-stock]', e.message); }
     try { appliquerRecuperations(maintenant); } catch (e) { journal.error('[recuperation]', e.message); }

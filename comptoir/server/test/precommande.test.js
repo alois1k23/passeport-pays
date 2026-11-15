@@ -47,5 +47,25 @@ test('précommande : date validée, annoncée, reprise dans la commande et l’e
     const maj = await c('PUT', `/api/admin/produits/${pid}`, { produit: { ...fiche, prix: 27 } });
     assert.equal(maj.s, 200, JSON.stringify(maj.j));
     assert.equal((await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === pid).precommande, undefined);
+    // (l'entretien avancé dans le temps efface les sessions : en dernier ; la fiche est remise en précommande)
+    db.prepare("UPDATE produits SET donnees = json_set(donnees, '$.precommande', json('true'), '$.expeditionPrevue', ?) WHERE id = ?").run(jour(20), pid);
+    // Rappel au marchand : rien 10 jours avant ; trois jours avant, une fois ; puis une fois si la date passe sans expédition.
+    const gerer = s.listeners('request')[0], rappels = () => db.prepare("SELECT sujet, corps FROM emails WHERE destinataire = 'pre@exemple.ch' AND sujet LIKE 'Précommandes%' ORDER BY id").all();
+    gerer.automatisationsEcheances(Date.now() + 10 * 86400000);
+    assert.equal(rappels().length, 0, 'trop tôt');
+    gerer.automatisationsEcheances(Date.now() + 18 * 86400000);
+    gerer.automatisationsEcheances(Date.now() + 18 * 86400000 + 2 * 3600000);
+    assert.equal(rappels().length, 1, 'un seul rappel avant la date');
+    assert.match(rappels()[0].sujet, /^Précommandes à expédier le \d\d\.\d\d\.\d{4} : Calendrier 2027$/);
+    assert.match(rappels()[0].corps, new RegExp(`1 commande payée l'attend \\(2 articles\\) : n° ${cmd.j.numero}\\.`));
+    gerer.automatisationsEcheances(Date.now() + 23 * 86400000);
+    gerer.automatisationsEcheances(Date.now() + 24 * 86400000);
+    assert.equal(rappels().length, 2, 'un rappel de retard');
+    assert.match(rappels()[1].sujet, /^Précommandes en retard : Calendrier 2027$/);
+    // Expédiée : plus aucun rappel, même pour une nouvelle date.
+    db.prepare("UPDATE commandes SET statut = 'expediee' WHERE id = ?").run(cmd.j.commandeId);
+    db.prepare("UPDATE produits SET donnees = json_set(donnees, '$.expeditionPrevue', ?) WHERE id = ?").run(jour(40), pid);
+    gerer.automatisationsEcheances(Date.now() + 38 * 86400000);
+    assert.equal(rappels().length, 2);
   } finally { s.close(); }
 });

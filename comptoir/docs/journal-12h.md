@@ -309,7 +309,7 @@ La relecture du chantier 74 avait noté que la facture d'un client pro ne montra
 - 244 tests sur 244.
 
 
-### Cycle 8 (23 h 40) : produits numériques, suite (chantier 78)
+### Cycle 8 (22 h 40) : produits numériques, suite (chantier 78)
 
 - **Langue du client** : une commande passée en allemand, en italien ou en anglais reçoit ses liens de téléchargement dans sa langue.
 - **Vente en caisse** :
@@ -322,10 +322,20 @@ La relecture du chantier 74 avait noté que la facture d'un client pro ne montra
 - **Vérifié dans Chromium**, bureau et mobile : champ affiché, refus sans adresse, vente encaissée, e-mail envoyé au client.
 - 244 tests sur 244, parcours de bout en bout 57/57.
 
-### Cycle 9 : comparaison sourcée (chantier 76)
+### Cycle 9 (22 h 50) : comparaison sourcée (chantier 76)
 
 - **`docs/COMPARAISON.md`** compare Comptoir à Shopify, Wix, WooCommerce, PrestaShop et Infomaniak. Les données ont été relevées le 15 novembre 2026 sur les pages officielles, avec les liens. Ce qui n'a pas pu être confirmé est noté « non vérifié ».
 - **Correction d'une affirmation du journal** : il était dit que le B2B de Shopify était réservé à Plus. C'est faux depuis avril 2026 : les bases du B2B existent dès Basic. Seuls les prix propres à chaque entreprise restent sur Plus.
 - **Ce que la comparaison dit honnêtement** :
   - Comptoir réunit en natif la QR-facture, le B2B avec prix par client, l'absence de frais de plateforme, les précommandes, les lots et les produits numériques.
   - Les autres plateformes ont ce que Comptoir n'a pas : le recul, les extensions, les thèmes, et une offre hébergée en Suisse chez Infomaniak.
+
+### Cycle 10 (23 h 05) : rappel des précommandes au marchand (chantier 79)
+
+- **Trois jours avant la date d'expédition annoncée**, le marchand reçoit un e-mail si des commandes payées attendent ce produit. L'e-mail donne le nombre de commandes, le nombre d'articles et les numéros, avec le lien vers Commandes.
+- **Si la date passe** et que des commandes restent à expédier, un second e-mail l'invite à prévenir les clients du nouveau délai, ou à rembourser ceux qui le souhaitent.
+- **Un seul e-mail par produit et par date** (réservation d'envoi en base). Rien n'est envoyé une fois les commandes expédiées, ni à une boutique sans abonnement actif.
+- **Calcul** : au plus une fois par heure, seulement sur les produits en précommande, avec les dates au jour de Lausanne.
+- **Tests** : rien 10 jours avant, un rappel à J-2 même si le calcul repasse, un rappel de retard, rien après l'expédition.
+- **Navigateur** : rien à vérifier, puisque la fonction ne touche pas l'interface (e-mail seulement).
+- 244 tests sur 244.
