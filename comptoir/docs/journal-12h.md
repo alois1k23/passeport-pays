@@ -308,3 +308,24 @@ La relecture du chantier 74 avait noté que la facture d'un client pro ne montra
 - **Non traité, noté** : l'autoliquidation de la TVA pour un client professionnel de l'Union européenne (mention et taux zéro). Elle demande de vérifier le numéro de TVA (VIES), ce que Comptoir ne fait pas encore.
 - 244 tests sur 244.
 
+
+### Cycle 8 (23 h 40) : produits numériques, suite (chantier 78)
+
+- **Langue du client** : une commande passée en allemand, en italien ou en anglais reçoit ses liens de téléchargement dans sa langue.
+- **Vente en caisse** :
+  - un ticket qui contient un produit numérique affiche le champ « E-mail du client » ;
+  - sans adresse, le serveur refuse la vente avec un message clair ;
+  - les liens partent après l'enregistrement de la vente, jamais pour une vente annulée ;
+  - un ticket renvoyé (même clé, réseau coupé) n'envoie pas un second e-mail.
+- **Vente hors ligne sans e-mail** : la vente est acceptée, puisqu'elle est déjà encaissée. Dans la commande, « Envoyer les liens » demande l'adresse du client et la garde.
+- **Défaut trouvé par le test** : un lien acheté en caisse (statut « retirée ») était refusé au téléchargement. Les statuts « prête » et « retirée » sont maintenant acceptés, pour le téléchargement comme pour le renvoi.
+- **Vérifié dans Chromium**, bureau et mobile : champ affiché, refus sans adresse, vente encaissée, e-mail envoyé au client.
+- 244 tests sur 244, parcours de bout en bout 57/57.
+
+### Cycle 9 : comparaison sourcée (chantier 76)
+
+- **`docs/COMPARAISON.md`** compare Comptoir à Shopify, Wix, WooCommerce, PrestaShop et Infomaniak. Les données ont été relevées le 15 novembre 2026 sur les pages officielles, avec les liens. Ce qui n'a pas pu être confirmé est noté « non vérifié ».
+- **Correction d'une affirmation du journal** : il était dit que le B2B de Shopify était réservé à Plus. C'est faux depuis avril 2026 : les bases du B2B existent dès Basic. Seuls les prix propres à chaque entreprise restent sur Plus.
+- **Ce que la comparaison dit honnêtement** :
+  - Comptoir réunit en natif la QR-facture, le B2B avec prix par client, l'absence de frais de plateforme, les précommandes, les lots et les produits numériques.
+  - Les autres plateformes ont ce que Comptoir n'a pas : le recul, les extensions, les thèmes, et une offre hébergée en Suisse chez Infomaniak.

@@ -77,7 +77,7 @@ function vueMagasin() {
   const retraits = etat.commandes.filter(c => c.livraison === 'retrait' && c.canal === 'web' && ['payee', 'preparation', 'prete'].includes(c.statut)).sort((a, b) => a.date - b.date);
   const ventesMag = etat.commandes.filter(c => c.canal === 'magasin' && c.date > Date.now() - 30 * 86400000);
   const totalCaisse = ui.caisse.reduce((a, l) => a + l.prix * l.qte, 0);
-  if (!ui.caisse.length) { ui.carteCaisse = ''; ui.carteCaisseInfo = null; }   // ticket vidé : la carte du client précédent ne reste pas
+  if (!ui.caisse.length) { ui.carteCaisse = ''; ui.carteCaisseInfo = null; ui.emailCaisse = ''; }   // ticket vidé : la carte du client précédent ne reste pas
   // Carte cadeau vérifiée (solde lu sur le serveur) : déduite du ticket ; monnaie et arrondi portent sur le reste.
   const carteSaisie = !!String(ui.carteCaisse || '').trim(), carteOk = carteSaisie && ui.carteCaisseInfo && ui.carteCaisseInfo.code === String(ui.carteCaisse).trim();
   const partCarte = carteOk ? Math.min(ui.carteCaisseInfo.solde, Math.round(totalCaisse * 100) / 100) : 0, resteCaisse = Math.round((totalCaisse - partCarte) * 100) / 100;
@@ -100,6 +100,7 @@ function vueMagasin() {
         ${ui.caisse.length && connecteAuServeur() ? `<div class="rangee carte-caisse"><label class="champ"><span>Carte cadeau (facultatif)</span><input id="cs-carte" data-caisse="carte" value="${esc(ui.carteCaisse || '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="24"></label><button class="btn petit fantome" data-action="caisse-carte-verifier">Vérifier</button></div>
           ${carteSaisie && !carteOk ? '<p class="sous" role="status">Vérifiez la carte : son solde est déduit du ticket, et le reste (espèces, monnaie à rendre) est calculé ensuite.</p>' : ''}
           ${carteOk ? `<div class="ticket-total"><span>Carte cadeau ····${esc(ui.carteCaisseInfo.fin)} (solde ${euros(ui.carteCaisseInfo.solde)})</span><strong>−${euros(partCarte)}</strong></div><div class="ticket-total"><span>Reste à encaisser</span><strong>${euros(resteCaisse)}</strong></div>` : ''}` : ''}
+        ${ui.caisse.some(l => (etat.produits.find(p => p.id === l.produitId) || {}).numerique) ? `<label class="champ"><span>E-mail du client (produit numérique : le fichier lui est envoyé)</span><input id="cs-email" type="email" data-caisse="email" value="${esc(ui.emailCaisse || '')}" autocomplete="off" inputmode="email" required></label>` : ''}
         ${estSuisse() && ui.caisse.length && resteCaisse > 0 && !(carteSaisie && !carteOk) && Math.round(resteCaisse * 20) / 20 !== Math.round(resteCaisse * 100) / 100 ? `<p class="sous">En espèces : ${euros(Math.round(resteCaisse * 20) / 20)} (arrondi aux 5 centimes).</p>` : ''}
         ${ui.caisse.length && resteCaisse > 0 && !(carteSaisie && !carteOk) ? (() => { const du = estSuisse() ? Math.round(resteCaisse * 20) / 20 : Math.round(resteCaisse * 100) / 100, recu = Number(ui.recuCaisse) || 0; return `<label class="champ rendu-monnaie"><span>Espèces reçues</span><input id="cs-recu" type="number" min="0" step="0.05" inputmode="decimal" value="${ui.recuCaisse || ''}" data-caisse="recu" data-du="${du}" placeholder="${du.toFixed(2)}"></label><p id="cs-rendu" aria-live="polite">${texteRendu(du, recu)}</p>`; })() : ''}
         <div class="rangee">${estSuisse() ? `<button class="btn" data-action="encaisser" data-moyen="twint" ${ui.caisse.length ? '' : 'disabled'}>TWINT</button>` : ''}<button class="btn${estSuisse() ? ' fantome' : ''}" data-action="encaisser" data-moyen="carte" ${ui.caisse.length ? '' : 'disabled'}>Carte</button><button class="btn fantome" data-action="encaisser" data-moyen="especes" ${ui.caisse.length ? '' : 'disabled'}>Espèces</button></div>
@@ -609,6 +610,7 @@ function vueCartesCadeaux() {
 }
 document.addEventListener('input', e => {
   if (e.target.dataset && e.target.dataset.caisse === 'carte') ui.carteCaisse = e.target.value;
+  if (e.target.dataset && e.target.dataset.caisse === 'email') ui.emailCaisse = e.target.value;
 });
 document.addEventListener('input', e => {
   if (!e.target.dataset || e.target.dataset.caisse !== 'recu') return;

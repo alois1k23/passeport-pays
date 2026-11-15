@@ -72,9 +72,11 @@ document.addEventListener('change', e => {
 // Commande : nouveaux liens de téléchargement (les anciens cessent de fonctionner).
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-action="renvoyer-liens"]'); if (!b) return;
-  if (!confirm('Envoyer de nouveaux liens au client ? Les anciens cesseront de fonctionner.')) return;
+  let email = '';
+  if (b.dataset.sansEmail === '1') { email = (prompt('E-mail du client, pour lui envoyer ses fichiers :') || '').trim(); if (!email) return; }
+  else if (!confirm('Envoyer de nouveaux liens au client ? Les anciens cesseront de fonctionner.')) return;
   b.disabled = true;
-  try { const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(b.dataset.id)}/telechargements`); toast(`${r.envoyes} lien${r.envoyes > 1 ? 's' : ''} envoyé${r.envoyes > 1 ? 's' : ''} au client.`); }
+  try { const r = await api('POST', `/api/admin/commandes/${encodeURIComponent(b.dataset.id)}/telechargements`, email ? { email } : {}); if (email) { const c = etat.commandes.find(x => x.id === b.dataset.id); if (c && c.client) c.client.email = email.toLowerCase(); rendre(); } toast(`${r.envoyes} lien${r.envoyes > 1 ? 's' : ''} envoyé${r.envoyes > 1 ? 's' : ''} au client.`); }
   catch (err) { toast(err.message); }
   b.disabled = false;
 });

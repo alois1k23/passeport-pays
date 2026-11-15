@@ -26,7 +26,7 @@ test('produit numérique de bout en bout', async () => {
   let cookie = '';
   const c = async (m, chemin, corps, { avecCookie = true } = {}) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && avecCookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc && avecCookie) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
   try {
-    const ins = await c('POST', '/api/auth/inscription', { email: 'num@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Num', pays: 'ch', secteur: 'maison' }, entreprise: { raison: 'Num Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'num@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
+    const ins = await c('POST', '/api/auth/inscription', { email: 'num@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Num', pays: 'ch', secteur: 'maison', langues: ['fr', 'de'] }, entreprise: { raison: 'Num Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'num@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } }, produits: [{ nom: 'Vase', prix: 40, stock: 5, type: 'stock' }] });
     const pid = (await c('POST', '/api/admin/produits', { produit: { nom: 'Guide de Lausanne (PDF)', prix: 12, stock: 1000, numerique: true } })).j.id;
     // Sans fichier : pas en vente (le client paierait sans rien recevoir).
     const slug0 = (await c('GET', '/api/admin/etat')).j.serveur.slug;
@@ -86,6 +86,34 @@ test('produit numérique de bout en bout', async () => {
     // Commande remboursée : plus aucun téléchargement.
     db.prepare("UPDATE commandes SET statut = 'remboursee' WHERE id = ?").run(cmd.j.commandeId);
     assert.equal((await fetch(`${base}/telecharger/${nouveau}`)).status, 410);
+    // Commande passée en allemand : e-mail des liens en allemand.
+    const cmdDe = await commander({ consentementNumerique: true, langue: 'de' });
+    assert.equal(cmdDe.s, 201, JSON.stringify(cmdDe.j));
+    await fetch(cmdDe.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    const mailDe = db.prepare("SELECT sujet, corps FROM emails WHERE sujet LIKE 'Ihre Downloads%'").get();
+    assert.ok(mailDe, 'e-mail en allemand');
+    assert.match(mailDe.corps, /Vielen Dank für Ihren Einkauf bei Num/);
+    assert.match(mailDe.corps, /\/telecharger\/[\w-]+/);
+    // Vente en caisse d'un produit numérique : e-mail du client demandé, liens envoyés après l'encaissement.
+    assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'especes', cle: 'num-1' })).j.code, 'caisse_email');
+    assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'especes', cle: 'num-2', email: 'pas-un-email' })).s, 400);
+    const vente = await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'twint', cle: 'num-3', email: 'Marc@Exemple.ch' });
+    assert.equal(vente.s, 201, JSON.stringify(vente.j));
+    const mailCaisse = db.prepare("SELECT destinataire, corps FROM emails WHERE sujet = ?").get(`Vos téléchargements : commande n° ${vente.j.numero}`);
+    assert.ok(mailCaisse, 'liens envoyés après la vente en caisse');
+    assert.match(mailCaisse.corps, /^Bonjour,\n/, 'pas de « Bonjour Client en boutique »');
+    const lienCaisse = mailCaisse.corps.match(/\/telecharger\/([\w-]+)/)[1];
+    assert.equal((await fetch(`${base}/telecharger/${lienCaisse}`)).status, 200);
+    // Même ticket renvoyé (réseau coupé) : pas de seconde vente ni de second e-mail.
+    assert.equal((await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'twint', cle: 'num-3', email: 'Marc@Exemple.ch' })).j.numero, vente.j.numero);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE sujet = ?").get(`Vos téléchargements : commande n° ${vente.j.numero}`).n, 1);
+    // Vente hors ligne renvoyée sans e-mail : acceptée (déjà encaissée), le marchand renverra les liens.
+    const horsLigne = await c('POST', '/api/admin/caisse', { lignes: [{ produitId: pid, qte: 1 }], moyen: 'especes', cle: 'num-4', horsLigneLe: Date.now() - 60000 });
+    assert.equal(horsLigne.s, 201);
+    assert.equal((await c('POST', `/api/admin/commandes/${horsLigne.j.id}/telechargements`, {})).j.code, 'sans_email');
+    assert.equal((await c('POST', `/api/admin/commandes/${horsLigne.j.id}/telechargements`, { email: 'zoe@exemple.ch' })).j.envoyes, 1);
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'zoe@exemple.ch' AND sujet LIKE 'Vos téléchargements%'").get(), 'liens envoyés à l’adresse donnée');
+    assert.equal((await c('POST', `/api/admin/commandes/${horsLigne.j.id}/telechargements`, {})).j.envoyes, 1, 'adresse gardée sur la commande');
     // Un autre marchand ne touche pas au fichier.
     cookie = '';
     await c('POST', '/api/auth/inscription', { email: 'autre@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Autre' } } });

@@ -566,7 +566,7 @@ function installerModeConnecte() {
           if (!confirm('La vente précédente avec carte cadeau n’a pas reçu de réponse : elle a peut-être été enregistrée. Vérifiez dans Commandes. Encaisser malgré tout ce ticket comme une nouvelle vente ?')) return;
           ui.cleTicket = null; ui.cleTicketCarte = null;
         }
-        const ticket = { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}) })), moyen: el.dataset.moyen, cle: ui.cleTicket, ...(carte ? { carteCadeau: carte } : {}) };
+        const ticket = { lignes: ui.caisse.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}) })), moyen: el.dataset.moyen, cle: ui.cleTicket, ...(carte ? { carteCadeau: carte } : {}), ...(String(ui.emailCaisse || '').trim() ? { email: String(ui.emailCaisse).trim() } : {}) };
         let r;
         try { r = await api('POST', '/api/admin/caisse', ticket); }
         catch (err) {
@@ -585,7 +585,7 @@ function installerModeConnecte() {
           ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null;
           toast('Pas de connexion : la vente est gardée sur cet appareil et sera envoyée dès le retour du réseau.'); rendre(); return;
         }
-        ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; ui.carteCaisse = ''; ui.carteCaisseInfo = null; ui.cleTicketCarte = null;
+        ui.caisse = []; ui.recuCaisse = ''; ui.cleTicket = null; ui.emailCaisse = ''; ui.carteCaisse = ''; ui.carteCaisseInfo = null; ui.cleTicketCarte = null;
         if (r.carteCadeau) ui.cartesCadeaux = null;   // soldes à recharger
         ui.emplacements = null;   // répartition du stock à recharger
         setTimeout(() => document.querySelector('[data-action="caisse-ajout"]:not([disabled])')?.focus(), 0);   // prêt pour la vente suivante (clavier)
@@ -749,7 +749,7 @@ const CaisseHorsLigne = (() => {
       for (const t of attente) {
         if (!lire().some(x => x.cle === t.cle)) continue;   // retirée par le marchand pendant l'envoi
         try {
-          await api('POST', '/api/admin/caisse', { lignes: t.lignes, moyen: t.moyen, cle: t.cle, horsLigneLe: t.le, totalAttendu: t.total });
+          await api('POST', '/api/admin/caisse', { lignes: t.lignes, moyen: t.moyen, cle: t.cle, horsLigneLe: t.le, totalAttendu: t.total, ...(t.email ? { email: t.email } : {}) });
           ecrire(lire().filter(x => x.cle !== t.cle)); reussies++;
         } catch (err) {
           // Pas de réseau, session expirée, abonnement, limite de requêtes : passager, on réessaiera sans rien signaler comme refusé.

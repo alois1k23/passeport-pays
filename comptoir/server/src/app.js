@@ -1046,7 +1046,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // E-mail des liens de téléchargement (après paiement, ou renvoyés par le marchand).
   function envoyerLiens(boutique, c, liens, config) {
     if (!liens.length || !c.client || !c.client.email) return;
-    envoyerEmail(boutique.id, c.client.email, `Vos téléchargements : commande n° ${c.numero}`, `Bonjour ${c.client.nom},\n\nMerci pour votre achat chez ${config.boutique.nom}. Voici vos fichiers :\n\n${liens.map(l => `${l.nom} (${l.fichier})\n${urlPublique}/telecharger/${l.jeton}`).join('\n\n')}\n\nChaque lien est personnel : il sert ${NUM.TELECHARGEMENTS} fois, pendant 30 jours. Ne le transmettez pas. S’il expire, écrivez à la boutique pour en recevoir un nouveau.\n\n${config.boutique.nom}`);
+    // Dans la langue du client (commande passée en allemand, italien ou anglais), en français sinon.
+    const traduit = EmailsClients.langueDe(c) && EmailsClients.telechargements(c, { nomBoutique: config.boutique.nom, n: NUM.TELECHARGEMENTS, liste: liens.map(l => `${l.nom} (${l.fichier})\n${urlPublique}/telecharger/${l.jeton}`).join('\n\n') });
+    if (traduit) { envoyerEmail(boutique.id, c.client.email, traduit.sujet, traduit.corps, { langue: c.langue }); return; }
+    envoyerEmail(boutique.id, c.client.email, `Vos téléchargements : commande n° ${c.numero}`, `Bonjour${c.client.nom && c.client.nom !== 'Client en boutique' ? ` ${c.client.nom}` : ''},\n\nMerci pour votre achat chez ${config.boutique.nom}. Voici vos fichiers :\n\n${liens.map(l => `${l.nom} (${l.fichier})\n${urlPublique}/telecharger/${l.jeton}`).join('\n\n')}\n\nChaque lien est personnel : il sert ${NUM.TELECHARGEMENTS} fois, pendant 30 jours. Ne le transmettez pas. S’il expire, écrivez à la boutique pour en recevoir un nouveau.\n\n${config.boutique.nom}`);
   }
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
@@ -2647,7 +2650,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.get('/api/admin/commandes/:id/telechargements', exigerMarchand, ctx => { const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id); return { liens: NUM.etatLiens(c.id) }; });
   r.post('/api/admin/commandes/:id/telechargements', exigerMarchand, ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
-    if (!['payee', 'preparation', 'expediee', 'livree'].includes(c.statut)) throw erreur(409, 'Seule une commande payée reçoit des liens de téléchargement.', 'statut');
+    if (!['payee', 'preparation', 'expediee', 'livree', 'prete', 'retiree'].includes(c.statut)) throw erreur(409, 'Seule une commande payée reçoit des liens de téléchargement.', 'statut');
+    // Vente en caisse hors ligne (sans e-mail) : le marchand indique l'adresse du client une fois ; elle reste ensuite.
+    if (!(c.client && c.client.email)) {
+      const email = ctx.corps && ctx.corps.email ? valider.email(ctx.corps.email) : '';
+      if (!email) throw erreur(400, 'Indiquez l’e-mail du client pour lui envoyer ses fichiers.', 'sans_email');
+      c.client = { ...(c.client || {}), email };
+    }
     auth.limiter('liens-renvoi:' + c.id, 5 * facteurLimites, 86400000, 'Liens déjà renvoyés plusieurs fois aujourd’hui pour cette commande.');
     const liens = NUM.creerLiens(ctx.boutique.id, c);
     if (!liens.length) throw erreur(409, 'Aucun fichier à envoyer pour cette commande.', 'sans_fichier');
@@ -2657,7 +2666,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   });
   r.get('/telecharger/:jeton', ctx => {
     auth.limiter('telechargement:' + reseauIp(ctx.ip), 60 * facteurLimites, 3600000, 'Trop de téléchargements depuis votre réseau : réessayez dans une heure.');
-    const permise = cid => { const row = db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cid); return !!row && ['payee', 'preparation', 'expediee', 'livree'].includes(row.statut); };
+    const permise = cid => { const row = db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cid); return !!row && ['payee', 'preparation', 'expediee', 'livree', 'prete', 'retiree'].includes(row.statut); };
     const f = NUM.telecharger(ctx.params.jeton, permise, { essai: ctx.methodeOrigine === 'HEAD' });
     // Toujours en pièce jointe, jamais affiché sur le domaine de Comptoir (un PDF ou un SVG piégé n'y exécuterait rien).
     ctx.entetes['Content-Disposition'] = dispositionPieceJointe(f.nom);
@@ -2997,12 +3006,18 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (centimesCarte === Math.round(total * 100)) moyen = 'carte cadeau';
     }
     const reste = prix.arrondi(total - centimesCarte / 100);
-    return transaction(db, () => {
+    // Produit numérique vendu en caisse : le fichier part par e-mail, l'adresse du client est donc demandée (sauf vente
+    // faite hors ligne, déjà encaissée : le marchand renverra les liens depuis la commande).
+    const avecNumerique = lignes.some(l => l.numerique);
+    const emailNumerique = ctx.corps.email ? valider.email(ctx.corps.email) : '';
+    if (avecNumerique && !emailNumerique && !horsLigne) throw erreur(400, 'Produit numérique : indiquez l’e-mail du client pour lui envoyer le fichier.', 'caisse_email');
+    let aEnvoyer = null;   // liens créés dans la transaction, e-mail envoyé seulement une fois la vente enregistrée
+    const rep = transaction(db, () => {
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(ctx.boutique.id).compteur_commande;
       const id = auth.nouvelId('c_');
       const now = horsLigne || Date.now();   // vente hors ligne : datée (et facturée) au moment où elle a été encaissée
       const config = lireConfig(ctx.boutique);
-      const donnees = { client: { nom: 'Client en boutique', email: '', ville: '' }, lignes, sousTotal: total, port: 0, total, tauxTva: prix.tauxTva(config), livraison: 'retrait', canal: 'magasin', moyen: !reste ? 'carte-cadeau' : ['especes', 'twint', 'carte'].includes(ctx.corps.moyen) ? ctx.corps.moyen : 'carte', suivi: '', note: '', facture: prochaineFacture(ctx.boutique.id, now), dateFacture: now, historique: [{ date: now, texte: `Vente encaissée en boutique (${carte ? `carte cadeau ····${carte.fin} : ${formatMontant(centimesCarte / 100, config)}${reste ? `, reste en ${moyen} : ${formatMontant(reste, config)}` : ''}` : moyen})` }] };
+      const donnees = { client: { nom: 'Client en boutique', email: avecNumerique ? emailNumerique : '', ville: '' }, lignes, sousTotal: total, port: 0, total, tauxTva: prix.tauxTva(config), livraison: 'retrait', canal: 'magasin', moyen: !reste ? 'carte-cadeau' : ['especes', 'twint', 'carte'].includes(ctx.corps.moyen) ? ctx.corps.moyen : 'carte', suivi: '', note: '', facture: prochaineFacture(ctx.boutique.id, now), dateFacture: now, historique: [{ date: now, texte: `Vente encaissée en boutique (${carte ? `carte cadeau ····${carte.fin} : ${formatMontant(centimesCarte / 100, config)}${reste ? `, reste en ${moyen} : ${formatMontant(reste, config)}` : ''}` : moyen})` }] };
       if (carte) donnees.carteCadeau = { id: carte.id, fin: carte.fin, montant: centimesCarte / 100 };
       prix.figerTaux(donnees, config);
       // Espèces en francs : le client paie le montant arrondi à 5 centimes (sur ce qui reste après la carte) ; l'écart est noté.
@@ -3011,6 +3026,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       insererCommande(id, ctx.boutique.id, numero, now, 'retiree', auth.nouvelId(), donnees);
       if (carte && !Cartes.debiter(carte.id, centimesCarte, { commandeId: id, texte: `Ticket n° ${numero}`, maintenant: Date.now() })) throw erreur(409, 'Le solde de la carte cadeau vient de changer : vérifiez-le et réessayez.', 'carte_solde');
       sceller(ctx.boutique.id, { id, numero, date: now, statut: 'retiree', ...donnees });   // ticket de caisse scellé à l'encaissement
+      if (avecNumerique && emailNumerique) aEnvoyer = { c: { numero, lignes, client: donnees.client }, liens: NUM.creerLiens(ctx.boutique.id, { id, lignes }), config };
       if (horsLigne) {
         const manque = lignes.filter(l => typeof l.retireStock === 'number' && l.retireStock < l.qte);
         const c2 = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(id));
@@ -3022,6 +3038,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       integ.emettre(ctx.boutique.id, 'commande.retiree', commandeApi({ id, numero, date: now, statut: 'retiree', ...donnees, canal: donnees.canal || 'caisse' }, config.boutique.devise || 'CHF'));
       return { statut: 201, corps: { id, numero, facture: donnees.facture, total: formatMontant(total, config), ...(carte ? { carteCadeau: formatMontant(centimesCarte / 100, config), ...(reste ? { reste: formatMontant(reste, config) } : {}), soldeCarte: formatMontant(Cartes.disponible(db.prepare('SELECT * FROM cartes_cadeaux WHERE id = ?').get(carte.id)) / 100, config) } : {}) } };
     });
+    if (aEnvoyer) envoyerLiens(ctx.boutique, aEnvoyer.c, aEnvoyer.liens, aEnvoyer.config);
+    return rep;
   }
   /* ---------- Réseaux sociaux ---------- */
   const publicationDeBoutique = (boutiqueId, id) => {
