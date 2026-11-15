@@ -275,8 +275,13 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
   // Pied de page supprimé dans l'éditeur : en ligne, un pied minimal garde les liens obligatoires (mentions légales, CGV)
   // et ceux des commandes et de la carte cadeau.
   const piedSecours = mode !== 'edition' && !listeSections.some(x => x.type === 'pied') ? renduSection({ id: 'pied-secours', type: 'pied', props: { texte: `© ${new Date().getFullYear()}` } }, etat, mode) : '';
+  // Vus récemment (sur l'appareil du visiteur seulement) : juste avant le pied de page, sans le produit ouvert.
+  const recents = mode !== 'edition' && typeof VUS_RECEMMENT !== 'undefined' ? VUS_RECEMMENT.filter(id => id !== fiche).map(id => etat.produits.find(p => p.id === id)).filter(p => p && p.actif !== false).slice(0, 6) : [];
+  const recentsHtml = recents.length >= 2 ? `<section class="sf-produits sf-recents" aria-labelledby="titre-recents"><h2 id="titre-recents">Vus récemment</h2><div class="sf-grille sf-grille-recents">${recents.map(x => `<article class="sf-carte"><button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button><div class="sf-carte-infos"><h3 data-sans-traduction><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${euros(x.prix)}</span></div></article>`).join('')}</div></section>` : '';
+  let recentsPlaces = false;
+  const avecRecents = (s, html) => { if (s.type === 'pied' && recentsHtml && !recentsPlaces) { recentsPlaces = true; return recentsHtml + html; } return html; };
   const sections = listeSections.map(s => {
-    const html = renduSection(s, etat, mode);
+    const html = avecRecents(s, renduSection(s, etat, mode));
     if (mode !== 'edition') return html;
     return `<div class="sf-bloc${selection === s.id ? ' choisi' : ''}" data-section="${s.id}" tabindex="0">
       <span class="sf-etiquette">${esc(TYPES_SECTIONS[s.type].nom)}</span>${html}</div>`;
@@ -290,14 +295,14 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
       ? `<div class="sf-bloc${selection === premier.id ? ' choisi' : ''}" data-section="${premier.id}" tabindex="0"><span class="sf-etiquette">${esc(TYPES_SECTIONS.annonce.nom)}</span>${renduSection(premier, etat, mode)}</div>`
       : renduSection(premier, etat, mode);
     const resteHtml = reste.map(s => {
-      const html = renduSection(s, etat, mode);
+      const html = avecRecents(s, renduSection(s, etat, mode));
       return mode !== 'edition' ? html : `<div class="sf-bloc${selection === s.id ? ' choisi' : ''}" data-section="${s.id}" tabindex="0"><span class="sf-etiquette">${esc(TYPES_SECTIONS[s.type].nom)}</span>${html}</div>`;
     }).join('');
-    return `<div class="sf" data-vars="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}${ficheHtml}${piedSecours}</div>`;
+    return `<div class="sf" data-vars="${varsTheme(b.theme)}">${premierHtml}${entete}${resteHtml}${recentsPlaces ? '' : recentsHtml}${ficheHtml}${piedSecours}</div>`;
   }
   // Sans section d'en-tête (qui porte le titre principal), le nom de la boutique sert de titre principal, pour les lecteurs d'écran et les moteurs de recherche.
   const titrePrincipal = listeSections.some(x => x.type === 'hero') ? '' : `<h1 class="sf-masque" data-sans-traduction>${esc(b.nom)}</h1>`;
-  return `<div class="sf" data-vars="${varsTheme(b.theme)}">${entete}${titrePrincipal}${sections}${ficheHtml}${piedSecours}</div>`;
+  return `<div class="sf" data-vars="${varsTheme(b.theme)}">${entete}${titrePrincipal}${sections}${recentsPlaces ? '' : recentsHtml}${ficheHtml}${piedSecours}</div>`;
 }
 
 /* Navigation de la boutique : défile jusqu’à la collection, au texte de présentation ou au pied de page. */

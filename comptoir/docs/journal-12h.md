@@ -872,3 +872,11 @@ Constats corrigés :
 - **Tests** : rappel d'une variante, texte et lien de panier avec la variante.
 - **Vérifié dans Chromium**, bureau et mobile : panier « 2 × Café (Moulu) » par lien, case de rappel proposée (21 jours). Aucune erreur.
 - 256 tests sur 256, parcours de bout en bout 57/57.
+
+### Cycle 45 (00 h 50) : « Vus récemment » dans la boutique (chantier 105)
+
+- **Boutique** : les produits ouverts par le visiteur réapparaissent dans une section « Vus récemment », juste avant le pied de page (6 au plus, le plus récent d'abord, sans le produit ouvert, seulement à partir de 2 produits). Les produits retirés de la vente n'y figurent pas.
+- **Vie privée** : comme les favoris, la liste reste dans le navigateur (12 au plus, par boutique). Rien n'est envoyé.
+- **Traductions** : titre traduit en allemand, italien et anglais.
+- **Vérifié dans Chromium**, bureau et mobile : 4 produits ouverts, liste dans le bon ordre, produit ouvert exclu, liste gardée après rechargement. L'audit d'accessibilité de la boutique ne relève rien de nouveau.
+- 256 tests sur 256, parcours de bout en bout 57/57.

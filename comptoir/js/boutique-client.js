@@ -25,6 +25,15 @@ const CLE_PANIER = `comptoir-panier-${slug}`;
 // Favoris : sur cet appareil seulement (rien n'est envoyé à la boutique), 100 au plus.
 const CLE_FAVORIS = `comptoir-favoris-${slug}`;
 const FAVORIS = (() => { try { const v = JSON.parse(localStorage.getItem(CLE_FAVORIS) || '[]'); return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 100) : []); } catch { return new Set(); } })();
+// Vus récemment : sur cet appareil seulement (rien n'est envoyé), 12 au plus.
+const CLE_RECENTS = `comptoir-recents-${slug}`;
+const VUS_RECEMMENT = (() => { try { const v = JSON.parse(localStorage.getItem(CLE_RECENTS) || '[]'); return Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 12) : []; } catch { return []; } })();
+function noterVu(id) {
+  if (!id) return;
+  const i = VUS_RECEMMENT.indexOf(id); if (i >= 0) VUS_RECEMMENT.splice(i, 1);
+  VUS_RECEMMENT.unshift(id); VUS_RECEMMENT.length = Math.min(VUS_RECEMMENT.length, 12);
+  try { localStorage.setItem(CLE_RECENTS, JSON.stringify(VUS_RECEMMENT)); } catch { /* ignoré */ }
+}
 function garderFavoris() { try { localStorage.setItem(CLE_FAVORIS, JSON.stringify([...FAVORIS].slice(-100))); } catch { /* ignoré */ } }
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
@@ -44,7 +53,7 @@ async function demarrer() {
     if (!rep.ok) throw new Error((await rep.json()).erreur || 'Boutique introuvable.');
     donnees = await rep.json();
     const produitPage = (document.querySelector('meta[name="comptoir-produit"]') || {}).content;
-    if (produitPage) { vue.fiche = produitPage; vue.varianteUrl = new URLSearchParams(location.search).get('variante') || ''; }
+    if (produitPage) { vue.fiche = produitPage; vue.varianteUrl = new URLSearchParams(location.search).get('variante') || ''; noterVu(produitPage); }
     else if (location.hash.startsWith('#produit-')) vue.fiche = decodeURIComponent(location.hash.slice(9));   // anciens liens
   } catch (e) {
     $('#app').innerHTML = `<div class="page-erreur"><h1>Boutique introuvable</h1><p>${esc(e.message)}</p></div>`;
@@ -422,7 +431,7 @@ document.addEventListener('click', e => {
       if (typeof annoncer === 'function') annoncer(FAVORIS.has(id) ? 'Ajouté aux favoris.' : 'Retiré des favoris.');
     }
     else if (sf.dataset.sf === 'favoris') { vueVitrine.favoris = !vueVitrine.favoris; rendre(); document.querySelector('[data-sf="favoris"]')?.focus(); }
-    else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
+    else if (sf.dataset.sf === 'fiche') { noterVu(sf.dataset.id); vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
     else if (sf.dataset.sf === 'fermer-fiche') fermerFiche();
     else if (sf.dataset.sf === 'nav') allerSection(document, sf.dataset.v);
     else if (sf.dataset.sf === 'defiler') document.getElementById('sf-collection')?.scrollIntoView({ behavior: 'smooth' });
