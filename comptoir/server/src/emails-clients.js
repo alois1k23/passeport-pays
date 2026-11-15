@@ -24,7 +24,7 @@ const T = {
     rembourse: n => `Teilrückerstattung für Ihre Bestellung Nr. ${n}`, rembourseCorps: (m, lignes, carte, manuel, avoir) => `Wir haben ${m} erstattet:\n${lignes}${carte ? `\n\nDavon wurden ${carte} Ihrem Geschenkgutschein gutgeschrieben.` : ''}\n\n${manuel ? 'Die Erstattung erfolgt auf dem mit uns vereinbarten Weg (z. B. Banküberweisung).' : 'Der Betrag wird auf Ihr ursprüngliches Zahlungsmittel zurückgebucht; je nach Bank dauert es einige Tage.'} Gutschrift Nr. ${avoir}.`,
     partiel: n => `Ein Teil Ihrer Bestellung Nr. ${n} ist unterwegs`, partielCorps: (t, lignes, suivi) => `Diese Artikel wurden${t ? ` mit ${t}` : ''} versandt:\n${lignes}\nSendungsnummer: ${suivi}\n\nDer Rest Ihrer Bestellung folgt separat; wir melden uns beim Versand.`,
     relance: (s, i) => i === 0 ? `Ihre Bestellung bei ${s} wartet auf Sie` : `Ihr Warenkorb bei ${s} wartet noch auf Sie`, relanceCorps: (n, mt, lien) => `Ihre Bestellung Nr. ${n} (${mt}) wurde nicht abgeschlossen. Ein Problem beim Bezahlen? Hier können Sie sie fortsetzen:\n${lien}`, relanceCode: (r, c) => `\n\nEine kleine Entscheidungshilfe: -${r} % mit dem Code ${c}.`, equipe: s => `Ihr Team von ${s}`,
-    avis: s => `Ihre Meinung zu Ihrer Bestellung bei ${s}`, avisCorps: (p, lien) => `Sie haben ${p} erhalten. Wie gefällt es Ihnen? Ihre Bewertung hilft anderen bei der Wahl und uns beim Besserwerden. Sie dauert 30 Sekunden:\n${lien}`, merciFin: 'Vielen Dank',
+    avis: s => `Ihre Meinung zu Ihrer Bestellung bei ${s}`, avisCorps: (p, lien) => `Sie haben ${p} erhalten. Wie gefällt es Ihnen? Ihre Bewertung hilft anderen bei der Wahl und uns beim Besserwerden. Sie dauert 30 Sekunden:\n${lien}`, merciFin: 'Vielen Dank', precommande: d => `Vorbestellung, Versand voraussichtlich am ${d}`,
     piedContact: 'Kontakt', piedCommande: s => `Sie erhalten diese E-Mail aufgrund Ihrer Bestellung bei ${s}. Um solche Nachrichten nicht mehr zu erhalten`, piedNouvelles: s => `Sie erhalten diese E-Mail, weil Sie Neuigkeiten von ${s} abonniert haben. Zum Abbestellen`,
     legal: 'Rechtliche Hinweise (auf Französisch, massgebende Fassung):', dateLocale: 'de-CH' },
   it: {
@@ -48,7 +48,7 @@ const T = {
     rembourse: n => `Rimborso parziale del tuo ordine n. ${n}`, rembourseCorps: (m, lignes, carte, manuel, avoir) => `Abbiamo rimborsato ${m}:\n${lignes}${carte ? `\n\nDi cui ${carte} riaccreditati sulla tua carta regalo.` : ''}\n\n${manuel ? 'Il rimborso avviene secondo le modalità concordate con noi (ad esempio bonifico).' : 'L’importo torna sul mezzo di pagamento originale; secondo la banca, servono alcuni giorni.'} Nota di credito n. ${avoir}.`,
     partiel: n => `Una parte del tuo ordine n. ${n} è in viaggio`, partielCorps: (t, lignes, suivi) => `Questi articoli sono partiti${t ? ` con ${t}` : ''}:\n${lignes}\nNumero di tracciamento: ${suivi}\n\nIl resto dell’ordine segue separatamente; ti scriveremo alla spedizione.`,
     relance: (s, i) => i === 0 ? `Il tuo ordine presso ${s} ti aspetta` : `Il tuo carrello presso ${s} ti aspetta ancora`, relanceCorps: (n, mt, lien) => `Il tuo ordine n. ${n} (${mt}) non è stato completato. Un problema al momento di pagare? Puoi riprenderlo qui:\n${lien}`, relanceCode: (r, c) => `\n\nPer aiutarti a decidere: -${r} % con il codice ${c}.`, equipe: s => `Il team di ${s}`,
-    avis: s => `La tua opinione sul tuo ordine presso ${s}`, avisCorps: (p, lien) => `Hai ricevuto ${p}. Cosa ne pensi? La tua recensione aiuta altri clienti a scegliere, e noi a migliorare. Bastano 30 secondi:\n${lien}`, merciFin: 'Grazie',
+    avis: s => `La tua opinione sul tuo ordine presso ${s}`, avisCorps: (p, lien) => `Hai ricevuto ${p}. Cosa ne pensi? La tua recensione aiuta altri clienti a scegliere, e noi a migliorare. Bastano 30 secondi:\n${lien}`, merciFin: 'Grazie', precommande: d => `preordine, spedizione prevista il ${d}`,
     piedContact: 'Contatto', piedCommande: s => `Ricevi questa e-mail in seguito al tuo ordine presso ${s}. Per non ricevere più questo tipo di messaggi`, piedNouvelles: s => `Ricevi questa e-mail perché hai accettato le novità di ${s}. Per non riceverle più`,
     legal: 'Informazioni legali (in francese, versione che fa fede):', dateLocale: 'it-CH' },
   en: {
@@ -72,7 +72,7 @@ const T = {
     rembourse: n => `Partial refund for your order no. ${n}`, rembourseCorps: (m, lignes, carte, manuel, avoir) => `We have refunded ${m}:\n${lignes}${carte ? `\n\nOf which ${carte} was credited back to your gift card.` : ''}\n\n${manuel ? 'The refund is made as agreed with us (for example by bank transfer).' : 'The amount goes back to your original payment method; depending on your bank, this takes a few days.'} Credit note no. ${avoir}.`,
     partiel: n => `Part of your order no. ${n} is on its way`, partielCorps: (t, lignes, suivi) => `These items have shipped${t ? ` with ${t}` : ''}:\n${lignes}\nTracking number: ${suivi}\n\nThe rest of your order will follow separately; we will email you when it ships.`,
     relance: (s, i) => i === 0 ? `Your order at ${s} is waiting` : `Your cart at ${s} is still waiting`, relanceCorps: (n, mt, lien) => `Your order no. ${n} (${mt}) was not completed. A problem at checkout? You can pick it up here:\n${lien}`, relanceCode: (r, c) => `\n\nTo help you decide: ${r}% off with the code ${c}.`, equipe: s => `The ${s} team`,
-    avis: s => `Your opinion on your ${s} order`, avisCorps: (p, lien) => `You received ${p}. What do you think? Your review helps other customers choose, and helps us improve. It takes 30 seconds:\n${lien}`, merciFin: 'Thank you',
+    avis: s => `Your opinion on your ${s} order`, avisCorps: (p, lien) => `You received ${p}. What do you think? Your review helps other customers choose, and helps us improve. It takes 30 seconds:\n${lien}`, merciFin: 'Thank you', precommande: d => `pre-order, expected to ship on ${d}`,
     piedContact: 'Contact', piedCommande: s => `You are receiving this email following your order at ${s}. To stop receiving this kind of message`, piedNouvelles: s => `You are receiving this email because you signed up for news from ${s}. To unsubscribe`,
     legal: 'Legal information (in French, the prevailing version):', dateLocale: 'en-GB' }
 };
@@ -80,7 +80,7 @@ const langueDe = c => (c && typeof c.langue === 'string' && Object.hasOwn(T, c.l
 
 function recapitulatif(t, c, { formatMontant, nomLivraison }) {
   return [
-    ...c.lignes.map(l => `- ${l.qte} × ${l.nom} : ${formatMontant(l.prix * l.qte)}`),
+    ...c.lignes.map(l => `- ${l.qte} × ${l.nom}${l.precommande ? ` (${t.precommande(l.precommande.split('-').reverse().join('.'))})` : ''} : ${formatMontant(l.prix * l.qte)}`),
     ...(c.remise ? [`  ${t.remise(c.motifRemise, formatMontant(c.remise))}`] : []),
     c.livraison === 'retrait' ? `- ${t.retraitGratuit}` : `- ${t.livraison} (${nomLivraison}) : ${c.port ? formatMontant(c.port) : t.offerte}`,
     `${t.totalPaye} : ${formatMontant(c.total)}`,

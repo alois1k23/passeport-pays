@@ -89,21 +89,20 @@ Shopify, Wix ou WooCommerce vendent des fichiers à télécharger (livres, musiq
   - le stock reste un plafond facultatif (édition limitée) ;
   - un produit numérique sans fichier n'est pas mis en vente ;
   - dans une commande, « Renvoyer de nouveaux liens » révoque les anciens et en envoie de nouveaux.
-- **Envoi du fichier** : en morceaux d'1 Mo, si bien que la limite de 2 Mo par requête reste la même partout et qu'aucun gros corps n'est lu avant l'authentification. L'empreinte SHA-256 est calculée dans le navigateur et contrôlée par le serveur à la fin : un fichier tronqué, mélangé ou altéré n'est jamais enregistré. Les envois abandonnés sont effacés après une heure.
+- **Envoi du fichier** : en morceaux d'1 Mo, si bien que la limite de 2 Mo par requête reste la même partout (le serveur lit toujours jusqu'à 2 Mo avant d'authentifier, comme avant ce chantier). L'empreinte SHA-256 est calculée dans le navigateur et contrôlée par le serveur à la fin : un fichier tronqué, mélangé ou altéré n'est jamais enregistré. Les envois abandonnés sont effacés après une heure.
 - **Côté client** :
   - un panier entièrement numérique remplace le choix de livraison par « envoi par e-mail », sans adresse ni frais de port ;
   - une case obligatoire fait accepter la livraison immédiate et la perte du droit de rétractation (directive 2011/83 art. 16 m ; Code de la consommation L221-28 13° ; CDE VI.53 13°), et sa date est gardée avec la commande ;
   - après le paiement, la page de confirmation l'annonce et l'e-mail contient les liens.
 - **Liens de téléchargement** :
   - un par fichier, personnel, valable 30 jours et 5 téléchargements, décompté de façon atomique ;
-  - seule l'empreinte du jeton est gardée en base ;
+  - seule l'empreinte du jeton est gardée dans la table des liens, et le lien est masqué dans le journal des e-mails dès l'envoi (voir la relecture) ;
   - une commande remboursée ou annulée ne télécharge plus rien ;
   - le fichier part toujours en pièce jointe (`application/octet-stream`, `Content-Disposition: attachment` avec nom nettoyé, CSP `sandbox`, pas de cache), si bien qu'un PDF ou un SVG piégé ne s'exécute jamais sur le domaine de Comptoir ;
   - limite de 60 téléchargements par heure et par réseau.
 - **Commande entièrement numérique** : marquée livrée dès l'envoi des liens. Une commande mixte suit le chemin habituel ; ses fichiers partent tout de suite.
 - **Limites, notées** :
   - l'e-mail des liens est en français seulement (pas encore dans la langue du client) ;
-  - le lien en clair reste dans le journal des e-mails jusqu'à l'effacement de leur contenu (7 jours, chantier 61) ;
   - une vente à la caisse n'envoie pas de lien ;
   - la TVA des services numériques vendus à des particuliers de l'UE (taux du pays du client, guichet OSS) n'est pas encore calculée : le taux de la boutique s'applique.
 - **Tests** :
@@ -119,4 +118,16 @@ Shopify, Wix ou WooCommerce vendent des fichiers à télécharger (livres, musiq
   - un produit sans fichier restait en vente ;
   - la barre « livraison offerte » s'affichait pour un panier numérique.
 - 239 tests sur 239, parcours de bout en bout 57/57.
+- **Relecture indépendante** : rien de critique. Tiennent l'autorisation (le rôle « Commandes » ne peut ni envoyer, ni retirer, ni renvoyer), l'isolement entre boutiques, le calcul du panier (le caractère numérique vient du produit en base, jamais du client), le consentement exigé par le serveur, les en-têtes du téléchargement et les factures sans adresse. Constats corrigés :
+  - **Moyen : quota contournable.** Il n'était vérifié qu'au début d'un envoi : 60 envois commencés ensemble pouvaient stocker 1,5 Go par heure. Les envois en cours comptent maintenant, et le quota est revérifié à la fin.
+  - **Moyen : lien de téléchargement lisible dans le journal des e-mails.** Il restait en clair dans le contenu gardé et dans la liste des e-mails de l'espace marchand. Le masquage s'applique désormais à ces liens. Il couvrait en outre mal, depuis le chantier 62, les liens de changement d'adresse, d'annulation et de vérification d'e-mail : corrigé aussi (testé).
+  - **Moyen : une requête HEAD consommait un téléchargement.** C'est ce que font les aperçus de lien et certains antivirus de messagerie. HEAD répond désormais sans rien décompter (testé). Un antivirus qui fait un vrai GET consomme encore un essai, et un téléchargement interrompu aussi : d'où les 5 essais et le renvoi par le marchand.
+  - **Moyen : fichiers jamais effacés.** La suppression d'un compte efface maintenant ses fichiers, liens et envois. Le fichier d'un produit supprimé est retirable, et effacé automatiquement quand plus aucun lien payé n'est valable.
+  - **Bas** :
+    - une ligne numérique ne peut plus faire l'objet d'une demande de retour (rétractation renoncée) ;
+    - si le fichier a été retiré entre la commande et le paiement, la commande le note et le marchand reçoit une alerte, au lieu d'un échec silencieux ;
+    - le bouton de renvoi n'est plus affiché au rôle « Commandes » ;
+    - retirer le fichier d'un produit d'une autre boutique répond 404.
+- **Défaut découvert par le parcours de bout en bout** (en préparant le chantier 72) : une fonction de la boutique portait le même nom qu'une fonction de l'espace marchand. Les deux fichiers se chargent ensemble, et le second plantait au chargement. Renommée ; le parcours repasse.
+- Après corrections : 240 tests sur 240, parcours de bout en bout 57/57, simulation de 100 marchands sur 60 jours sans anomalie (9 053 commandes).
 

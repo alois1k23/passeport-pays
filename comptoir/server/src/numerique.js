@@ -29,7 +29,8 @@ function creerNumerique({ db, erreur }) {
     CREATE INDEX IF NOT EXISTS telechargements_commande ON telechargements(commande_id);`);
 
   const fichierDe = pid => db.prepare('SELECT nom, type, taille, empreinte, cree_le FROM fichiers_numeriques WHERE produit_id = ?').get(pid) || null;
-  const stockage = bid => db.prepare('SELECT COALESCE(SUM(taille), 0) n FROM fichiers_numeriques WHERE boutique_id = ?').get(bid).n;
+  // Espace utilisé : fichiers enregistrés et envois en cours (sinon 60 envois commencés ensemble dépasseraient le quota).
+  const stockage = (bid, sauf = null) => db.prepare('SELECT COALESCE(SUM(taille), 0) n FROM fichiers_numeriques WHERE boutique_id = ?').get(bid).n + db.prepare('SELECT COALESCE(SUM(taille), 0) n FROM envois_fichiers WHERE boutique_id = ? AND id IS NOT ?').get(bid, sauf).n;
 
   function commencer(bid, pid, { nom, taille, empreinte }) {
     const f = nomSur(nom);
@@ -64,8 +65,10 @@ function creerNumerique({ db, erreur }) {
     const parts = db.prepare('SELECT rang, donnees FROM envois_morceaux WHERE envoi_id = ? ORDER BY rang').all(e.id);
     if (parts.length !== e.morceaux || parts.some((p, i) => p.rang !== i)) throw erreur(409, 'Fichier incomplet : recommencez l’envoi.', 'fichier_incomplet');
     const b = Buffer.concat(parts.map(p => Buffer.from(p.donnees)));
+    const actuel = fichierDe(pid), ailleurs = stockage(bid, e.id) - (actuel ? actuel.taille : 0);
     db.prepare('DELETE FROM envois_morceaux WHERE envoi_id = ?').run(e.id); db.prepare('DELETE FROM envois_fichiers WHERE id = ?').run(e.id);
     if (b.length !== e.taille || sha256(b) !== e.empreinte) throw erreur(409, 'Le fichier reçu ne correspond pas à l’original (empreinte différente) : recommencez l’envoi.', 'fichier_empreinte');
+    if (ailleurs + b.length > STOCKAGE_BOUTIQUE) throw erreur(409, 'Espace des fichiers numériques plein (200 Mo par boutique) : retirez un fichier inutilisé.', 'fichier_stockage');
     db.prepare('INSERT OR REPLACE INTO fichiers_numeriques (produit_id, boutique_id, nom, type, taille, empreinte, donnees, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(pid, bid, e.nom, e.type, e.taille, e.empreinte, b, Date.now());
     return fichierDe(pid);
   }
@@ -87,14 +90,15 @@ function creerNumerique({ db, erreur }) {
   const revoquerLiens = commandeId => db.prepare('DELETE FROM telechargements WHERE commande_id = ?').run(commandeId).changes;
 
   /* Téléchargement : un essai de moins, de façon atomique ; la commande doit être payée (ni remboursée, ni annulée). */
-  function telecharger(jeton, commandePermise) {
+  function telecharger(jeton, commandePermise, { essai = false } = {}) {
     const h = sha256(String(jeton || ''));
     const t = db.prepare('SELECT * FROM telechargements WHERE jeton_hash = ?').get(h);
     if (!t || t.expire_le < Date.now()) throw erreur(404, 'Ce lien de téléchargement a expiré. Demandez un nouveau lien à la boutique.', 'lien_expire');
     if (!commandePermise(t.commande_id)) throw erreur(410, 'Cette commande a été remboursée ou annulée : le téléchargement n’est plus possible.', 'commande_close');
     const f = db.prepare('SELECT nom, type, donnees FROM fichiers_numeriques WHERE produit_id = ? AND boutique_id = ?').get(t.produit_id, t.boutique_id);
     if (!f) throw erreur(404, 'Le fichier n’est plus disponible : contactez la boutique.', 'fichier_absent');
-    if (!db.prepare('UPDATE telechargements SET restants = restants - 1, utilises = utilises + 1 WHERE jeton_hash = ? AND restants > 0 AND expire_le > ? RETURNING restants').get(h, Date.now()))
+    if (essai) return { nom: f.nom, donnees: Buffer.alloc(0) };   // HEAD (aperçu de lien, antivirus de messagerie) : rien de décompté
+    if (t.restants <= 0 || !db.prepare('UPDATE telechargements SET restants = restants - 1, utilises = utilises + 1 WHERE jeton_hash = ? AND restants > 0 AND expire_le > ? RETURNING restants').get(h, Date.now()))
       throw erreur(429, `Ce lien a déjà servi ${TELECHARGEMENTS} fois. Demandez un nouveau lien à la boutique.`, 'lien_epuise');
     return { nom: f.nom, donnees: Buffer.from(f.donnees) };
   }
@@ -103,7 +107,8 @@ function creerNumerique({ db, erreur }) {
     for (const e of db.prepare('SELECT id FROM envois_fichiers WHERE cree_le < ?').all(maintenant - 3600000)) { db.prepare('DELETE FROM envois_morceaux WHERE envoi_id = ?').run(e.id); db.prepare('DELETE FROM envois_fichiers WHERE id = ?').run(e.id); }
     db.prepare('DELETE FROM telechargements WHERE expire_le < ?').run(maintenant - DUREE_LIEN);
   }
-  return { fichierDe, commencer, morceau, terminer, retirer, creerLiens, etatLiens, revoquerLiens, telecharger, menage, TAILLE_MAX, TELECHARGEMENTS, DUREE_LIEN };
+  const toutSupprimer = bid => { for (const t of ['fichiers_numeriques', 'telechargements', 'envois_fichiers']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(bid); db.prepare('DELETE FROM envois_morceaux WHERE envoi_id NOT IN (SELECT id FROM envois_fichiers)').run(); };
+  return { toutSupprimer, fichierDe, commencer, morceau, terminer, retirer, creerLiens, etatLiens, revoquerLiens, telecharger, menage, TAILLE_MAX, TELECHARGEMENTS, DUREE_LIEN };
 }
 
 /* En-tête Content-Disposition : pièce jointe, nom ASCII de repli et nom UTF-8 encodé (RFC 6266 / 5987). */

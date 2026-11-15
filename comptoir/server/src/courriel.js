@@ -68,7 +68,8 @@ const masquerAdresses = texte => {
   return t.replace(/"[^"]*"@|[^\s<>"'(),=?&/]+@/gu, m => `${m.startsWith('"') ? '"' : m[0]}•••@`);
 };
 const masquerSecrets = texte => String(texte || '')
-  .replace(/([?&](?:reinitialiser|invitation|verifier|jeton|j|reprendre|code|cle)=)[^\s&"'<>]+/g, '$1…')
+  .replace(/([?&](?:reinitialiser|invitation|verifier|verifier-email|changer-email|annuler-email|jeton|j|reprendre|code|cle)=)[^\s&"'<>]+/g, '$1…')
+  .replace(/(\/telecharger\/)[\w-]+/g, '$1…')   // liens de téléchargement (produits numériques)
   .replace(/\b[0-9A-HJKMNP-TV-Z]{4}(?:-[0-9A-HJKMNP-TV-Z]{4}){3}\b/g, '••••-••••-••••-••••')
   .replace(/((?:code|Code|codice|Codice)[^\n]{0,80}?:\s*)\d{6}\b/g, '$1••••••');
 async function envoyerFile(db, p, { lot = 20, journal = console } = {}) {

@@ -616,10 +616,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return `\n\nDroit de rétractation : vous disposez de 14 jours à compter de la réception pour vous rétracter, sans avoir à vous justifier (${article}). Il suffit de nous le dire, par exemple en répondant à cet e-mail ; le remboursement intervient au plus tard 14 jours après votre demande. Conditions générales de vente : ${urlBoutique(bq)} (bas de page).\n\nFormulaire de rétractation (à compléter et renvoyer si vous le souhaitez) :\nÀ l’attention de ${vendeur} :\nJe vous notifie par la présente ma rétractation du contrat portant sur la vente du bien ci-dessous : commande n° ${c.numero}, commandée le ${new Date(c.date).toLocaleDateString('fr-FR')}, reçue le : ....\nNom : ${c.client.nom}\nAdresse : ....\nDate et signature : ....`;
   };
   const recapitulatif = (c, config) => [
-    ...c.lignes.map(l => `- ${l.qte} × ${l.nom} : ${formatMontant(l.prix * l.qte, config)}`),
+    ...c.lignes.map(l => `- ${l.qte} × ${l.nom}${l.precommande ? ` (précommande, expédition prévue le ${l.precommande.split('-').reverse().join('.')})` : ''} : ${formatMontant(l.prix * l.qte, config)}`),
     // Les prix des articles sont déjà remisés : la remise est indiquée pour information, pas soustraite une seconde fois.
     ...(c.remise ? [`  (prix après remise${c.motifRemise ? ` : ${c.motifRemise}` : ''}, soit ${formatMontant(c.remise, config)} d’économie)`] : []),
-    c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : c.livraison === 'carte' ? 'envoi par e-mail' : c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
+    c.livraison === 'retrait' ? '- Retrait en boutique : gratuit' : `- Livraison (${(prix.modesLivraison(config)[c.livraison] || { nom: c.livraison === 'devis' ? 'selon le devis' : ['carte', 'numerique'].includes(c.livraison) ? 'envoi par e-mail' : c.livraison }).nom}) : ${c.port ? formatMontant(c.port, config) : 'offerte'}`,
     `Total payé : ${formatMontant(c.total, config)}`,
     ...(c.fidelite && c.fidelite.gagnes ? [`Points de fidélité gagnés : ${c.fidelite.gagnes}`] : []),
     ...(c.carteCadeau && c.carteCadeau.montant ? [`  dont ${formatMontant(c.carteCadeau.montant, config)} par carte cadeau ····${c.carteCadeau.fin}, reste ${formatMontant(Math.max(0, c.total - c.carteCadeau.montant), config)}`] : [])
@@ -725,6 +725,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Référence d'origine d'un produit importé (Shopify, WooCommerce…) : un nouvel import du même fichier ne le recrée pas.
     // Produit numérique (fichier livré par e-mail après paiement) : pas de livraison ; le stock sert de plafond (édition limitée).
     if (type === 'stock' && p.numerique === true) propre.numerique = true;
+    // Précommande : article pas encore disponible (sortie, réassort), vendu avec une date d'expédition annoncée (de demain à
+    // un an). Le stock fixe combien d'exemplaires peuvent être précommandés.
+    if (type === 'stock' && !propre.numerique && p.precommande === true) {
+      const d = Date.parse(String(p.expeditionPrevue || ''));
+      if (!Number.isFinite(d)) throw erreur(400, 'Précommande : indiquez la date d’expédition prévue.', 'precommande_date');
+      const jour = new Date(d); jour.setUTCHours(12, 0, 0, 0);
+      if (jour.getTime() < Date.now() || jour.getTime() > Date.now() + 366 * 86400000) throw erreur(400, 'Précommande : la date d’expédition doit être dans l’année qui vient.', 'precommande_date');
+      propre.precommande = true; propre.expeditionPrevue = jour.toISOString().slice(0, 10);
+    }
     if (typeof p.refImport === 'string' && p.refImport) propre.refImport = p.refImport.replace(/[\u0000-\u001f]/g, '').slice(0, 80);
     if (p.cout !== undefined && p.cout !== null && p.cout !== '') propre.cout = prix.arrondi(valider.nombre(p.cout, 'Le coût', { min: 0, max: 100000 }));
     if (p.image === '#image') propre.image = '#image';   // photo déjà rangée dans images_produits, inchangée
@@ -946,6 +955,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Produits numériques : liens personnels créés au paiement, envoyés par e-mail (jetons jamais gardés en clair).
     // Commande entièrement numérique : livrée dès l'envoi des liens.
     const liens = c.lignes.some(l => l.numerique) ? NUM.creerLiens(row.boutique_id, c) : [];
+    if (c.lignes.some(l => l.numerique) && !liens.length) { c.alerteNumerique = true; historique(c, 'Produit numérique sans fichier au moment du paiement : aucun lien envoyé. Ajoutez le fichier puis renvoyez les liens.'); }
     if (liens.length) {
       historique(c, `Liens de téléchargement envoyés au client (${liens.length} fichier${liens.length > 1 ? 's' : ''}, ${NUM.TELECHARGEMENTS} téléchargements, 30 jours)`);
       if (c.lignes.every(l => l.numerique)) { c.statut = 'livree'; c.livreeLe = Date.now(); }
@@ -962,6 +972,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
     if (res.liens && res.liens.length) envoyerLiens(res.boutique, res.c, res.liens, config);
+    if (res.c.alerteNumerique) { const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id); if (mch) envoyerEmail(null, mch.email, `Action requise : commande n° ${res.c.numero} sans fichier à télécharger`, `Bonjour,\n\nLa commande n° ${res.c.numero} contient un produit numérique, mais aucun fichier n’était attaché au moment du paiement : le client n’a reçu aucun lien.\n\nAjoutez le fichier dans la fiche produit, puis « Renvoyer de nouveaux liens » depuis la commande.\n${urlPublique}/app#commandes\n\nL’équipe Comptoir`); }
     // Carte cadeau vendue : le client a reçu sa carte (ou son avis d'envoi) ; le marchand est simplement informé.
     if (res.c.canal === 'carte') {
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
@@ -2204,6 +2215,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     transaction(db, () => {
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
         db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE boutique_id = ?)').run(b.id);
+        NUM.toutSupprimer(b.id);   // fichiers des produits numériques, liens, envois
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails', 'comptes_stripe']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
@@ -2492,7 +2504,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     noterActivite(ctx.marchand.id, 'fichier-numerique', `${f.nom} (${Math.round(f.taille / 1024)} Ko)`, ctx);
     return { fichier: f };
   });
-  r.delete('/api/admin/produits/:id/fichier', exigerMarchand, ctx => ({ ok: NUM.retirer(ctx.boutique.id, produitNumerique(ctx)) }));
+  r.delete('/api/admin/produits/:id/fichier', exigerMarchand, ctx => { if (!NUM.retirer(ctx.boutique.id, String(ctx.params.id))) throw erreur(404, 'Fichier introuvable.', 'introuvable'); return { ok: true }; });   // aussi pour un produit supprimé
   // Liens d'une commande : état (téléchargements restants), et renvoi (anciens liens révoqués, nouveaux envoyés au client).
   r.get('/api/admin/commandes/:id/telechargements', exigerMarchand, ctx => { const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id); return { liens: NUM.etatLiens(c.id) }; });
   r.post('/api/admin/commandes/:id/telechargements', exigerMarchand, ctx => {
@@ -2508,7 +2520,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.get('/telecharger/:jeton', ctx => {
     auth.limiter('telechargement:' + reseauIp(ctx.ip), 60 * facteurLimites, 3600000, 'Trop de téléchargements depuis votre réseau : réessayez dans une heure.');
     const permise = cid => { const row = db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cid); return !!row && ['payee', 'preparation', 'expediee', 'livree'].includes(row.statut); };
-    const f = NUM.telecharger(ctx.params.jeton, permise);
+    const f = NUM.telecharger(ctx.params.jeton, permise, { essai: ctx.methodeOrigine === 'HEAD' });
     // Toujours en pièce jointe, jamais affiché sur le domaine de Comptoir (un PDF ou un SVG piégé n'y exécuterait rien).
     ctx.entetes['Content-Disposition'] = dispositionPieceJointe(f.nom);
     ctx.entetes['Cache-Control'] = 'private, no-store';
@@ -4401,6 +4413,8 @@ ${bloc}</main></body></html>`;
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
     db.prepare('DELETE FROM signaux_securite WHERE date < ?').run(maintenant - 90 * 86400000);   // signaux d'attaque : 90 jours
     NUM.menage(maintenant);   // envois de fichiers abandonnés, liens expirés
+    // Fichier d'un produit supprimé : gardé tant qu'un lien payé peut encore servir, puis effacé.
+    db.prepare('DELETE FROM fichiers_numeriques WHERE produit_id IN (SELECT id FROM produits WHERE supprime = 1) AND produit_id NOT IN (SELECT produit_id FROM telechargements WHERE expire_le > ?)').run(maintenant);
     db.prepare('DELETE FROM cles_api_reseaux WHERE cle_id NOT IN (SELECT id FROM cles_api WHERE revoquee = 0) OR dernier_le < ?').run(maintenant - 365 * 86400000);
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
     /* E-mails : le contenu (nom, adresse et commande des clients, en clair le temps de l'envoi) n'est gardé que le temps
@@ -4566,7 +4580,8 @@ ${bloc}</main></body></html>`;
     if (delaiRetour(b, c) <= Date.now()) throw erreur(409, 'Le délai de retour de cette commande est dépassé.', 'retour_hors_delai');
     const voulus = Array.isArray(ctx.corps.lignes) ? ctx.corps.lignes : [];
     // Chaque ligne repérée par sa position (deux tailles du même produit sont deux lignes distinctes)
-    const lignes = c.lignes.map((l, i) => { const v = voulus.find(x => x && Number(x.ligne) === i); const q = v ? Math.max(0, Math.min(l.qte - dejaRendus[i], parseInt(v.qte, 10) || 0)) : 0; return q ? { ligne: i, produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: q, prix: l.prix } : null; }).filter(Boolean);
+    const lignes = c.lignes.map((l, i) => { if (l.numerique) return null;   // contenu numérique livré : pas de retour (rétractation renoncée)
+      const v = voulus.find(x => x && Number(x.ligne) === i); const q = v ? Math.max(0, Math.min(l.qte - dejaRendus[i], parseInt(v.qte, 10) || 0)) : 0; return q ? { ligne: i, produitId: l.produitId, ...(l.varianteId ? { varianteId: l.varianteId } : {}), nom: l.nom, qte: q, prix: l.prix } : null; }).filter(Boolean);
     if (!lignes.length) throw erreur(400, 'Choisissez au moins un article à retourner.', 'retour_vide');
     const motif = String(ctx.corps.motif || '').trim().slice(0, 500);
     c.retour = { date: Date.now(), lignes, motif, statut: 'demande', montant: prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0)) };
@@ -5033,6 +5048,7 @@ ${FEUILLE_4}</head>
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     if (securise) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     // HEAD : même réponse que GET, sans corps (Node l'omet de lui-même ; la réponse a déjà noté la méthode d'origine).
+    const methodeOrigine = req.method;
     if (req.method === 'HEAD') req.method = 'GET';
     // Adresse impossible à lire (« // », « //:x ») : 400, et surtout pas une exception hors du try (le processus tomberait).
     let url;
@@ -5075,7 +5091,7 @@ ${FEUILLE_4}</head>
         }
         throw erreur(404, 'Page introuvable.', 'introuvable');
       }
-      const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: reseauIp(ipClient(req)), ipBrute: ipClient(req), corps: {}, corpsBrut: '' };
+      const ctx = { req, res, params: route.params, query: url.searchParams, cookies: lireCookies(req), entetes: {}, ip: reseauIp(ipClient(req)), ipBrute: ipClient(req), methodeOrigine, corps: {}, corpsBrut: '' };
       entetesRequete = ctx.entetes;   // cookie de session renouvelé : envoyé même avec une réponse d'erreur
       // HTTPS : seule la session « __Host- » compte ; un cookie de session sans préfixe (posé par un sous-domaine, en HTTP) est ignoré.
       if (securise) { const h = ctx.cookies[`__Host-${auth.COOKIE}`]; delete ctx.cookies[auth.COOKIE]; if (h) ctx.cookies[auth.COOKIE] = h; }

@@ -1,5 +1,8 @@
 /* Comptoir — rendu de la boutique du marchand (aperçu de l’éditeur et boutique en ligne). */
 
+/* Précommande : article vendu avant sa disponibilité, avec une date d'expédition annoncée (encore à venir). */
+function enPrecommande(p) { return !!(p && p.precommande && String(p.expeditionPrevue || '') >= new Date().toISOString().slice(0, 10)); }
+const dateIsoCourte = iso => String(iso || '').split('-').reverse().join('.');
 function esc(t) {
   return String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -162,8 +165,8 @@ function renduSection(s, etat, mode) {
           <article class="sf-carte">
             <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>
             <div class="sf-carte-infos"><h3 data-sans-traduction><button type="button" class="sf-titre-lien" data-sf="fiche" data-id="${esc(x.id)}">${esc(x.nom)}</button></h3><span>${prixBarreAffiche(x, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(x, etat))}</s> ` : ''}${(pv => pv.length && Math.min(...pv) !== Math.max(...pv) ? `dès ${euros(Math.min(...pv))}` : euros(pv.length ? pv[0] : x.prix))(Array.isArray(x.variantes) ? x.variantes.map(v => typeof v.prix === 'number' ? v.prix : x.prix) : [])}</span></div>
-            ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}<small class="sf-delai">${esc(fenetreLivraison(delaiProduit(x)))}</small>
-            ${Array.isArray(x.variantes) && x.variantes.length ? `<button class="sf-btn sf-btn-ligne" data-sf="fiche" data-id="${esc(x.id)}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Choisir'}</button>` : `<button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Ajouter au panier'}</button>`}
+            ${x.avis && x.avis.n ? `<small class="sf-note" aria-label="Note ${x.avis.moyenne.toFixed(1)} sur 5">★ ${x.avis.moyenne.toFixed(1).replace('.', ',')} · ${x.avis.n} avis vérifiés</small>` : ''}${enPrecommande(x) ? `<small class="sf-delai sf-precommande">Précommande · expédition prévue le ${esc(dateIsoCourte(x.expeditionPrevue))}</small>` : ''}<small class="sf-delai"${enPrecommande(x) ? ' hidden' : ''}>${esc(fenetreLivraison(delaiProduit(x)))}</small>
+            ${Array.isArray(x.variantes) && x.variantes.length ? `<button class="sf-btn sf-btn-ligne" data-sf="fiche" data-id="${esc(x.id)}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? 'Épuisé' : 'Choisir'}</button>` : `<button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${x.id}" ${x.stock <= 0 ? 'disabled' : ''}>${x.stock <= 0 ? (enPrecommande(x) ? 'Précommandes complètes' : 'Épuisé') : enPrecommande(x) ? 'Précommander' : 'Ajouter au panier'}</button>`}
           </article>`).join('') || (q ? `<p class="sf-vide">Aucun produit ne correspond à « ${esc(q)} ».</p>` : prods.length ? '<p class="sf-vide">Aucun produit dans cette catégorie.</p>' : '<p class="sf-vide">Nos produits arrivent très bientôt.</p>')}
         </div>${mode !== 'edition' && !q && dispo.length > (Number(p.nombre) || 4) ? `<p class="sf-tout"><button type="button" class="sf-btn" data-sf="tout-voir" data-id="${esc(s.id)}">${tout ? 'Voir moins' : `Voir tous les produits (${dispo.length})`}</button></p>` : ''}</section>`;
     }
@@ -224,7 +227,7 @@ function renduFiche(etat, p, qte = 1) {
       ${prixBarreAffiche(p, etat) ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
       ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
       ${p.description ? `<p class="sf-fiche-desc" data-sans-traduction>${esc(p.description)}</p>` : ''}
-      <p class="sf-fiche-delai">${esc(fenetreLivraison(delaiProduit(p)))}</p>
+      <p class="sf-fiche-delai">${enPrecommande(p) ? `<strong>Précommande</strong> : expédition prévue le ${esc(dateIsoCourte(p.expeditionPrevue))}. Vous payez maintenant ; votre commande part dès que l’article arrive.` : esc(fenetreLivraison(delaiProduit(p)))}</p>
       ${(() => {
         // Pays d'expédition (les CGV y renvoient) et, hors du pays du client, frais d'importation possibles.
         if (p.type !== 'drop' || !p.entrepot) return '';
@@ -238,7 +241,7 @@ function renduFiche(etat, p, qte = 1) {
       }).join('')}</div>` : ''}
       <div class="sf-fiche-achat">
         <label class="sf-qte"><span>Quantité</span><select data-sf-qte aria-label="Quantité">${Array.from({ length: max }, (_, i) => `<option ${i + 1 === qte ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
-        <button class="sf-btn" data-sf="ajouter" data-id="${esc(p.id)}" ${epuise ? 'disabled' : ''}>${epuise ? 'Épuisé' : 'Ajouter au panier'}</button>
+        <button class="sf-btn" data-sf="ajouter" data-id="${esc(p.id)}" ${epuise ? 'disabled' : ''}>${epuise ? (enPrecommande(p) ? 'Précommandes complètes' : 'Épuisé') : enPrecommande(p) ? 'Précommander' : 'Ajouter au panier'}</button>
       </div>
       ${p.type !== 'drop' ? `<form class="sf-alerte" data-alerte-stock="${esc(p.id)}" ${epuise ? '' : 'hidden'}><p><strong>Épuisé pour l’instant.</strong> Laissez votre e-mail : nous vous écrivons une seule fois, dès le retour en stock.</p><div class="sf-alerte-ligne"><input type="email" name="email" required placeholder="Votre e-mail" aria-label="Votre e-mail" autocomplete="email"><button class="sf-btn">Prévenez-moi</button></div></form>` : ''}
       ${reassurance.length ? `<ul class="sf-fiche-plus">${reassurance.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}

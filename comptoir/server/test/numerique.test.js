@@ -63,6 +63,11 @@ test('produit numérique de bout en bout', async () => {
     const mail = db.prepare("SELECT corps FROM emails WHERE sujet LIKE 'Vos téléchargements%'").get();
     const lien = mail.corps.match(/\/telecharger\/([\w-]+)/)[1];
     assert.ok(!db.prepare('SELECT 1 FROM telechargements WHERE jeton_hash = ?').get(lien), 'jeton jamais gardé en clair');
+    // HEAD (aperçu de lien, antivirus de messagerie) : réponse sans décompter un téléchargement.
+    assert.equal((await fetch(`${base}/telecharger/${lien}`, { method: 'HEAD' })).status, 200);
+    assert.equal(db.prepare('SELECT restants FROM telechargements').get().restants, 5);
+    // Lien masqué dans le journal des e-mails une fois envoyé.
+    assert.equal(require('../src/courriel').masquerSecrets(mail.corps).includes(lien), false);
     const t = await fetch(`${base}/telecharger/${lien}`);
     assert.equal(t.status, 200);
     assert.match(t.headers.get('content-disposition'), /^attachment; filename="Guide Lausanne.pdf"/);

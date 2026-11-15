@@ -80,7 +80,7 @@ function construireLignes(produits, demandes, { qteMax = 20, verifierStock = tru
     const offre = typeof d.offre === 'string' ? d.offre.slice(0, 20) : undefined;
     const ex = !offre && lignes.find(l => l.produitId === p.id && !l.offre && (l.varianteId || null) === (v ? v.id : null));
     const prixLigne = v && typeof v.prix === 'number' ? v.prix : p.prix;
-    if (ex) ex.qte += qte; else lignes.push({ tauxReduit: !!p.tauxReduit, produitId: p.id, ...(v ? { varianteId: v.id } : {}), nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, prix: Math.round(prixLigne * 100) / 100, qte, type: p.type || 'stock', ...(p.numerique ? { numerique: true } : {}), source: p.source || null, fournisseur: p.fournisseur || null, ...(offre ? { offre } : {}) });
+    if (ex) ex.qte += qte; else lignes.push({ tauxReduit: !!p.tauxReduit, produitId: p.id, ...(v ? { varianteId: v.id } : {}), nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, prix: Math.round(prixLigne * 100) / 100, qte, type: p.type || 'stock', ...(p.numerique ? { numerique: true } : {}), ...(p.precommande && p.expeditionPrevue >= new Date().toISOString().slice(0, 10) ? { precommande: p.expeditionPrevue } : {}), source: p.source || null, fournisseur: p.fournisseur || null, ...(offre ? { offre } : {}) });
   }
   // Contrôle par variante (plusieurs lignes de la même variante, offres comprises)
   const parVariante = {};
