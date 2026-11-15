@@ -184,6 +184,8 @@ function rendreBrut() {
   // Précommande dans le panier : date d'expédition la plus tardive (la commande part en une fois).
   const datePre = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && enPrecommande(p)).map(p => p.expeditionPrevue).sort().pop() || null;
   const retrait = vue.livraison === 'retrait';
+  // Rappel de réassort : délai le plus court parmi les produits du panier qui le proposent (case jamais cochée d'office).
+  const joursReassort = vue.panier.map(l => !l.varianteId && donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.reassortJours).map(p => p.reassortJours).sort((a, b) => a - b)[0] || null;
   const th = donnees.boutique.theme;
   let cookies = null;
   try { cookies = localStorage.getItem('comptoir-cookies'); } catch { /* ignoré */ }
@@ -222,6 +224,7 @@ function rendreBrut() {
             <div class="deux"><label class="champ"><span>${ch ? 'NPA' : 'Code postal'}</span><input name="npa" required inputmode="numeric" autocomplete="postal-code" ${ch ? 'pattern="[0-9]{4}" maxlength="4"' : ''}></label>`}
             ${numerique ? '' : `<label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}`}
             ${avecNumerique() ? `<label class="case-sf"><input type="checkbox" name="consentementNumerique" required> J’accepte que le fichier me soit envoyé dès le paiement, et je reconnais perdre ainsi mon droit de rétractation pour ce contenu numérique.</label>` : ''}
+            ${joursReassort ? `<label class="case-sf"><input type="checkbox" name="rappelReassort"> Me rappeler par e-mail de recommander dans ${joursReassort} jours, avec mon panier prêt (rien n’est débité ; arrêt en un clic dans l’e-mail).</label>` : ''}
             ${!donnees.factureQr && vue.pro && vue.pro.facture ? `<fieldset class="moyens-sf"><legend>Paiement</legend>
               <label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>
               <label class="case-sf"><input type="radio" name="moyen" value="facture"> Facture QR (compte pro), dans la limite de votre plafond</label></fieldset>` : ''}
@@ -289,7 +292,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: panierNumerique() ? 'numerique' : vue.livraison, pro: vue.pro ? vue.pro.jeton : undefined, consentementNumerique: d.get('consentementNumerique') === 'on', code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: panierNumerique() ? 'numerique' : vue.livraison, pro: vue.pro ? vue.pro.jeton : undefined, consentementNumerique: d.get('consentementNumerique') === 'on', rappelReassort: d.get('rappelReassort') === 'on', code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
         carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code, demande: vue.fid.demande } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();

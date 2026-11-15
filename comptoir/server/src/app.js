@@ -39,6 +39,7 @@ const { choisirPrestataire, etatDepuisCompte, sessionConforme } = require('./pai
 const fournisseurs = require('./fournisseurs');
 const social = require('./social');
 const relances = require('./relances');
+const { creerReassort, joursValides } = require('./reassort');
 const Remises = require('../../js/remises.js');
 const PrixBarres = require('../../js/prix-barres.js');
 const QrFacture = require('../../js/qrfacture.js');
@@ -412,6 +413,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'desinscription'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('desinscription', ?)").run(crypto.randomBytes(32).toString('hex'));
   const cleDesinscription = db.prepare("SELECT valeur FROM cles WHERE nom = 'desinscription'").get().valeur;
   const signerDesinscription = (boutiqueId, email) => crypto.createHmac('sha256', cleDesinscription).update(`${boutiqueId}|${String(email).toLowerCase()}`).digest('base64url').slice(0, 32);
+  const RE = creerReassort({ db, pii: () => PII, signer: t => crypto.createHmac('sha256', cleDesinscription).update(t).digest('base64url').slice(0, 32) });   // rappels de réassort demandés par les clients
   const jetonDesinscription = (boutiqueId, email) => `${Buffer.from(`${boutiqueId}|${String(email).toLowerCase()}`).toString('base64url')}.${signerDesinscription(boutiqueId, email)}`;
   const lireJetonDesinscription = j => {
     const [donnees, sig] = String(j || '').split('.');
@@ -836,6 +838,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         if (type !== 'drop') propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
       }
     }
+    // Rappel de réassort (7 à 180 jours) : produits sans variantes ni fichier, le lien de panier les remplit directement.
+    if (p.reassortJours !== undefined && p.reassortJours !== null && p.reassortJours !== '' && p.reassortJours !== 0) {
+      const j = joursValides(p.reassortJours);
+      if (!j) throw erreur(400, 'Rappel de réassort : de 7 à 180 jours.', 'reassort_jours');
+      if (!propre.numerique && !(Array.isArray(propre.variantes) && propre.variantes.length)) propre.reassortJours = j;
+    }
     if (type === 'drop') Object.assign(propre, { portF: Number(p.portF) || 0, entrepot: ['CH', 'UE', 'CN'].includes(p.entrepot) ? p.entrepot : 'UE', delai: Array.isArray(p.delai) ? p.delai.slice(0, 2).map(Number) : [3, 7], fournisseur: String(p.fournisseur || '').slice(0, 80), source: String(p.source || '').slice(0, 40), codeFournisseur: p.codeFournisseur || 'demo' });
     return propre;
   }
@@ -1054,6 +1062,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
     if (res.liens && res.liens.length) envoyerLiens(res.boutique, res.c, res.liens, config);
+    if (res.c.reassort && res.c.client && res.c.client.email) try { RE.creer(res.boutique.id, { email: res.c.client.email, nom: res.c.client.nom, langue: res.c.langue || null, jours: res.c.reassort.jours, lignes: res.c.reassort.lignes }); } catch (e) { journal.error('[reassort]', e.message); }
     if (res.c.alerteNumerique) { const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id); if (mch) envoyerEmail(null, mch.email, `Action requise : commande n° ${res.c.numero} sans fichier à télécharger`, `Bonjour,\n\nLa commande n° ${res.c.numero} contient un produit numérique, mais aucun fichier n’était attaché au moment du paiement : le client n’a reçu aucun lien.\n\nAjoutez le fichier dans la fiche produit, puis « Renvoyer de nouveaux liens » depuis la commande.\n${urlPublique}/app#commandes\n\nL’équipe Comptoir`); }
     // Carte cadeau vendue : le client a reçu sa carte (ou son avis d'envoi) ; le marchand est simplement informé.
     if (res.c.canal === 'carte') {
@@ -2299,6 +2308,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE boutique_id = ?)').run(b.id);
         NUM.toutSupprimer(b.id);   // fichiers des produits numériques, liens, envois
         PRO.toutSupprimer(b.id);   // clients professionnels, codes, sessions
+        RE.toutSupprimer(b.id);   // rappels de réassort
         ART.toutSupprimer(b.id);   // articles du journal
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails', 'comptes_stripe']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
@@ -3195,7 +3205,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const email = valider.email(ctx.corps.email).toLowerCase();
     const commandes = commandesDuClient(ctx.boutique.id, email);
     const ouvertes = commandes.filter(c => ['attente', 'payee', 'preparation', 'fournisseur', 'prete'].includes(c.statut));
-    if (!ouvertes.length) { const cp = PRO.parEmail(ctx.boutique.id, email); if (cp) PRO.supprimer(ctx.boutique.id, cp.id); }   // compte pro effacé avec le reste
+    if (!ouvertes.length) { const cp = PRO.parEmail(ctx.boutique.id, email); if (cp) PRO.supprimer(ctx.boutique.id, cp.id); RE.supprimerClient(ctx.boutique.id, email); }   // compte pro effacé avec le reste
     if (ouvertes.length) throw erreur(409, `Commande n° ${ouvertes[0].numero} encore en cours : effacez les données une fois qu’elle est expédiée ou annulée (l’adresse sert à la livraison).`, 'commande_en_cours');
     db.exec('PRAGMA secure_delete = ON');   // effacement : les données retirées ne restent pas lisibles dans le fichier
     try {
@@ -3438,6 +3448,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
       if (pro) { c.pro = { id: pro.id, remise: pro.remise }; c.client.entreprise = pro.raison; if (pro.ide) c.client.ide = pro.ide; }   // raison sociale et IDE : avec les données chiffrées du client
       if (avecNumerique) c.consentementNumerique = now;   // preuve du consentement (livraison immédiate, rétractation)
+      // Rappel de réassort demandé (case cochée par le client) : produits qui le proposent, délai le plus court.
+      if (ctx.corps.rappelReassort === true) {
+        const rl = lignes.filter(l => !l.varianteId && (produits.find(p => p.id === l.produitId) || {}).reassortJours);
+        if (rl.length) c.reassort = { jours: Math.min(...rl.map(l => produits.find(p => p.id === l.produitId).reassortJours)), lignes: rl.map(l => ({ produitId: l.produitId, qte: l.qte })), demandeLe: now };
+      }
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
       // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.
       try {
@@ -4775,7 +4790,34 @@ ${bloc}</main></body></html>`;
     }
     return n;
   }
+  /* Rappels de réassort arrivés à échéance : e-mail avec le panier prêt (produits encore en vente) et le lien d'arrêt.
+     Boutique sans abonnement actif, client désinscrit ou plus aucun produit en vente : rien n'est envoyé. */
+  let dernierReassort = 0;
+  function rappelsReassort(maintenant = Date.now()) {
+    if (maintenant - dernierReassort < 3600000) return 0;
+    dernierReassort = maintenant;
+    let n = 0;
+    const cache = new Map();
+    for (const r of RE.dus(maintenant)) {
+      if (!cache.has(r.boutiqueId)) { const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.boutiqueId); cache.set(r.boutiqueId, b && abo.etat(b.marchand_id).actif ? { b, config: lireConfig(b), produits: listerProduits(b.id).filter(vendable) } : null); }
+      const sb = cache.get(r.boutiqueId);
+      if (!sb) { RE.avancer(r.id, maintenant); continue; }
+      if (estDesinscrit(r.boutiqueId, r.email)) { RE.supprimerId(r.id); continue; }
+      const dispo = r.lignes.map(l => ({ l, p: sb.produits.find(p => p.id === l.produitId) })).filter(x => x.p && x.p.reassortJours && (x.p.type === 'drop' || x.p.stock > 0));
+      if (!dispo.length) { RE.avancer(r.id, maintenant); continue; }
+      const langue = EmailsClients.langueDe({ langue: r.langue });
+      const panier = `${urlBoutique(sb.b)}?panier=${dispo.map(x => `${encodeURIComponent(x.p.id)}:${x.l.qte}`).join(',')}${langue ? `&lang=${langue}` : ''}`;
+      const stop = `${urlPublique}/reassort/arreter?j=${encodeURIComponent(r.jeton)}${langue ? `&lang=${langue}` : ''}`;
+      const liste = dispo.map(x => `- ${x.l.qte} × ${x.p.nom}`).join('\n');
+      const m = EmailsClients.reassort({ langue, client: { nom: r.nom } }, { nomBoutique: sb.config.boutique.nom, liste, panier, stop });
+      if (m) envoyerEmail(r.boutiqueId, r.email, m.sujet, m.corps, { langue });
+      else envoyerEmail(r.boutiqueId, r.email, `Le moment de recommander chez ${sb.config.boutique.nom} ?`, `Bonjour${r.nom ? ` ${r.nom}` : ''},\n\nIl y a quelque temps, vous avez commandé chez ${sb.config.boutique.nom} :\n${liste}\n\nComme vous l’avez demandé, voici votre rappel pour recommander. Votre panier est prêt (rien n’est débité sans votre commande) :\n${panier}\n\nNe plus recevoir ces rappels : ${stop}\n\n${sb.config.boutique.nom}`);
+      RE.avancer(r.id, maintenant); n++;
+    }
+    return n;
+  }
   function automatisationsEcheances(maintenant = Date.now()) {
+    try { rappelsReassort(maintenant); } catch (e) { journal.error('[reassort]', e.message); }
     let n = 0;
     entretien(maintenant);
     try { rappelsPrecommandes(maintenant); } catch (e) { journal.error('[precommandes]', e.message); }
@@ -5203,6 +5245,26 @@ ${FEUILLE_4}</head>
     if (nouveau && bq) relances.emailBienvenue({ db, boutique: bq, config: configVente(bq), email: d.email, urlPublique, urlBoutique: urlBoutique(bq), envoyerEmail, langue: d.langue });
     const t = EmailsClients.pageOptin(d.langue);
     return { html: t ? pageSimple(t[3], t[4](d.email), '', d.langue) : pageSimple('C’est fait', `${d.email} recevra désormais les nouvelles de cette boutique. Vous pourrez vous désinscrire à tout moment depuis chaque e-mail.`) };
+  });
+  // Arrêt des rappels de réassort : page de confirmation (un aperçu de lien ne désactive rien), puis arrêt.
+  const TEXTES_REASSORT = {
+    fr: ['Rappels de réassort', 'Ne plus recevoir les rappels pour recommander ?', 'Arrêter les rappels', 'C’est fait : vous ne recevrez plus ces rappels.', 'Ces rappels sont déjà arrêtés.'],
+    de: ['Nachbestell-Erinnerungen', 'Keine Erinnerungen zum Nachbestellen mehr erhalten?', 'Erinnerungen stoppen', 'Erledigt: Sie erhalten keine Erinnerungen mehr.', 'Diese Erinnerungen sind bereits gestoppt.'],
+    it: ['Promemoria di riordino', 'Non ricevere più i promemoria per riordinare?', 'Interrompi i promemoria', 'Fatto: non riceverai più questi promemoria.', 'Questi promemoria sono già interrotti.'],
+    en: ['Reorder reminders', 'Stop receiving reminders to reorder?', 'Stop reminders', 'Done: you will no longer receive these reminders.', 'These reminders are already stopped.']
+  };
+  const texteReassort = ctx => { const l = EmailsClients.langueDe({ langue: ctx.query.get('lang') }) || 'fr'; return { l, t: TEXTES_REASSORT[l] || TEXTES_REASSORT.fr }; };
+  r.get('/reassort/arreter', ctx => {
+    const { l, t } = texteReassort(ctx), d = RE.deJeton(ctx.query.get('j'));
+    if (!d) return { html: pageSimple(EmailsClients.pages(l).invalide[0], EmailsClients.pages(l).invalide[1], '', l) };
+    if (d.deja) return { html: pageSimple(t[0], t[4], '', l) };
+    return { html: pageSimple(t[0], t[1], `<form method="post" action="/reassort/arreter?j=${encodeURIComponent(ctx.query.get('j'))}${l !== 'fr' ? `&amp;lang=${l}` : ''}"><button>${escHtml(t[2])}</button></form>`, l) };
+  });
+  r.post('/reassort/arreter', ctx => {
+    const { l, t } = texteReassort(ctx), d = RE.deJeton(ctx.query.get('j'));
+    if (!d) throw erreur(400, 'Lien invalide.', 'invalide');
+    if (!d.deja) RE.supprimerId(d.id);
+    return { html: pageSimple(t[0], t[3], '', l) };
   });
   r.post('/desinscription', ctx => {
     const d = lireJetonDesinscription(ctx.query.get('j'));

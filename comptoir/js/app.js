@@ -651,6 +651,8 @@ function vueProduits() {
       ${p.type !== 'drop' ? `<label class="case case-longue"><input id="pf-precommande" type="checkbox" name="precommande" ${p.precommande ? 'checked' : ''}> Précommande : vendu avant d’être disponible, avec une date d’expédition annoncée</label>
       <label class="champ"><span>Date d’expédition prévue (si précommande)</span><input id="pf-expedition" type="date" name="expeditionPrevue" value="${esc(p.expeditionPrevue || '')}"></label>
       <p class="sous">En précommande, le stock indique combien d’exemplaires peuvent être précommandés.</p>` : ''}
+      <label class="champ"><span>Rappel de réassort (jours, facultatif)</span><input id="pf-reassort" type="number" name="reassortJours" min="7" max="180" step="1" inputmode="numeric" value="${esc(p.reassortJours || '')}" placeholder="ex. 30" aria-describedby="aide-reassort"></label>
+      <p class="sous" id="aide-reassort">Pour un produit qui s’épuise (café, thé, savon) : à la commande, le client peut demander un e-mail qui l’invite à recommander après ce nombre de jours, avec son panier prêt. Sans variantes ni fichier numérique.</p>
       <label class="case"><input id="pf-taux" type="checkbox" name="tauxReduit" ${p.tauxReduit ? 'checked' : ''}> TVA à taux réduit (denrées alimentaires : ${estSuisse() ? '2,6 %' : etat.boutique.pays === 'be' ? '6 %' : '5,5 %'})</label>
       <div class="rangee"><button class="btn">Enregistrer</button>${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome" data-action="dupliquer-produit" data-id="${p.id}">Dupliquer</button>` : ''}${etat.produits.find(x => x.id === p.id) ? `<button type="button" class="btn fantome danger" data-action="supprimer-produit" data-id="${p.id}">Supprimer</button>` : ''}</div>
     </form></aside>` : ''}
@@ -1314,7 +1316,7 @@ document.addEventListener('submit', e => {
   const f = e.target;
   if (f.dataset.form === 'produit') {
     const d = new FormData(f);
-    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined, tauxReduit: d.get('tauxReduit') === 'on', numerique: d.get('numerique') === 'on', precommande: d.get('precommande') === 'on', expeditionPrevue: d.get('expeditionPrevue') || undefined, composants: typeof lireComposants === 'function' ? lireComposants(d) : undefined };
+    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined, tauxReduit: d.get('tauxReduit') === 'on', numerique: d.get('numerique') === 'on', precommande: d.get('precommande') === 'on', expeditionPrevue: d.get('expeditionPrevue') || undefined, reassortJours: d.get('reassortJours') ? Number(d.get('reassortJours')) : undefined, composants: typeof lireComposants === 'function' ? lireComposants(d) : undefined };
     p.historiquePrix = PrixBarres.noterPrix(ui.produitEdite.historiquePrix, p.prix);
     const i = etat.produits.findIndex(x => x.id === p.id);
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);

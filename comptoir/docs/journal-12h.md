@@ -330,7 +330,7 @@ La relecture du chantier 74 avait noté que la facture d'un client pro ne montra
   - Comptoir réunit en natif la QR-facture, le B2B avec prix par client, l'absence de frais de plateforme, les précommandes, les lots et les produits numériques.
   - Les autres plateformes ont ce que Comptoir n'a pas : le recul, les extensions, les thèmes, et une offre hébergée en Suisse chez Infomaniak.
 
-### Cycle 10 (23 h 05) : rappel des précommandes au marchand (chantier 79)
+### Cycle 10 (22 h 55) : rappel des précommandes au marchand (chantier 79)
 
 - **Trois jours avant la date d'expédition annoncée**, le marchand reçoit un e-mail si des commandes payées attendent ce produit. L'e-mail donne le nombre de commandes, le nombre d'articles et les numéros, avec le lien vers Commandes.
 - **Si la date passe** et que des commandes restent à expédier, un second e-mail l'invite à prévenir les clients du nouveau délai, ou à rembourser ceux qui le souhaitent.
@@ -340,7 +340,7 @@ La relecture du chantier 74 avait noté que la facture d'un client pro ne montra
 - **Navigateur** : rien à vérifier, puisque la fonction ne touche pas l'interface (e-mail seulement).
 - 244 tests sur 244.
 
-### Cycle 11 (23 h 35) : relecture indépendante des chantiers 77 et 78
+### Cycle 11 (23 h 00) : relecture indépendante des chantiers 77 et 78
 
 Aucune faille bloquante. Constats corrigés :
 
@@ -365,3 +365,28 @@ Aucune faille bloquante. Constats corrigés :
   - les e-mails de caisse partent en français (la langue du client n'est pas connue au comptoir) ;
   - le lien de téléchargement figure dans le corps de l'e-mail gardé 7 jours, que le marchand voit déjà. Le commentaire « jamais gardé en clair » ne concerne que la table des liens.
 - Après corrections : tests de la caisse, du numérique et des clients pro réussis, parcours de bout en bout 57/57, caisse revérifiée dans Chromium (bureau et mobile). Dans la suite complète, le test du flux en direct a échoué une fois (délai dépassé, machine chargée par d'autres tests). Relancé seul trois fois, il a réussi chaque fois : il ne touche à rien de ce qui a changé.
+
+### Cycle 12 (23 h 10) : rappels de réassort (chantier 80)
+
+Pour un produit qui s'épuise, le client peut demander à être prévenu au moment de recommander. Ce n'est pas un abonnement payant : un débit automatique demanderait de garder un moyen de paiement et un mandat, ce qui n'est pas fait ici.
+
+- **Marchand** : sur la fiche produit, il indique un délai de 7 à 180 jours (produits sans variantes ni fichier).
+- **Client** : la case « Me rappeler par e-mail de recommander dans N jours » n'est jamais cochée d'office. Le délai retenu est le plus court parmi les produits concernés.
+- **Création** : la demande est enregistrée après le paiement, avec l'adresse chiffrée et un index pour l'effacement. Une nouvelle commande du même client pour les mêmes produits remplace l'ancienne demande.
+- **Envoi** : au plus 12 rappels, calculés au plus une fois par heure.
+  - L'e-mail est dans la langue de la commande (fr, de, it, en).
+  - Le lien remplit le panier, avec seulement les produits encore en vente et en stock.
+  - Rien ne part pour une boutique sans abonnement ou pour un client désinscrit des e-mails de la boutique.
+- **Arrêt** : un lien signé (HMAC, rien de secret gardé) ouvre une page de confirmation. Un aperçu de lien n'arrête donc rien ; seul le bouton arrête les rappels.
+- **Effacement** : les demandes disparaissent avec l'effacement des données du client et avec la suppression de la boutique.
+- **Défaut trouvé par la vérification dans le navigateur** : la fiche produit en ligne passe par un second formulaire (serveur.js), qui n'envoyait pas le délai. Corrigé.
+- **Tests** :
+  - délai refusé hors limites ;
+  - aucune demande sans la case ;
+  - délai le plus court, produits sans rappel exclus du panier ;
+  - adresse chiffrée ;
+  - pas de doublon dans l'heure, deuxième rappel au délai suivant ;
+  - page d'arrêt sans effet en GET, signature fausse refusée ;
+  - rappel en allemand ;
+  - effacement du client.
+- **Vérifié dans Chromium**, bureau et mobile : champ de la fiche, case non cochée dans le panier, commande, rappel, lien du panier rempli, page d'arrêt. Aucune erreur.
