@@ -5273,7 +5273,7 @@ ${bloc}</main></body></html>`;
 
   /* ---------- Boutique publique : page rendue par le serveur pour les moteurs de recherche et le partage ---------- */
   const produitVisible = (b, id) => abo.etat(b.marchand_id).actif && listerProduits(b.id).some(x => x.id === id && vendable(x));
-  function pageBoutique(b, { racine, produitId = null, langue = null }) {
+  function pageBoutique(b, { racine, produitId = null, langue = null, variante = '' }) {
     const config = configVente(b);
     const ouverte = abo.etat(b.marchand_id).actif;
     const produits = ouverte ? listerProduits(b.id).filter(vendable) : [];
@@ -5292,7 +5292,7 @@ ${bloc}</main></body></html>`;
     const canonique = langueOk ? `${sansLangue}?lang=${langueOk}` : sansLangue;   // chaque version linguistique est sa propre page
     const ld = p ? { '@context': 'https://schema.org', '@type': 'Product', name: p.nom, description: court(p.description), ...(image ? { image } : {}), ...(p.ean ? { [`gtin${p.ean.length === 12 ? 12 : p.ean.length === 8 ? 8 : p.ean.length === 14 ? 14 : 13}`]: p.ean } : {}), url: canonique, brand: { '@type': 'Brand', name: p.marque || nom },
       // Variantes : fourchette de prix (AggregateOffer) ; sinon une offre simple
-      offers: Array.isArray(p.variantes) && p.variantes.length ? (prixV => ({ '@type': 'AggregateOffer', lowPrice: Math.min(...prixV).toFixed(2), highPrice: Math.max(...prixV).toFixed(2), offerCount: p.variantes.length, priceCurrency: devise, availability: p.variantes.some(v => v.stock > 0) ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique }))(p.variantes.map(v => typeof v.prix === 'number' ? v.prix : p.prix))
+      offers: Array.isArray(p.variantes) && p.variantes.length && variante && p.variantes.some(v => v.id === variante) ? (v => ({ '@type': 'Offer', price: (typeof v.prix === 'number' ? v.prix : p.prix).toFixed(2), priceCurrency: devise, availability: v.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: `${canonique}?variante=${encodeURIComponent(v.id)}`, ...(v.ean ? { gtin: v.ean } : {}) }))(p.variantes.find(v => v.id === variante)) : Array.isArray(p.variantes) && p.variantes.length ? (prixV => ({ '@type': 'AggregateOffer', lowPrice: Math.min(...prixV).toFixed(2), highPrice: Math.max(...prixV).toFixed(2), offerCount: p.variantes.length, priceCurrency: devise, availability: p.variantes.some(v => v.stock > 0) ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique }))(p.variantes.map(v => typeof v.prix === 'number' ? v.prix : p.prix))
         : { '@type': 'Offer', price: Number(p.prix).toFixed(2), priceCurrency: devise, availability: p.type === 'drop' || p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique } }
       : { '@context': 'https://schema.org', '@type': 'OnlineStore', name: nom, url: canonique, description, ...(config.entreprise && config.entreprise.email ? { email: config.entreprise.email } : {}) };
     const tete = [
@@ -5363,13 +5363,13 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
     for (const p of produits) {
       const image = p.image ? `${urlPublique}/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : '';
       const pre = p.precommande && String(p.expeditionPrevue || '') >= jour && p.stock > 0;
-      const commun = (id, titre, prixV, stock, ean, groupe, attributs = '') => `<item><g:id>${x(id)}</g:id><title>${x(String(titre).slice(0, 150))}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(p.marque || config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${attributs}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}</item>`;
+      const commun = (id, titre, prixV, stock, ean, groupe, attributs = '', varianteId = '') => `<item><g:id>${x(id)}</g:id><title>${x(String(titre).slice(0, 150))}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}${varianteId ? `?variante=${encodeURIComponent(varianteId)}` : ''}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(p.marque || config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${attributs}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}</item>`;
       // Variantes : identifiant court et stable (empreinte des valeurs, 50 caractères au plus), et ce qui les distingue
       // (taille, couleur, matière) dans les attributs attendus par Google.
       const attributDe = nom => /taille|size|gr[öo](ss|ß)e|pointure|taglia/i.test(nom) ? 'size' : /couleur|colou?r|farbe|colore/i.test(nom) ? 'color' : /mati[eè]re|material|stoff/i.test(nom) ? 'material' : 'pattern';
       if (Array.isArray(p.variantes) && p.variantes.length) for (const v of p.variantes) {
         const attributs = (p.options || []).map((o, k) => v.valeurs[k] ? `<g:${attributDe(o.nom)}>${x(String(v.valeurs[k]).slice(0, 100))}</g:${attributDe(o.nom)}>` : '').join('');
-        items.push(commun(`${p.id}-${crypto.createHash('sha256').update(v.id).digest('hex').slice(0, 10)}`.slice(0, 50), `${p.nom} – ${v.valeurs.join(' / ')}`, typeof v.prix === 'number' ? v.prix : p.prix, v.stock, v.ean, p.id, attributs));
+        items.push(commun(`${p.id}-${crypto.createHash('sha256').update(v.id).digest('hex').slice(0, 10)}`.slice(0, 50), `${p.nom} – ${v.valeurs.join(' / ')}`, typeof v.prix === 'number' ? v.prix : p.prix, v.stock, v.ean, p.id, attributs, v.id));
       }
       else items.push(commun(p.id, p.nom, p.prix, p.stock, p.ean, null));
     }
@@ -5643,7 +5643,7 @@ ${FEUILLE_4}</head>
           const mj = /^\/journal(?:\/([\w-]+))?\/?$/.exec(chemin);
           if (mj) { const art = mj[1] && abo.etat(b.marchand_id).actif ? ART.publie(b.id, mj[1]) : null; return envoyerHtml(res, mj[1] && !art ? 404 : 200, pageJournal(b, { racine, article: art })); }
           const pid = chemin.startsWith('/p/') ? decodeURIComponent(chemin.slice(3)) : null;
-          return envoyerHtml(res, pid && !produitVisible(b, pid) ? 404 : 200, pageBoutique(b, { racine, produitId: pid, langue: url.searchParams.get('lang') }));
+          return envoyerHtml(res, pid && !produitVisible(b, pid) ? 404 : 200, pageBoutique(b, { racine, produitId: pid, langue: url.searchParams.get('lang'), variante: url.searchParams.get('variante') || '' }));
         }
       }
       const route = r.trouver(req.method, chemin);
@@ -5655,7 +5655,7 @@ ${FEUILLE_4}</head>
           if (mBoutique) {
             const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mBoutique[1]);
             // Produit absent, masqué ou retiré : vrai 404 (la page reste utilisable : elle montre la boutique).
-            if (b) return envoyerHtml(res, mBoutique[2] && !produitVisible(b, mBoutique[2]) ? 404 : 200, pageBoutique(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, produitId: mBoutique[2] || null, langue: url.searchParams.get('lang') }));
+            if (b) return envoyerHtml(res, mBoutique[2] && !produitVisible(b, mBoutique[2]) ? 404 : 200, pageBoutique(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, produitId: mBoutique[2] || null, variante: url.searchParams.get('variante') || '', langue: url.searchParams.get('lang') }));
           }
           const mJournal = /^\/s\/([\w-]+)\/journal(?:\/([\w-]+))?\/?$/.exec(chemin);
           if (mJournal) {

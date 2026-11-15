@@ -652,7 +652,7 @@ Constats corrigés :
 - **Noté, non fait** :
   - (le stock du flux déduit les commandes en attente depuis le cycle 31) ;
   - (la marque par produit est faite au cycle 30) ;
-  - les variantes partagent le lien du produit, sans variante présélectionnée.
+  - (chaque variante a son lien depuis le cycle 39).
 - 252 tests sur 252, parcours de bout en bout 57/57.
 
 ### Cycle 29 (00 h 05) : créneaux de retrait en magasin (chantier 93)
@@ -807,3 +807,13 @@ Constats corrigés :
   Chacune a une phrase d'explication, l'endroit où la trouver et un lien. Une fonction qui n'est pas connue ne sert à rien.
 - **Masquer** : le choix est gardé sur l'appareil, et la carte revient à la prochaine série de nouveautés (numéro de version). Elle n'est pas montrée au rôle « Commandes ».
 - **Vérifié dans Chromium**, bureau et mobile : 7 nouveautés, lien vers « Magasin et caisse », carte masquée après rechargement. Aucune erreur.
+
+### Cycle 39 (00 h 35) : lien vers une variante (chantier 100)
+
+- **Boutique** : l'adresse `…/p/<produit>?variante=M` ouvre la fiche avec la taille M choisie, et le prix affiché est celui de M (vérifié : 32 au lieu des 30 du produit). Sans paramètre, la première variante en stock est choisie, comme avant. Le choix est oublié à la fermeture de la fiche.
+- **Défaut existant corrigé au passage** : à l'ouverture, la fiche affichait le prix de la première variante en stock, même quand une autre variante était choisie.
+- **Flux Google et Meta** : chaque variante pointe vers sa propre adresse.
+- **Données structurées** : sur cette adresse, la page déclare l'offre de la variante (prix, disponibilité, code-barres) au lieu d'une fourchette de prix. Google compare la page et le flux, et un écart de prix fait refuser l'article. La valeur n'est reprise que si elle correspond à une variante existante.
+- **Tests** : lien de la variante dans le flux, offre de la variante (32.00 CHF) sur sa page.
+- **Vérifié dans Chromium**, bureau et mobile : taille présélectionnée, prix juste, ajout au panier de la bonne variante, taille par défaut sans paramètre. Aucune erreur.
+- 254 tests sur 254, parcours de bout en bout 57/57.

@@ -44,7 +44,7 @@ async function demarrer() {
     if (!rep.ok) throw new Error((await rep.json()).erreur || 'Boutique introuvable.');
     donnees = await rep.json();
     const produitPage = (document.querySelector('meta[name="comptoir-produit"]') || {}).content;
-    if (produitPage) vue.fiche = produitPage;
+    if (produitPage) { vue.fiche = produitPage; vue.varianteUrl = new URLSearchParams(location.search).get('variante') || ''; }
     else if (location.hash.startsWith('#produit-')) vue.fiche = decodeURIComponent(location.hash.slice(9));   // anciens liens
   } catch (e) {
     $('#app').innerHTML = `<div class="page-erreur"><h1>Boutique introuvable</h1><p>${esc(e.message)}</p></div>`;
@@ -109,6 +109,8 @@ function fraisPortClient(cle, sousTotal) {
 /* Variantes : ligne de panier d'une variante (nom « Produit (M / Bleu) », prix et stock de la variante). */
 const aVariantes = p => !!(p && Array.isArray(p.variantes) && p.variantes.length);
 const ligneVariante = (p, v, qte) => ({ produitId: p.id, varianteId: v.id, nom: `${p.nom} (${v.valeurs.join(' / ')})`, prix: typeof v.prix === 'number' ? v.prix : p.prix, qte });
+// Variante demandée par l'adresse de la page produit (seulement pour cette fiche, à l'ouverture).
+function varianteVoulue(p) { return vue.varianteUrl && vue.fiche === p.id && aVariantes(p) ? p.variantes.find(v => v.id === vue.varianteUrl) || null : null; }
 function varianteChoisie(p) {
   const choix = [...document.querySelectorAll('[data-sf-option]')].map(s => s.value);
   return choix.length === (p.options || []).length ? p.variantes.find(v => v.id === choix.join('/')) : null;
@@ -621,7 +623,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && vue.fiche 
 /* Même titre que la page rendue par le serveur (« Nom · Slogan ») : les moteurs et les onglets voient la même chose. */
 function titreAccueil() { const b = donnees.boutique; return b.slogan ? `${b.nom} · ${b.slogan}` : b.nom; }
 function fermerFiche({ rendu = true } = {}) {
-  vue.fiche = null; document.title = titreAccueil();
+  vue.fiche = null; vue.varianteUrl = ''; document.title = titreAccueil();
   if (history.state && history.state.fiche && /\/p\//.test(location.pathname)) { history.back(); return; }   // popstate redessine
   history.replaceState(null, '', racineBoutique);
   if (rendu) rendre();

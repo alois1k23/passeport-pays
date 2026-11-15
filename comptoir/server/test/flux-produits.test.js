@@ -30,6 +30,10 @@ test('flux produits : contenu, variantes, échappement, boutique fermée', async
     assert.match(xml, new RegExp(`<g:id>${nappe}</g:id><title>Nappe &quot;Été&quot; &lt;brodée&gt;</title><description>Lin  lavé</description>`), 'échappé, caractère de contrôle retiré');
     assert.match(xml, /<g:price>60\.00 CHF<\/g:price><g:availability>in stock<\/g:availability><g:condition>new<\/g:condition><g:brand>Lin &amp; &lt;Co&gt;<\/g:brand><g:gtin>4006381333931<\/g:gtin><g:product_type>Table<\/g:product_type>/);
     assert.match(xml, new RegExp(`<g:id>${ts}-[0-9a-f]{10}</g:id><title>T-shirt – S</title>.*?<g:availability>out of stock</g:availability>.*?<g:gtin>96385074</g:gtin><g:item_group_id>${ts}</g:item_group_id><g:size>S</g:size>`));
+    // Page de la variante (lien du flux) : offre de cette variante, prix et code compris (Google compare la page et le flux).
+    const pageV = await (await fetch(`${base}/s/${slug}/p/${ts}?variante=M`)).text();
+    assert.match(pageV, /"offers":\{"@type":"Offer","price":"32.00","priceCurrency":"CHF","availability":"https:\/\/schema.org\/InStock","url":"[^"]*\?variante=M"/);
+    assert.match(xml, new RegExp(`<title>T-shirt – S</title><description>T-shirt</description><link>[^<]*/p/${ts}\\?variante=S</link>`), 'lien vers la variante');
     assert.match(xml, new RegExp(`<g:id>${ts}-[0-9a-f]{10}</g:id><title>T-shirt – M</title>.*?<g:price>32\\.00 CHF</g:price><g:availability>in stock</g:availability>.*?<g:identifier_exists>no</g:identifier_exists><g:item_group_id>${ts}</g:item_group_id>`));
     assert.match(xml, new RegExp(`<g:id>${pre}</g:id>.*?<g:availability>preorder</g:availability><g:availability_date>\\d{4}-\\d\\d-\\d\\dT12:00:00Z</g:availability_date>`));
     assert.doesNotMatch(xml, /Masqué|Guide PDF/, 'masqué et numérique exclus');

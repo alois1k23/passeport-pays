@@ -230,7 +230,7 @@ function renduFiche(etat, p, qte = 1) {
     <div class="sf-fiche-infos">
       ${p.categorie ? `<small class="sf-fiche-cat">${esc(p.categorie)}</small>` : ''}
       <h2 data-sans-traduction>${esc(p.nom)}</h2>
-      <p class="sf-fiche-prix">${prixBarreAffiche(p, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(p, etat))}</s> ` : ''}<strong data-sf-prix>${euros(Array.isArray(p.variantes) && p.variantes.length ? ((p.variantes.find(v => v.stock > 0) || p.variantes[0]).prix ?? p.prix) : p.prix)}</strong> <small>${esc(mentionTva((etat.entreprise || {}).regime, etat.boutique.pays))}</small></p>
+      <p class="sf-fiche-prix">${prixBarreAffiche(p, etat) ? `<s class="sf-barre">${euros(prixBarreAffiche(p, etat))}</s> ` : ''}<strong data-sf-prix>${euros(Array.isArray(p.variantes) && p.variantes.length ? (((typeof varianteVoulue === 'function' && varianteVoulue(p)) || p.variantes.find(v => v.stock > 0) || p.variantes[0]).prix ?? p.prix) : p.prix)}</strong> <small>${esc(mentionTva((etat.entreprise || {}).regime, etat.boutique.pays))}</small></p>
       ${prixBarreAffiche(p, etat) ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
       ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
       ${p.description ? `<p class="sf-fiche-desc" data-sans-traduction>${esc(p.description)}</p>` : ''}
@@ -244,7 +244,9 @@ function renduFiche(etat, p, qte = 1) {
         return `<p class="sf-fiche-note">Expédié depuis : ${esc(nom)}.${etranger ? (ch ? ' TVA d’importation et frais de dédouanement possibles à la livraison (au-delà de CHF 5 de TVA par envoi).' : ' Envoi de l’extérieur de l’UE : TVA d’importation et frais du transporteur possibles à la livraison.') : ''}</p>`;
       })()}
       ${Array.isArray(p.options) && Array.isArray(p.variantes) && p.variantes.length ? `<div class="sf-options" data-sans-traduction>${p.options.map((o, i) => {
-        const premier = (p.variantes.find(v => v.stock > 0) || p.variantes[0]).valeurs[i];
+        // Variante demandée par le lien (?variante=…, depuis Google Shopping par exemple), sinon la première en stock.
+        const voulue = typeof varianteVoulue === 'function' ? varianteVoulue(p) : null;
+        const premier = (voulue || p.variantes.find(v => v.stock > 0) || p.variantes[0]).valeurs[i];
         return `<label class="sf-qte"><span>${esc(o.nom)}</span><select data-sf-option="${i}" aria-label="${esc(o.nom)}">${o.valeurs.map(v => `<option value="${esc(v)}" ${v === premier ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`;
       }).join('')}</div>` : ''}
       <div class="sf-fiche-achat">
