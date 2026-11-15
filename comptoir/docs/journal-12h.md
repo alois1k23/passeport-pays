@@ -166,7 +166,7 @@ Vendre un article avant qu'il arrive (nouvelle collection, livre à paraître, r
 Les coffrets cadeaux, les lots « 3 pour 2 » et les kits sont un classique du commerce de détail ; ailleurs, ils passent souvent par une extension payante qui synchronise mal le stock. Désormais :
 
 - **Fiche produit** : case « Lot ou coffret », puis de 2 à 10 lignes produit et quantité, avec ajout et retrait. Ce qui a déjà été tapé dans la fiche n'est pas perdu.
-- **Composants admis** : produits en stock simples de la même boutique. Le serveur refuse les produits à variantes, les produits numériques, ceux en dropshipping, un autre lot et le lot lui-même.
+- **Composants admis** : produits en stock simples de la même boutique. Le serveur refuse les produits à variantes, les produits numériques, ceux en dropshipping, un autre lot et le lot lui-même. Un produit déjà dans un lot ne peut pas devenir l'un d'eux tant qu'il y reste (voir la relecture).
 - **Stock calculé** : nombre de lots complets que permettent les composants. Le stock saisi pour le lot est ignoré. Un composant peut être masqué de la boutique, pour n'être vendu que dans le lot.
 - **Vente** :
   - ce sont les composants qui baissent, emplacements compris ;
@@ -191,4 +191,14 @@ Les coffrets cadeaux, les lots « 3 pour 2 » et les kits sont un classique du c
   - aucune erreur de page ;
   - au passage, les cases à long libellé de la fiche (numérique, lot, précommande) sont alignées en haut.
 - 241 tests sur 241, parcours de bout en bout 57/57.
+- **Relecture indépendante** : aucune fuite (identifiants et stock des composants non publiés), pas de boucle possible entre lots, dropshipping et « vendable » corrects. Constats corrigés :
+  - **Grave : un composant pouvait changer après coup.** On pouvait lui ajouter des variantes, et ses ventes par le lot étaient alors effacées à la somme suivante des variantes. On pouvait le rendre numérique, et aucun lien n'était envoyé. On pouvait en faire un lot, ce qui imbriquait des lots mal réservés. Un produit utilisé dans un lot doit maintenant rester un produit en stock simple ; un changement de prix ou de stock reste possible (testé).
+  - **Grave : remboursement d'un lot redevenu produit simple.** Le retour se basait sur la fiche actuelle et non sur ce que la ligne avait pris : les composants n'étaient pas rendus, et du stock fantôme apparaissait sur l'ancien lot. Il suit maintenant la ligne (testé).
+  - **Moyen** : le contrôle « lots et composants dans le même panier » ne valait que pour la boutique en ligne. Il s'applique aussi à la caisse (hors ventes hors ligne, déjà encaissées) et à la reprise d'un paiement.
+  - **Bas** :
+    - à l'inscription avec des produits de démonstration (ou à une restauration), les lots gardent leurs composants : les identifiants sont repris, et un lot devenu invalide est gardé comme produit simple ;
+    - la composition des lots est lue une seule fois par boucle de réservation au lieu d'une requête par ligne, et relue après toute écriture.
+  - **Non corrigé, noté** : un retour d'articles abîmés (sortis du stock) ne réduit pas la trace des emplacements des composants. Le total rendu ensuite reste juste, mais pas forcément l'emplacement. Les lots n'émettent pas l'événement « rupture » propre.
+  - **Défaut introduit par la correction et rattrapé avant commit** : à l'inscription, les produits sans identifiant recevaient tous le même nouvel identifiant, et le test des retours partiels restait bloqué. Corrigé : un identifiant par produit.
+- Après corrections : 241 tests sur 241, parcours de bout en bout 57/57.
 

@@ -56,5 +56,18 @@ test('lot de bout en bout', async () => {
     const rb = await c('POST', `/api/admin/commandes/${cmd.j.commandeId}/statut`, { statut: 'remboursee' });
     assert.equal(rb.s, 200, JSON.stringify(rb.j));
     assert.equal(stock(savon), 10); assert.equal(stock(bougie), 4);
+    // Un composant reste un produit simple tant qu'il est dans un lot.
+    const fSavon = (await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === savon);
+    assert.equal((await c('PUT', `/api/admin/produits/${savon}`, { produit: { ...fSavon, options: [{ nom: 'Parfum', valeurs: ['Rose', 'Thé'] }], variantes: [{ id: 'Rose', stock: 5 }, { id: 'Thé', stock: 5 }] } })).j.code, 'composant_de_lot');
+    assert.equal((await c('PUT', `/api/admin/produits/${savon}`, { produit: { ...fSavon, numerique: true } })).j.code, 'composant_de_lot');
+    assert.equal((await c('PUT', `/api/admin/produits/${savon}`, { produit: { ...fSavon, prix: 9 } })).s, 200, 'un changement de prix reste possible');
+    // Lot redevenu produit simple après une vente : le remboursement rend quand même les composants.
+    const cmd2 = await commander([{ produitId: coffret, qte: 1 }], 'd@exemple.ch');
+    await fetch(cmd2.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    assert.equal(stock(savon), 8); assert.equal(stock(bougie), 3);
+    const fLot = (await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === coffret);
+    assert.equal((await c('PUT', `/api/admin/produits/${coffret}`, { produit: { ...fLot, composants: undefined, stock: 0, stockSaisi: true } })).s, 200);
+    assert.equal((await c('POST', `/api/admin/commandes/${cmd2.j.commandeId}/statut`, { statut: 'remboursee' })).s, 200);
+    assert.equal(stock(savon), 10); assert.equal(stock(bougie), 4); assert.equal(stock(coffret), 0, 'pas de stock fantôme sur l’ancien lot');
   } finally { s.close(); }
 });

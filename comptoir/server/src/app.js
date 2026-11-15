@@ -221,6 +221,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   db.exec('CREATE TABLE IF NOT EXISTS images_produits (produit_id TEXT PRIMARY KEY, donnees TEXT NOT NULL)');
   const imageDe = id => (db.prepare('SELECT donnees FROM images_produits WHERE produit_id = ?').get(id) || {}).donnees || null;
   function serialiserProduit(id, produit) {
+    try { cacheLots.clear(); } catch { /* pas encore créé (démarrage) */ }   // composition des lots relue après toute écriture
     const p = { ...produit };
     if (typeof p.image === 'string' && p.image.startsWith('data:')) { db.prepare('INSERT OR REPLACE INTO images_produits (produit_id, donnees) VALUES (?, ?)').run(id, p.image); p.image = IMG; }
     else if (p.image !== IMG) { db.prepare('DELETE FROM images_produits WHERE produit_id = ?').run(id); delete p.image; }
@@ -242,7 +243,21 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return produits;
   };
   // Composants retenus par une ligne de lot (quantités multipliées) ; aucune pour un produit simple.
-  const composantsDe = (bid, l) => { const r0 = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ?').get(l.produitId, bid); const d = r0 && JSON.parse(r0.donnees); return d && Array.isArray(d.composants) ? d.composants.map(c => ({ produitId: c.produitId, qte: c.qte * (l.qte || 0) })) : []; };
+  const cacheLots = new Map();   // boutique → { le, lots } : relu au plus une fois par seconde (boucles de réservation)
+  const composantsDe = (bid, l) => {
+    let e = cacheLots.get(bid);
+    if (!e || Date.now() - e.le > 1000) { e = { le: Date.now(), lots: new Map(db.prepare("SELECT id, json_extract(donnees, '$.composants') c FROM produits WHERE boutique_id = ? AND json_extract(donnees, '$.composants') IS NOT NULL").all(bid).map(r => [r.id, JSON.parse(r.c)])) }; cacheLots.set(bid, e); if (cacheLots.size > 500) cacheLots.delete(cacheLots.keys().next().value); }
+    const comps = e.lots.get(l.produitId);
+    return Array.isArray(comps) ? comps.map(c => ({ produitId: c.produitId, qte: c.qte * (l.qte || 0) })) : [];
+  };
+  // Lots et composants dans le même panier (boutique, caisse, reprise d'un paiement) : la somme de ce qu'ils demandent à
+  // chaque composant ne dépasse pas son stock.
+  function controlerLots(tous, lignes) {
+    if (!lignes.some(l => (tous.find(y => y.id === l.produitId) || {}).composants)) return;
+    const besoin = {};
+    for (const l of lignes) { const p = tous.find(x => x.id === l.produitId); if (!p || p.type === 'drop' || l.varianteId) continue; if (p.composants) for (const c of p.composants) besoin[c.produitId] = (besoin[c.produitId] || 0) + c.qte * l.qte; else besoin[p.id] = (besoin[p.id] || 0) + l.qte; }
+    for (const [pid, q] of Object.entries(besoin)) { const x = tous.find(y => y.id === pid); if (!x || x.stock < q) throw erreur(409, `Stock insuffisant pour « ${x ? x.nom : 'un article du lot'} » (lot compris).`, 'stock_insuffisant'); }
+  }
   const listerProduits = (boutiqueId, avecSupprimes = false) =>
     stockLots(db.prepare(`SELECT id, donnees, supprime FROM produits WHERE boutique_id = ? ${avecSupprimes ? '' : 'AND supprime = 0'} ORDER BY ordre, rowid`).all(boutiqueId)
       .map(p => ({ ...JSON.parse(p.donnees), id: p.id, ...(p.supprime ? { supprime: 1 } : {}) })));
@@ -336,7 +351,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const d = JSON.parse(p.donnees);
       // Lot : ce sont ses composants qui bougent. La ligne garde ce qui a été retiré de chacun (et d'où), pour que
       // retours partiels et remboursement rendent exactement ce qui a été pris, jamais deux fois.
-      if (Array.isArray(d.composants) && d.composants.length) {
+      if (sens < 0 ? Array.isArray(d.composants) && d.composants.length : Array.isArray(l.composantsRetires) || (Array.isArray(d.composants) && d.composants.length)) {   // retour : selon ce que la ligne a pris, même si le produit n'est plus un lot
         if (sens < 0) {
           l.composantsRetires = d.composants.map(c => ({ produitId: c.produitId, qte: c.qte * l.qte, type: 'stock', parLot: c.qte }));
           ajusterStock(boutiqueId, l.composantsRetires, -1, canal);
@@ -839,9 +854,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return slug;
   }
   function insererProduits(boutiqueId, produits) {
-    (Array.isArray(produits) ? produits : []).filter(p => p && typeof p === 'object').slice(0, 200).forEach((p, i) => {
-      const id = auth.nouvelId('p_');
-      db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, boutiqueId, serialiserProduit(id, produitDuNavigateur(p)), i);
+    const liste = (Array.isArray(produits) ? produits : []).filter(p => p && typeof p === 'object').slice(0, 200);
+    // Nouveaux identifiants : les lots suivent leurs composants (anciens identifiants de la démonstration ou de la sauvegarde).
+    const nouveaux = liste.map(() => auth.nouvelId('p_'));   // un identifiant par produit, même sans identifiant d'origine
+    const ids = new Map(liste.map((p, i) => [p.id ? String(p.id) : `#${i}`, nouveaux[i]]));
+    liste.forEach((p, i) => {
+      const id = nouveaux[i];
+      const q = Array.isArray(p.composants) ? { ...p, composants: p.composants.map(c => ({ ...c, produitId: ids.get(String(c && c.produitId || '')) || '' })) } : p;
+      let propre;
+      try { propre = verifierLot(boutiqueId, produitDuNavigateur(q), id); } catch { propre = produitDuNavigateur({ ...q, composants: undefined }); }   // lot invalide : gardé comme produit simple
+      db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, boutiqueId, serialiserProduit(id, propre), i);
       reconcilierProduit(boutiqueId, id);
     });
   }
@@ -2441,6 +2463,14 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     return propre;
   }
+  // Produit utilisé dans un lot : il doit rester un produit en stock simple (sinon ses ventes par le lot seraient
+  // perdues à la prochaine somme des variantes, un fichier jamais envoyé, ou des lots imbriqués mal réservés).
+  function protegerComposant(bid, id, propre) {
+    if (!(propre.type === 'drop' || propre.numerique || (Array.isArray(propre.variantes) && propre.variantes.length) || (Array.isArray(propre.composants) && propre.composants.length))) return propre;
+    const lot = listerProduits(bid).find(x => Array.isArray(x.composants) && x.composants.some(c => c.produitId === id));
+    if (lot) throw erreur(409, `Ce produit fait partie du lot « ${lot.nom} » : il doit rester un produit en stock simple (sans variantes, ni fichier, ni lot). Retirez-le d’abord du lot.`, 'composant_de_lot');
+    return propre;
+  }
   r.post('/api/admin/produits', exigerMarchand, ctx => {
     const id = auth.nouvelId('p_');
     const ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) + 1 AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
@@ -2460,7 +2490,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const fusion = { ...recu, type: avant.type, source: avant.source, fournisseur: avant.fournisseur, entrepot: avant.entrepot, delai: avant.delai, portF: avant.portF, codeFournisseur: avant.codeFournisseur };
     // Photo inchangée (renvoyée telle quelle par le navigateur) : celle enregistrée reste.
     if (avant.image === IMG && fusion.image === imageDe(ctx.params.id)) fusion.image = IMG;
-    transaction(db, () => { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, verifierLot(ctx.boutique.id, nettoyerProduit(fusion, avant.historiquePrix || []), ctx.params.id)), ctx.params.id); reconcilierProduit(ctx.boutique.id, ctx.params.id); });   // fiche et emplacements ensemble
+    transaction(db, () => { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, verifierLot(ctx.boutique.id, protegerComposant(ctx.boutique.id, ctx.params.id, nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id)), ctx.params.id); reconcilierProduit(ctx.boutique.id, ctx.params.id); });   // fiche et emplacements ensemble
     return { ok: true };
   });
   r.delete('/api/admin/produits/:id', exigerMarchand, ctx => {
@@ -2904,6 +2934,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Vente faite hors ligne (déjà encaissée) : jamais refusée pour le stock ; une rupture est signalée dans l'historique.
     const horsLigne = Number(ctx.corps.horsLigneLe) > Date.now() - 30 * 86400000 && Number(ctx.corps.horsLigneLe) <= Date.now() + 60000 ? Number(ctx.corps.horsLigneLe) : null;
     const lignes = prix.construireLignes(produits, ctx.corps.lignes, { qteMax: 999, verifierStock: !horsLigne });   // vente en magasin : quantités de marché ou de gros
+    if (!horsLigne) controlerLots(produits, lignes);
     if (lignes.some(l => l.type === 'drop')) throw erreur(400, 'La caisse n’accepte que les produits en stock.', 'caisse_drop');
     const total = prix.arrondi(lignes.reduce((a, l) => a + l.prix * l.qte, 0));
     let moyen = ctx.corps.moyen === 'especes' ? 'espèces' : ctx.corps.moyen === 'twint' ? 'TWINT' : 'carte';
@@ -3190,10 +3221,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const tousProduits = stockLots(listerProduits(b.id).map(p => !reserve[p.id] || p.type === 'drop' || p.composants ? p : { ...p, stock: Math.max(0, p.stock - reserve[p.id]), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(v => ({ ...v, stock: Math.max(0, v.stock - (reserve[`${p.id}:${v.id}`] || 0)) })) } : {}) }));
     const produits = tousProduits.filter(vendable);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
-    // Lots et composants dans le même panier : la somme de ce qu'ils demandent à chaque composant ne dépasse pas son stock.
-    { const besoin = {};
-      for (const l of lignesBrutes) { const p = tousProduits.find(x => x.id === l.produitId); if (!p || p.type === 'drop' || l.varianteId) continue; if (p.composants) for (const c of p.composants) besoin[c.produitId] = (besoin[c.produitId] || 0) + c.qte * l.qte; else besoin[p.id] = (besoin[p.id] || 0) + l.qte; }
-      for (const [pid, q] of Object.entries(besoin)) { const x = tousProduits.find(y => y.id === pid); if (lignesBrutes.some(l => (tousProduits.find(y => y.id === l.produitId) || {}).composants) && (!x || x.stock < q)) throw erreur(409, `Stock insuffisant pour « ${x ? x.nom : 'un article du lot'} » (lot compris).`, 'stock_insuffisant'); } }
+    controlerLots(tousProduits, lignesBrutes);
     // Un même réseau ne réserve pas tout le stock sans payer : ses commandes impayées (adresses e-mail différentes, souvent
     // jetables ; la commande en cours comprise) retiennent au plus la moitié du stock d'un produit, au moins 3, au plus 20.
     // Un achat courant (jusqu'à 3 exemplaires, même s'ils sont les derniers) passe toujours (simulation de 60 jours : des
@@ -4398,9 +4426,10 @@ ${bloc}</main></body></html>`;
       const autres = reservationsAutres(b.id, c.id), prods = stockLots(listerProduits(b.id).map(p => p.composants || p.type === 'drop' ? p : { ...p, stock: p.stock - (autres[p.id] || 0) }));   // lots : recalculés depuis leurs composants réservés
       const manque = frais.lignes.filter(l => l.type !== 'drop').find(l => { const p = prods.find(x => x.id === l.produitId); if (!p || p.type === 'drop') return false;
         const v = l.varianteId && Array.isArray(p.variantes) ? p.variantes.find(y => y.id === l.varianteId) : null;
-        const dispo = v ? v.stock - (autres[`${l.produitId}:${l.varianteId}`] || 0) : p.composants ? p.stock : p.stock;   // stocks déjà nets des réservations des autres commandes
+        const dispo = v ? v.stock - (autres[`${l.produitId}:${l.varianteId}`] || 0) : p.stock;   // stocks déjà nets des réservations des autres commandes
         return dispo < frais.lignes.filter(y => y.produitId === l.produitId && (!v || y.varianteId === l.varianteId)).reduce((a, y) => a + y.qte, 0); });
       if (manque) throw erreur(409, `« ${manque.nom} » n’est plus disponible dans cette quantité : passez une nouvelle commande.`, 'stock_insuffisant');
+      try { controlerLots(prods, frais.lignes); } catch { throw erreur(409, 'Un article du lot n’est plus disponible dans cette quantité : passez une nouvelle commande.', 'stock_insuffisant'); }
       { const refus = limiteCode(b.id, configVente(b), frais.codePromo, frais.client.email, c.id); if (refus) throw erreur(409, `${refus.message} Passez une nouvelle commande sans lui.`, refus.code); }
       if (frais.codeBienvenue && db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND id <> ? AND email_index = ? AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, c.id, PII.index(b.id, frais.client.email) || '', Date.now() - 35 * 60000))
         throw erreur(409, 'Le code de bienvenue a déjà servi pour une autre commande : passez une nouvelle commande sans lui.', 'code_premiere_commande');
