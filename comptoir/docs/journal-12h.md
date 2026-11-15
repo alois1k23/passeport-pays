@@ -682,19 +682,19 @@ Constats corrigés :
 - **Vérifié dans Chromium**, bureau et mobile : réglage des 7 jours, choix dans le panier (121 créneaux proposés), commande payée, créneau affiché dans les retraits. Aucune erreur.
 - 254 tests sur 254, parcours de bout en bout 57/57.
 
-### Cycle 30 (00 h 10) : marque du produit (chantier 94)
+### Cycle 30 (00 h 05) : marque du produit (chantier 94)
 
 - **Fiche produit** : champ « Marque » (facultatif, 70 caractères, nettoyé). Il est repris dans le flux Google Shopping et Meta (`g:brand`) et dans les données structurées de la page produit. Sans marque, c'est le nom de la boutique, comme avant. Google rapproche la marque et le code-barres : la marque du fabricant évite qu'un produit revendu soit refusé.
 - **Import CSV** : « Vendor » (Shopify), « Brands » (WooCommerce), « Manufacturer » (PrestaShop) et « marque » (tableur) sont repris.
 - **Tests** : marque nettoyée (espaces, caractère de contrôle) dans le flux et dans les données structurées, import Shopify.
 - **Vérifié dans Chromium**, bureau et mobile : saisie, enregistrement, réaffichage. Une marque vidée disparaît. Aucune erreur.
 
-### Cycle 31 (00 h 15) : stock du flux aligné sur celui de la commande (chantier 95)
+### Cycle 31 (00 h 05) : stock du flux aligné sur celui de la commande (chantier 95)
 
 - **Flux produits** : le stock annoncé est celui qui reste une fois déduites les commandes en attente de paiement. C'est le même calcul que celui de la commande et de la reprise de paiement (y compris les composants des lots). Google n'annonce plus « en stock » un dernier exemplaire que la boutique refuserait de vendre.
 - **Test** : pièce unique retenue par une commande non payée, annoncée « out of stock ».
 
-### Cycle 32 (00 h 15) : relecture indépendante des chantiers 92 et 93
+### Cycle 32 (00 h 10) : relecture indépendante des chantiers 92 et 93
 
 Constats corrigés :
 
@@ -725,12 +725,12 @@ Constats corrigés :
   - (l'inventaire par emplacement est fait au cycle 35) ;
   - (l'e-mail « commande prête » rappelle le créneau depuis le cycle 33).
 
-### Cycle 33 (00 h 25) : créneaux dans la langue du client (chantier 96)
+### Cycle 33 (00 h 15) : créneaux dans la langue du client (chantier 96)
 
 - **Boutique** : les jours et les heures de la liste des créneaux sont formés dans la langue affichée (fr, de, it, en), à l'heure de Lausanne. Vérifié dans Chromium en allemand : « Montag, 16. November », champ « Abholzeit », « Zeit wählen… ».
 - **E-mail « commande prête »** : il rappelle le créneau choisi, dans la langue du client (testé).
 
-### Cycle 34 (00 h 35) : vérification complète (npm run verifier)
+### Cycle 34 (00 h 20) : vérification complète (npm run verifier)
 
 Lancée après les chantiers 79 à 95 :
 
@@ -742,7 +742,7 @@ Lancée après les chantiers 79 à 95 :
 
 Les **7 étapes sont réussies**. Après les corrections de la relecture 92-93 et le chantier 96 : 254 tests sur 254, parcours de bout en bout 57/57.
 
-### Cycle 35 (00 h 30) : inventaire par emplacement (chantier 97)
+### Cycle 35 (00 h 20) : inventaire par emplacement (chantier 97)
 
 - **Écran d'inventaire** : avec plusieurs emplacements (magasin, entrepôt, dépôt), un choix « Emplacement compté » apparaît. On compte alors un seul emplacement :
   - le stock affiché est celui de cet emplacement ;
