@@ -637,7 +637,7 @@ document.addEventListener('keydown', e => {
    lecteur « cliquerait » le bouton qui a le focus. */
 const tamponScan = { chiffres: '', dernier: 0 };
 document.addEventListener('keydown', e => {
-  if (location.hash !== '#magasin' || !document.getElementById('cs-scan')) return;
+  if (location.hash !== '#magasin' || !document.getElementById('cs-scan') || ui.modal || document.querySelector('[role=dialog][aria-modal=true]:not([hidden])')) return;   // fenêtre ouverte : rien n'est ajouté derrière
   const t = e.target, editable = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
   if (editable) return;
   const maintenant = Date.now();

@@ -47,6 +47,7 @@ function canonique(t) {
   let c = normaliser(t);
   if (c.length === 12) c = '0' + c;
   if (c.length === 14 && c[0] === '0') c = c.slice(1);
+  if (c.length === 13 && c.startsWith('00000') && valide(c.slice(5))) c = c.slice(5);   // EAN-8 complété par des zéros
   return c;
 }
 

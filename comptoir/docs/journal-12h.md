@@ -625,3 +625,32 @@ La relecture a contrôlé les tables d'encodage EAN-13 et EAN-8 face à la norme
 - **Mobile** : la quantité comptée débordait de sa carte, et le tableau défilait de côté (vu à la vérification). Le champ est maintenant borné.
 - **Tests** : refus (numérique, variante manquante, quantité négative), conflit après une vente avec rien d'appliqué, application forcée, total des variantes, application directe sans vente, activité notée.
 - **Vérifié dans Chromium**, bureau et mobile : 3 lectures au lecteur, une saisie à la main, une vente en ligne pendant le comptage, le conflit affiché, « Appliquer quand même », les stocks justes. Aucune erreur.
+
+### Cycle 28 (00 h 10) : relecture indépendante des chantiers 89 à 91
+
+La relecture confirme plusieurs points :
+
+- le flux n'expose ni coût, ni fournisseur, ni quantité en stock ;
+- les produits masqués et numériques en sont exclus, et une boutique fermée publie un flux vide ;
+- le message cadeau est chiffré, exporté et effacé avec les données du client, et il n'apparaît ni sur la page publique de suivi ni dans les e-mails au client ;
+- les deux tests rendus fiables vérifient toujours la même chose.
+
+Constats corrigés :
+
+- **Élevé, flux** : un titre était coupé à 150 caractères après l'échappement. Une entité pouvait donc être coupée en deux (« &am »), ce qui rendait tout le flux illisible pour Google et Meta. Le texte est maintenant coupé avant l'échappement (testé avec un nom plein d'apostrophes et d'esperluettes).
+- **Moyen, flux** : U+FFFE et U+FFFF passaient, alors que XML les interdit. À l'inverse, tous les émojis étaient supprimés. Seuls les caractères interdits et les demi-paires isolées sont maintenant retirés, et les émojis restent (testé).
+- **Moyen, flux** : l'identifiant d'une variante pouvait dépasser 50 caractères (limite de Google) et changeait quand une valeur était renommée. Il est maintenant court et stable (identifiant du produit et empreinte de la variante), et le test vérifie la limite.
+- **Moyen, flux** : rien ne disait ce qui distingue les variantes. Les options deviennent les attributs attendus (taille, couleur, matière, sinon motif) (testé : « g:size », « g:color »).
+- **Moyen, emballage cadeau** : il était accepté pour une commande entièrement en dropshipping, alors que le fournisseur l'expédie sans emballage. Il demande maintenant au moins un article préparé par la boutique. Un panier qui mêle un produit numérique et un produit physique, refusé par le serveur alors que la case était affichée, est maintenant accepté des deux côtés.
+- **Bas** :
+  - **Flux** : une précommande sans stock n'est plus annoncée « preorder ».
+  - **Lecteur de codes-barres** : avec une fenêtre ouverte, une lecture n'ajoute plus d'article au ticket caché derrière.
+  - **Codes-barres** : un EAN-8 complété par des zéros (0000096385074) a maintenant la même forme de référence que l'EAN-8.
+  - **Restauration** : seuls les codes en conflit sont retirés, et non tous les codes du produit. La réponse nomme les produits concernés et l'interface les signale (testé).
+  - **Panier** : cocher « C'est un cadeau » ne décoche plus la case des nouveautés ni celle du rappel (vérifié dans Chromium).
+  - **Intégrations** : l'API et les webhooks indiquent l'emballage cadeau et son message, pour un outil d'expédition.
+- **Noté, non fait** :
+  - le flux utilise le stock brut, sans déduire les commandes en attente de paiement ;
+  - la marque est toujours le nom de la boutique (pas de champ « marque » par produit) ;
+  - les variantes partagent le lien du produit, sans variante présélectionnée.
+- 252 tests sur 252, parcours de bout en bout 57/57.

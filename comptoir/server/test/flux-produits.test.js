@@ -28,11 +28,23 @@ test('flux produits : contenu, variantes, échappement, boutique fermée', async
     assert.match(xml, /<title>Lin &amp; &lt;Co&gt;<\/title>/);
     assert.match(xml, new RegExp(`<g:id>${nappe}</g:id><title>Nappe &quot;Été&quot; &lt;brodée&gt;</title><description>Lin  lavé</description>`), 'échappé, caractère de contrôle retiré');
     assert.match(xml, /<g:price>60\.00 CHF<\/g:price><g:availability>in stock<\/g:availability><g:condition>new<\/g:condition><g:brand>Lin &amp; &lt;Co&gt;<\/g:brand><g:gtin>4006381333931<\/g:gtin><g:product_type>Table<\/g:product_type>/);
-    assert.match(xml, new RegExp(`<g:id>${ts}-S</g:id><title>T-shirt – S</title>.*?<g:availability>out of stock</g:availability>.*?<g:gtin>96385074</g:gtin><g:item_group_id>${ts}</g:item_group_id>`));
-    assert.match(xml, new RegExp(`<g:id>${ts}-M</g:id>.*?<g:price>32\\.00 CHF</g:price><g:availability>in stock</g:availability>.*?<g:identifier_exists>no</g:identifier_exists><g:item_group_id>${ts}</g:item_group_id>`));
+    assert.match(xml, new RegExp(`<g:id>${ts}-[0-9a-f]{10}</g:id><title>T-shirt – S</title>.*?<g:availability>out of stock</g:availability>.*?<g:gtin>96385074</g:gtin><g:item_group_id>${ts}</g:item_group_id><g:size>S</g:size>`));
+    assert.match(xml, new RegExp(`<g:id>${ts}-[0-9a-f]{10}</g:id><title>T-shirt – M</title>.*?<g:price>32\\.00 CHF</g:price><g:availability>in stock</g:availability>.*?<g:identifier_exists>no</g:identifier_exists><g:item_group_id>${ts}</g:item_group_id>`));
     assert.match(xml, new RegExp(`<g:id>${pre}</g:id>.*?<g:availability>preorder</g:availability><g:availability_date>\\d{4}-\\d\\d-\\d\\dT12:00:00Z</g:availability_date>`));
     assert.doesNotMatch(xml, /Masqué|Guide PDF/, 'masqué et numérique exclus');
     assert.equal((xml.match(/<item>/g) || []).length, 4);
+    assert.ok([...xml.matchAll(/<g:id>([^<]*)<\/g:id>/g)].every(m => m[1].length <= 50), 'identifiants de 50 caractères au plus');
+    // Nom long plein d'apostrophes et d'esperluettes : coupé avant l'échappement (jamais d'entité coupée) ; émoji gardé,
+    // caractères interdits en XML retirés.
+    const nomLong = "L'été d'or & l'hiver d'argent ".repeat(4).slice(0, 118);
+    const long = (await c('POST', '/api/admin/produits', { produit: { nom: nomLong, prix: 9, description: 'ok\ufffe fin 🎄', options: [{ nom: 'Couleur', valeurs: ["Rouge & or d'été 🎁"] }], variantes: [{ id: "Rouge & or d'été 🎁", valeurs: ["Rouge & or d'été 🎁"], stock: 2 }] } }));
+    assert.equal(long.s, 201, JSON.stringify(long.j));
+    const xml2 = await (await fetch(`${base}/s/${slug}/produits.xml`)).text();
+    const titre = new RegExp(`<g:id>${long.j.id}-[0-9a-f]{10}</g:id><title>([^<]*)</title><description>([^<]*)</description>`).exec(xml2);
+    assert.match(xml2, /<g:color>Rouge &amp; or d&#39;été 🎁<\/g:color>/, 'couleur de la variante, émoji gardé');
+    assert.ok(titre, 'article présent');
+    assert.doesNotMatch(titre[1], /&[a-z#0-9]*$/, 'pas d’entité coupée'); assert.match(titre[2], /^ok  fin 🎄$/);
+    assert.doesNotMatch(xml2, /\ufffe/);
     // Abonnement terminé : flux vide (pas de vitrine gratuite chez Google).
     db.prepare("UPDATE abonnements SET statut = 'resilie'").run();
     assert.equal(((await (await fetch(`${base}/s/${slug}/produits.xml`)).text()).match(/<item>/g) || []).length, 0);

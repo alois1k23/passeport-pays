@@ -714,7 +714,8 @@ async function recreerBoutique() {
   config.boutique = { ...config.boutique, nom, secteur: a.secteur, theme: { ...THEMES[a.theme], id: a.theme }, sections: sectionsParDefaut(nom, a.secteur, a.pays), pays: a.pays, devise: a.pays === 'ch' ? 'CHF' : 'EUR', modele: a.modele };
   if (a.domaine) config.boutique.domaine = { domaine: a.domaine, date: Date.now() };
   const propres = a.exemples && a.modele !== 'drop' ? produitsDepuisSecteur(a.secteur).slice(0, a.modele === 'mixte' ? 2 : 6).map(({ id, ...p }) => ({ ...p, type: 'stock' })) : [];
-  await api('POST', '/api/admin/reinitialiser', { config, produits: propres });
+  const rep = await api('POST', '/api/admin/reinitialiser', { config, produits: propres });
+  if (rep && Array.isArray(rep.codesRetires) && rep.codesRetires.length) setTimeout(() => toast(`Codes-barres en double retirés pour : ${rep.codesRetires.slice(0, 5).join(', ')}${rep.codesRetires.length > 5 ? '…' : ''}. Vérifiez ces fiches.`), 1500);
   if (a.exemples && a.modele !== 'stock') {
     const meilleurs = CATALOGUE.filter(f => f.niche === a.secteur && f.entrepot !== 'CN').map(f => ({ f, s: potentielProduit(f).score })).sort((x, y) => y.s - x.s).slice(0, a.modele === 'mixte' ? 3 : 4);
     for (const { f } of meilleurs) await api('POST', '/api/admin/produits/import', { source: f.id });

@@ -228,7 +228,7 @@ function rendreBrut() {
             <div class="deux"><label class="champ"><span>${ch ? 'NPA' : 'Code postal'}</span><input name="npa" required inputmode="numeric" autocomplete="postal-code" ${ch ? 'pattern="[0-9]{4}" maxlength="4"' : ''}></label>`}
             ${numerique ? '' : `<label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}`}
             ${avecNumerique() ? `<label class="case-sf"><input type="checkbox" name="consentementNumerique" required> J’accepte que le fichier me soit envoyé dès le paiement, et je reconnais perdre ainsi mon droit de rétractation pour ce contenu numérique.</label>` : ''}
-            ${donnees.cadeau && !numerique ? `<label class="case-sf"><input type="checkbox" name="cadeau" data-cadeau ${vue.cadeau ? 'checked' : ''}> C’est un cadeau : emballage offert</label>${vue.cadeau ? `<label class="champ"><span>Message sur la carte (facultatif, 300 caractères)</span><textarea name="messageCadeau" rows="3" maxlength="300" data-message-cadeau>${esc(vue.messageCadeau || '')}</textarea></label>` : ''}` : ''}
+            ${donnees.cadeau && vue.panier.some(l => { const p = donnees.produits.find(x => x.id === l.produitId); return p && !p.numerique && p.type !== 'drop'; }) ? `<label class="case-sf"><input type="checkbox" name="cadeau" data-cadeau ${vue.cadeau ? 'checked' : ''}> C’est un cadeau : emballage offert</label>${vue.cadeau ? `<label class="champ"><span>Message sur la carte (facultatif, 300 caractères)</span><textarea name="messageCadeau" rows="3" maxlength="300" data-message-cadeau>${esc(vue.messageCadeau || '')}</textarea></label>` : ''}` : ''}
             ${joursReassort ? `<label class="case-sf"><input type="checkbox" name="rappelReassort"> Me rappeler par e-mail de recommander dans ${joursReassort} jours, avec mon panier prêt (rien n’est débité ; arrêt en un clic dans l’e-mail).</label>` : ''}
             ${!donnees.factureQr && vue.pro && vue.pro.facture ? `<fieldset class="moyens-sf"><legend>Paiement</legend>
               <label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>
@@ -770,9 +770,11 @@ document.addEventListener('change', e => {
   if (!e.target.matches || !e.target.matches('[data-cadeau]')) return;
   vue.cadeau = e.target.checked;
   const f = e.target.form, garde = f ? Object.fromEntries([...new FormData(f)].filter(([k]) => typeof k === 'string')) : {};
+  const cochees = f ? [...f.querySelectorAll('input[type=checkbox]:checked, input[type=radio]:checked')].map(x => [x.name, x.value]) : [];
   rendre();
   const f2 = document.querySelector('#commande');
   if (f2) for (const [k, v] of Object.entries(garde)) { const el = f2.elements[k]; if (el && el.type !== 'checkbox' && el.type !== 'radio' && typeof v === 'string' && !el.value) el.value = v; }
+  if (f2) for (const [n, v] of cochees) for (const el of f2.querySelectorAll(`input[name="${CSS.escape(n)}"]`)) if (el.value === v && el.name !== 'cadeau') el.checked = true;   // cases déjà cochées gardées
   if (vue.cadeau) document.querySelector('[data-message-cadeau]')?.focus(); else document.querySelector('[data-cadeau]')?.focus();
 });
 document.addEventListener('input', e => { if (e.target.matches && e.target.matches('[data-message-cadeau]')) vue.messageCadeau = e.target.value; });

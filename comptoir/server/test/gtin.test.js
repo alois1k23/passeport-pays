@@ -91,9 +91,12 @@ test('code-barres : fiche, unicité, page produit', async () => {
     assert.ok(bis && !bis.ean);
     // Réinitialisation (ou restauration) avec deux fois le même code : le second produit est gardé, sans code.
     const config = (await c('GET', '/api/admin/etat')).j;
-    const re = await c('POST', '/api/admin/reinitialiser', { config: { boutique: config.boutique, entreprise: config.entreprise }, produits: [{ nom: 'Un', prix: 3, stock: 1, ean: '96385074' }, { nom: 'Deux', prix: 3, stock: 1, ean: '96385074' }] });
+    const re = await c('POST', '/api/admin/reinitialiser', { config: { boutique: config.boutique, entreprise: config.entreprise }, produits: [{ nom: 'Un', prix: 3, stock: 1, ean: '96385074' }, { nom: 'Deux', prix: 3, ean: '96385074', options: [{ nom: 'Taille', valeurs: ['S'] }], variantes: [{ id: 'S', valeurs: ['S'], stock: 1, ean: '4006381333931' }] }] });
     assert.equal(re.s, 200, JSON.stringify(re.j));
+    assert.deepEqual(re.j.codesRetires, ['Deux'], 'le marchand sait quel produit a perdu un code');
     const apres = (await c('GET', '/api/admin/etat')).j.produits;
     assert.equal(apres.find(p => p.nom === 'Un').ean, '96385074'); assert.equal(apres.find(p => p.nom === 'Deux').ean, undefined);
+    assert.equal(apres.find(p => p.nom === 'Deux').variantes[0].ean, '4006381333931', 'seul le code en conflit est retiré');
+    assert.equal(Gtin.canonique('0000096385074'), '96385074', 'EAN-8 complété par des zéros');
   } finally { s.close(); }
 });

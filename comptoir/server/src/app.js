@@ -41,6 +41,7 @@ const fournisseurs = require('./fournisseurs');
 const social = require('./social');
 const relances = require('./relances');
 const { creerReassort, joursValides } = require('./reassort');
+const Creneaux = require('./creneaux');
 const Remises = require('../../js/remises.js');
 const PrixBarres = require('../../js/prix-barres.js');
 const QrFacture = require('../../js/qrfacture.js');
@@ -305,7 +306,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // parcourait toutes les commandes des 90 derniers jours (coût qui croissait avec l'historique de la boutique).
   db.exec('CREATE INDEX IF NOT EXISTS commandes_statut ON commandes(boutique_id, statut, date)');
   // Commande telle qu'envoyée aux intégrations du marchand (API, webhooks) : pas de jeton, pas de coûts internes.
-  const commandeApi = (c, devise, { client = true } = {}) => ({ id: c.id, numero: c.numero, date: new Date(c.date).toISOString(), statut: c.statut, total: c.total, sousTotal: c.sousTotal, remise: c.remise || 0, port: c.port || 0, devise,
+  const commandeApi = (c, devise, { client = true } = {}) => ({ id: c.id, numero: c.numero, date: new Date(c.date).toISOString(), statut: c.statut, ...(c.cadeau ? { cadeau: { message: client && c.client && c.client.messageCadeau ? c.client.messageCadeau : null } } : {}), total: c.total, sousTotal: c.sousTotal, remise: c.remise || 0, port: c.port || 0, devise,
     livraison: c.livraison, canal: c.canal || 'web', moyen: c.moyen || 'en_ligne', facture: c.facture || null, suivi: c.suivi || null, transporteur: c.transporteur || null,
     // Données personnelles du client : seulement avec la permission clients:lecture (sinon le pays de livraison suffit).
     client: !c.client ? null : client ? { nom: c.client.nom, email: c.client.email, adresse: c.client.adresse, npa: c.client.npa, ville: c.client.ville, pays: c.client.pays || null } : { pays: c.client.pays || null },
@@ -884,6 +885,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return slug;
   }
   function insererProduits(boutiqueId, produits) {
+    const retires = new Set();
     const liste = (Array.isArray(produits) ? produits : []).filter(p => p && typeof p === 'object').slice(0, 200);
     // Nouveaux identifiants : les lots suivent leurs composants (anciens identifiants de la démonstration ou de la sauvegarde).
     const nouveaux = liste.map(() => auth.nouvelId('p_'));   // un identifiant par produit, même sans identifiant d'origine
@@ -892,8 +894,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const id = nouveaux[i];
       const q = Array.isArray(p.composants) ? { ...p, composants: p.composants.map(c => ({ ...c, produitId: ids.get(String(c && c.produitId || '')) || '' })) } : p;
       let propre;
-      // Code-barres déjà pris : codes retirés (le reste est gardé) ; lot invalide : gardé comme produit simple.
-      const sansCodes = x => ({ ...x, ean: undefined, ...(Array.isArray(x.variantes) ? { variantes: x.variantes.map(v => ({ ...v, ean: undefined })) } : {}) });
+      // Code-barres déjà pris : seuls les codes en conflit sont retirés (produit nommé dans la réponse) ; lot invalide :
+      // gardé comme produit simple.
+      const pris = e => !!db.prepare("SELECT 1 FROM produits p WHERE p.boutique_id = ? AND p.supprime = 0 AND p.id <> ? AND (json_extract(p.donnees, '$.ean') = ? OR EXISTS (SELECT 1 FROM json_each(p.donnees, '$.variantes') v WHERE json_extract(v.value, '$.ean') = ?))").get(boutiqueId, id, e, e);
+      const sansCodes = x => {
+        const vus = new Set(), garde = e => { const c = e && Gtin.valide(e) ? Gtin.canonique(e) : null; if (!c || vus.has(c) || pris(c)) { if (e) retires.add(String(x.nom || '').slice(0, 80)); return undefined; } vus.add(c); return c; };
+        return { ...x, ean: garde(x.ean), ...(Array.isArray(x.variantes) ? { variantes: x.variantes.map(v => ({ ...v, ean: garde(v.ean) })) } : {}) };
+      };
       try { propre = verifierLot(boutiqueId, produitDuNavigateur(q), id); }
       catch (e) {
         const q2 = e && e.code === 'ean_doublon' ? sansCodes(q) : { ...q, composants: undefined };
@@ -902,6 +909,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, boutiqueId, serialiserProduit(id, propre), i);
       reconcilierProduit(boutiqueId, id);
     });
+    return { codesRetires: [...retires] };
   }
 
   /* ---------- Flux des statuts (mêmes règles que l'interface) ---------- */
@@ -2464,14 +2472,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const avant = lireConfig(ctx.boutique);
     const config = garderDomaine(nettoyerConfig(ctx.corps.config), avant);
     gardesConfig(ctx, avant, config);   // mêmes règles que l'enregistrement des réglages (IBAN, e-mail, membres d'équipe)
+    let res = null;
     transaction(db, () => {
       db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(config), ctx.boutique.id);
       for (const r0 of db.prepare('SELECT id FROM produits WHERE boutique_id = ? AND supprime = 0').all(ctx.boutique.id)) EMP.purgerProduit(ctx.boutique.id, r0.id);
       db.prepare('UPDATE produits SET supprime = 1 WHERE boutique_id = ?').run(ctx.boutique.id);
-      insererProduits(ctx.boutique.id, ctx.corps.produits);
+      res = insererProduits(ctx.boutique.id, ctx.corps.produits);
     });
     signalerChangementsConfig(ctx, avant, config);
-    return { ok: true };
+    return { ok: true, ...(res && res.codesRetires.length ? { codesRetires: res.codesRetires } : {}) };   // codes-barres en double retirés : le marchand sait lesquels
   });
   /* Règles communes à tout enregistrement de la configuration (réglages, réinitialisation) :
      - membre de l'équipe : l'identité de l'entreprise, l'IBAN, l'e-mail de contact et le paiement sur facture restent
@@ -3366,6 +3375,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       paiementsActifs: paiementsActifs(b) || factureQrPossible(config),
       factureQr: factureQrPossible(config) ? { echeanceJours: config.reglages.echeanceJours, enLigne: paiementsActifs(b) } : null,
       cadeau: !!(config.reglages && config.reglages.emballageCadeau),   // emballage cadeau offert, avec message
+      creneaux: Creneaux.regles(config).actif && !!config.magasin.clickCollect,   // retrait sur créneau : liste à part (toujours fraîche)
       moyens: paiement.nom === 'stripe' ? (moyensDe(b.id) || {}) : null,   // TWINT ou Bancontact : annoncés seulement s'ils sont activés   // sinon la boutique prévient avant que le client remplisse le panier
       hebergeur: env.HEBERGEUR || null   // identité de l'hébergeur (obligatoire dans les mentions légales en France)
     };
@@ -3540,7 +3550,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (avecNumerique) c.consentementNumerique = now;   // preuve du consentement (livraison immédiate, rétractation)
       // Emballage cadeau (offert, si la boutique le propose) : le message, écrit par le client, est rangé avec ses données
       // chiffrées (et effacé avec elles) ; il figure sur le bon de préparation, jamais les prix.
-      if (ctx.corps.cadeau === true && config.reglages && config.reglages.emballageCadeau && !avecNumerique) { c.cadeau = true; const msg = String(ctx.corps.messageCadeau || '').replace(/\r/g, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 300); if (msg) c.client.messageCadeau = msg; }
+      if (ctx.corps.cadeau === true && config.reglages && config.reglages.emballageCadeau && lignes.some(l => !l.numerique && l.type !== 'drop')) {   // au moins un article préparé par la boutique (pas le fournisseur)
+        c.cadeau = true; const msg = String(ctx.corps.messageCadeau || '').replace(/\r/g, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 300); if (msg) c.client.messageCadeau = msg; }
       // Rappel de réassort demandé (case cochée par le client) : produits qui le proposent, délai le plus court.
       if (ctx.corps.rappelReassort === true) {
         const rl = lignes.filter(l => !l.varianteId && (produits.find(p => p.id === l.produitId) || {}).reassortJours);
@@ -5287,20 +5298,30 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
     const base = racine.replace(/\/$/, ''), config = lireConfig(b), devise = config.boutique.devise || (config.boutique.pays === 'ch' ? 'CHF' : 'EUR');
     const ouverte = abo.etat(b.marchand_id).actif;
     const produits = ouverte ? listerProduits(b.id).filter(vendable).filter(p => !p.numerique) : [];
-    const texte = t => String(t || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ').replace(/[\ud800-\udfff]/g, '');
+    // Caractères refusés par XML 1.0 retirés (contrôle, U+FFFE/U+FFFF, demi-paires isolées) ; émojis et caractères complets gardés.
+    const texte = t => String(t || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffe\uffff]/g, ' ').replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '');
     const x = t => escHtml(texte(t));
     const prixG = n => `${Number(n).toFixed(2)} ${devise}`;
     const jour = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Zurich' });
     const items = [];
     for (const p of produits) {
       const image = p.image ? `${urlPublique}/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : '';
-      const pre = p.precommande && String(p.expeditionPrevue || '') >= jour;
-      const commun = (id, titre, prixV, stock, ean, groupe) => `<item><g:id>${x(id)}</g:id><title>${x(titre).slice(0, 150)}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}</item>`;
-      if (Array.isArray(p.variantes) && p.variantes.length) for (const v of p.variantes) items.push(commun(`${p.id}-${v.id}`, `${p.nom} – ${v.valeurs.join(' / ')}`, typeof v.prix === 'number' ? v.prix : p.prix, v.stock, v.ean, p.id));
+      const pre = p.precommande && String(p.expeditionPrevue || '') >= jour && p.stock > 0;
+      const commun = (id, titre, prixV, stock, ean, groupe, attributs = '') => `<item><g:id>${x(id)}</g:id><title>${x(String(titre).slice(0, 150))}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${attributs}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}</item>`;
+      // Variantes : identifiant court et stable (empreinte des valeurs, 50 caractères au plus), et ce qui les distingue
+      // (taille, couleur, matière) dans les attributs attendus par Google.
+      const attributDe = nom => /taille|size|gr[öo](ss|ß)e|pointure|taglia/i.test(nom) ? 'size' : /couleur|colou?r|farbe|colore/i.test(nom) ? 'color' : /mati[eè]re|material|stoff/i.test(nom) ? 'material' : 'pattern';
+      if (Array.isArray(p.variantes) && p.variantes.length) for (const v of p.variantes) {
+        const attributs = (p.options || []).map((o, k) => v.valeurs[k] ? `<g:${attributDe(o.nom)}>${x(String(v.valeurs[k]).slice(0, 100))}</g:${attributDe(o.nom)}>` : '').join('');
+        items.push(commun(`${p.id}-${crypto.createHash('sha256').update(v.id).digest('hex').slice(0, 10)}`.slice(0, 50), `${p.nom} – ${v.valeurs.join(' / ')}`, typeof v.prix === 'number' ? v.prix : p.prix, v.stock, v.ean, p.id, attributs));
+      }
       else items.push(commun(p.id, p.nom, p.prix, p.stock, p.ean, null));
     }
     return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>${x(config.boutique.nom)}</title><link>${x(base + '/')}</link><description>${x(`Produits de ${config.boutique.nom}`)}</description>\n${items.join('\n')}\n</channel></rss>\n`;
   }
+  // Créneaux de retrait déjà pris (commandes en cours, y compris en attente de paiement depuis moins d'une heure).
+  const creneauxPris = (bid, maintenant = Date.now()) => new Map(db.prepare("SELECT json_extract(donnees, '$.retraitCreneau') d, COUNT(*) n FROM commandes WHERE boutique_id = ? AND json_extract(donnees, '$.retraitCreneau') > ? AND statut NOT IN ('annulee', 'remboursee') AND (statut <> 'attente' OR date > ?) GROUP BY d").all(bid, maintenant - 86400000, maintenant - 3600000).map(r => [Number(r.d), r.n]));
+  const creneauxLibres = (b, config, maintenant = Date.now()) => Creneaux.liste(Creneaux.regles(config), maintenant, creneauxPris(b.id, maintenant));
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
     const produits = abo.etat(b.marchand_id).actif ? listerProduits(b.id).filter(vendable) : [];
@@ -5309,6 +5330,13 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u => `  <url><loc>${escHtml(u)}</loc></url>`).join('\n')}\n</urlset>\n`;
   }
   // Image d'un produit en fichier (pour l'aperçu de partage : og:image doit être une adresse, pas une image intégrée).
+  // Créneaux de retrait libres (lus à l'ouverture du panier ; revérifiés à la commande).
+  r.get('/api/public/:slug/creneaux', ctx => {
+    const b = boutiqueOuverte(ctx.params.slug), config = lireConfig(b);
+    if (!config.magasin.clickCollect) return { creneaux: [] };
+    ctx.entetes['Cache-Control'] = 'no-store';
+    return { creneaux: creneauxLibres(b, config).slice(0, 120).map(x => ({ debut: x.debut, libelle: Creneaux.libelle(x.debut, x.fin) })) };
+  });
   r.get('/api/public/:slug/image/:id', ctx => {
     const b = boutiqueOuverte(ctx.params.slug);
     const p = listerProduits(b.id).find(x => x.id === ctx.params.id && vendable(x) && x.image);
