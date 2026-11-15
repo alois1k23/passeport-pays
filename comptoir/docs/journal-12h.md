@@ -79,3 +79,44 @@ Changer de plateforme demandait jusqu'ici de ressaisir chaque produit à la main
   - **Documentation** : le prix hors taxes seul est désormais vraiment « à vérifier » (produit masqué), comme le journal le disait.
 - Après corrections : 237 tests sur 237, parcours de bout en bout 57/57.
 
+### Cycle 2 (22 h 40) : produits numériques (chantier 71)
+
+Shopify, Wix ou WooCommerce vendent des fichiers à télécharger (livres, musique, patrons de couture, modèles, logiciels) ; Comptoir ne savait vendre que des objets. Désormais :
+
+- **Côté marchand** :
+  - la fiche produit a une case « Produit numérique » ;
+  - une fois le produit enregistré, on y ajoute le fichier (PDF, EPUB, ZIP, MP3, MP4, images, documents… 25 Mo au plus, 200 Mo par boutique), avec une barre de progression ;
+  - le stock reste un plafond facultatif (édition limitée) ;
+  - un produit numérique sans fichier n'est pas mis en vente ;
+  - dans une commande, « Renvoyer de nouveaux liens » révoque les anciens et en envoie de nouveaux.
+- **Envoi du fichier** : en morceaux d'1 Mo, si bien que la limite de 2 Mo par requête reste la même partout et qu'aucun gros corps n'est lu avant l'authentification. L'empreinte SHA-256 est calculée dans le navigateur et contrôlée par le serveur à la fin : un fichier tronqué, mélangé ou altéré n'est jamais enregistré. Les envois abandonnés sont effacés après une heure.
+- **Côté client** :
+  - un panier entièrement numérique remplace le choix de livraison par « envoi par e-mail », sans adresse ni frais de port ;
+  - une case obligatoire fait accepter la livraison immédiate et la perte du droit de rétractation (directive 2011/83 art. 16 m ; Code de la consommation L221-28 13° ; CDE VI.53 13°), et sa date est gardée avec la commande ;
+  - après le paiement, la page de confirmation l'annonce et l'e-mail contient les liens.
+- **Liens de téléchargement** :
+  - un par fichier, personnel, valable 30 jours et 5 téléchargements, décompté de façon atomique ;
+  - seule l'empreinte du jeton est gardée en base ;
+  - une commande remboursée ou annulée ne télécharge plus rien ;
+  - le fichier part toujours en pièce jointe (`application/octet-stream`, `Content-Disposition: attachment` avec nom nettoyé, CSP `sandbox`, pas de cache), si bien qu'un PDF ou un SVG piégé ne s'exécute jamais sur le domaine de Comptoir ;
+  - limite de 60 téléchargements par heure et par réseau.
+- **Commande entièrement numérique** : marquée livrée dès l'envoi des liens. Une commande mixte suit le chemin habituel ; ses fichiers partent tout de suite.
+- **Limites, notées** :
+  - l'e-mail des liens est en français seulement (pas encore dans la langue du client) ;
+  - le lien en clair reste dans le journal des e-mails jusqu'à l'effacement de leur contenu (7 jours, chantier 61) ;
+  - une vente à la caisse n'envoie pas de lien ;
+  - la TVA des services numériques vendus à des particuliers de l'UE (taux du pays du client, guichet OSS) n'est pas encore calculée : le taux de la boutique s'applique.
+- **Tests** :
+  - noms de fichiers piégés (chemin, `.exe`, inversion du sens d'écriture) et en-tête de pièce jointe ;
+  - envoi en 3 morceaux, morceau de mauvaise taille, empreinte fausse ;
+  - produit sans fichier absent de la boutique ;
+  - commande sans consentement refusée, sans adresse acceptée ; panier mixte sans livraison refusé ;
+  - paiement, commande livrée, fichier téléchargé identique, en-têtes, 5 téléchargements puis refus ;
+  - renvoi (ancien lien révoqué), remboursement (refus 410) ;
+  - un autre marchand ne touche pas au fichier.
+- **Vérifié dans Chromium**, bureau et mobile : création du produit, envoi d'un fichier de 1,6 Mo depuis la fiche, achat sans adresse avec consentement, paiement, lien reçu, fichier identique. La vérification a fait corriger trois défauts :
+  - cocher « numérique » effaçait ce qui venait d'être tapé dans la fiche (le formulaire était redessiné) ;
+  - un produit sans fichier restait en vente ;
+  - la barre « livraison offerte » s'affichait pour un panier numérique.
+- 239 tests sur 239, parcours de bout en bout 57/57.
+

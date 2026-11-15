@@ -84,6 +84,10 @@ document.addEventListener('input', e => {
   if (t && ville && !ville.value) ville.value = t[2];
 });
 
+/* Produits numériques dans le panier : tout numérique = envoi par e-mail (ni adresse ni port) ; au moins un = consentement. */
+const estNumerique = l => !!(donnees.produits.find(p => p.id === l.produitId) || {}).numerique;
+const panierNumerique = () => vue.panier.length > 0 && vue.panier.every(estNumerique);
+const avecNumerique = () => vue.panier.some(estNumerique);
 function fraisPortClient(cle, sousTotal) {
   const m = donnees.livraisons[cle];
   if (!m || !m.prix) return 0;
@@ -145,7 +149,7 @@ function rendre() {
 function rendreBrut() {
   const calc = calculPanier();
   const total = calc.apresRemise;
-  const port = total ? fraisPortClient(vue.livraison, total) : 0;
+  const port = total && !panierNumerique() ? fraisPortClient(vue.livraison, total) : 0;   // envoi par e-mail : sans port
   // Carte cadeau : déduite du total (au plus son solde) ; le serveur refait le calcul et débite la carte.
   // Points de fidélité (aperçu ; le serveur refait le calcul) : au plus la valeur des points et le plafond de la boutique.
   const fidReg = donnees.fidelite, articlesC = Math.round(total * 100);
@@ -164,6 +168,7 @@ function rendreBrut() {
   const drops = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.type === 'drop' && p.delai);
   const delai = drops.length ? [Math.max(...drops.map(p => p.delai[0])), Math.max(...drops.map(p => p.delai[1]))] : null;
   const ch = donnees.boutique.pays === 'ch';
+  const numerique = panierNumerique();
   const retrait = vue.livraison === 'retrait';
   const th = donnees.boutique.theme;
   let cookies = null;
@@ -181,7 +186,7 @@ function rendreBrut() {
             <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span data-sans-traduction>${esc(l.nom)}</span>
             <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId), vr = pr && l.varianteId && aVariantes(pr) ? pr.variantes.find(x => x.id === l.varianteId) : null; return pr && l.qte >= (pr.type === 'drop' ? 20 : vr ? vr.stock : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
             <span class="num">${euros(l.prixInitial * l.qte)}</span></li>`).join('')}</ul>
-          ${donnees.offres.barrePort && seuil > 0 && vue.livraison !== 'retrait' ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i data-largeur="${Math.min(100, total / seuil * 100)}"></i></span></div>` : ''}
+          ${donnees.offres.barrePort && seuil > 0 && vue.livraison !== 'retrait' && !numerique ? `<div class="barre-port"><p>${total >= seuil ? 'Livraison offerte' : `Plus que <b>${euros(seuil - total)}</b> pour la livraison offerte`}</p><span><i data-largeur="${Math.min(100, total / seuil * 100)}"></i></span></div>` : ''}
           ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
           ${produitOffre ? `<label class="offre-panier">${visuelProduit(produitOffre)}<span><input type="checkbox" data-c="offre" data-regle="${esc(regle.id)}" data-id="${esc(produitOffre.id)}"> <strong>Ajouter ${esc(produitOffre.nom)}</strong><br><s>${euros(produitOffre.prix)}</s> <b>${euros(produitOffre.prix * (1 - regle.remise / 100))}</b> · −${regle.remise} % seulement avec cette commande</span></label>` : ''}
           ${suggestion ? `<div class="suggestion">${visuelProduit(suggestion)}<div><small>Souvent ajouté</small><strong>${esc(suggestion.nom)}</strong><span>${euros(suggestion.prix)}</span></div><button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${esc(suggestion.id)}">Ajouter</button></div>` : ''}
@@ -190,16 +195,17 @@ function rendreBrut() {
           <form id="form-carte" class="code-promo"><input name="carte" placeholder="Carte cadeau" aria-label="Code de la carte cadeau" value="${esc(vue.carte ? vue.carte.code : '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"><button class="sf-btn sf-btn-ligne">${vue.carte ? 'Retirer' : 'Utiliser'}</button></form>
           ${vue.carteMessage ? `<p class="mini" role="status">${esc(vue.carteMessage)}</p>` : ''}
           ${fidReg ? blocFidelite(fidReg, remiseFid, pointsGagnes) : ''}
-          <fieldset class="modes-livraison"><legend>Livraison</legend>${Object.entries(donnees.livraisons).map(([k, m]) => `
+          ${numerique ? '<p class="sf-note">Livraison : <b>envoi par e-mail</b>. Vos fichiers arrivent dès le paiement, sans frais de port.</p>' : ''}<fieldset class="modes-livraison"${numerique ? ' hidden' : ''}><legend>Livraison</legend>${Object.entries(donnees.livraisons).map(([k, m]) => `
             <label class="${vue.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${esc(k)}" data-c="livraison" ${vue.livraison === k ? 'checked' : ''}>
             <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : esc(fenetreLivraison(k === 'poste-prio' && !delai ? [1, 1] : delai || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
           <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div>${remiseFid ? `<div class="remise"><span>Points de fidélité</span><span>−${euros(remiseFid)}</span></div>` : ''}<div class="total"><span>Total</span><span>${euros(total - remiseFid + port)}</span></div>${partCarte ? `<div class="remise"><span>Carte cadeau ····${esc(vue.carte.fin)}</span><span>−${euros(partCarte)}</span></div><div class="total"><span>À payer</span><span>${euros(aPayer)}</span></div>` : ''}</div>
           <form id="commande">
             <label class="champ"><span>Nom et prénom</span><input name="nom" required autocomplete="name"></label>
             <label class="champ"><span>E-mail</span><input name="email" type="email" required autocomplete="email"></label>
-            ${retrait ? '' : `<label class="champ"><span>Adresse</span><input name="adresse" required autocomplete="street-address"></label>
+            ${retrait || numerique ? '' : `<label class="champ"><span>Adresse</span><input name="adresse" required autocomplete="street-address"></label>
             <div class="deux"><label class="champ"><span>${ch ? 'NPA' : 'Code postal'}</span><input name="npa" required inputmode="numeric" autocomplete="postal-code" ${ch ? 'pattern="[0-9]{4}" maxlength="4"' : ''}></label>`}
-            <label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}
+            ${numerique ? '' : `<label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}`}
+            ${avecNumerique() ? `<label class="case-sf"><input type="checkbox" name="consentementNumerique" required> J’accepte que le fichier me soit envoyé dès le paiement, et je reconnais perdre ainsi mon droit de rétractation pour ce contenu numérique.</label>` : ''}
             ${donnees.factureQr ? `<fieldset class="moyens-sf"><legend>Paiement</legend>
               ${donnees.factureQr.enLigne === false ? '' : `<label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>`}
               <label class="case-sf"><input type="radio" name="moyen" value="facture"${donnees.factureQr.enLigne === false ? ' checked' : ''}> Facture QR, payable sous ${donnees.factureQr.echeanceJours} jours (expédition dès réception du paiement)</label></fieldset>` : ''}
@@ -254,7 +260,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: vue.livraison, code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: panierNumerique() ? 'numerique' : vue.livraison, consentementNumerique: d.get('consentementNumerique') === 'on', code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
         carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code, demande: vue.fid.demande } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
@@ -303,9 +309,9 @@ async function suivreCommande(id, jeton, annule) {
       const retrait = c.livraison === 'retrait';
       const pointRetrait = !retrait && mode && /pickpost|relais|point/i.test(c.livraison + ' ' + mode.nom);
       const etapes = [['Commande reçue', true], ['Préparation', !['attente'].includes(c.statut)], [retrait ? 'Prête à retirer' : 'Expédiée', ['expediee', 'livree', 'prete', 'retiree'].includes(c.statut)], [retrait ? 'Retirée' : 'Livrée', ['livree', 'retiree'].includes(c.statut)]];
-      vue.message = `<div class="confirm"><p class="confirm-merci">${c.prenom ? `Merci ${esc(c.prenom)} !` : 'Merci !'}</p><h3>Commande n° ${c.numero}</h3><p>${c.statut === 'attente' && i >= 19 ? 'La confirmation du paiement prend plus de temps que prévu. Si votre paiement est passé, vous recevrez la confirmation par e-mail ; sinon, rien n’a été débité et vous pouvez réessayer.' : c.livraison === 'carte' && c.statut === 'payee' ? 'Paiement reçu : la carte cadeau vient de partir par e-mail.' : libelles[c.statut] || ''}</p>
-        ${['annulee', 'remboursee'].includes(c.statut) || c.livraison === 'carte' ? '' : `<ol class="suivi-etapes">${etapes.map(([n, fait]) => `<li class="${fait ? 'fait' : ''}">${n}</li>`).join('')}</ol>`}
-        ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) || c.livraison === 'carte' ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
+      vue.message = `<div class="confirm"><p class="confirm-merci">${c.prenom ? `Merci ${esc(c.prenom)} !` : 'Merci !'}</p><h3>Commande n° ${c.numero}</h3><p>${c.statut === 'attente' && i >= 19 ? 'La confirmation du paiement prend plus de temps que prévu. Si votre paiement est passé, vous recevrez la confirmation par e-mail ; sinon, rien n’a été débité et vous pouvez réessayer.' : c.livraison === 'carte' && c.statut === 'payee' ? 'Paiement reçu : la carte cadeau vient de partir par e-mail.' : c.livraison === 'numerique' && ['payee', 'livree'].includes(c.statut) ? 'Paiement reçu : vos liens de téléchargement viennent de partir par e-mail (5 téléchargements, 30 jours).' : libelles[c.statut] || ''}</p>
+        ${['annulee', 'remboursee'].includes(c.statut) || ['carte', 'numerique'].includes(c.livraison) ? '' : `<ol class="suivi-etapes">${etapes.map(([n, fait]) => `<li class="${fait ? 'fait' : ''}">${n}</li>`).join('')}</ol>`}
+        ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) || ['carte', 'numerique'].includes(c.livraison) ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>

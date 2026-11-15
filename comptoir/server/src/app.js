@@ -13,6 +13,7 @@ const MotDePasse = require('./motdepasse');
 const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const ImportCatalogue = require('../../js/import-catalogue.js');
+const { creerNumerique, dispositionPieceJointe } = require('./numerique');
 const EmailsClients = require('./emails-clients');
 const FactureElectronique = require('./facture-electronique');
 const FacturxPdf = require('./facturx-pdf');
@@ -88,7 +89,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return proxiesConfiance.has(pair) && xff.length ? xff[xff.length - 1] : pair;
   };
   let avertiProxy = false;
-  const vendable = p => p.actif && !p.aVerifier && (fournisseurDemoVendable || p.codeFournisseur !== 'demo');
+  // Produit numérique sans fichier : pas en vente (le client paierait sans rien recevoir).
+  const vendable = p => p.actif && !p.aVerifier && (fournisseurDemoVendable || p.codeFournisseur !== 'demo') && (!p.numerique || !!NUM.fichierDe(p.id));
   // Délai avant que le faux fournisseur expédie (2 min par défaut ; négatif = jamais, pour tester à la main).
   const delaiExpeditionDemo = env.DEMO_DELAI_EXPEDITION_MS === undefined ? 120000 : Number(env.DEMO_DELAI_EXPEDITION_MS);
   const secretsDemo = { cleApiDemo: crypto.randomBytes(24).toString('hex'), secretWebhookDemo: crypto.randomBytes(24).toString('hex') };
@@ -229,6 +231,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     try { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(r.id, JSON.parse(r.donnees)), r.id); } catch { /* fiche illisible : laissée */ }
   }
   const avecImage = p => p.image === IMG ? { ...p, image: imageDe(p.id) } : p;
+  const NUM = creerNumerique({ db, erreur });   // produits numériques : fichiers et liens de téléchargement
   const listerProduits = (boutiqueId, avecSupprimes = false) =>
     db.prepare(`SELECT id, donnees FROM produits WHERE boutique_id = ? ${avecSupprimes ? '' : 'AND supprime = 0'} ORDER BY ordre, rowid`).all(boutiqueId)
       .map(p => ({ ...JSON.parse(p.donnees), id: p.id }));
@@ -720,6 +723,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       tauxReduit: !!p.tauxReduit   // denrées alimentaires : TVA à taux réduit
     };
     // Référence d'origine d'un produit importé (Shopify, WooCommerce…) : un nouvel import du même fichier ne le recrée pas.
+    // Produit numérique (fichier livré par e-mail après paiement) : pas de livraison ; le stock sert de plafond (édition limitée).
+    if (type === 'stock' && p.numerique === true) propre.numerique = true;
     if (typeof p.refImport === 'string' && p.refImport) propre.refImport = p.refImport.replace(/[\u0000-\u001f]/g, '').slice(0, 80);
     if (p.cout !== undefined && p.cout !== null && p.cout !== '') propre.cout = prix.arrondi(valider.nombre(p.cout, 'Le coût', { min: 0, max: 100000 }));
     if (p.image === '#image') propre.image = '#image';   // photo déjà rangée dans images_produits, inchangée
@@ -938,12 +943,25 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     });
     if (manques.length) { c.alerteStock = true; historique(c, `Rupture de stock au paiement : ${[...new Set(manques.map(x => x.p.nom))].join(', ')}. Réapprovisionnez ou remboursez.`); }
     ajusterStock(row.boutique_id, c.lignes, -1, canalStock(c));
+    // Produits numériques : liens personnels créés au paiement, envoyés par e-mail (jetons jamais gardés en clair).
+    // Commande entièrement numérique : livrée dès l'envoi des liens.
+    const liens = c.lignes.some(l => l.numerique) ? NUM.creerLiens(row.boutique_id, c) : [];
+    if (liens.length) {
+      historique(c, `Liens de téléchargement envoyés au client (${liens.length} fichier${liens.length > 1 ? 's' : ''}, ${NUM.TELECHARGEMENTS} téléchargements, 30 jours)`);
+      if (c.lignes.every(l => l.numerique)) { c.statut = 'livree'; c.livreeLe = Date.now(); }
+    }
     enregistrerCommande(c);
-    return { c, boutique: db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id) };
+    return { c, boutique: db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id), liens };
   }
   /* Après un paiement (en ligne ou relevé bancaire) : e-mails au client et au marchand, transmission au fournisseur. */
+  // E-mail des liens de téléchargement (après paiement, ou renvoyés par le marchand).
+  function envoyerLiens(boutique, c, liens, config) {
+    if (!liens.length || !c.client || !c.client.email) return;
+    envoyerEmail(boutique.id, c.client.email, `Vos téléchargements : commande n° ${c.numero}`, `Bonjour ${c.client.nom},\n\nMerci pour votre achat chez ${config.boutique.nom}. Voici vos fichiers :\n\n${liens.map(l => `${l.nom} (${l.fichier})\n${urlPublique}/telecharger/${l.jeton}`).join('\n\n')}\n\nChaque lien est personnel : il sert ${NUM.TELECHARGEMENTS} fois, pendant 30 jours. Ne le transmettez pas. S’il expire, écrivez à la boutique pour en recevoir un nouveau.\n\n${config.boutique.nom}`);
+  }
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
+    if (res.liens && res.liens.length) envoyerLiens(res.boutique, res.c, res.liens, config);
     // Carte cadeau vendue : le client a reçu sa carte (ou son avis d'envoi) ; le marchand est simplement informé.
     if (res.c.canal === 'carte') {
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
@@ -2267,7 +2285,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), utilisationsCodes: Object.fromEntries(Remises.offresDe(config).codes.map(x => [x.code, utilisationsCode(ctx.boutique.id, x.code, { depuis: x.cree })])), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage).map(p => p.numerique ? { ...p, fichier: NUM.fichierDe(p.id) } : p), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), utilisationsCodes: Object.fromEntries(Remises.offresDe(config).codes.map(x => [x.code, utilisationsCode(ctx.boutique.id, x.code, { depuis: x.cree })])), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
     etatComplet.attentesStock = Object.fromEntries(db.prepare("SELECT produit_id || '|' || variante_id AS k, COUNT(*) AS n FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id").all(ctx.boutique.id).map(x => [x.k, x.n]));   // « clients en attente » par produit et variante
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
     let final = etatComplet;
@@ -2458,6 +2476,45 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     };
     await Promise.all([suivant(), suivant(), suivant(), suivant()]);
   }
+  /* ---------- Produits numériques : fichier envoyé en morceaux, liens de téléchargement ---------- */
+  const produitNumerique = ctx => {
+    const ligne = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(String(ctx.params.id), ctx.boutique.id);
+    if (!ligne) throw erreur(404, 'Produit introuvable.', 'produit_introuvable');
+    return String(ctx.params.id);
+  };
+  r.post('/api/admin/produits/:id/fichier/debut', exigerMarchand, ctx => {
+    auth.limiter('fichier-envoi:' + ctx.boutique.id, 60 * facteurLimites, 3600000, 'Trop d’envois de fichiers : réessayez dans une heure.');
+    return NUM.commencer(ctx.boutique.id, produitNumerique(ctx), ctx.corps);
+  });
+  r.post('/api/admin/produits/:id/fichier/morceau', exigerMarchand, ctx => NUM.morceau(ctx.boutique.id, produitNumerique(ctx), ctx.corps));
+  r.post('/api/admin/produits/:id/fichier/fin', exigerMarchand, ctx => {
+    const pid = produitNumerique(ctx), f = NUM.terminer(ctx.boutique.id, pid, ctx.corps);
+    noterActivite(ctx.marchand.id, 'fichier-numerique', `${f.nom} (${Math.round(f.taille / 1024)} Ko)`, ctx);
+    return { fichier: f };
+  });
+  r.delete('/api/admin/produits/:id/fichier', exigerMarchand, ctx => ({ ok: NUM.retirer(ctx.boutique.id, produitNumerique(ctx)) }));
+  // Liens d'une commande : état (téléchargements restants), et renvoi (anciens liens révoqués, nouveaux envoyés au client).
+  r.get('/api/admin/commandes/:id/telechargements', exigerMarchand, ctx => { const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id); return { liens: NUM.etatLiens(c.id) }; });
+  r.post('/api/admin/commandes/:id/telechargements', exigerMarchand, ctx => {
+    const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
+    if (!['payee', 'preparation', 'expediee', 'livree'].includes(c.statut)) throw erreur(409, 'Seule une commande payée reçoit des liens de téléchargement.', 'statut');
+    auth.limiter('liens-renvoi:' + c.id, 5 * facteurLimites, 86400000, 'Liens déjà renvoyés plusieurs fois aujourd’hui pour cette commande.');
+    const liens = NUM.creerLiens(ctx.boutique.id, c);
+    if (!liens.length) throw erreur(409, 'Aucun fichier à envoyer pour cette commande.', 'sans_fichier');
+    envoyerLiens(ctx.boutique, c, liens, lireConfig(ctx.boutique));
+    historique(c, 'Nouveaux liens de téléchargement envoyés au client (les anciens ne marchent plus)'); enregistrerCommande(c);
+    return { envoyes: liens.length };
+  });
+  r.get('/telecharger/:jeton', ctx => {
+    auth.limiter('telechargement:' + reseauIp(ctx.ip), 60 * facteurLimites, 3600000, 'Trop de téléchargements depuis votre réseau : réessayez dans une heure.');
+    const permise = cid => { const row = db.prepare('SELECT statut FROM commandes WHERE id = ?').get(cid); return !!row && ['payee', 'preparation', 'expediee', 'livree'].includes(row.statut); };
+    const f = NUM.telecharger(ctx.params.jeton, permise);
+    // Toujours en pièce jointe, jamais affiché sur le domaine de Comptoir (un PDF ou un SVG piégé n'y exécuterait rien).
+    ctx.entetes['Content-Disposition'] = dispositionPieceJointe(f.nom);
+    ctx.entetes['Cache-Control'] = 'private, no-store';
+    ctx.entetes['Content-Security-Policy'] = "default-src 'none'; sandbox";
+    return { binaire: f.donnees, type: 'application/octet-stream' };
+  });
   r.patch('/api/admin/commandes/:id', exigerMarchand, ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     if (typeof ctx.corps.note === 'string') c.note = ctx.corps.note.slice(0, 2000);
@@ -3065,17 +3122,23 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       let tous = null; const stockDe = pid => { tous = tous || listerProduits(b.id); const p = tous.find(x => x.id === pid); return p ? Math.max(0, p.stock) : 0; };
       for (const [pid, q] of Object.entries(parProduit)) if ((parReseau[pid] || 0) + q > Math.min(20, Math.max(3, Math.ceil(stockDe(pid) / 2))) * facteurLimites) throw erreur(429, 'Quantité trop grande pour une commande en ligne non payée : terminez d’abord un paiement en cours, réduisez la quantité, ou demandez un devis à la boutique.', 'trop_reserve'); }
     const modes = prix.modesLivraison(config);
-    const mode = typeof ctx.corps.livraison === 'string' && Object.hasOwn(modes, ctx.corps.livraison) ? modes[ctx.corps.livraison] : null;
+    // Produits numériques : une commande qui n'en contient que ça ne demande ni adresse ni port (envoi par e-mail).
+    const toutNumerique = lignesBrutes.every(l => l.numerique), avecNumerique = lignesBrutes.some(l => l.numerique);
+    const envoiEmail = toutNumerique && ctx.corps.livraison === 'numerique';
+    const mode = envoiEmail ? { nom: 'Envoi par e-mail', prix: 0, jamaisOffert: false } : typeof ctx.corps.livraison === 'string' && Object.hasOwn(modes, ctx.corps.livraison) ? modes[ctx.corps.livraison] : null;
     if (!mode) throw erreur(400, 'Mode de livraison indisponible.', 'livraison_invalide');
+    // Contenu numérique livré tout de suite : le client accepte expressément la livraison immédiate et reconnaît perdre
+    // son droit de rétractation (UE : directive 2011/83, art. 16 m ; France : C. consom. L221-28 13° ; Belgique : CDE VI.53 13°).
+    if (avecNumerique && ctx.corps.consentementNumerique !== true) throw erreur(400, 'Pour un produit numérique, acceptez la livraison immédiate du fichier et la perte du droit de rétractation qui en découle.', 'consentement_numerique');
     const cl = ctx.corps.client || {};
     // Le nom est repris dans les e-mails de la boutique (« Bonjour … ») : une seule ligne, sans lien ni nom de domaine,
     // sinon n'importe qui ferait envoyer par la boutique un message de son choix à l'adresse de son choix.
     const client = {
       nom: nomSur(valider.texte(cl.nom, 'Le nom', { max: 100 })),
       email: valider.email(cl.email),
-      adresse: ctx.corps.livraison === 'retrait' ? '' : sansLien(uneLigne(valider.texte(cl.adresse, 'L’adresse', { max: 200 })), 'L’adresse', 'adresse_invalide'),
-      npa: ctx.corps.livraison === 'retrait' ? '' : uneLigne(valider.texte(cl.npa, 'Le code postal', { min: 4, max: 10 })),
-      ville: sansLien(uneLigne(valider.texte(cl.ville, 'La ville', { max: 100 })), 'La ville', 'ville_invalide'),
+      adresse: ctx.corps.livraison === 'retrait' || envoiEmail ? '' : sansLien(uneLigne(valider.texte(cl.adresse, 'L’adresse', { max: 200 })), 'L’adresse', 'adresse_invalide'),
+      npa: ctx.corps.livraison === 'retrait' || envoiEmail ? '' : uneLigne(valider.texte(cl.npa, 'Le code postal', { min: 4, max: 10 })),
+      ville: envoiEmail ? '' : sansLien(uneLigne(valider.texte(cl.ville, 'La ville', { max: 100 })), 'La ville', 'ville_invalide'),
       consentement: cl.consentement === true || cl.consentement === 'on' ? Date.now() : null
     };
     if (config.boutique.pays === 'ch' && client.npa && !/^\d{4}$/.test(client.npa)) throw erreur(400, 'Le NPA suisse compte 4 chiffres.', 'npa_invalide');
@@ -3153,6 +3216,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, ...(codeBienvenue ? { codeBienvenue: true } : {}), ...(codePromo ? { codePromo } : {}), client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
+      if (avecNumerique) c.consentementNumerique = now;   // preuve du consentement (livraison immédiate, rétractation)
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
       // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.
       try {
@@ -4336,6 +4400,7 @@ ${bloc}</main></body></html>`;
     db.prepare('DELETE FROM sessions WHERE expire_le < ?').run(maintenant);
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
     db.prepare('DELETE FROM signaux_securite WHERE date < ?').run(maintenant - 90 * 86400000);   // signaux d'attaque : 90 jours
+    NUM.menage(maintenant);   // envois de fichiers abandonnés, liens expirés
     db.prepare('DELETE FROM cles_api_reseaux WHERE cle_id NOT IN (SELECT id FROM cles_api WHERE revoquee = 0) OR dernier_le < ?').run(maintenant - 365 * 86400000);
     try { db.prepare('DELETE FROM evenements WHERE date < ?').run(maintenant - 400 * 86400000); } catch { /* table absente */ }
     /* E-mails : le contenu (nom, adresse et commande des clients, en clair le temps de l'envoi) n'est gardé que le temps

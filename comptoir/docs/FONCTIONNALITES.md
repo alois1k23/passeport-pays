@@ -13,6 +13,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Boutique en quatre langues** : français, allemand, italien et anglais. Les e-mails de commande, d'inscription, de bienvenue et de relance partent dans la langue du client, et chaque version est référencée (`hreflang`).
 - **Recherche instantanée** : sans accents, et tolérante aux fautes de frappe.
 - **Lien de panier** : un panier prêt à envoyer par WhatsApp, e-mail ou QR code.
+- **Produits numériques** (livres, musique, patrons, logiciels…) : le fichier (25 Mo au plus) est envoyé par e-mail dès le paiement, avec un lien personnel valable 30 jours et 5 téléchargements. Une commande entièrement numérique ne demande ni adresse ni frais de port, et se marque livrée toute seule. Le client accepte expressément la livraison immédiate et la perte du droit de rétractation (UE, France, Belgique). Le marchand renvoie de nouveaux liens en un clic ; une commande remboursée ne télécharge plus rien. Un produit numérique sans fichier n'est pas mis en vente.
 - **Import du catalogue** depuis l'export CSV de Shopify, WooCommerce ou PrestaShop, ou d'un simple tableur : aperçu avant import (format reconnu, produits à créer, lignes ignorées et pourquoi), variantes, prix barrés, stock et statut repris, descriptions HTML converties en texte, photos récupérées en arrière-plan sans jamais ouvrir le réseau interne du serveur. Un nouvel import du même fichier ne crée pas de doublons. Jusqu'à 2 000 produits par import et 5 000 par boutique.
 
 ### Paiement
