@@ -17,6 +17,7 @@ test('flux produits : contenu, variantes, échappement, boutique fermée', async
     const { url } = (await c('POST', '/api/abonnement/commencer', { formule: 'croissance' })).j; await fetch(url + '/confirmer', { method: 'POST', redirect: 'manual' });
     const nappe = (await c('POST', '/api/admin/produits', { produit: { nom: 'Nappe "Été" <brodée>', prix: 60, stock: 4, ean: '4006381333931', description: 'Lin\u0001 lavé', categorie: 'Table' } })).j.id;
     const ts = (await c('POST', '/api/admin/produits', { produit: { nom: 'T-shirt', prix: 30, options: [{ nom: 'Taille', valeurs: ['S', 'M'] }], variantes: [{ id: 'S', valeurs: ['S'], stock: 0, ean: '96385074' }, { id: 'M', valeurs: ['M'], stock: 2, prix: 32 }] } })).j.id;
+    const marque = (await c('POST', '/api/admin/produits', { produit: { nom: 'Thé', prix: 12, stock: 3, marque: '  Maison\u0007 du   Thé ' } })).j.id;
     const pre = (await c('POST', '/api/admin/produits', { produit: { nom: 'Calendrier', prix: 25, stock: 9, precommande: true, expeditionPrevue: new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10) } })).j.id;
     await c('POST', '/api/admin/produits', { produit: { nom: 'Masqué', prix: 5, stock: 9, actif: false } });
     await c('POST', '/api/admin/produits', { produit: { nom: 'Guide PDF', prix: 5, stock: 9, numerique: true } });
@@ -32,7 +33,9 @@ test('flux produits : contenu, variantes, échappement, boutique fermée', async
     assert.match(xml, new RegExp(`<g:id>${ts}-[0-9a-f]{10}</g:id><title>T-shirt – M</title>.*?<g:price>32\\.00 CHF</g:price><g:availability>in stock</g:availability>.*?<g:identifier_exists>no</g:identifier_exists><g:item_group_id>${ts}</g:item_group_id>`));
     assert.match(xml, new RegExp(`<g:id>${pre}</g:id>.*?<g:availability>preorder</g:availability><g:availability_date>\\d{4}-\\d\\d-\\d\\dT12:00:00Z</g:availability_date>`));
     assert.doesNotMatch(xml, /Masqué|Guide PDF/, 'masqué et numérique exclus');
-    assert.equal((xml.match(/<item>/g) || []).length, 4);
+    assert.match(xml, new RegExp(`<g:id>${marque}</g:id>.*?<g:brand>Maison du Thé</g:brand>`), 'marque du produit, nettoyée');
+    assert.match(await (await fetch(`${base}/s/${slug}/p/${marque}`)).text(), /"brand":\{"@type":"Brand","name":"Maison du Thé"\}/);
+    assert.equal((xml.match(/<item>/g) || []).length, 5);
     assert.ok([...xml.matchAll(/<g:id>([^<]*)<\/g:id>/g)].every(m => m[1].length <= 50), 'identifiants de 50 caractères au plus');
     // Nom long plein d'apostrophes et d'esperluettes : coupé avant l'échappement (jamais d'entité coupée) ; émoji gardé,
     // caractères interdits en XML retirés.

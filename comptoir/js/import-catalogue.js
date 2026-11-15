@@ -95,7 +95,8 @@ function convertir(texte) {
     else { eansVus.add(e); v._ean = e; }
     return v._ean;
   };
-  const ajouter = (p, ligne, eanBrut) => {
+  const ajouter = (p, ligne, eanBrut, marque) => {
+    if (marque && String(marque).trim()) p.marque = String(marque).replace(/\s+/g, ' ').trim().slice(0, 70);
     if (eanBrut && G) {
       const e = G.canonique(eanBrut);
       if (!G.valide(e)) erreurs.push({ ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » : code-barres « ${String(eanBrut).slice(0, 20)} » invalide, ignoré.` });
@@ -125,7 +126,7 @@ function convertir(texte) {
         p.options = optNoms.map((n, k) => ({ nom: n, valeurs: [...new Set(variantes.map(v => v.valeurs[k]).filter(Boolean))] }));
         p.variantes = variantes.map(v => ({ id: v.valeurs.join('/'), valeurs: v.valeurs, stock: v.stock, ...(v.prix !== base.prix ? { prix: v.prix } : {}), ...(eanVariante(p, v) ? { ean: eanVariante(p, v) } : {}), stockSaisi: true }));
       }
-      ajouter(p, t.ligne, p.variantes ? '' : col(t.r, 'Variant Barcode'));
+      ajouter(p, t.ligne, p.variantes ? '' : col(t.r, 'Variant Barcode'), col(t.r, 'Vendor'));
     }
   } else if (format === 'woocommerce') {
     // Produits « simple » et « variable » ; les « variation » se rattachent à leur parent (par identifiant ou référence).
@@ -141,7 +142,7 @@ function convertir(texte) {
       const p = { refImport: `woo:${col(x.r, 'SKU') || col(x.r, 'ID') || nom}`.slice(0, 80), nom, description: texteDepuisHtml(col(x.r, 'Description') || col(x.r, 'Short description')), categorie: col(x.r, 'Categories').split(',')[0].split('>').pop().trim(), prix: prixN, stock: stockOk(col(x.r, 'Stock')), actif: col(x.r, 'Published') === '' ? true : oui(col(x.r, 'Published')), images: imagesDe(col(x.r, 'Images')).slice(0, 1), _variable: /variable/.test(type), _ligne: x.ligne };
       if (barre && prixN !== null && barre > prixN) p.prixReference = barre;
       for (const cle of [col(x.r, 'ID') && `id:${col(x.r, 'ID')}`, col(x.r, 'SKU')].filter(Boolean)) parents.set(cle, p);
-      ajouter(p, x.ligne, col(x.r, 'GTIN, UPC, EAN, or ISBN', 'GTIN', 'EAN'));
+      ajouter(p, x.ligne, col(x.r, 'GTIN, UPC, EAN, or ISBN', 'GTIN', 'EAN'), col(x.r, 'Brands', 'Brand'));
     }
     for (const x of corps) {
       if (!/variation/.test(col(x.r, 'Type').toLowerCase())) continue;
@@ -180,7 +181,7 @@ function convertir(texte) {
       const p = { refImport: `${format === 'prestashop' ? 'presta' : 'csv'}:${col(x.r, 'Reference #', 'Reference', 'référence', 'reference', 'sku', 'ref') || nom}`.slice(0, 80), nom, description: texteDepuisHtml(col(x.r, 'Description', 'description') || col(x.r, 'Short description', 'resume', 'résumé')), categorie: (format === 'prestashop' ? colDebut(x.r, 'categories (x') : col(x.r, 'categorie', 'catégorie', 'category')).split(',')[0].trim(), prix: prixN, stock: stockOk(format === 'prestashop' ? col(x.r, 'Quantity') : col(x.r, 'stock', 'quantite', 'quantité', 'quantity')), actif: format === 'prestashop' && col(x.r, 'Active (0/1)') !== '' ? oui(col(x.r, 'Active (0/1)')) : true, images: imagesDe(format === 'prestashop' ? colDebut(x.r, 'image urls (x') : col(x.r, 'image', 'images', 'photo', 'image url')).slice(0, 1) };
       if (barre && barre > prixN) p.prixReference = barre;
       if (!ttc && ht) p.aVerifier = true;
-      ajouter(p, x.ligne, col(x.r, 'EAN13', 'ean', 'gtin', 'code-barres', 'code barres', 'barcode', 'UPC'));
+      ajouter(p, x.ligne, col(x.r, 'EAN13', 'ean', 'gtin', 'code-barres', 'code barres', 'barcode', 'UPC'), col(x.r, 'Manufacturer', 'marque', 'brand', 'fabricant'));
     }
   }
   // Libellés propres : une ligne, longueur bornée ; la validation finale reste celle de la fiche produit.

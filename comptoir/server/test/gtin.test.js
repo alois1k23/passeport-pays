@@ -45,7 +45,8 @@ test('import : code-barres valide gardé, invalide ou en double ignoré avec un 
   assert.equal(r.produits.find(p => p.nom === 'Nappe').ean, undefined);
   assert.equal(r.produits.find(p => p.nom === 'Plaid').ean, undefined);
   assert.equal(r.erreurs.filter(e => /code-barres/.test(e.message)).length, 2);
-  const shop = 'Handle,Title,Variant Price,Variant Barcode\ncafe,Café,14,96385074\n';
+  const shop = 'Handle,Title,Vendor,Variant Price,Variant Barcode\ncafe,Café,Torréfaction Lémanique,14,96385074\n';
+  assert.equal(I.convertir(shop).produits[0].marque, 'Torréfaction Lémanique', 'marque (Vendor) reprise');
   const varShop = 'Handle,Title,Option1 Name,Option1 Value,Variant Price,Variant Barcode\nts,T-shirt,Taille,S,30,96385074\nts,,Taille,M,30,4006381333932\n';
   const vs = I.convertir(varShop).produits[0].variantes;
   assert.equal(vs.find(v => v.id === 'S').ean, '96385074'); assert.equal(vs.find(v => v.id === 'M').ean, undefined);

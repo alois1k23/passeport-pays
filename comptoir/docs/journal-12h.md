@@ -651,7 +651,7 @@ Constats corrigés :
   - **Intégrations** : l'API et les webhooks indiquent l'emballage cadeau et son message, pour un outil d'expédition.
 - **Noté, non fait** :
   - le flux utilise le stock brut, sans déduire les commandes en attente de paiement ;
-  - la marque est toujours le nom de la boutique (pas de champ « marque » par produit) ;
+  - (la marque par produit est faite au cycle 30) ;
   - les variantes partagent le lien du produit, sans variante présélectionnée.
 - 252 tests sur 252, parcours de bout en bout 57/57.
 
@@ -681,3 +681,10 @@ Constats corrigés :
 - **Tests** : génération (délai, nombre, capacité, changement d'heure, valeurs bornées), créneau obligatoire, heure inventée, dernière place, créneau dans la confirmation, place libérée par une annulation, livraison à domicile sans créneau.
 - **Vérifié dans Chromium**, bureau et mobile : réglage des 7 jours, choix dans le panier (121 créneaux proposés), commande payée, créneau affiché dans les retraits. Aucune erreur.
 - 254 tests sur 254, parcours de bout en bout 57/57.
+
+### Cycle 30 (00 h 10) : marque du produit (chantier 94)
+
+- **Fiche produit** : champ « Marque » (facultatif, 70 caractères, nettoyé). Il est repris dans le flux Google Shopping et Meta (`g:brand`) et dans les données structurées de la page produit. Sans marque, c'est le nom de la boutique, comme avant. Google rapproche la marque et le code-barres : la marque du fabricant évite qu'un produit revendu soit refusé.
+- **Import CSV** : « Vendor » (Shopify), « Brands » (WooCommerce), « Manufacturer » (PrestaShop) et « marque » (tableur) sont repris.
+- **Tests** : marque nettoyée (espaces, caractère de contrôle) dans le flux et dans les données structurées, import Shopify.
+- **Vérifié dans Chromium**, bureau et mobile : saisie, enregistrement, réaffichage. Une marque vidée disparaît. Aucune erreur.

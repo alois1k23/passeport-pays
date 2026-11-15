@@ -845,6 +845,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         if (type !== 'drop') propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
       }
     }
+    // Marque (fabricant) : reprise par Google Shopping et les données structurées ; sinon, le nom de la boutique.
+    if (typeof p.marque === 'string' && p.marque.trim()) propre.marque = p.marque.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70);
     // Code-barres (EAN-8, UPC-A, EAN-13, GTIN-14), chiffre de contrôle vérifié : lu au scanner en caisse, repris dans les
     // données structurées de la page produit (gtin).
     if (p.ean !== undefined && p.ean !== null && String(p.ean).trim() !== '') {
@@ -5255,7 +5257,7 @@ ${bloc}</main></body></html>`;
     const langueOk = ['de', 'it', 'en'].includes(langue) && (config.boutique.langues || []).includes(langue) ? langue : null;
     const sansLangue = p ? urlProduit(p) : base + '/';
     const canonique = langueOk ? `${sansLangue}?lang=${langueOk}` : sansLangue;   // chaque version linguistique est sa propre page
-    const ld = p ? { '@context': 'https://schema.org', '@type': 'Product', name: p.nom, description: court(p.description), ...(image ? { image } : {}), ...(p.ean ? { [`gtin${p.ean.length === 12 ? 12 : p.ean.length === 8 ? 8 : p.ean.length === 14 ? 14 : 13}`]: p.ean } : {}), url: canonique, brand: { '@type': 'Brand', name: nom },
+    const ld = p ? { '@context': 'https://schema.org', '@type': 'Product', name: p.nom, description: court(p.description), ...(image ? { image } : {}), ...(p.ean ? { [`gtin${p.ean.length === 12 ? 12 : p.ean.length === 8 ? 8 : p.ean.length === 14 ? 14 : 13}`]: p.ean } : {}), url: canonique, brand: { '@type': 'Brand', name: p.marque || nom },
       // Variantes : fourchette de prix (AggregateOffer) ; sinon une offre simple
       offers: Array.isArray(p.variantes) && p.variantes.length ? (prixV => ({ '@type': 'AggregateOffer', lowPrice: Math.min(...prixV).toFixed(2), highPrice: Math.max(...prixV).toFixed(2), offerCount: p.variantes.length, priceCurrency: devise, availability: p.variantes.some(v => v.stock > 0) ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique }))(p.variantes.map(v => typeof v.prix === 'number' ? v.prix : p.prix))
         : { '@type': 'Offer', price: Number(p.prix).toFixed(2), priceCurrency: devise, availability: p.type === 'drop' || p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique } }
@@ -5324,7 +5326,7 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
     for (const p of produits) {
       const image = p.image ? `${urlPublique}/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : '';
       const pre = p.precommande && String(p.expeditionPrevue || '') >= jour && p.stock > 0;
-      const commun = (id, titre, prixV, stock, ean, groupe, attributs = '') => `<item><g:id>${x(id)}</g:id><title>${x(String(titre).slice(0, 150))}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${attributs}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}</item>`;
+      const commun = (id, titre, prixV, stock, ean, groupe, attributs = '') => `<item><g:id>${x(id)}</g:id><title>${x(String(titre).slice(0, 150))}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(p.marque || config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${attributs}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}</item>`;
       // Variantes : identifiant court et stable (empreinte des valeurs, 50 caractères au plus), et ce qui les distingue
       // (taille, couleur, matière) dans les attributs attendus par Google.
       const attributDe = nom => /taille|size|gr[öo](ss|ß)e|pointure|taglia/i.test(nom) ? 'size' : /couleur|colou?r|farbe|colore/i.test(nom) ? 'color' : /mati[eè]re|material|stoff/i.test(nom) ? 'material' : 'pattern';
