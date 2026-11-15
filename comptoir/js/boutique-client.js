@@ -70,12 +70,15 @@ async function demarrer() {
   if (q.get('reprendre')) { reprendrePaiement(q.get('reprendre'), q.get('jeton')); return; }
   if (q.get('avis')) { formulaireAvis(q.get('avis'), q.get('jeton')); return; }
   if (q.get('commande')) suivreCommande(q.get('commande'), q.get('jeton'), q.get('annule'));
-  // Lien de panier envoyé par le marchand (WhatsApp, Instagram, SMS) : ?panier=id:qte,id:qte[&code=…]
+  // Lien de panier envoyé par le marchand (WhatsApp, Instagram, SMS) ou « Commander à nouveau » : ?panier=id:qte[:variante],…[&code=…]
+  // (variante encodée en plus : ses valeurs peuvent contenir « , » ou « : »).
   // Le panier est rempli avec les produits encore en vente (quantité limitée au stock), puis le tiroir s'ouvre.
   if (q.get('panier')) {
-    const lignes = q.get('panier').split(',').slice(0, 20).map(x => x.split(':')).map(([id, n]) => ({ p: donnees.produits.find(y => y.id === id), n: Math.max(1, Math.min(20, parseInt(n, 10) || 1)) })).filter(x => x.p && !aVariantes(x.p) && (x.p.type === 'drop' || x.p.stock > 0));
+    const dec = t => { try { return decodeURIComponent(t || ''); } catch { return ''; } };
+    const lignes = q.get('panier').split(',').slice(0, 20).map(x => x.split(':')).map(([id, n, vid]) => { const p = donnees.produits.find(y => y.id === id); const v = p && aVariantes(p) && vid ? p.variantes.find(w => w.id === dec(vid)) : null; return { p, v, n: Math.max(1, Math.min(20, parseInt(n, 10) || 1)) }; })
+      .filter(x => x.p && (aVariantes(x.p) ? x.v && (x.p.type === 'drop' || x.v.stock > 0) : (x.p.type === 'drop' || x.p.stock > 0)));
     if (lignes.length) {
-      vue.panier = lignes.map(({ p, n }) => ({ produitId: p.id, nom: p.nom, prix: p.prix, qte: p.type === 'drop' ? n : Math.min(n, p.stock) }));
+      vue.panier = lignes.map(({ p, v, n }) => v ? ligneVariante(p, v, p.type === 'drop' ? n : Math.min(n, v.stock)) : ({ produitId: p.id, nom: p.nom, prix: p.prix, qte: p.type === 'drop' ? n : Math.min(n, p.stock) }));
       garderPanier(); vue.ouvert = true; mesurer('panier', { valeur: 'lien' });
     }
     history.replaceState(null, '', location.pathname + (q.get('lang') ? `?lang=${encodeURIComponent(q.get('lang'))}` : ''));
@@ -355,6 +358,7 @@ async function suivreCommande(id, jeton, annule) {
         ${['annulee', 'remboursee', 'livree', 'retiree'].includes(c.statut) || ['carte', 'numerique'].includes(c.livraison) ? '' : `<div class="confirm-livraison"><b>${retrait ? 'Retrait en magasin' : esc(pointRetrait ? fenetreLivraison(delai, c.date).replace(/^Livré/, 'Disponible au point de retrait') : fenetreLivraison(delai, c.date))}</b><span>${retrait ? esc(donnees.magasin.adresse || '') + ' · nous vous écrivons dès que c’est prêt' : pointRetrait ? `${esc(mode.nom)} · un avis de retrait vous sera envoyé` : `${mode ? esc(mode.nom) : 'Livraison'}${c.ville ? ' à ' + esc(c.ville) : ''}`}</span></div>`}
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
+        ${c.statut !== 'attente' && c.livraison !== 'carte' ? (() => { const ls = c.lignes.filter(l => l.produitId && donnees.produits.some(p => p.id === l.produitId)); return ls.length ? `<p><a class="sf-btn sf-btn-ligne" href="${esc(racineBoutique)}?panier=${encodeURIComponent(ls.slice(0, 20).map(l => `${l.produitId}:${l.qte}${l.varianteId ? `:${encodeURIComponent(l.varianteId)}` : ''}`).join(','))}">Commander à nouveau</a></p>` : ''; })() : ''}
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
         ${documentsCommande(c, id, jeton)}
         ${c.retour && c.retour.statut === 'demande' ? `<p class="encart">Retour demandé le ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : renvoyez les articles à l’adresse reçue par e-mail.</p>` : c.retourPossible ? `${c.retour ? `<p class="encart">Retour du ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : remboursé.</p>` : ''}<details class="retour-client"><summary>Demander un retour</summary><form data-retour="${esc(id)}" data-jeton="${esc(jeton)}">

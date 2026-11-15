@@ -852,3 +852,10 @@ Constats corrigés :
   - les liens de la carte « Nouveautés » étaient trop petits sur téléphone ;
   - les deux sont corrigés. L'audit des écrans du marchand en mode démonstration ne relève rien.
 - 256 tests sur 256, parcours de bout en bout 57/57.
+
+### Cycle 42 (00 h 45) : « Commander à nouveau » et liens de panier avec variantes (chantier 102)
+
+- **Suivi de commande** (page du client) : un bouton « Commander à nouveau » remplit le panier avec les mêmes articles et les mêmes variantes, seulement ceux encore en vente, quantité limitée au stock.
+- **Liens de panier** : ils acceptent maintenant une variante (`id:qte:variante`, la variante encodée en plus parce que ses valeurs peuvent contenir « , » ou « : »). Avant, un produit à variantes était ignoré par ces liens. Une variante inconnue ou épuisée est écartée.
+- **Vérifié dans Chromium**, bureau et mobile : commande d'un T-shirt « M, large » (virgule dans la valeur) et d'un savon, page de suivi, « Commander à nouveau ». Résultat : panier « 2 × T-shirt (M, large) » au prix de la variante et « 1 × Savon ». Le bouton est placé sous le total. Aucune erreur.
+- 256 tests sur 256, parcours de bout en bout 57/57.
