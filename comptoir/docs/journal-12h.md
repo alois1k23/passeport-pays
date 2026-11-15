@@ -528,3 +528,16 @@ Pas d'injection, pas de fuite entre boutiques, et la politique de sécurité du 
 - **Mobile** : le champ est étroit. Le tableau défile dans son cadre, comme les autres tableaux de l'application.
 - **Tests** : code faux refusé, deux codes identiques dans un même produit refusés, code enregistré, code d'une variante refusé pour un autre produit, import Shopify avec un code juste et un faux.
 - **Vérifié dans Chromium**, bureau et mobile : saisie du code de la taille M, enregistrement, lecture au scanner. Le ticket donne « 1×T-shirt (M) ». Aucune erreur.
+
+### Cycle 22 (23 h 35) : étiquettes code-barres et codes internes (chantier 88)
+
+Pour les produits faits maison, sans code fabricant, qu'on veut quand même passer au scanner.
+
+- **Code interne** : dans la fiche produit, « Créer un code interne » propose un EAN-13 qui commence par 20. Cette plage GS1 est réservée à l'usage en magasin, jamais attribuée à un fabricant. Le code est différent de ceux déjà pris, et son chiffre de contrôle est juste. Le serveur vérifie encore l'unicité à l'enregistrement.
+- **Étiquettes** : le bouton « Étiquettes code-barres » de la page Produits prépare une planche, avec une étiquette par produit et par variante qui ont un code. Chaque étiquette porte le nom, la variante, le prix, le code-barres et les chiffres.
+  - Le code est dessiné en SVG (barres pleines, aucune ressource externe), donc net à l'impression.
+  - À l'impression, la planche passe en 3 colonnes A4.
+  - Les EAN-13, UPC-A et EAN-8 sont dessinés. Un GTIN-14 (code de carton) n'est pas dessiné : il demande la symbologie ITF-14.
+- **Contrôle du dessin** : un test relit les barres avec un décodeur écrit à part. Ce décodeur reconnaît chaque chiffre à la largeur de ses barres et de ses espaces, comme un lecteur, sans utiliser les tables d'encodage. Il retrouve le premier chiffre par la parité, et le test vérifie 50 codes internes.
+- **Limite honnête** : aucune étiquette n'a été lue par un vrai scanner. Aucun décodeur n'est installé ici et je n'ai pas installé de code téléchargé. Un essai avec un lecteur réel reste à faire.
+- **Vérifié dans Chromium**, bureau et mobile : code interne créé puis enregistré, trois étiquettes (deux variantes et un produit), aperçu d'impression A4 en PDF propre. Aucune erreur.

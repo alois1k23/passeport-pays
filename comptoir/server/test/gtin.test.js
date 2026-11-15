@@ -13,6 +13,31 @@ test('chiffre de contrôle GS1', () => {
   for (const ko of ['4006381333932', '123', 'abcdefghijklm', '', null, '40063813339310000']) assert.equal(Gtin.valide(ko), false, String(ko));
 });
 
+test('barres EAN-13 et EAN-8 : relues par un décodeur indépendant des tables d’encodage', () => {
+  // Décodeur : chaque chiffre se reconnaît à la largeur de ses 4 barres et espaces (méthode des lecteurs), pas aux tables.
+  const largeurs = m => { const r = []; let n = 1; for (let i = 1; i <= m.length; i++) { if (m[i] === m[i - 1]) n++; else { r.push(n); n = 1; } } return r.join(''); };
+  const CHIFFRES = { '3211': 0, '2221': 1, '2122': 2, '1411': 3, '1132': 4, '1231': 5, '1114': 6, '1312': 7, '1213': 8, '3112': 9 };
+  const lire = (bits, n) => {
+    assert.equal(bits.slice(0, 3), '101'); assert.equal(bits.slice(-3), '101');
+    const g = bits.slice(3, 3 + 7 * n), c = bits.slice(3 + 7 * n, 8 + 7 * n), d = bits.slice(8 + 7 * n, -3);
+    assert.equal(c, '01010');
+    const chiffre = m => { const w = largeurs(m), r = CHIFFRES[w] ?? CHIFFRES[[...w].reverse().join('')]; assert.notEqual(r, undefined, m); return { r, pair: m.split('').filter(x => x === '1').length % 2 === 0 }; };
+    const gauche = Array.from({ length: n }, (_, i) => chiffre(g.slice(i * 7, i * 7 + 7))), droite = Array.from({ length: n }, (_, i) => chiffre(d.slice(i * 7, i * 7 + 7)));
+    return { gauche, droite };
+  };
+  const PARITE = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+  for (const code of ['4006381333931', '7612345678900'.slice(0, 12) + '', '2084286247272', '036000291452']) {
+    const c13 = code.length === 12 ? '0' + code : code.length === 13 ? code : null; if (!c13 || !Gtin.valide(c13)) continue;
+    const { gauche, droite } = lire(Gtin.barres(code), 6);
+    const premier = PARITE.indexOf(gauche.map(x => x.pair ? 'G' : 'L').join(''));
+    assert.equal(`${premier}${gauche.map(x => x.r).join('')}${droite.map(x => x.r).join('')}`, c13, code);
+  }
+  const { gauche, droite } = lire(Gtin.barres('96385074'), 4);
+  assert.equal(gauche.concat(droite).map(x => x.r).join(''), '96385074');
+  assert.equal(Gtin.barres('10012345678902'), null, 'GTIN-14 : pas d’EAN');
+  const pris = new Set(); for (let i = 0; i < 50; i++) { const c = Gtin.codeInterne(pris); assert.ok(Gtin.valide(c) && c.startsWith('20') && !pris.has(c)); pris.add(c); }
+});
+
 test('import : code-barres valide gardé, invalide ou en double ignoré avec un avertissement', () => {
   const csv = 'Nom,Prix,EAN13\nTorchon,18,4006381333931\nNappe,60,4006381333932\nPlaid,90,4006381333931\n';
   const r = I.convertir(csv);

@@ -916,7 +916,15 @@ li.fait a { color: var(--muted); text-decoration: line-through; text-decoration-
   #modal .modal-fond, #modal .modal-x, #modal h2, #modal .rangee { display: none !important; }
   #modal .modal-corps { box-shadow: none; border: 0; max-height: none; width: 100%; padding: 0; }
   .bon { break-after: page; border: 0; }
+  .etiquettes { grid-template-columns: repeat(3, 1fr) !important; gap: 0 !important; }
+  .etiq { border: 1px dashed #bbb !important; break-inside: avoid; }
 }
+.etiquettes { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.etiq { display: grid; gap: 2px; justify-items: center; text-align: center; padding: 10px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #000; }
+.etiq b { font-size: .9rem; line-height: 1.2; }
+.etiq-prix { font-weight: 700; font-size: 1.05rem; }
+.ean-svg { width: 100%; max-width: 46mm; height: 16mm; display: block; }
+.etiq-code { font-size: .78rem; letter-spacing: .08em; }
 
 /* ---------- Tableaux en cartes sur téléphone ---------- */
 @media (max-width: 640px) {

@@ -460,6 +460,26 @@ function vueCommandes() {
   </div>`;
 }
 
+/* Étiquettes code-barres à imprimer (planche A4) : nom, variante, prix, code lisible par un scanner. Le code est dessiné
+   en SVG (barres pleines, sans style) : net à l'impression, aucune ressource externe. */
+function svgEan(code) {
+  const b = typeof Gtin !== 'undefined' ? Gtin.barres(code) : null;
+  if (!b) return '';
+  const marge = 9, l = b.length + marge * 2, h = 50;
+  const rects = [...b].map((x, i) => x === '1' ? `<rect x="${i + marge}" y="0" width="1" height="${h}"/>` : '').join('');
+  return `<svg class="ean-svg" viewBox="0 0 ${l} ${h}" preserveAspectRatio="none" role="img" aria-label="Code-barres ${esc(code)}"><g fill="#000">${rects}</g></svg>`;
+}
+function etiquettesEan() {
+  const items = etat.produits.filter(p => p.actif).flatMap(p => [
+    ...(p.ean ? [{ nom: p.nom, detail: '', prix: p.prix, ean: p.ean }] : []),
+    ...(p.variantes || []).filter(v => v.ean).map(v => ({ nom: p.nom, detail: v.valeurs.join(' / '), prix: typeof v.prix === 'number' ? v.prix : p.prix, ean: v.ean }))
+  ]);
+  const imprimable = typeof SERVEUR !== 'undefined' && SERVEUR.actif;
+  return `<p class="sous">${items.length} étiquette${items.length > 1 ? 's' : ''}. Imprimez sur une planche autocollante A4 (3 colonnes), à 100 % (sans mise à l’échelle) pour que les scanners les lisent.</p>
+    <div class="bons"><div class="etiquettes">${items.map(x => `<div class="etiq"><b>${esc(x.nom)}</b>${x.detail ? `<span class="sous">${esc(x.detail)}</span>` : ''}<span class="etiq-prix">${esc(euros(x.prix))}</span>${svgEan(x.ean)}<span class="mono etiq-code">${esc(x.ean)}</span></div>`).join('')}</div></div>
+    <div class="rangee">${imprimable ? '<button class="btn" data-action="imprimer">Imprimer</button>' : '<span class="sous">L’impression est disponible dans l’application installée.</span>'}</div>`;
+}
+
 /* Bon de préparation : une page par commande, articles à cocher, adresse. */
 function bonsPreparation(ids) {
   const cs = ids.map(id => etat.commandes.find(c => c.id === id)).filter(Boolean);
@@ -613,7 +633,7 @@ function vueProduits() {
   const cats = SECTEURS[etat.boutique.secteur].categories;
   return `
   <div class="tete"><div><h1>Produits</h1><p class="sous">${etat.produits.length} produits · ${etat.produits.filter(x => x.actif && !x.aVerifier && (typeof SERVEUR === 'undefined' || SERVEUR.fournisseurDemoVendable !== false || x.codeFournisseur !== 'demo')).length} en ligne</p></div>
-    <div class="rangee"><button class="btn fantome" data-action="reassort">Réassort</button><button class="btn fantome" data-action="lien-panier">Lien de panier</button><button class="btn fantome" data-action="importer-catalogue">Importer un catalogue</button><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
+    <div class="rangee">${etat.produits.some(x => x.actif && (x.ean || (x.variantes || []).some(v => v.ean))) && typeof Gtin !== 'undefined' ? '<button class="btn fantome" data-action="etiquettes-ean">Étiquettes code-barres</button>' : ''}<button class="btn fantome" data-action="reassort">Réassort</button><button class="btn fantome" data-action="lien-panier">Lien de panier</button><button class="btn fantome" data-action="importer-catalogue">Importer un catalogue</button><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
     <input type="file" id="photo-input" accept="image/*" multiple hidden><input type="file" id="import-csv" accept=".csv,text/csv,text/plain" hidden aria-label="Fichier CSV du catalogue"></div>
   <p class="astuce">Ajoutez des produits du <a class="lien" href="#sourcing">catalogue fournisseurs</a> (dropshipping) ou prenez vos propres produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
   ${ui.lienPanier && typeof vueLienPanier === 'function' ? vueLienPanier() : ''}
@@ -657,7 +677,7 @@ function vueProduits() {
       <label class="champ"><span>Date d’expédition prévue (si précommande)</span><input id="pf-expedition" type="date" name="expeditionPrevue" value="${esc(p.expeditionPrevue || '')}"></label>
       <p class="sous">En précommande, le stock indique combien d’exemplaires peuvent être précommandés.</p>` : ''}
       <label class="champ"><span>Code-barres EAN / GTIN (facultatif)</span><input id="pf-ean" name="ean" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="20" value="${esc(p.ean || '')}" placeholder="ex. 7610000000000" aria-describedby="aide-ean"></label>
-      <p class="sous" id="aide-ean">Lu au scanner en caisse, et transmis aux moteurs de recherche (Google Shopping). Le chiffre de contrôle est vérifié.</p>
+      <p class="sous" id="aide-ean">Lu au scanner en caisse, et transmis aux moteurs de recherche (Google Shopping). Le chiffre de contrôle est vérifié. Pas de code fabricant ? ${typeof Gtin !== 'undefined' ? '<button type="button" class="lien bouton-lien" data-action="ean-interne">Créer un code interne</button>' : ''} (commence par 20, réservé à l’usage en magasin).</p>
       <label class="champ"><span>Rappel de réassort (jours, facultatif)</span><input id="pf-reassort" type="number" name="reassortJours" min="7" max="180" step="1" inputmode="numeric" value="${esc(p.reassortJours || '')}" placeholder="ex. 30" aria-describedby="aide-reassort"></label>
       <p class="sous" id="aide-reassort">Pour un produit qui s’épuise (café, thé, savon) : à la commande, le client peut demander un e-mail qui l’invite à recommander après ce nombre de jours, avec son panier prêt. Sans variantes ni fichier numérique.</p>
       <label class="case"><input id="pf-taux" type="checkbox" name="tauxReduit" ${p.tauxReduit ? 'checked' : ''}> TVA à taux réduit (denrées alimentaires : ${estSuisse() ? '2,6 %' : etat.boutique.pays === 'be' ? '6 %' : '5,5 %'})</label>
@@ -1188,6 +1208,13 @@ document.addEventListener('click', e => {
     case 'export-commandes': exporterCommandesCsv(el.dataset.selection ? commandesFiltrees().filter(c => ui.selection.has(c.id)) : commandesFiltrees()); break;
     case 'groupe-statut': changerStatutGroupe([...ui.selection], el.dataset.statut); break;
     case 'groupe-bons': ui.modal = { type: 'html', html: `<h2>Bons de préparation</h2>${bonsPreparation([...ui.selection])}` }; rendreModal(); break;
+    case 'ean-interne': {
+      const pris = new Set(etat.produits.flatMap(p => [p.ean, ...(p.variantes || []).map(v => v.ean)]).filter(Boolean));
+      const champ = document.getElementById('pf-ean'), code = Gtin.codeInterne(pris);
+      if (champ && code) { champ.value = code; champ.focus(); toast(`Code interne ${code} : enregistrez la fiche pour le garder.`); }
+      break;
+    }
+    case 'etiquettes-ean': ui.modal = { type: 'html', html: `<h2>Étiquettes code-barres</h2>${etiquettesEan()}` }; rendreModal(); break;
     case 'bon-un': ui.modal = { type: 'html', html: `<h2>Bon de préparation</h2>${bonsPreparation([id])}` }; rendreModal(); break;
     case 'groupe-vider': ui.selection.clear(); rendre(); break;
     case 'filtre-produit': ui.filtreProduit = el.dataset.v; rendreEnGardantProduit(); break;
