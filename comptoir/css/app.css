@@ -1468,4 +1468,12 @@ details.en-ligne form { margin-top: 6px; }
 .dialogue-identite h2 { margin: 0 0 6px; font-size: 1.125rem; }
 .dialogue-identite .pile { display: grid; gap: 12px; }
 .dialogue-identite input { width: 100%; }
+.dialogue-import { border: 1px solid var(--line); border-radius: var(--r, 10px); background: var(--surface); color: var(--ink); padding: 20px; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
+.dialogue-import::backdrop { background: rgba(13, 16, 22, .45); }
+.dialogue-import h2 { margin: 0; font-size: 1.125rem; overflow-wrap: anywhere; }
+.dialogue-import .pile { display: grid; gap: 12px; }
+.dialogue-import caption { text-align: left; padding-bottom: 6px; }
+.dialogue-import th, .dialogue-import td { padding: 6px 10px; vertical-align: top; }
+@media (max-width: 520px) { .dialogue-import .col-etat { display: none; } }
+.liste-import { margin: 8px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; font-size: .875rem; }
 .dialogue-identite .erreur { color: var(--bad, #b42318); margin: 0; }

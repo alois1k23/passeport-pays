@@ -12,6 +12,7 @@ const tendances = require('./tendances');
 const MotDePasse = require('./motdepasse');
 const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
+const ImportCatalogue = require('../../js/import-catalogue.js');
 const EmailsClients = require('./emails-clients');
 const FactureElectronique = require('./facture-electronique');
 const FacturxPdf = require('./facturx-pdf');
@@ -718,6 +719,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       aVerifier: !!p.aVerifier,
       tauxReduit: !!p.tauxReduit   // denrées alimentaires : TVA à taux réduit
     };
+    // Référence d'origine d'un produit importé (Shopify, WooCommerce…) : un nouvel import du même fichier ne le recrée pas.
+    if (typeof p.refImport === 'string' && p.refImport) propre.refImport = p.refImport.replace(/[\u0000-\u001f]/g, '').slice(0, 80);
     if (p.cout !== undefined && p.cout !== null && p.cout !== '') propre.cout = prix.arrondi(valider.nombre(p.cout, 'Le coût', { min: 0, max: 100000 }));
     if (p.image === '#image') propre.image = '#image';   // photo déjà rangée dans images_produits, inchangée
     else if (typeof p.image === 'string' && p.image) {
@@ -2388,6 +2391,66 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const r2 = importerProduit(ctx.boutique.id, src, f.code);
     return r2.deja ? r2 : { statut: 201, corps: { id: r2.id } };
   });
+  /* ---------- Import d'un catalogue existant (export CSV d'une autre plateforme) ---------- */
+  // Aperçu d'abord (rien n'est écrit), puis import. Chaque produit passe par la validation de la fiche produit ; un
+  // produit déjà importé (même référence d'origine) n'est pas recréé. Les photos (adresses https du fichier) sont
+  // téléchargées ensuite, en arrière-plan, avec les protections des webhooks : jamais d'adresse interne du serveur.
+  const MAX_PRODUITS_BOUTIQUE = 5000;
+  const lireImport = ctx => {
+    const csv = ctx.corps.csv;
+    if (typeof csv !== 'string' || !csv.trim()) throw erreur(400, 'Choisissez un fichier CSV.', 'csv_vide');
+    try { return ImportCatalogue.convertir(csv); } catch (e) { throw erreur(400, e.message, e.code || 'csv_invalide'); }
+  };
+  const dejaImportes = bid => new Set(db.prepare("SELECT json_extract(donnees, '$.refImport') r FROM produits WHERE boutique_id = ? AND supprime = 0 AND json_extract(donnees, '$.refImport') IS NOT NULL").all(bid).map(x => x.r));
+  r.post('/api/admin/produits/importer-csv/apercu', exigerMarchand, ctx => {
+    auth.limiter('import-csv:' + ctx.boutique.id, 30 * facteurLimites, 3600000, 'Trop d’imports : réessayez dans une heure.');
+    const res = lireImport(ctx), deja = dejaImportes(ctx.boutique.id);
+    const nouveaux = res.produits.filter(p => !deja.has(p.refImport));
+    return { format: res.format, nomFormat: res.nomFormat, total: res.produits.length, nouveaux: nouveaux.length, dejaImportes: res.produits.length - nouveaux.length, avecPhoto: nouveaux.filter(p => p.images.length).length,
+      erreurs: res.erreurs.slice(0, 200), nbErreurs: res.erreurs.length,
+      apercu: nouveaux.slice(0, 50).map(p => ({ nom: p.nom, prix: p.prix, prixReference: p.prixReference || null, stock: p.stock, categorie: p.categorie, variantes: p.variantes ? p.variantes.length : 0, photo: p.images.length > 0, actif: p.actif })) };
+  });
+  r.post('/api/admin/produits/importer-csv', exigerMarchand, ctx => {
+    auth.limiter('import-csv-ecrire:' + ctx.boutique.id, 10 * facteurLimites, 3600000, 'Trop d’imports : réessayez dans une heure.');
+    const res = lireImport(ctx), deja = dejaImportes(ctx.boutique.id);
+    const existants = db.prepare('SELECT COUNT(*) n FROM produits WHERE boutique_id = ? AND supprime = 0').get(ctx.boutique.id).n;
+    const nouveaux = res.produits.filter(p => !deja.has(p.refImport));
+    if (existants + nouveaux.length > MAX_PRODUITS_BOUTIQUE) throw erreur(409, `${MAX_PRODUITS_BOUTIQUE} produits au plus par boutique : cet import en ajouterait ${nouveaux.length} aux ${existants} existants.`, 'trop_de_produits');
+    const erreurs = [...res.erreurs], crees = [];
+    transaction(db, () => {
+      let ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
+      for (const p of nouveaux) {
+        let propre;
+        try { propre = produitDuNavigateur({ ...p, type: 'stock', images: undefined }); }
+        catch (e) { erreurs.push({ message: `« ${p.nom.slice(0, 40)} » : ${e.message}` }); continue; }
+        const id = auth.nouvelId('p_');
+        db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, serialiserProduit(id, propre), ++ordre);
+        reconcilierProduit(ctx.boutique.id, id);
+        crees.push({ id, image: ctx.corps.photos !== false ? p.images[0] : null });
+      }
+    });
+    const aTelecharger = crees.filter(x => x.image);
+    if (aTelecharger.length) photosImport(ctx.boutique.id, aTelecharger);   // en arrière-plan : la réponse n'attend pas
+    noterActivite(ctx.marchand.id, 'import-catalogue', `${crees.length} produit${crees.length > 1 ? 's' : ''} (${res.nomFormat})`, ctx);
+    return { importes: crees.length, dejaImportes: res.produits.length - nouveaux.length, photosEnCours: aTelecharger.length, erreurs: erreurs.slice(0, 200), nbErreurs: erreurs.length };
+  });
+  // Photos téléchargées 4 par 4 ; un produit modifié entre-temps (photo ajoutée à la main) n'est pas écrasé.
+  async function photosImport(bid, liste) {
+    let i = 0;
+    const suivant = async () => {
+      while (i < liste.length) {
+        const { id, image } = liste[i++];
+        const data = await integ.telechargerImage(image).catch(() => null);
+        if (!data || data.length > 400000) continue;
+        const ligne = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(id, bid);
+        if (!ligne) continue;
+        const p = JSON.parse(ligne.donnees);
+        if (p.image) continue;
+        db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(id, { ...p, image: data }), id);
+      }
+    };
+    await Promise.all([suivant(), suivant(), suivant(), suivant()]);
+  }
   r.patch('/api/admin/commandes/:id', exigerMarchand, ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     if (typeof ctx.corps.note === 'string') c.note = ctx.corps.note.slice(0, 2000);

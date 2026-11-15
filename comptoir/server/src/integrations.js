@@ -187,6 +187,39 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
       req.end(corps);
     });
   }
+  /* Photo d'un produit importé (export d'une autre plateforme) : mêmes protections que les webhooks (https seulement,
+     adresse résolue et vérifiée au moment de la connexion, aucune redirection suivie), 300 Ko au plus, et le contenu doit
+     être réellement un JPEG, un PNG ou un WebP (signature des premiers octets, pas l'en-tête annoncé). Renvoie une
+     adresse data: ou null. */
+  function telechargerImage(url, { max = 300 * 1024, delai = 10000 } = {}) {
+    return new Promise(ok => {
+      let u; try { u = new URL(String(url || '')); } catch { return ok(null); }
+      if (String(url).length > 1500) return ok(null);
+      const local = hoteLocal(u);
+      if (!local && (u.protocol !== 'https:' || u.username || u.password)) return ok(null);
+      const hote = u.hostname.replace(/^\[|\]$/g, '');
+      if (!local && net.isIP(hote) && ipInterne(hote)) return ok(null);
+      const mod = u.protocol === 'https:' ? https : http;
+      const req = mod.request({ protocol: u.protocol, hostname: hote, port: u.port || undefined, path: u.pathname + u.search, method: 'GET', agent: false,
+        headers: { 'User-Agent': 'Comptoir-Import/1', Accept: 'image/jpeg,image/png,image/webp' }, timeout: delai, servername: net.isIP(hote) ? undefined : hote,
+        ...(local || net.isIP(hote) ? {} : { lookup: lookupSur }) }, rep => {
+        if (rep.statusCode !== 200) { rep.resume(); return ok(null); }
+        const morceaux = []; let lu = 0;
+        rep.on('data', d => { lu += d.length; if (lu > max) { rep.destroy(); return ok(null); } morceaux.push(d); });
+        rep.on('end', () => {
+          const b = Buffer.concat(morceaux);
+          const type = b.slice(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])) ? 'jpeg' : b.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'png' : b.slice(0, 4).toString('latin1') === 'RIFF' && b.slice(8, 12).toString('latin1') === 'WEBP' ? 'webp' : null;
+          ok(type ? `data:image/${type};base64,${b.toString('base64')}` : null);
+        });
+        rep.on('error', () => ok(null));
+      });
+      const minuterie = setTimeout(() => req.destroy(new Error('délai dépassé')), delai);
+      req.on('timeout', () => req.destroy(new Error('délai dépassé')));
+      req.on('error', () => ok(null));
+      req.on('close', () => clearTimeout(minuterie));
+      req.end();
+    });
+  }
   /* Secret d'un webhook : chiffré en base (comme les données des clients), lu au moment de signer. Pendant 24 heures après
      une rotation, l'ancien secret signe aussi : l'en-tête porte deux « v1= », le destinataire accepte l'un ou l'autre
      le temps de mettre à jour sa configuration. */
@@ -371,7 +404,7 @@ function creerIntegrations({ db, env = {}, journal = console, resoudre = h => dn
     return db.prepare("DELETE FROM webhook_envois WHERE webhook_id IN (SELECT id FROM webhooks WHERE boutique_id = ?) AND (email_index = ? OR instr(lower(corps), ?) > 0)").run(boutiqueId, ix, JSON.stringify(String(email).toLowerCase())).changes;
   }
 
-  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, renouvelerSecret, changerDonneesClient, chiffrerSecrets, secretsIllisibles, signer, verifierUrl, poster };
+  return { PORTEES, EVENEMENTS, creerCle, listerCles, revoquerCle, authentifier, creerWebhook, listerWebhooks, supprimerWebhook, reactiverWebhook, emettre, envoyerFile, tester, effacerClient, chiffrerFile, renouvelerCleFile, renouvelerSecret, changerDonneesClient, chiffrerSecrets, secretsIllisibles, signer, verifierUrl, poster, telechargerImage };
 }
 
 module.exports = { creerIntegrations, ipInterne, PORTEES, EVENEMENTS };
