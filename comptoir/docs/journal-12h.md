@@ -433,8 +433,7 @@ Aucune faille critique. La relecture a surtout trouvé des rappels qui continuai
   - une demande refusée à cause de la limite par boutique est journalisée ;
   - le rappel des précommandes ne relit plus les commandes d'un produit déjà rappelé.
 - **Noté, non fait** :
-  - le marchand ne voit pas encore la liste des clients qui ont demandé un rappel, et ne peut pas en arrêter un seul (seul l'effacement complet le fait) ;
-  - l'e-mail de confirmation de commande ne mentionne pas encore le rappel demandé ;
+  - (le suivi des rappels côté marchand et la mention dans la confirmation sont faits au cycle 17) ;
   - un produit réenregistré après sa date de précommande perd l'état « précommande », et son rappel de retard n'est alors pas envoyé.
 
 ### Cycle 16 (23 h 15) : audit d'accessibilité automatique de la boutique (chantier 83)
@@ -451,3 +450,15 @@ Aucune faille critique. La relecture a surtout trouvé des rappels qui continuai
   - restent des cases à cocher de 20 px placées dans leur libellé (toute la ligne est cliquable) et le lien « CGV » au milieu d'une phrase. Les deux relèvent des exceptions prévues par WCAG 2.2.
 - **Limite** : cet audit automatique ne remplace pas un essai avec un lecteur d'écran.
 - Après corrections : 245 tests sur 245, parcours de bout en bout 57/57.
+
+### Cycle 17 (23 h 20) : rappels de réassort visibles et maîtrisés (chantier 84)
+
+Suite des constats « non faits » de la relecture.
+
+- **E-mail de confirmation de commande** : il annonce le rappel (« nous vous rappellerons de recommander dans 21 jours, rien n'est débité ») avec le lien d'arrêt, dans les quatre langues. Le client sait tout de suite qu'un e-mail viendra et peut le refuser avant même le premier rappel (testé en français et en allemand).
+- **Détail de la commande, côté marchand** :
+  - il indique si un rappel est demandé et s'il est encore actif ;
+  - le bouton « Arrêter le rappel » répond à un client qui le demande par téléphone ou en boutique ;
+  - l'arrêt est noté dans l'historique de la commande ;
+  - le rôle « Commandes » n’a pas ce bouton, et le serveur le lui refuse aussi (la route est hors de sa liste blanche).
+- **Vérifié dans Chromium**, bureau et mobile : affichage du rappel actif, arrêt, affichage « arrêté », ligne supprimée en base. Aucune erreur.

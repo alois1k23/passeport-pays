@@ -1071,12 +1071,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const pre = (c.lignes || []).map(l => l.precommande).filter(Boolean).sort().pop();
       const r = RE.creer(b.id, { email: c.client.email, nom: c.client.nom, langue: c.langue || null, jours: c.reassort.jours, lignes: c.reassort.lignes, commandeId: c.id, depart: pre ? Date.parse(pre + 'T12:00:00Z') : 0 });
       if (r && r.plein) journal.error('[reassort] limite de demandes atteinte', b.id);
+      // Lien d'arrêt, repris dans la confirmation de commande (le client sait tout de suite qu'un rappel viendra).
+      if (r && r.jeton) { const l = EmailsClients.langueDe(c); return `${urlPublique}/reassort/arreter?j=${encodeURIComponent(r.jeton)}${l ? `&lang=${l}` : ''}`; }
     } catch (e) { journal.error('[reassort]', e.message); }
   }
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
     if (res.liens && res.liens.length) envoyerLiens(res.boutique, res.c, res.liens, config);
-    suiteReassort(res.boutique, res.c);
+    const arretReassort = suiteReassort(res.boutique, res.c);
+    const noteReassort = arretReassort ? `\n\n${EmailsClients.noteReassort(res.c, res.c.reassort.jours, arretReassort)}` : '';
     if (res.c.alerteNumerique) { const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id); if (mch) envoyerEmail(null, mch.email, `Action requise : commande n° ${res.c.numero} sans fichier à télécharger`, `Bonjour,\n\nLa commande n° ${res.c.numero} contient un produit numérique, mais aucun fichier n’était attaché au moment du paiement : le client n’a reçu aucun lien.\n\nAjoutez le fichier dans la fiche produit, puis « Renvoyer de nouveaux liens » depuis la commande.\n${urlPublique}/app#commandes\n\nL’équipe Comptoir`); }
     // Carte cadeau vendue : le client a reçu sa carte (ou son avis d'envoi) ; le marchand est simplement informé.
     if (res.c.canal === 'carte') {
@@ -1084,9 +1087,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (mch) envoyerEmail(null, mch.email, `Carte cadeau vendue : ${formatMontant(res.c.total, config)}`, `Bonjour,\n\nUne carte cadeau de ${formatMontant(res.c.total, config)} a été vendue en ligne sur ${config.boutique.nom} (commande n° ${res.c.numero}).${res.c.carteRetenue ? '\n\nAttention : risque de fraude élevé, la carte est retenue. Vérifiez puis libérez-la ou remboursez depuis Commandes.' : ' Elle a été envoyée par e-mail ; rien à expédier.'}\n\n${urlPublique}/app#commandes\n\nComptoir`);
       return;
     }
-    if (EmailsClients.langueDe(res.c)) { const m = EmailsClients.confirmation(res.c, { ...optionsEmail(res.boutique, res.c, config), legal: infoRetractation(res.boutique, res.c, config) }); envoyerEmail(res.boutique.id, res.c.client.email, m.sujet, m.corps, { langue: res.c.langue }); }
+    if (EmailsClients.langueDe(res.c)) { const o = optionsEmail(res.boutique, res.c, config), m = EmailsClients.confirmation(res.c, { ...o, legal: infoRetractation(res.boutique, res.c, config) }); envoyerEmail(res.boutique.id, res.c.client.email, m.sujet, noteReassort && o.lienCommande ? m.corps.replace(o.lienCommande, o.lienCommande + noteReassort) : m.corps + noteReassort, { langue: res.c.langue }); }
     else envoyerEmail(res.boutique.id, res.c.client.email, `Commande n° ${res.c.numero} confirmée`,
-      `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.${infoRetractation(res.boutique, res.c, config)}`);
+      `Bonjour ${res.c.client.nom},\n\nMerci pour votre commande chez ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison === 'retrait' ? 'Nous vous écrivons dès que la commande est prête à retirer.' : 'Nous vous écrivons dès l’expédition, avec le numéro de suivi.'}\nSuivre votre commande : ${lienCommande(res.boutique, res.c.id)}${noteReassort}\n\nUne question ? Répondez à cet e-mail${config.entreprise && config.entreprise.email ? ` ou écrivez à ${config.entreprise.email}` : ''}.${infoRetractation(res.boutique, res.c, config)}`);
     // Le marchand est prévenu de chaque commande payée (sans e-mail, une commande à expédier pourrait rester oubliée).
     {
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id);
@@ -2406,6 +2409,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
     const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage).map(p => p.numerique ? { ...p, fichier: NUM.fichierDe(p.id) } : p), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), utilisationsCodes: Object.fromEntries(Remises.offresDe(config).codes.map(x => [x.code, utilisationsCode(ctx.boutique.id, x.code, { depuis: x.cree })])), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    etatComplet.reassortsActifs = RE.commandesActives(ctx.boutique.id);   // commandes dont le client attend un rappel de réassort
     etatComplet.attentesStock = Object.fromEntries(db.prepare("SELECT produit_id || '|' || variante_id AS k, COUNT(*) AS n FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id").all(ctx.boutique.id).map(x => [x.k, x.n]));   // « clients en attente » par produit et variante
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
     let final = etatComplet;
@@ -2673,6 +2677,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   r.delete('/api/admin/produits/:id/fichier', exigerMarchand, ctx => { if (!NUM.retirer(ctx.boutique.id, String(ctx.params.id))) throw erreur(404, 'Fichier introuvable.', 'introuvable'); return { ok: true }; });   // aussi pour un produit supprimé
   // Liens d'une commande : état (téléchargements restants), et renvoi (anciens liens révoqués, nouveaux envoyés au client).
   r.get('/api/admin/commandes/:id/telechargements', exigerMarchand, ctx => { const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id); return { liens: NUM.etatLiens(c.id) }; });
+  // Arrêt d'un rappel de réassort par le marchand (à la demande du client, par téléphone ou en boutique).
+  r.post('/api/admin/commandes/:id/reassort/arreter', exigerMarchand, ctx => {
+    const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
+    if (!RE.supprimerCommande(c.id)) throw erreur(404, 'Aucun rappel en cours pour cette commande.', 'introuvable');
+    historique(c, 'Rappel de réassort arrêté par la boutique'); enregistrerCommande(c);
+    return { ok: true };
+  });
   r.post('/api/admin/commandes/:id/telechargements', exigerMarchand, ctx => {
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     if (!['payee', 'preparation', 'expediee', 'livree', 'prete', 'retiree'].includes(c.statut)) throw erreur(409, 'Seule une commande payée reçoit des liens de téléchargement.', 'statut');

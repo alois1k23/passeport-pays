@@ -60,6 +60,7 @@ function creerReassort({ db, pii, signer }) {
     for (const r of db.prepare('SELECT id, cle_produits, jours FROM reassorts WHERE boutique_id = ? AND email_index = ?').all(bid, index(bid, email)))
       if (r.cle_produits.split(',').some(x => ids.has(x))) db.prepare('UPDATE reassorts SET prochain = ? WHERE id = ?').run(maintenant + r.jours * 86400000, r.id);
   }
+  const commandesActives = bid => db.prepare('SELECT commande_id FROM reassorts WHERE boutique_id = ? AND commande_id IS NOT NULL').all(bid).map(r => r.commande_id);
   const supprimerCommande = commandeId => db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(commandeId).changes;
   const compterClient = (bid, email) => db.prepare('SELECT COUNT(*) n FROM reassorts WHERE boutique_id = ? AND email_index = ?').get(bid, index(bid, email)).n;
   const supprimerId = id => db.prepare('DELETE FROM reassorts WHERE id = ?').run(id).changes > 0;
@@ -75,7 +76,7 @@ function creerReassort({ db, pii, signer }) {
   const compter = bid => db.prepare('SELECT COUNT(*) n FROM reassorts WHERE boutique_id = ?').get(bid).n;
   const supprimerClient = (bid, email) => db.prepare('DELETE FROM reassorts WHERE boutique_id = ? AND email_index = ?').run(bid, index(bid, email)).changes;
   const toutSupprimer = bid => db.prepare('DELETE FROM reassorts WHERE boutique_id = ?').run(bid);
-  return { creer, dus, reserver, repousser, supprimerCommande, compterClient, supprimerId, deJeton, compter, supprimerClient, toutSupprimer, MAX_RAPPELS };
+  return { creer, dus, reserver, repousser, commandesActives, supprimerCommande, compterClient, supprimerId, deJeton, compter, supprimerClient, toutSupprimer, MAX_RAPPELS };
 }
 
 const joursValides = j => { const n = Math.round(Number(j)); return Number.isFinite(n) && n >= JOURS_MIN && n <= JOURS_MAX ? n : null; };

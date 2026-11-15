@@ -62,6 +62,8 @@ test('rappel de réassort : demandé, envoyé, arrêté, effacé', async () => {
     assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts').get().n, 0);
     gerer.automatisationsEcheances(Date.now() + 70 * 86400000);
     assert.equal(rappels('ana@exemple.ch').length, 2, 'plus rien après l’arrêt');
+    // La confirmation de commande annonce le rappel, avec son lien d'arrêt.
+    assert.match(db.prepare("SELECT corps FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE 'Commande n°%confirmée'").get().corps, /nous vous rappellerons de recommander dans 21 jours \(rien n’est débité\)\. Pas de rappel : http\S+\/reassort\/arreter\?j=/);
     // Arrêt en un clic aussi par l'en-tête List-Unsubscribe de la messagerie.
     assert.match(db.prepare("SELECT desinscription FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE 'Le moment%'").get().desinscription, /\/reassort\/arreter\?j=/);
     // Remboursée : la demande tombe.
@@ -70,6 +72,12 @@ test('rappel de réassort : demandé, envoyé, arrêté, effacé', async () => {
     assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts WHERE commande_id = ?').get(remb.commandeId).n, 1);
     assert.equal((await c('POST', `/api/admin/commandes/${remb.commandeId}/statut`, { statut: 'remboursee' })).s, 200);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts WHERE commande_id = ?').get(remb.commandeId).n, 0, 'remboursée : plus de rappel');
+    // Arrêt par le marchand, depuis la commande.
+    const parM = await commander('tel@exemple.ch', { rappelReassort: true });
+    assert.ok((await c('GET', '/api/admin/etat')).j.reassortsActifs.includes(parM.commandeId));
+    assert.equal((await c('POST', `/api/admin/commandes/${parM.commandeId}/reassort/arreter`, {})).s, 200);
+    assert.equal((await c('POST', `/api/admin/commandes/${parM.commandeId}/reassort/arreter`, {})).s, 404);
+    assert.ok(!(await c('GET', '/api/admin/etat')).j.reassortsActifs.includes(parM.commandeId));
     // Le client recommande sans cocher la case : son rappel repart de zéro (pas de rappel juste après sa commande).
     const r1c = await commander('re@client.ch', { rappelReassort: true });
     db.prepare('UPDATE reassorts SET prochain = ? WHERE commande_id = ?').run(Date.now() + 86400000, r1c.commandeId);
@@ -90,6 +98,7 @@ test('rappel de réassort : demandé, envoyé, arrêté, effacé', async () => {
     // Commande en allemand : rappel en allemand. Effacement du client : sa demande disparaît.
     await commander('max@exemple.ch', { rappelReassort: true, langue: 'de' });
     gerer.automatisationsEcheances(Date.now() + 100 * 86400000);
+    assert.ok(db.prepare("SELECT 1 FROM emails WHERE destinataire = 'max@exemple.ch' AND corps LIKE '%erinnern wir Sie in 21 Tagen ans Nachbestellen%' AND corps LIKE '%/reassort/arreter?j=%&lang=de%'").get(), 'confirmation en allemand avec la mention');
     const de = rappels('max@exemple.ch');
     assert.equal(de.length, 1); assert.match(de[0].sujet, /^Zeit zum Nachbestellen bei Torréfaction\?$/); assert.match(de[0].corps, /&lang=de/);
     await commander('lou@exemple.ch', { rappelReassort: true });
