@@ -859,3 +859,8 @@ Constats corrigés :
 - **Liens de panier** : ils acceptent maintenant une variante (`id:qte:variante`, la variante encodée en plus parce que ses valeurs peuvent contenir « , » ou « : »). Avant, un produit à variantes était ignoré par ces liens. Une variante inconnue ou épuisée est écartée.
 - **Vérifié dans Chromium**, bureau et mobile : commande d'un T-shirt « M, large » (virgule dans la valeur) et d'un savon, page de suivi, « Commander à nouveau ». Résultat : panier « 2 × T-shirt (M, large) » au prix de la variante et « 1 × Savon ». Le bouton est placé sous le total. Aucune erreur.
 - 256 tests sur 256, parcours de bout en bout 57/57.
+
+### Cycle 43 (00 h 50) : variantes dans le composeur de lien de panier (chantier 103)
+
+- **Produits › Lien de panier** : chaque variante a sa ligne, avec son propre prix (« T-shirt (M) 32.00 »). Avant, les produits à variantes étaient exclus et le client devait choisir lui-même sur la fiche. Le marchand qui envoie un panier par WhatsApp fixe maintenant la taille ou la couleur.
+- **Vérifié dans Chromium**, bureau et mobile : 2 T-shirts taille M ajoutés dans le composeur, lien généré, lien ouvert. Résultat : panier « 2 × T-shirt (M) » à 32. Aucune erreur.

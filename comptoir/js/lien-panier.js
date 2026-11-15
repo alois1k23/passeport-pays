@@ -3,7 +3,8 @@
    (mêmes contrôles de prix, de stock et de risque : le lien ne fixe aucun prix). */
 const LIEN_PANIER = { qte: {}, code: '' };
 function lienPanierUrl() {
-  const lignes = Object.entries(LIEN_PANIER.qte).filter(([, n]) => n > 0).map(([id, n]) => `${id}:${n}`);
+  // Clé « produit » ou « produit|variante » ; la variante est encodée en plus (ses valeurs peuvent contenir « , » ou « : »).
+  const lignes = Object.entries(LIEN_PANIER.qte).filter(([, n]) => n > 0).map(([cle, n]) => { const [id, vid] = cle.split('|'); return vid ? `${id}:${n}:${encodeURIComponent(vid)}` : `${id}:${n}`; });
   if (!lignes.length) return '';
   const u = new URL(urlBoutiquePublique());
   u.searchParams.set('panier', lignes.join(','));
@@ -11,7 +12,10 @@ function lienPanierUrl() {
   return u.toString();
 }
 function vueLienPanier() {
-  const prods = etat.produits.filter(p => p.actif && !p.aVerifier && !(Array.isArray(p.variantes) && p.variantes.length));   // produits à variantes : le client choisit sur la fiche
+  // Une ligne par produit, ou par variante (taille, couleur) : le client reçoit exactement la variante choisie.
+  const prods = etat.produits.filter(p => p.actif && !p.aVerifier).flatMap(p => Array.isArray(p.variantes) && p.variantes.length
+    ? p.variantes.map(v => ({ id: `${p.id}|${v.id}`, nom: `${p.nom} (${v.valeurs.join(' / ')})`, prix: typeof v.prix === 'number' ? v.prix : p.prix, stock: v.stock, type: p.type }))
+    : [{ id: p.id, nom: p.nom, prix: p.prix, stock: p.stock, type: p.type }]);
   const codes = typeof Remises !== 'undefined' && Remises.codesValables ? Remises.codesValables(typeof etatVente === 'function' ? etatVente() : etat).map(c => c.code) : [];
   const url = lienPanierUrl();
   const total = prods.reduce((a, p) => a + (LIEN_PANIER.qte[p.id] || 0) * p.prix, 0);
