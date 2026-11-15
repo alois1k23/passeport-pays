@@ -605,3 +605,23 @@ La relecture a contrôlé les tables d'encodage EAN-13 et EAN-8 face à la norme
 - **Tests** : demande ignorée sans le réglage, réglage, message nettoyé et coupé à 300 caractères, chiffrement, e-mail au marchand, effacement.
 - **Vérifié dans Chromium**, bureau et mobile : réglage, case et message dans le panier (saisie gardée), commande payée, détail de la commande, bon de préparation. Aucune erreur.
 - 251 tests sur 251, parcours de bout en bout 57/57.
+
+### Cycle 27 (23 h 55) : inventaire au lecteur de codes-barres (chantier 92)
+
+- **Page Produits, « Inventaire »** :
+  - le champ code-barres a le focus ; chaque lecture ajoute 1 à l'article (annoncé aux lecteurs d'écran) ;
+  - la quantité se saisit aussi à la main ;
+  - le tableau montre le stock, la quantité comptée et l'écart ;
+  - seuls les articles comptés sont modifiés ;
+  - le comptage en cours est gardé sur l'appareil, donc une page rechargée ne fait pas tout recommencer.
+- **Ventes pendant le comptage** : chaque ligne envoie le stock vu au moment où l'article a été compté pour la première fois. Si une vente l'a changé entre-temps, le serveur n'applique rien (tout ou rien, dans une transaction) et liste les articles en conflit. Le marchand choisit alors :
+  - « Recompter ces articles » : seuls ces articles sont remis à zéro ;
+  - « Appliquer quand même » : le comptage fait foi.
+- **Serveur** : nouvelle route `POST /api/admin/inventaire`.
+  - Elle refuse les lots, le dropshipping et les produits numériques, une variante manquante et une quantité invalide.
+  - Le total d'un produit à variantes suit la somme de ses variantes.
+  - La répartition par emplacement est remise à jour.
+  - L'inventaire est noté dans l'activité du compte.
+- **Mobile** : la quantité comptée débordait de sa carte, et le tableau défilait de côté (vu à la vérification). Le champ est maintenant borné.
+- **Tests** : refus (numérique, variante manquante, quantité négative), conflit après une vente avec rien d'appliqué, application forcée, total des variantes, application directe sans vente, activité notée.
+- **Vérifié dans Chromium**, bureau et mobile : 3 lectures au lecteur, une saisie à la main, une vente en ligne pendant le comptage, le conflit affiché, « Appliquer quand même », les stocks justes. Aucune erreur.

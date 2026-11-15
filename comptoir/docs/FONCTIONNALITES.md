@@ -31,6 +31,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 
 ### En boutique physique
 
+- **Inventaire** (page Produits) : chaque lecture au lecteur de codes-barres ajoute 1, ou la quantité se saisit. Les écarts s'affichent, puis tout s'applique d'un bloc. Si une vente a changé le stock d'un article pendant le comptage, rien n'est appliqué : le marchand recompte ces articles ou applique quand même. Le comptage en cours est gardé sur l'appareil, et l'inventaire est noté dans l'activité du compte.
 - **Caisse** (marchés, pop-up, magasin), avec un stock unique pour la caisse et le site. Lecture des codes-barres au scanner (EAN-8, UPC-A, EAN-13, GTIN-14) : le produit est ajouté au ticket, le champ reste prêt pour l'article suivant. Le code est saisi dans la fiche produit, aussi pour chaque variante (chiffre de contrôle vérifié, unique dans la boutique) ou repris de l'import CSV (Shopify, WooCommerce, PrestaShop, tableur). Il figure aussi dans les données structurées de la page produit (gtin), pour Google Shopping. Pour un produit fait maison, un code interne (EAN-13 en 20…, réservé à l'usage en magasin) se crée en un clic. Une planche d'étiquettes (nom, variante, prix, code-barres) s'imprime en A4. À vérifier avec un vrai scanner avant de s'y fier.
 - Retrait en magasin.
 

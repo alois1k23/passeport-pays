@@ -1507,3 +1507,4 @@ details.en-ligne form { margin-top: 6px; }
 
 .message-cadeau { white-space: pre-line; overflow-wrap: anywhere; font-style: italic; margin: 4px 0 0; }
 .bon-cadeau { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 12px; }
+[data-inv-compte] { width: 6.5em; max-width: 100%; text-align: right; }   /* inventaire : la quantité comptée tient dans sa carte sur téléphone */

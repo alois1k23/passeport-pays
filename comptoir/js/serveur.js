@@ -23,7 +23,7 @@ async function api(methode, chemin, corps, { deja = false } = {}) {
   }
   // Session fermée par le serveur après trop d'essais refusés : retour à la connexion (le message reste lisible un instant).
   if (json.code === 'session_fermee') setTimeout(() => { location.href = '/app?connexion=1'; }, 4000);
-  if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; e.code = json.code; throw e; }
+  if (!rep.ok) { const e = new Error(json.erreur || `Erreur ${rep.status}`); e.statut = rep.status; e.code = json.code; e.donnees = json; throw e; }
   // Le serveur répond de nouveau : une modification restée en échec part tout de suite.
   if (typeof ENREGISTREMENT !== 'undefined' && ENREGISTREMENT.echecs && !ENREGISTREMENT.enCours && chemin !== '/api/admin/config') setTimeout(envoyerConfig, 0);
   return json;

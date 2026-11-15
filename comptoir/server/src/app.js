@@ -2556,6 +2556,38 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     transaction(db, () => { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, verifierLot(ctx.boutique.id, protegerComposant(ctx.boutique.id, ctx.params.id, nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id)), ctx.params.id); reconcilierProduit(ctx.boutique.id, ctx.params.id); });   // fiche et emplacements ensemble
     return { ok: true };
   });
+  /* Inventaire : le marchand compte ses articles (au scanner ou à la main) puis applique. Chaque ligne porte le stock vu au
+     début du comptage : si une vente l'a changé entre-temps, la ligne n'est pas appliquée et revient en conflit (à
+     recompter, ou à forcer). Tout ou rien, dans une transaction ; lots, dropshipping et produits numériques exclus. */
+  r.post('/api/admin/inventaire', exigerMarchand, ctx => {
+    const lignes = Array.isArray(ctx.corps.lignes) ? ctx.corps.lignes.slice(0, 2000) : [];
+    if (!lignes.length) throw erreur(400, 'Aucun article compté.', 'inventaire_vide');
+    const forcer = ctx.corps.forcer === true, conflits = [], appliques = [];
+    transaction(db, () => {
+      const parProduit = new Map();
+      for (const l of lignes) {
+        const compte = Number(l && l.compte);
+        if (!Number.isInteger(compte) || compte < 0 || compte > 1e6) throw erreur(400, 'Quantité comptée invalide.', 'inventaire_qte');
+        const pid = String(l.produitId || ''), vid = l.varianteId ? String(l.varianteId) : '';
+        if (!parProduit.has(pid)) { const r0 = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(pid, ctx.boutique.id); parProduit.set(pid, r0 ? JSON.parse(r0.donnees) : null); }
+        const p = parProduit.get(pid);
+        if (!p || p.type === 'drop' || p.numerique || (Array.isArray(p.composants) && p.composants.length)) throw erreur(400, 'Article introuvable ou sans stock propre.', 'inventaire_article');
+        const v = vid ? (p.variantes || []).find(x => x.id === vid) : null;
+        if (vid ? !v : (Array.isArray(p.variantes) && p.variantes.length)) throw erreur(400, `${p.nom} : précisez la variante.`, 'inventaire_variante');
+        const actuel = v ? v.stock : p.stock;
+        if (!forcer && Number(l.stockVu) !== actuel) { conflits.push({ produitId: pid, varianteId: vid || null, nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, stockVu: Number(l.stockVu), actuel, compte }); continue; }
+        if (v) v.stock = compte; else p.stock = compte;
+        if (v) p.stock = p.variantes.reduce((a, x) => a + x.stock, 0);
+        appliques.push({ nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, avant: actuel, apres: compte });
+      }
+      if (conflits.length && !forcer) return;   // rien n'est appliqué tant qu'un conflit n'est pas réglé
+      for (const [pid, p] of parProduit) if (p) { db.prepare('UPDATE produits SET donnees = ? WHERE id = ? AND boutique_id = ?').run(serialiserProduit(pid, p), pid, ctx.boutique.id); reconcilierProduit(ctx.boutique.id, pid); }
+    });
+    if (conflits.length && !forcer) return { statut: 409, corps: { erreur: 'Des ventes ont changé le stock pendant le comptage : recomptez ces articles ou appliquez quand même.', code: 'inventaire_conflit', conflits } };
+    const ecarts = appliques.filter(x => x.avant !== x.apres);
+    noterActivite(ctx.marchand.id, 'inventaire', `${appliques.length} article${appliques.length > 1 ? 's' : ''} compté${appliques.length > 1 ? 's' : ''}, ${ecarts.length} écart${ecarts.length > 1 ? 's' : ''}`, ctx);
+    return { appliques: appliques.length, ecarts };
+  });
   r.delete('/api/admin/produits/:id', exigerMarchand, ctx => {
     const res = transaction(db, () => { const r0 = db.prepare('UPDATE produits SET supprime = 1 WHERE id = ? AND boutique_id = ?').run(ctx.params.id, ctx.boutique.id); if (r0.changes) EMP.purgerProduit(ctx.boutique.id, ctx.params.id); return r0; });
     if (!res.changes) throw erreur(404, 'Produit introuvable.', 'produit_introuvable');
