@@ -81,6 +81,15 @@ test('PrestaShop et tableur : prix TTC, prix HT seul signalé, nombres suisses, 
   assert.deepEqual(s.produits[1].images, [], 'javascript: refusé');
   assert.equal(s.produits[2].nom, '=HYPERLIEN("x")', 'gardé comme texte (jamais interprété)');
   assert.equal(I.convertir('a,b\n1,2').format, null);
+  // Doublons dans un même fichier : le premier gardé. Valeurs d'options avec « / » : rangées comme la fiche produit.
+  const d = I.convertir('nom,prix\nBol,10\nBol,12\n');
+  assert.equal(d.produits.length, 1); assert.equal(d.produits[0].prix, 10); assert.ok(d.erreurs.some(e => /deux fois/.test(e.message)));
+  const o = I.convertir('Handle,Title,Option1 Name,Option1 Value,Variant Price,Variant Inventory Qty\nx,X,Taille,S/M,10,3\nx,,,L,10,2\n');
+  assert.equal(o.produits[0].variantes[0].id, 'S-M'); assert.deepEqual(o.produits[0].options[0].valeurs, ['S-M', 'L']);
+  // Prix hors taxes seul : importé « à vérifier » (masqué).
+  assert.equal(p.produits[0].aVerifier, undefined, 'prix TTC connu'); assert.equal(p.produits[1].aVerifier, true, 'Caquelon : prix HT seul');
+  // Champs piégés : temps linéaire.
+  const t0 = Date.now(); I.texteDepuisHtml('<'.repeat(20000)); I.texteDepuisHtml('<script'.repeat(3000)); assert.ok(Date.now() - t0 < 50);
 });
 
 test('import dans la boutique : aperçu sans écriture, import, réimport sans doublon, limites', async () => {

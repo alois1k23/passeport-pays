@@ -49,7 +49,7 @@ Changer de plateforme demandait jusqu'ici de ressaisir chaque produit à la main
 - **Ce qui est repris** :
   - Shopify : un produit par « Handle », ses variantes (deux options au plus), le prix barré (« Compare At »), le stock, le statut (brouillon importé masqué), la catégorie, la première photo ;
   - WooCommerce : produits simples et variables avec leurs variations rattachées au parent, prix promotionnel (le prix normal devient le prix barré) ;
-  - PrestaShop et tableur : une ligne par produit ; le prix TTC est pris de préférence, et un prix hors taxes seul est signalé « à vérifier ».
+  - PrestaShop et tableur : une ligne par produit ; le prix TTC est pris de préférence. Un produit dont seul le prix hors taxes est connu est importé masqué, « à vérifier », jusqu'à ce que le marchand confirme son prix de vente.
 - **Sécurité** :
   - les descriptions HTML deviennent du texte : balises et scripts retirés, entités décodées, caractères de contrôle et d'inversion du sens d'écriture supprimés ;
   - noms, catégories et options sont bornés, et chaque produit repasse par la validation de la fiche produit ;
@@ -57,7 +57,7 @@ Changer de plateforme demandait jusqu'ici de ressaisir chaque produit à la main
   - limites : 2 Mo par requête, 20 000 lignes, 2 000 produits par import, 5 000 par boutique, 30 aperçus et 10 imports par heure ;
   - l'import est noté dans le journal du compte.
 - **Aperçu avant tout** : format reconnu, nombre de produits à créer et déjà importés, tableau des 50 premiers, lignes ignorées avec leur numéro et leur raison, points à vérifier. Rien n'est écrit avant « Importer ».
-- **Sans doublon** : chaque produit garde sa référence d'origine (« shopify:t-shirt-bio »), et un nouvel import du même fichier ne le recrée pas.
+- **Sans doublon** : chaque produit garde sa référence d'origine (« shopify:t-shirt-bio »), et un nouvel import du même fichier ne le recrée pas. Dans un même fichier, une référence répétée (dans un tableur sans colonne de référence : le même nom) n'est importée qu'une fois.
 - **Limite, notée** : Comptoir garde toutes les combinaisons d'options (3 tailles × 2 couleurs = 6 variantes). Celles qu'un export Shopify n'avait pas sont créées avec un stock de 0, donc affichées épuisées.
 - **Démonstration** : l'import marche aussi hors ligne, dans le navigateur, sans les photos.
 - **Tests** :
@@ -70,4 +70,12 @@ Changer de plateforme demandait jusqu'ici de ressaisir chaque produit à la main
   - un nom piégé (`<img onerror>`) reste du texte ;
   - la capture mobile a fait revoir le tableau de l'aperçu (colonnes collées), corrigé.
 - 237 tests sur 237, parcours de bout en bout 57/57, fuzzing sans constat.
+- **Relecture indépendante** : tiennent la protection des téléchargements (hôtes en décimal ou octal normalisés, adresses mappées refusées, aucune fenêtre de re-résolution DNS), l'échappement de l'aperçu et de la boutique, l'autorisation (le rôle « Commandes » ne peut pas importer), la neutralisation des formules dans les exports CSV, et le non-écrasement d'une photo ajoutée à la main. Constats corrigés :
+  - **Grave : blocage du serveur par un fichier piégé.** Les expressions qui retiraient les balises repartaient de chaque « < » : un champ de 20 000 « < » sans « > » coûtait 175 ms, et un fichier de 1,7 Mo bloquait le serveur 12 secondes à chaque aperçu. Le texte est maintenant borné à 12 000 caractères avant traitement, et les expressions ne peuvent plus repartir en arrière : moins d'une milliseconde pour les mêmes champs (testé).
+  - **Moyen : amplification.** « Importer, tout supprimer, réimporter » pouvait se répéter et stocker chaque fois 2 000 photos et lancer 2 000 requêtes sortantes. Il y a maintenant un quota de 5 000 produits importés et de 5 000 photos téléchargées par boutique et par 24 heures.
+  - **Bas** : une erreur pendant le téléchargement d'une photo arrêtait un des quatre téléchargements parallèles. Chaque photo est maintenant isolée, et l'erreur est notée.
+  - **Bas** : doublons dans un même fichier, voir plus haut.
+  - **Bas** : les valeurs d'options contenant « / » ou de plus de 30 caractères perdaient leur stock. Elles sont rangées comme la fiche produit le fait (testé).
+  - **Documentation** : le prix hors taxes seul est désormais vraiment « à vérifier » (produit masqué), comme le journal le disait.
+- Après corrections : 237 tests sur 237, parcours de bout en bout 57/57.
 

@@ -2423,6 +2423,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         let propre;
         try { propre = produitDuNavigateur({ ...p, type: 'stock', images: undefined }); }
         catch (e) { erreurs.push({ message: `« ${p.nom.slice(0, 40)} » : ${e.message}` }); continue; }
+        // Quota par jour (importer, tout supprimer, réimporter…) : 5 000 produits importés par boutique et par 24 heures.
+        try { auth.limiter('import-produits-jour:' + ctx.boutique.id, MAX_PRODUITS_BOUTIQUE * facteurLimites, 86400000, ''); }
+        catch { erreurs.push({ message: `Quota atteint : ${MAX_PRODUITS_BOUTIQUE} produits importés en 24 heures. Le reste du fichier n’est pas importé ; réessayez demain.` }); break; }
         const id = auth.nouvelId('p_');
         db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, serialiserProduit(id, propre), ++ordre);
         reconcilierProduit(ctx.boutique.id, id);
@@ -2440,13 +2443,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const suivant = async () => {
       while (i < liste.length) {
         const { id, image } = liste[i++];
-        const data = await integ.telechargerImage(image).catch(() => null);
-        if (!data || data.length > 400000) continue;
-        const ligne = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(id, bid);
-        if (!ligne) continue;
-        const p = JSON.parse(ligne.donnees);
-        if (p.image) continue;
-        db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(id, { ...p, image: data }), id);
+        try {
+          // Quota de photos téléchargées par boutique et par jour (stockage et requêtes sortantes bornés).
+          try { auth.limiter('import-photos-jour:' + bid, MAX_PRODUITS_BOUTIQUE * facteurLimites, 86400000, ''); } catch { return; }
+          const data = await integ.telechargerImage(image).catch(() => null);
+          if (!data || data.length > 400000) continue;
+          const ligne = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(id, bid);
+          if (!ligne) continue;
+          const p = JSON.parse(ligne.donnees);
+          if (p.image) continue;
+          db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(id, { ...p, image: data }), id);
+        } catch (e) { journal.error('[import-photos]', e.message); }
       }
     };
     await Promise.all([suivant(), suivant(), suivant(), suivant()]);

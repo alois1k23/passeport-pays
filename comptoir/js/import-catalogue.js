@@ -1,7 +1,8 @@
 /* Comptoir — import d'un catalogue existant (export CSV de Shopify, WooCommerce, PrestaShop, ou tableur simple).
    Module pur : lit le texte, reconnaît le format, renvoie des produits au format de Comptoir et les erreurs ligne
    par ligne. Rien n'est écrit ici ; l'enregistrement passe ensuite par la même validation que la saisie à la main.
-   Les descriptions HTML deviennent du texte (aucune balise n'entre dans la boutique). */
+   Les descriptions HTML deviennent du texte : les balises sont retirées ; ce qui ressemble encore à une balise (entités
+   décodées) reste du texte, toujours échappé à l'affichage. */
 (function (racine) {
 'use strict';
 
@@ -34,12 +35,14 @@ function lireCsv(texte) {
 
 /* HTML d'une description → texte : balises de bloc en retours à la ligne, entités décodées, rien d'autre ne passe. */
 const ENTITES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', eacute: 'é', egrave: 'è', ecirc: 'ê', agrave: 'à', acirc: 'â', ccedil: 'ç', ocirc: 'ô', ucirc: 'û', ugrave: 'ù', icirc: 'î', iuml: 'ï', euml: 'ë', uuml: 'ü', ouml: 'ö', auml: 'ä', szlig: 'ß', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', hellip: '…', ndash: '–', mdash: '—', euro: '€', laquo: '«', raquo: '»' };
+// Temps linéaire : texte borné avant toute expression, et aucune répétition qui puisse repartir de chaque « < »
+// (un champ de 20 000 « < » sans « > » coûtait 175 ms avec <[^>]*> ; un fichier entier, 12 secondes).
 function texteDepuisHtml(html) {
-  return String(html || '')
-    .replace(/<(script|style|iframe|object|template)[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
+  return String(html || '').slice(0, 12000)
+    .replace(/<(script|style|iframe|object|template)\b[^<>]*>[^]*?<\/\1\s*>/gi, ' ')
     .replace(/<\s*(br|\/p|\/div|\/li|\/h[1-6]|\/tr)\s*\/?\s*>/gi, '\n')
-    .replace(/<\s*li[^>]*>/gi, '• ')
-    .replace(/<[^>]*>/g, '')
+    .replace(/<\s*li\b[^<>]*>/gi, '• ')
+    .replace(/<[^<>]*>/g, '')
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
       if (e[0] === '#') { const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return n > 31 && n < 0x110000 && !(n >= 0xd800 && n < 0xe000) ? String.fromCodePoint(n) : ' '; }
       return ENTITES[e.toLowerCase()] ?? m;
@@ -124,7 +127,7 @@ function convertir(texte) {
     }
     for (const x of corps) {
       if (!/variation/.test(col(x.r, 'Type').toLowerCase())) continue;
-      const parentRef = col(x.r, 'Parent'), p = parents.get(parentRef) || parents.get(parentRef.replace(/^id:/, 'id:'));
+      const parentRef = col(x.r, 'Parent'), p = parents.get(parentRef);
       if (!p) { erreurs.push({ ligne: x.ligne, message: `Variante sans produit parent (« ${parentRef.slice(0, 30)} ») ignorée.` }); continue; }
       const vals = [col(x.r, 'Attribute 1 value(s)'), col(x.r, 'Attribute 2 value(s)')].filter(Boolean).map(v => v.split(',')[0].trim());
       const noms = [col(x.r, 'Attribute 1 name'), col(x.r, 'Attribute 2 name')].filter(Boolean).slice(0, vals.length);
@@ -154,14 +157,29 @@ function convertir(texte) {
       const prixN = prixOk(ttc || ht, x.ligne, 'Prix');
       if (Number.isNaN(prixN)) continue;
       if (prixN === null) { erreurs.push({ ligne: x.ligne, message: `« ${nom.slice(0, 40)} » sans prix ignoré.` }); continue; }
-      if (!ttc && ht) erreurs.push({ ligne: x.ligne, avertissement: true, message: `« ${nom.slice(0, 40)} » : seul le prix hors taxes est connu ; vérifiez qu’il convient comme prix de vente.` });
+      if (!ttc && ht) erreurs.push({ ligne: x.ligne, avertissement: true, message: `« ${nom.slice(0, 40)} » : seul le prix hors taxes est connu ; le produit est importé masqué, « à vérifier », jusqu’à ce que vous confirmiez son prix de vente.` });
       const barre = prixOk(col(x.r, 'prix barre', 'prix barré', 'compare at price', 'prix de reference', 'prix de référence'), x.ligne, 'Prix barré');
       const p = { refImport: `${format === 'prestashop' ? 'presta' : 'csv'}:${col(x.r, 'Reference #', 'Reference', 'référence', 'reference', 'sku', 'ref') || nom}`.slice(0, 80), nom, description: texteDepuisHtml(col(x.r, 'Description', 'description') || col(x.r, 'Short description', 'resume', 'résumé')), categorie: (format === 'prestashop' ? colDebut(x.r, 'categories (x') : col(x.r, 'categorie', 'catégorie', 'category')).split(',')[0].trim(), prix: prixN, stock: stockOk(format === 'prestashop' ? col(x.r, 'Quantity') : col(x.r, 'stock', 'quantite', 'quantité', 'quantity')), actif: format === 'prestashop' && col(x.r, 'Active (0/1)') !== '' ? oui(col(x.r, 'Active (0/1)')) : true, images: imagesDe(format === 'prestashop' ? colDebut(x.r, 'image urls (x') : col(x.r, 'image', 'images', 'photo', 'image url')).slice(0, 1) };
       if (barre && barre > prixN) p.prixReference = barre;
+      if (!ttc && ht) p.aVerifier = true;
       ajouter(p, x.ligne);
     }
   }
   // Libellés propres : une ligne, longueur bornée ; la validation finale reste celle de la fiche produit.
+  // Valeurs d'options écrites comme la fiche produit les range (« / » et « | » interdits, 30 caractères) : sinon une
+  // variante ne retrouverait pas son stock ni son prix.
+  const valeurOpt = v => String(v).replace(/[\/|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 30);
+  for (const p of produits) if (p.options) {
+    for (const o of p.options) o.valeurs = [...new Set(o.valeurs.map(valeurOpt).filter(Boolean))];
+    for (const v of p.variantes) { v.valeurs = v.valeurs.map(valeurOpt); v.id = v.valeurs.join('/'); }
+  }
+  // Même référence deux fois dans le fichier (tableur sans colonne de référence : même nom) : le premier est gardé.
+  const vus = new Set();
+  for (let k = 0; k < produits.length; k++) {
+    if (!vus.has(produits[k].refImport)) { vus.add(produits[k].refImport); continue; }
+    erreurs.push({ message: `« ${produits[k].nom.slice(0, 40)} » apparaît deux fois dans le fichier : seul le premier est importé.` });
+    produits.splice(k--, 1);
+  }
   for (const p of produits) {
     p.nom = p.nom.replace(/[\u0000-\u001f\u007f‪-‮⁦-⁩]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
     p.categorie = String(p.categorie || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 60);
