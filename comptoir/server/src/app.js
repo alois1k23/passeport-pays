@@ -1099,11 +1099,19 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (r && r.jeton) { const l = EmailsClients.langueDe(c); return `${urlPublique}/reassort/arreter?j=${encodeURIComponent(r.jeton)}${l ? `&lang=${l}` : ''}`; }
     } catch (e) { journal.error('[reassort]', e.message); }
   }
+  // Créneau de retrait en toutes lettres, dans la langue de la commande (heure de Lausanne).
+  function texteCreneau(c) {
+    if (!c.retraitCreneau) return '';
+    const l = EmailsClients.langueDe(c) || 'fr', loc = { fr: 'fr-CH', de: 'de-CH', it: 'it-CH', en: 'en-GB' }[l];
+    const jour = new Intl.DateTimeFormat(loc, { timeZone: 'Europe/Zurich', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(c.retraitCreneau));
+    const h = ms => new Intl.DateTimeFormat(loc, { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+    return `${{ fr: 'Retrait prévu', de: 'Abholung geplant', it: 'Ritiro previsto', en: 'Pickup scheduled' }[l]} : ${jour}, ${h(c.retraitCreneau)} – ${h(c.retraitCreneauFin || c.retraitCreneau)}`.replace(' : ', l === 'fr' ? ' : ' : ': ');
+  }
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
     if (res.liens && res.liens.length) envoyerLiens(res.boutique, res.c, res.liens, config);
     const arretReassort = suiteReassort(res.boutique, res.c);
-    const noteReassort = arretReassort ? `\n\n${EmailsClients.noteReassort(res.c, res.c.reassort.jours, arretReassort, (res.c.lignes || []).some(l => l.precommande))}` : '';
+    const noteReassort = (res.c.retraitCreneau ? `\n\n${texteCreneau(res.c)}` : '') + (arretReassort ? `\n\n${EmailsClients.noteReassort(res.c, res.c.reassort.jours, arretReassort, (res.c.lignes || []).some(l => l.precommande))}` : '');
     if (res.c.alerteNumerique) { const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id); if (mch) envoyerEmail(null, mch.email, `Action requise : commande n° ${res.c.numero} sans fichier à télécharger`, `Bonjour,\n\nLa commande n° ${res.c.numero} contient un produit numérique, mais aucun fichier n’était attaché au moment du paiement : le client n’a reçu aucun lien.\n\nAjoutez le fichier dans la fiche produit, puis « Renvoyer de nouveaux liens » depuis la commande.\n${urlPublique}/app#commandes\n\nL’équipe Comptoir`); }
     // Carte cadeau vendue : le client a reçu sa carte (ou son avis d'envoi) ; le marchand est simplement informé.
     if (res.c.canal === 'carte') {
@@ -1127,7 +1135,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (mch && epuises.length) envoyerEmail(null, mch.email, `Stock épuisé : ${epuises.map(p => p.nom).join(', ').slice(0, 120)}`, `Bonjour,\n\nAprès la commande n° ${res.c.numero}, ces produits n'ont plus de stock et s'affichent « Épuisé » dans votre boutique :\n${epuises.map(p => `- ${p.nom}`).join('\n')}\n\nRéassort : ${urlPublique}/app#produits`);
       notifierEquipe(res.boutique, { titre: `${res.c.parent ? 'Complément' : 'Nouvelle commande'} n° ${res.c.numero}`, texte: `${formatMontant(res.c.total, config)}${res.c.risque && res.c.risque.niveau === 'eleve' ? ' · risque de fraude élevé, à vérifier' : ''}`, url: '/app#commandes' }).catch(() => {});
       if (mch) envoyerEmail(null, mch.email, `${res.c.parent ? 'Complément de commande' : 'Nouvelle commande'} n° ${res.c.numero} : ${formatMontant(res.c.total, config)}`,
-        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${res.c.cadeau ? 'Emballage cadeau demandé (le message éventuel est dans la commande et sur le bon de préparation).\n' : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
+        `Bonjour,\n\nNouvelle commande payée sur ${config.boutique.nom}.\n\n${recapitulatif(res.c, config)}\n\n${res.c.livraison !== 'retrait' && res.c.client.ville ? `Livraison : ${res.c.client.ville}\n` : ''}${res.c.cadeau ? 'Emballage cadeau demandé (le message éventuel est dans la commande et sur le bon de préparation).\n' : ''}${res.c.retraitCreneau ? `${texteCreneau({ ...res.c, langue: null })}\n` : ''}${quoiFaire}\n\nVoir la commande : ${urlPublique}/app#commandes`);
     }
     if (config.reglages.autoTransmission && res.c.lignes.some(l => l.type === 'drop') && res.c.risque && res.c.risque.niveau === 'eleve') {
       const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ?').get(res.c.id));
@@ -3548,6 +3556,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
       if (pro) { c.pro = { id: pro.id, remise: pro.remise }; c.client.entreprise = pro.raison; if (pro.ide) c.client.ide = pro.ide; }   // raison sociale et IDE : avec les données chiffrées du client
       if (avecNumerique) c.consentementNumerique = now;   // preuve du consentement (livraison immédiate, rétractation)
+      // Retrait sur créneau (si la boutique en propose) : le créneau choisi doit être encore libre ; vérifié ici, dans la
+      // transaction, pour que deux clients ne prennent pas la dernière place en même temps.
+      if (ctx.corps.livraison === 'retrait' && config.magasin.clickCollect && Creneaux.regles(config).actif) {
+        const debut = Number(ctx.corps.creneau);
+        if (!Number.isFinite(debut) || !debut) throw erreur(400, 'Choisissez un créneau de retrait.', 'creneau_requis');
+        const libre = creneauxLibres(b, config, now).find(x => x.debut === debut);
+        if (!libre) throw erreur(409, 'Ce créneau de retrait vient d’être pris ou n’est plus disponible : choisissez-en un autre.', 'creneau_pris');
+        c.retraitCreneau = debut; c.retraitCreneauFin = libre.fin;
+      }
       // Emballage cadeau (offert, si la boutique le propose) : le message, écrit par le client, est rangé avec ses données
       // chiffrées (et effacé avec elles) ; il figure sur le bon de préparation, jamais les prix.
       if (ctx.corps.cadeau === true && config.reglages && config.reglages.emballageCadeau && lignes.some(l => !l.numerique && l.type !== 'drop')) {   // au moins un article préparé par la boutique (pas le fournisseur)

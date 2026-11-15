@@ -626,7 +626,7 @@ La relecture a contrôlé les tables d'encodage EAN-13 et EAN-8 face à la norme
 - **Tests** : refus (numérique, variante manquante, quantité négative), conflit après une vente avec rien d'appliqué, application forcée, total des variantes, application directe sans vente, activité notée.
 - **Vérifié dans Chromium**, bureau et mobile : 3 lectures au lecteur, une saisie à la main, une vente en ligne pendant le comptage, le conflit affiché, « Appliquer quand même », les stocks justes. Aucune erreur.
 
-### Cycle 28 (00 h 10) : relecture indépendante des chantiers 89 à 91
+### Cycle 28 (23 h 55) : relecture indépendante des chantiers 89 à 91
 
 La relecture confirme plusieurs points :
 
@@ -654,3 +654,30 @@ Constats corrigés :
   - la marque est toujours le nom de la boutique (pas de champ « marque » par produit) ;
   - les variantes partagent le lien du produit, sans variante présélectionnée.
 - 252 tests sur 252, parcours de bout en bout 57/57.
+
+### Cycle 29 (00 h 05) : créneaux de retrait en magasin (chantier 93)
+
+- **Réglage** (Magasin, quand le retrait en boutique est proposé) :
+  - les plages de chaque jour de la semaine ;
+  - la durée d'un créneau (15, 30 ou 60 minutes) et le nombre de retraits par créneau (1 à 50) ;
+  - le délai de préparation (1 heure à 1 jour) et l'horizon de réservation (3 jours à 2 semaines).
+  
+  Le serveur relit toujours ces valeurs en les bornant, car elles arrivent du navigateur.
+- **Module pur** `server/src/creneaux.js` :
+  - les heures sont calculées à Lausanne, changement d'heure compris : une heure qui n'existe pas (le 28 mars à 2 h) ne donne aucun créneau fantôme (testé) ;
+  - un créneau plein disparaît de la liste.
+- **Boutique** :
+  - avec le retrait en boutique, le client choisit un créneau dans une liste groupée par jour, lue au serveur à l'ouverture (toujours à jour) ;
+  - le créneau est obligatoire ;
+  - sans créneau libre, un message invite à choisir la livraison.
+- **Commande** :
+  - le créneau est revérifié dans la transaction, donc deux clients ne prennent pas la dernière place ;
+  - une heure inventée est refusée ;
+  - une commande en attente de paiement depuis moins d'une heure réserve sa place, et une commande annulée la libère.
+- **Affichage** :
+  - le créneau figure dans l'e-mail de confirmation, dans la langue du client (fr, de, it, en) ;
+  - il figure dans l'e-mail au marchand, le détail de la commande et le bon de préparation ;
+  - la liste « Retraits en magasin » est triée par créneau.
+- **Tests** : génération (délai, nombre, capacité, changement d'heure, valeurs bornées), créneau obligatoire, heure inventée, dernière place, créneau dans la confirmation, place libérée par une annulation, livraison à domicile sans créneau.
+- **Vérifié dans Chromium**, bureau et mobile : réglage des 7 jours, choix dans le panier (121 créneaux proposés), commande payée, créneau affiché dans les retraits. Aucune erreur.
+- 254 tests sur 254, parcours de bout en bout 57/57.

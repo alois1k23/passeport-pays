@@ -1508,3 +1508,6 @@ details.en-ligne form { margin-top: 6px; }
 .message-cadeau { white-space: pre-line; overflow-wrap: anywhere; font-style: italic; margin: 4px 0 0; }
 .bon-cadeau { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 12px; }
 [data-inv-compte] { width: 6.5em; max-width: 100%; text-align: right; }   /* inventaire : la quantité comptée tient dans sa carte sur téléphone */
+.creneaux-jours { display: grid; gap: 6px; margin: 8px 0 12px; }
+.creneau-jour { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.creneau-jour input[type=time] { width: 7.5em; }

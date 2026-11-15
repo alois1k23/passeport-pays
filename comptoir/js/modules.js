@@ -74,7 +74,7 @@ function vueCopilote() {
 function vueMagasin() {
   const m = etat.magasin;
   const url = urlBoutiquePublique();   // l'adresse où la boutique répond vraiment
-  const retraits = etat.commandes.filter(c => c.livraison === 'retrait' && c.canal === 'web' && ['payee', 'preparation', 'prete'].includes(c.statut)).sort((a, b) => a.date - b.date);
+  const retraits = etat.commandes.filter(c => c.livraison === 'retrait' && c.canal === 'web' && ['payee', 'preparation', 'prete'].includes(c.statut)).sort((a, b) => (a.retraitCreneau || a.date) - (b.retraitCreneau || b.date));   // par créneau de retrait, sinon par date
   const ventesMag = etat.commandes.filter(c => c.canal === 'magasin' && c.date > Date.now() - 30 * 86400000);
   const totalCaisse = ui.caisse.reduce((a, l) => a + l.prix * l.qte, 0);
   if (!ui.caisse.length) { ui.carteCaisse = ''; ui.carteCaisseInfo = null; ui.emailCaisse = ''; }   // ticket vidé : la carte du client précédent ne reste pas
@@ -110,7 +110,7 @@ function vueMagasin() {
     <div class="pile">
       <section class="carte">
         <div class="carte-tete"><h2>Retraits en magasin</h2><span class="sous">${retraits.length} en cours</span></div>
-        ${retraits.length ? `<table class="table compacte"><tbody>${retraits.map(c => `<tr><td class="mono">#${c.numero}</td><td>${esc(c.client.nom)}<div class="sous">${dateCourte(c.date)}</div></td><td>${pill(c.statut)}</td>
+        ${retraits.length ? `<table class="table compacte"><tbody>${retraits.map(c => `<tr><td class="mono">#${c.numero}</td><td>${esc(c.client.nom)}<div class="sous">${c.retraitCreneau && typeof libelleCreneau === 'function' ? esc(libelleCreneau(c).replace('Retrait prévu : ', '')) : dateCourte(c.date)}</div></td><td>${pill(c.statut)}</td>
           <td class="num">${c.statut === 'prete' ? `<button class="btn petit" data-action="statut" data-id="${c.id}" data-statut="retiree">Remis au client</button>` : `<button class="btn petit fantome" data-action="statut" data-id="${c.id}" data-statut="prete">Prête</button>`}</td></tr>`).join('')}</tbody></table>`
           : '<p class="sous">Aucun retrait en attente.</p>'}
       </section>
@@ -129,6 +129,7 @@ function vueMagasin() {
         ${connecteAuServeur() ? '<p class="sous">Synchronisation avec votre fiche Google (horaires et stock) : bientôt disponible.</p>' : `<label class="case"><input id="mg-g" type="checkbox" data-magasin="googleSync" ${m.googleSync ? 'checked' : ''}> Synchroniser la fiche Google (horaires et stock)</label>
         ${m.googleSync ? `<p class="sous"><span class="pill good">Synchronisée</span> ${visibles} produits en stock visibles sur Google (simulé)</p>` : ''}`}
       </section>
+      ${m.clickCollect && connecteAuServeur() ? carteCreneaux(m) : ''}
     </div>
   </div>`;
 }
@@ -533,6 +534,32 @@ document.addEventListener('click', e => {
     case 'cookies': etat.cookies = el.dataset.choix; sauver(); rendre(); break;
   }
 });
+/* Créneaux de retrait : plages par jour, durée, places par créneau, délai de préparation, horizon. Enregistrés avec la
+   configuration ; le serveur les relit toujours en bornant chaque valeur. */
+const JOURS_CRENEAUX = [[1, 'Lundi'], [2, 'Mardi'], [3, 'Mercredi'], [4, 'Jeudi'], [5, 'Vendredi'], [6, 'Samedi'], [0, 'Dimanche']];
+function carteCreneaux(m) {
+  const c = m.creneaux || {}, jours = c.jours || {};
+  const sel = (cle, valeurs, actuelle, etiquettes) => `<select data-creneau="${cle}">${valeurs.map((v, i) => `<option value="${v}" ${Number(actuelle) === v ? 'selected' : ''}>${etiquettes[i]}</option>`).join('')}</select>`;
+  return `<section class="carte"><div class="carte-tete"><h2>Créneaux de retrait</h2>${c.actif ? '<span class="pill good">Actifs</span>' : '<span class="pill muted">Inactifs</span>'}</div>
+    <p class="sous">Le client choisit l’heure à laquelle il passe chercher sa commande, parmi les créneaux encore libres. Vous préparez au bon moment, sans file d’attente au comptoir.</p>
+    <label class="case"><input type="checkbox" data-creneau="actif" ${c.actif ? 'checked' : ''}> Faire choisir un créneau de retrait</label>
+    ${c.actif ? `<div class="creneaux-jours">${JOURS_CRENEAUX.map(([j, n]) => { const p = jours[j]; return `<div class="creneau-jour"><label class="case"><input type="checkbox" data-creneau-jour="${j}" ${p ? 'checked' : ''}> ${n}</label>${p ? `<span class="rangee"><input type="time" step="900" value="${esc(p[0])}" data-creneau-debut="${j}" aria-label="${n} : début"> – <input type="time" step="900" value="${esc(p[1])}" data-creneau-fin="${j}" aria-label="${n} : fin"></span>` : '<span class="sous">fermé</span>'}</div>`; }).join('')}</div>
+    <div class="deux"><label class="champ"><span>Durée d’un créneau</span>${sel('duree', [15, 30, 60], c.duree || 30, ['15 minutes', '30 minutes', '1 heure'])}</label>
+      <label class="champ"><span>Retraits par créneau</span><input type="number" min="1" max="50" step="1" value="${Number(c.capacite) || 3}" data-creneau="capacite"></label></div>
+    <div class="deux"><label class="champ"><span>Délai de préparation</span>${sel('delai', [60, 120, 240, 1440], c.delai || 120, ['1 heure', '2 heures', '4 heures', '1 jour'])}</label>
+      <label class="champ"><span>Réservable jusqu’à</span>${sel('horizon', [3, 7, 14], c.horizon || 7, ['3 jours', '1 semaine', '2 semaines'])}</label></div>` : ''}
+  </section>`;
+}
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.dataset || !(t.dataset.creneau || t.dataset.creneauJour || t.dataset.creneauDebut || t.dataset.creneauFin)) return;
+  const c = etat.magasin.creneaux = { duree: 30, capacite: 3, delai: 120, horizon: 7, jours: {}, ...(etat.magasin.creneaux || {}) };
+  c.jours = { ...(c.jours || {}) };
+  if (t.dataset.creneau === 'actif') { c.actif = t.checked; if (c.actif && !Object.keys(c.jours).length) for (const j of [2, 3, 4, 5, 6]) c.jours[j] = ['10:00', '18:00']; }
+  else if (t.dataset.creneau) c[t.dataset.creneau] = Number(t.value);
+  else if (t.dataset.creneauJour) { const j = t.dataset.creneauJour; if (t.checked) c.jours[j] = ['10:00', '18:00']; else delete c.jours[j]; }
+  else { const j = t.dataset.creneauDebut || t.dataset.creneauFin, p = [...(c.jours[j] || ['10:00', '18:00'])]; p[t.dataset.creneauDebut ? 0 : 1] = t.value; if (p[1] <= p[0]) { toast('La fin doit être après le début.'); rendre(); return; } c.jours[j] = p; }
+  sauver(); if (t.type === 'checkbox') { rendre(); document.querySelector(`[data-creneau${t.dataset.creneau ? `="${t.dataset.creneau}"` : `-jour="${t.dataset.creneauJour}"`}]`)?.focus(); }
+});
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'photo-input') { importerPhotos(t.files); t.value = ''; }
@@ -658,3 +685,4 @@ document.addEventListener('input', e => {
   const z = document.getElementById('cs-rendu');
   if (z) z.innerHTML = texteRendu(Number(e.target.dataset.du) || 0, Number(e.target.value) || 0);
 });
+

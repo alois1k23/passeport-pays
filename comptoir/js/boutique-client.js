@@ -228,6 +228,7 @@ function rendreBrut() {
             <div class="deux"><label class="champ"><span>${ch ? 'NPA' : 'Code postal'}</span><input name="npa" required inputmode="numeric" autocomplete="postal-code" ${ch ? 'pattern="[0-9]{4}" maxlength="4"' : ''}></label>`}
             ${numerique ? '' : `<label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}`}
             ${avecNumerique() ? `<label class="case-sf"><input type="checkbox" name="consentementNumerique" required> J’accepte que le fichier me soit envoyé dès le paiement, et je reconnais perdre ainsi mon droit de rétractation pour ce contenu numérique.</label>` : ''}
+            ${retrait && donnees.creneaux ? champCreneau() : ''}
             ${donnees.cadeau && vue.panier.some(l => { const p = donnees.produits.find(x => x.id === l.produitId); return p && !p.numerique && p.type !== 'drop'; }) ? `<label class="case-sf"><input type="checkbox" name="cadeau" data-cadeau ${vue.cadeau ? 'checked' : ''}> C’est un cadeau : emballage offert</label>${vue.cadeau ? `<label class="champ"><span>Message sur la carte (facultatif, 300 caractères)</span><textarea name="messageCadeau" rows="3" maxlength="300" data-message-cadeau>${esc(vue.messageCadeau || '')}</textarea></label>` : ''}` : ''}
             ${joursReassort ? `<label class="case-sf"><input type="checkbox" name="rappelReassort"> Me rappeler par e-mail de recommander dans ${joursReassort} jours, avec mon panier prêt (rien n’est débité ; arrêt en un clic dans l’e-mail).</label>` : ''}
             ${!donnees.factureQr && vue.pro && vue.pro.facture ? `<fieldset class="moyens-sf"><legend>Paiement</legend>
@@ -297,12 +298,13 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: panierNumerique() ? 'numerique' : vue.livraison, pro: vue.pro ? vue.pro.jeton : undefined, consentementNumerique: d.get('consentementNumerique') === 'on', rappelReassort: d.get('rappelReassort') === 'on', cadeau: d.get('cadeau') === 'on', messageCadeau: d.get('cadeau') === 'on' ? String(d.get('messageCadeau') || '').slice(0, 300) : undefined, code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: panierNumerique() ? 'numerique' : vue.livraison, pro: vue.pro ? vue.pro.jeton : undefined, consentementNumerique: d.get('consentementNumerique') === 'on', rappelReassort: d.get('rappelReassort') === 'on', creneau: d.get('creneau') ? Number(d.get('creneau')) : undefined, cadeau: d.get('cadeau') === 'on', messageCadeau: d.get('cadeau') === 'on' ? String(d.get('messageCadeau') || '').slice(0, 300) : undefined, code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
         carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code, demande: vue.fid.demande } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
     // Code de fidélité expiré ou déjà utilisé : retour à la demande d'un nouveau code (sinon le client resterait bloqué).
     if (!rep.ok && json.code === 'fidelite_code') { vue.fid = null; vue.fidMessage = json.erreur; }
+    if (!rep.ok && json.code === 'creneau_pris') { vue.creneaux = null; vue.creneau = null; }   // liste à relire : le créneau vient d'être pris
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
     try { if (json.commandeId) sessionStorage.setItem('comptoir-paiement-' + json.commandeId, '1'); } catch { /* ignoré */ }
     if (json.factureUrl) { vue.panier = []; try { localStorage.removeItem('comptoir-panier-' + slug); } catch { /* ignoré */ } location.href = json.factureUrl; return; }   // facture QR : la facture s'ouvre, à payer avec l'application bancaire
@@ -778,3 +780,15 @@ document.addEventListener('change', e => {
   if (vue.cadeau) document.querySelector('[data-message-cadeau]')?.focus(); else document.querySelector('[data-cadeau]')?.focus();
 });
 document.addEventListener('input', e => { if (e.target.matches && e.target.matches('[data-message-cadeau]')) vue.messageCadeau = e.target.value; });
+
+/* Créneau de retrait : liste lue au serveur à l'ouverture (toujours fraîche), choix obligatoire. */
+function champCreneau() {
+  if (vue.creneaux === undefined || vue.creneaux === null) {
+    if (!vue.creneauxEnCours) { vue.creneauxEnCours = true; fetch(`/api/public/${encodeURIComponent(slug)}/creneaux`).then(r => r.json()).then(j => { vue.creneaux = Array.isArray(j.creneaux) ? j.creneaux : []; }).catch(() => { vue.creneaux = []; }).finally(() => { vue.creneauxEnCours = false; rendre(); }); }
+    return '<p class="sous" role="status">Chargement des créneaux de retrait…</p>';
+  }
+  if (!vue.creneaux.length) return '<p class="sf-note" role="alert">Aucun créneau de retrait libre pour l’instant : choisissez la livraison, ou revenez plus tard.</p>';
+  const jours = [...new Set(vue.creneaux.map(c => c.libelle.split(',')[0]))];
+  return `<label class="champ"><span>Créneau de retrait</span><select name="creneau" required data-creneau-retrait><option value="">Choisir un créneau…</option>${jours.map(j => `<optgroup label="${esc(j)}">${vue.creneaux.filter(c => c.libelle.startsWith(j + ',')).map(c => `<option value="${c.debut}" ${String(vue.creneau) === String(c.debut) ? 'selected' : ''}>${esc(c.libelle.split(', ').slice(1).join(', '))}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
+}
+document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-creneau-retrait]')) vue.creneau = e.target.value; });
