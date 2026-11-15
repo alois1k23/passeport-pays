@@ -13,6 +13,7 @@ const MotDePasse = require('./motdepasse');
 const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const ImportCatalogue = require('../../js/import-catalogue.js');
+const Gtin = require('../../js/gtin.js');
 const { creerNumerique, dispositionPieceJointe } = require('./numerique');
 const { creerPro } = require('./pro');
 const Articles = require('./articles');
@@ -839,6 +840,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         });
         if (type !== 'drop') propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
       }
+    }
+    // Code-barres (EAN-8, UPC-A, EAN-13, GTIN-14), chiffre de contrôle vérifié : lu au scanner en caisse, repris dans les
+    // données structurées de la page produit (gtin).
+    if (p.ean !== undefined && p.ean !== null && String(p.ean).trim() !== '') {
+      if (!Gtin.valide(p.ean)) throw erreur(400, 'Code-barres invalide : 8, 12, 13 ou 14 chiffres, avec un chiffre de contrôle juste.', 'ean_invalide');
+      propre.ean = Gtin.normaliser(p.ean);
     }
     // Rappel de réassort (7 à 180 jours) : produits sans variantes ni fichier, le lien de panier les remplit directement.
     if (p.reassortJours !== undefined && p.reassortJours !== null && p.reassortJours !== '' && p.reassortJours !== 0) {
@@ -2497,6 +2504,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Composants d'un lot : produits de la même boutique, en stock propre, simples (ni variantes, ni numérique, ni lot,
   // ni dropshipping), et pas le lot lui-même.
   function verifierLot(bid, propre, idLot) {
+    // Code-barres unique dans la boutique (la caisse retrouve le produit au scanner).
+    if (propre.ean && db.prepare("SELECT 1 FROM produits WHERE boutique_id = ? AND supprime = 0 AND id <> ? AND json_extract(donnees, '$.ean') = ?").get(bid, String(idLot || ''), propre.ean)) throw erreur(409, `Code-barres ${propre.ean} déjà utilisé par un autre produit.`, 'ean_doublon');
     if (!propre.composants) return propre;
     for (const c of propre.composants) {
       const r0 = c.produitId === idLot ? null : db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(c.produitId, bid);
@@ -2579,6 +2588,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const nouveaux = res.produits.filter(p => !deja.has(p.refImport));
     if (existants + nouveaux.length > MAX_PRODUITS_BOUTIQUE) throw erreur(409, `${MAX_PRODUITS_BOUTIQUE} produits au plus par boutique : cet import en ajouterait ${nouveaux.length} aux ${existants} existants.`, 'trop_de_produits');
     const erreurs = [...res.erreurs], crees = [];
+    // Code-barres déjà porté par un produit de la boutique : retiré du produit importé (l'import ne s'arrête pas pour ça).
+    const eansPris = new Set(db.prepare("SELECT json_extract(donnees, '$.ean') e FROM produits WHERE boutique_id = ? AND supprime = 0 AND json_extract(donnees, '$.ean') IS NOT NULL").all(ctx.boutique.id).map(r => r.e));
+    for (const p of nouveaux) if (p.ean && eansPris.has(p.ean)) { delete p.ean; erreurs.push({ avertissement: true, message: `« ${String(p.nom).slice(0, 40)} » : code-barres déjà utilisé dans la boutique, ignoré.` }); }
     transaction(db, () => {
       let ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
       for (const p of nouveaux) {
@@ -5156,7 +5168,7 @@ ${bloc}</main></body></html>`;
     const langueOk = ['de', 'it', 'en'].includes(langue) && (config.boutique.langues || []).includes(langue) ? langue : null;
     const sansLangue = p ? urlProduit(p) : base + '/';
     const canonique = langueOk ? `${sansLangue}?lang=${langueOk}` : sansLangue;   // chaque version linguistique est sa propre page
-    const ld = p ? { '@context': 'https://schema.org', '@type': 'Product', name: p.nom, description: court(p.description), ...(image ? { image } : {}), url: canonique, brand: { '@type': 'Brand', name: nom },
+    const ld = p ? { '@context': 'https://schema.org', '@type': 'Product', name: p.nom, description: court(p.description), ...(image ? { image } : {}), ...(p.ean ? { [`gtin${p.ean.length === 12 ? 12 : p.ean.length === 8 ? 8 : p.ean.length === 14 ? 14 : 13}`]: p.ean } : {}), url: canonique, brand: { '@type': 'Brand', name: nom },
       // Variantes : fourchette de prix (AggregateOffer) ; sinon une offre simple
       offers: Array.isArray(p.variantes) && p.variantes.length ? (prixV => ({ '@type': 'AggregateOffer', lowPrice: Math.min(...prixV).toFixed(2), highPrice: Math.max(...prixV).toFixed(2), offerCount: p.variantes.length, priceCurrency: devise, availability: p.variantes.some(v => v.stock > 0) ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique }))(p.variantes.map(v => typeof v.prix === 'number' ? v.prix : p.prix))
         : { '@type': 'Offer', price: Number(p.prix).toFixed(2), priceCurrency: devise, availability: p.type === 'drop' || p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique } }

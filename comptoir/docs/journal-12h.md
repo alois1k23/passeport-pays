@@ -463,7 +463,7 @@ Suite des constats « non faits » de la relecture.
   - le rôle « Commandes » n’a pas ce bouton, et le serveur le lui refuse aussi (la route est hors de sa liste blanche).
 - **Vérifié dans Chromium**, bureau et mobile : affichage du rappel actif, arrêt, affichage « arrêté », ligne supprimée en base. Aucune erreur.
 
-### Cycle 18 (23 h 25) : favoris dans la boutique (chantier 85)
+### Cycle 18 (23 h 20) : favoris dans la boutique (chantier 85)
 
 - **Ce que voit le visiteur** :
   - un cœur sur chaque carte produit ;
@@ -477,3 +477,25 @@ Suite des constats « non faits » de la relecture.
   - l'audit de la boutique ne relève rien de nouveau.
 - **Limites** : les favoris ne passent pas d'un appareil à l'autre (aucun compte client), et un produit retiré de la vente disparaît simplement de la liste.
 - **Vérifié dans Chromium**, bureau et mobile : ajout à la souris et au clavier, retrait, filtre, conservation après rechargement. Aucune erreur.
+
+### Cycle 19 (23 h 25) : codes-barres, de la fiche à la caisse (chantier 86)
+
+- **Module partagé** `js/gtin.js` (serveur et navigateur) : il vérifie la forme des codes EAN-8, UPC-A, EAN-13 et GTIN-14 et le chiffre de contrôle GS1. Les espaces et les tirets sont ignorés.
+- **Fiche produit** : champ « Code-barres EAN / GTIN ». Un code faux est refusé avec un message clair. Un code déjà porté par un autre produit de la boutique est refusé aussi. Un code vidé est retiré, ce qui libère ce code.
+- **Caisse** : le champ « Code-barres » apparaît dès qu'un produit en a un.
+  - Un lecteur de codes-barres (qui tape les chiffres puis Entrée) ajoute le produit au ticket, et le champ reste prêt pour l'article suivant.
+  - Un code inconnu, un produit à variantes ou un produit épuisé donne un message, sans rien ajouter.
+- **Import CSV** : les colonnes « Variant Barcode » (Shopify), « GTIN, UPC, EAN, or ISBN » (WooCommerce), « EAN13 » (PrestaShop) et « EAN / code-barres » (tableur) sont reprises. Un code invalide ou en double est ignoré, avec un avertissement. Un code déjà présent dans la boutique est retiré du produit importé, et l'import continue.
+- **Page produit** : le code figure dans les données structurées (gtin8, gtin12, gtin13 ou gtin14), ce que demandent Google Shopping et les comparateurs.
+- **Limite** : un seul code par produit. Les variantes (taille, couleur) n'ont pas encore leur propre code.
+- **Tests** :
+  - chiffre de contrôle, valeurs justes et fausses ;
+  - import (gardé, faux, en double, Shopify) ;
+  - fiche (refus, normalisation, doublon, code libéré) ;
+  - page produit (gtin13) ;
+  - import face à un code déjà en boutique.
+- **Vérifié dans Chromium**, bureau et mobile :
+  - code faux refusé, puis code juste enregistré ;
+  - deux lectures au scanner donnent 2 articles au ticket, avec le focus conservé ;
+  - code inconnu signalé.
+- **Simulation de 60 jours** (100 marchands, horloge virtuelle), refaite après les chantiers 79 à 85 : 9 216 commandes, 0 anomalie, 0 erreur dans le journal du serveur, temps médian 2 ms et 95e centile 8 ms.

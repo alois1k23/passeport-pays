@@ -83,7 +83,15 @@ function convertir(texte) {
   const col = (r, ...noms) => { for (const n of noms) { const i = idx[norm(n)]; if (i !== undefined && r[i] !== undefined && String(r[i]).trim() !== '') return String(r[i]).trim(); } return ''; };
   const colDebut = (r, debut) => { const k = Object.keys(idx).find(x => x.startsWith(debut)); return k ? String(r[idx[k]] || '').trim() : ''; };
   const erreurs = [], produits = [];
-  const ajouter = (p, ligne) => { if (produits.length >= MAX_PRODUITS) { if (!erreurs.some(e => e.code === 'trop_de_produits')) erreurs.push({ ligne, code: 'trop_de_produits', message: `${MAX_PRODUITS} produits au plus par import : le reste est ignoré, importez-le ensuite.` }); return; } produits.push(p); };
+  // Code-barres : gardé seulement s'il est valide (chiffre de contrôle) et pas déjà pris par un autre produit importé.
+  const G = typeof module !== 'undefined' && module.exports ? require('./gtin.js') : racine.Gtin, eansVus = new Set();
+  const ajouter = (p, ligne, eanBrut) => {
+    if (eanBrut && G) {
+      const e = G.normaliser(eanBrut);
+      if (!G.valide(e)) erreurs.push({ ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » : code-barres « ${String(eanBrut).slice(0, 20)} » invalide, ignoré.` });
+      else if (eansVus.has(e)) erreurs.push({ ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » : code-barres ${e} déjà utilisé plus haut, ignoré.` });
+      else { eansVus.add(e); p.ean = e; }
+    } if (produits.length >= MAX_PRODUITS) { if (!erreurs.some(e => e.code === 'trop_de_produits')) erreurs.push({ ligne, code: 'trop_de_produits', message: `${MAX_PRODUITS} produits au plus par import : le reste est ignoré, importez-le ensuite.` }); return; } produits.push(p); };
   const prixOk = (v, ligne, quoi) => { const n = lireNombre(v); if (n === null) return null; if (!Number.isFinite(n) || n < 0 || n > 100000) { erreurs.push({ ligne, message: `${quoi} illisible : « ${String(v).slice(0, 30)} ».` }); return NaN; } return Math.round(n * 100) / 100; };
   const stockOk = v => { const n = lireNombre(v); return n === null || !Number.isFinite(n) ? 0 : Math.max(0, Math.min(1e6, Math.floor(n))); };
   const imagesDe = v => String(v || '').split(/[,|\s]+/).map(x => x.trim()).filter(x => /^https:\/\/[^\s]{3,1500}$/i.test(x));
@@ -107,7 +115,7 @@ function convertir(texte) {
         p.options = optNoms.map((n, k) => ({ nom: n, valeurs: [...new Set(variantes.map(v => v.valeurs[k]).filter(Boolean))] }));
         p.variantes = variantes.map(v => ({ id: v.valeurs.join('/'), valeurs: v.valeurs, stock: v.stock, ...(v.prix !== base.prix ? { prix: v.prix } : {}), stockSaisi: true }));
       }
-      ajouter(p, t.ligne);
+      ajouter(p, t.ligne, p.variantes ? '' : col(t.r, 'Variant Barcode'));
     }
   } else if (format === 'woocommerce') {
     // Produits « simple » et « variable » ; les « variation » se rattachent à leur parent (par identifiant ou référence).
@@ -123,7 +131,7 @@ function convertir(texte) {
       const p = { refImport: `woo:${col(x.r, 'SKU') || col(x.r, 'ID') || nom}`.slice(0, 80), nom, description: texteDepuisHtml(col(x.r, 'Description') || col(x.r, 'Short description')), categorie: col(x.r, 'Categories').split(',')[0].split('>').pop().trim(), prix: prixN, stock: stockOk(col(x.r, 'Stock')), actif: col(x.r, 'Published') === '' ? true : oui(col(x.r, 'Published')), images: imagesDe(col(x.r, 'Images')).slice(0, 1), _variable: /variable/.test(type), _ligne: x.ligne };
       if (barre && prixN !== null && barre > prixN) p.prixReference = barre;
       for (const cle of [col(x.r, 'ID') && `id:${col(x.r, 'ID')}`, col(x.r, 'SKU')].filter(Boolean)) parents.set(cle, p);
-      ajouter(p, x.ligne);
+      ajouter(p, x.ligne, col(x.r, 'GTIN, UPC, EAN, or ISBN', 'GTIN', 'EAN'));
     }
     for (const x of corps) {
       if (!/variation/.test(col(x.r, 'Type').toLowerCase())) continue;
@@ -162,7 +170,7 @@ function convertir(texte) {
       const p = { refImport: `${format === 'prestashop' ? 'presta' : 'csv'}:${col(x.r, 'Reference #', 'Reference', 'référence', 'reference', 'sku', 'ref') || nom}`.slice(0, 80), nom, description: texteDepuisHtml(col(x.r, 'Description', 'description') || col(x.r, 'Short description', 'resume', 'résumé')), categorie: (format === 'prestashop' ? colDebut(x.r, 'categories (x') : col(x.r, 'categorie', 'catégorie', 'category')).split(',')[0].trim(), prix: prixN, stock: stockOk(format === 'prestashop' ? col(x.r, 'Quantity') : col(x.r, 'stock', 'quantite', 'quantité', 'quantity')), actif: format === 'prestashop' && col(x.r, 'Active (0/1)') !== '' ? oui(col(x.r, 'Active (0/1)')) : true, images: imagesDe(format === 'prestashop' ? colDebut(x.r, 'image urls (x') : col(x.r, 'image', 'images', 'photo', 'image url')).slice(0, 1) };
       if (barre && barre > prixN) p.prixReference = barre;
       if (!ttc && ht) p.aVerifier = true;
-      ajouter(p, x.ligne);
+      ajouter(p, x.ligne, col(x.r, 'EAN13', 'ean', 'gtin', 'code-barres', 'code barres', 'barcode', 'UPC'));
     }
   }
   // Libellés propres : une ligne, longueur bornée ; la validation finale reste celle de la fiche produit.

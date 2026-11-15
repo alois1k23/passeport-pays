@@ -87,6 +87,7 @@ function vueMagasin() {
   <div class="grille-2">
     <section class="carte">
       <div class="carte-tete"><h2>Caisse</h2><span class="sous">Encaissez une vente au comptoir : le stock du site est mis à jour</span></div>
+      ${etat.produits.some(p => p.actif && p.ean) ? `<label class="champ caisse-scan"><span>Code-barres (scanner ou saisie, puis Entrée)</span><input id="cs-scan" data-caisse="scan" inputmode="numeric" autocomplete="off" enterkeyhint="done" spellcheck="false" maxlength="20"></label>` : ''}
       <div class="caisse-produits">${etat.produits.filter(p => p.actif && p.type !== 'drop').length ? '' : '<p class="sous">La caisse sert aux produits que vous avez en stock (marchés, pop-up, boutique). Ajoutez-en un dans Produits.</p>'}${etat.produits.filter(p => p.actif && p.type !== 'drop').flatMap(p => Array.isArray(p.variantes) && p.variantes.length ? p.variantes.map(v => ({ p, v })) : [{ p, v: null }]).map(({ p, v }) => `
         <button class="caisse-btn" data-action="caisse-ajout" data-id="${p.id}" data-variante="${esc(v ? v.id : '')}" ${(v ? v.stock : p.stock) <= 0 ? 'disabled' : ''}>${visuelProduit(p)}<span>${esc(p.nom)}${v ? ` <small>${esc(v.valeurs.join(' / '))}</small>` : ''}</span><b class="num">${euros(v && typeof v.prix === 'number' ? v.prix : p.prix)}</b><small>${v ? v.stock : p.stock} en stock</small></button>`).join('')}</div>
       ${typeof CaisseHorsLigne !== 'undefined' && CaisseHorsLigne.lire().length ? `<div class="encart ${CaisseHorsLigne.lire().some(t => t.erreur) ? 'alerte-encart' : ''}" role="status"><b>${CaisseHorsLigne.lire().length} vente(s) en attente d’envoi</b> (sans connexion) : envoi automatique au retour du réseau.
@@ -608,6 +609,21 @@ function vueCartesCadeaux() {
     }).join('')}</tbody></table>` : `<p class="sous">${ui.cartesEnCours ? 'Chargement…' : 'Aucune carte émise pour l’instant.'}</p>`}
   </section>`;
 }
+// Lecture au scanner (le lecteur tape les chiffres puis Entrée) : le produit au code-barres est ajouté au ticket.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.dataset || e.target.dataset.caisse !== 'scan') return;
+  e.preventDefault();
+  const code = typeof Gtin !== 'undefined' ? Gtin.normaliser(e.target.value) : String(e.target.value).replace(/[\s-]/g, '');
+  e.target.value = '';
+  if (!code) return;
+  const p = etat.produits.find(x => x.actif && x.type !== 'drop' && x.ean === code);
+  if (!p) { toast(`Code-barres inconnu : ${code}. Ajoutez-le dans la fiche du produit.`); return; }
+  if (Array.isArray(p.variantes) && p.variantes.length) { toast(`${p.nom} : choisissez la variante dans la liste.`); return; }
+  const bouton = document.querySelector(`[data-action="caisse-ajout"][data-id="${CSS.escape(p.id)}"]:not([disabled])`);
+  if (!bouton) { toast(`${p.nom} : plus en stock.`); return; }
+  bouton.click();
+  setTimeout(() => document.getElementById('cs-scan')?.focus(), 0);   // prêt pour l'article suivant
+});
 document.addEventListener('input', e => {
   if (e.target.dataset && e.target.dataset.caisse === 'carte') ui.carteCaisse = e.target.value;
   if (e.target.dataset && e.target.dataset.caisse === 'email') ui.emailCaisse = e.target.value;
