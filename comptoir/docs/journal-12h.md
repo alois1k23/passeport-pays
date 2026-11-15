@@ -154,5 +154,5 @@ Vendre un article avant qu'il arrive (nouvelle collection, livre à paraître, r
 - **Vérifié dans Chromium**, bureau et mobile :
   - fiche marchand, badge, carte, fiche produit, bouton « Précommander », note du panier ;
   - aucune erreur de page.
-- 241 tests sur 241, parcours de bout en bout 57/57.
+- 240 tests sur 240, parcours de bout en bout 57/57.
 
