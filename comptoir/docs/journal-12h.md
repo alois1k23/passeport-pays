@@ -79,7 +79,7 @@ Changer de plateforme demandait jusqu'ici de ressaisir chaque produit à la main
   - **Documentation** : le prix hors taxes seul est désormais vraiment « à vérifier » (produit masqué), comme le journal le disait.
 - Après corrections : 237 tests sur 237, parcours de bout en bout 57/57.
 
-### Cycle 2 (22 h 40) : produits numériques (chantier 71)
+### Cycle 2 (21 h 55) : produits numériques (chantier 71)
 
 Shopify, Wix ou WooCommerce vendent des fichiers à télécharger (livres, musique, patrons de couture, modèles, logiciels) ; Comptoir ne savait vendre que des objets. Désormais :
 
