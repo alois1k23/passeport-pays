@@ -22,6 +22,10 @@ function mesurer(type, extra = {}) {
   try { fetch(`/api/public/${encodeURIComponent(slug)}/evenement`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, session: sessionMesure, ...extra }), keepalive: true }).catch(() => {}); } catch { /* ignoré */ }
 }
 const CLE_PANIER = `comptoir-panier-${slug}`;
+// Favoris : sur cet appareil seulement (rien n'est envoyé à la boutique), 100 au plus.
+const CLE_FAVORIS = `comptoir-favoris-${slug}`;
+const FAVORIS = (() => { try { const v = JSON.parse(localStorage.getItem(CLE_FAVORIS) || '[]'); return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 100) : []); } catch { return new Set(); } })();
+function garderFavoris() { try { localStorage.setItem(CLE_FAVORIS, JSON.stringify([...FAVORIS].slice(-100))); } catch { /* ignoré */ } }
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
 const vue = { saisie: {}, fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '', carte: null, carteMessage: '', fid: null, fidMessage: '' };
@@ -398,6 +402,12 @@ document.addEventListener('click', e => {
     } else if (sf.dataset.sf === 'panier') { vue.declencheur = '[data-sf="panier"]'; vue.ouvert = true; rendre(); }
     else if (sf.dataset.sf === 'tout-voir') { vueVitrine.tout = vueVitrine.tout === sf.dataset.id ? null : sf.dataset.id; vueVitrine.cat = ''; rendre(); document.querySelector(`[data-sf="tout-voir"][data-id="${CSS.escape(sf.dataset.id)}"]`)?.closest('.sf-produits')?.scrollIntoView({ block: 'start' }); }
     else if (sf.dataset.sf === 'cat') { vueVitrine.cat = sf.dataset.v; rendre(); }
+    else if (sf.dataset.sf === 'fav') {
+      const id = sf.dataset.id; if (FAVORIS.has(id)) FAVORIS.delete(id); else FAVORIS.add(id);
+      garderFavoris(); if (!FAVORIS.size) vueVitrine.favoris = false;
+      rendre(); document.querySelector(`[data-sf="fav"][data-id="${CSS.escape(id)}"]`)?.focus();   // le focus reste sur le même cœur
+    }
+    else if (sf.dataset.sf === 'favoris') { vueVitrine.favoris = !vueVitrine.favoris; rendre(); document.querySelector('[data-sf="favoris"]')?.focus(); }
     else if (sf.dataset.sf === 'fiche') { vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
     else if (sf.dataset.sf === 'fermer-fiche') fermerFiche();
     else if (sf.dataset.sf === 'nav') allerSection(document, sf.dataset.v);

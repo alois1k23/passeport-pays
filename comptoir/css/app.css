@@ -317,7 +317,11 @@ body[data-route="boutique"]:not([data-connecte="1"]) main { padding: 0; gap: 0; 
 .sf-produits { padding: 6cqi 5cqi 3cqi; display: grid; gap: 22px; }
 .sf-produits h2, .sf-texte h2, .sf-newsletter h2, .sf-faq h2 { font-size: clamp(1.4rem, 3.4cqi, 2.1rem); font-weight: 600; }
 .sf-grille { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
-.sf-carte { display: grid; gap: 10px; align-content: start; }
+.sf-carte { display: grid; gap: 10px; align-content: start; position: relative; }
+.sf-fav { position: absolute; top: 8px; right: 8px; z-index: 1; width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(0,0,0,.08); background: rgba(255,255,255,.92); color: #B4233C; font-size: 1.1rem; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.sf-fav[aria-pressed="true"] { background: #fff; }
+.sf-fav:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.sf-favoris { margin: 0 0 12px; }
 .sf-carte-infos { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
 .sf-carte h3 { font: 500 .95rem var(--sf-body); }
 .sf-carte-infos span { white-space: nowrap; font-variant-numeric: tabular-nums; }

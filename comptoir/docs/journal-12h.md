@@ -462,3 +462,18 @@ Suite des constats « non faits » de la relecture.
   - l'arrêt est noté dans l'historique de la commande ;
   - le rôle « Commandes » n’a pas ce bouton, et le serveur le lui refuse aussi (la route est hors de sa liste blanche).
 - **Vérifié dans Chromium**, bureau et mobile : affichage du rappel actif, arrêt, affichage « arrêté », ligne supprimée en base. Aucune erreur.
+
+### Cycle 18 (23 h 25) : favoris dans la boutique (chantier 85)
+
+- **Ce que voit le visiteur** :
+  - un cœur sur chaque carte produit ;
+  - un bouton « Mes favoris (N) » qui ne montre que ses favoris ;
+  - « Voir tous les produits » pour revenir à la vitrine.
+- **Vie privée** : les favoris restent dans le navigateur du visiteur (100 au plus, par boutique). Rien n'est envoyé au serveur, aucune mesure d'audience n'est faite (vérifié : aucun événement enregistré).
+- **Accessibilité** :
+  - le cœur est un vrai bouton à état (aria-pressed), avec un nom explicite (« Ajouter Nappe aux favoris ») ;
+  - le focus reste sur le même cœur après le clic ;
+  - la cible fait 36 px ;
+  - l'audit de la boutique ne relève rien de nouveau.
+- **Limites** : les favoris ne passent pas d'un appareil à l'autre (aucun compte client), et un produit retiré de la vente disparaît simplement de la liste.
+- **Vérifié dans Chromium**, bureau et mobile : ajout à la souris et au clavier, retrait, filtre, conservation après rechargement. Aucune erreur.
