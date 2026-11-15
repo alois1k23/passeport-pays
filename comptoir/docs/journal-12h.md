@@ -818,8 +818,37 @@ Constats corrigés :
 - **Vérifié dans Chromium**, bureau et mobile : taille présélectionnée, prix juste, ajout au panier de la bonne variante, taille par défaut sans paramètre. Aucune erreur.
 - 254 tests sur 254, parcours de bout en bout 57/57.
 
-### Cycle 40 (00 h 40) : flux produits limité et gardé en mémoire (chantier 101)
+### Cycle 40 (00 h 35) : flux produits limité et gardé en mémoire (chantier 101)
 
 - **Limite** : au plus 60 demandes du flux par 10 minutes et par adresse. Au-delà, le serveur répond 429 avec Retry-After. Le flux est public et chaque calcul parcourt les produits et les commandes en attente.
 - **Mémoire** : le flux est gardé une minute par boutique. Les robots qui le relisent souvent ne le font plus recalculer à chaque fois, et le cache HTTP de 15 minutes reste en place.
 - **Tests** : le flux reste le même pendant une minute après une modification, et la 61e demande reçoit 429.
+
+### Cycle 41 (00 h 40) : relecture indépendante des chantiers 98 à 101, et audit des nouveaux écrans
+
+La relecture a confirmé plusieurs points :
+
+- la valeur `?variante=` n'est jamais recopiée telle quelle, elle est seulement comparée aux variantes existantes ;
+- l'adresse canonique reste sans paramètre (pas de contenu en double pour les moteurs) ;
+- l'adresse IP des clients ne peut pas être usurpée ;
+- les dimensions déclarées n'étirent aucune image ;
+- la carte « Nouveautés » est correcte.
+
+Constats corrigés :
+
+- **Moyen, flux** : la limite de fréquence portait sur l'adresse seule, toutes boutiques confondues. Or les robots de Google et Meta lisent les flux de nombreuses boutiques depuis peu d'adresses : ils auraient été refusés (429), et les produits retirés de Merchant Center.
+  - La limite porte maintenant sur la boutique et l'adresse, et ne compte que les calculs. Une réponse gardée en mémoire n'est jamais refusée (testé : 70 lectures sans refus).
+  - Une autre boutique n'est pas touchée par la limite d'une première (testé).
+- **Moyen, données structurées** : sur une version linguistique, l'adresse de l'offre d'une variante était mal formée (`?lang=de?variante=M`). Elle est maintenant construite proprement (`?variante=M&lang=de`).
+- **Moyen, boutique** : un lien vers une variante épuisée (que le flux annonce aussi) laissait « Ajouter au panier » actif. Le bouton est maintenant désactivé et l'alerte de retour en stock affichée. Vérifié dans Chromium.
+- **Bas** :
+  - **Page d'une variante** : son prix figure aussi dans les balises de partage, la description et la version sans JavaScript (testé).
+  - **Adresse** : elle suit la variante choisie, donc un lien copié donne la bonne variante.
+  - **Mémoire du flux** : les entrées échues sont retirées, et le total est borné à 50 Mo.
+  - **Inventaire par emplacement** : le plafond des composants d'un lot après retour s'applique aussi.
+  - **Carte « Nouveautés »** : après « Masquer », le focus va au titre de la page.
+- **Audit d'accessibilité des écrans ajoutés cette nuit** (nouveautés, inventaire, étiquettes, flux, fiche produit, créneaux, livraison), sur bureau et sur téléphone, avec le même script que la boutique :
+  - le champ « Description » de la fiche produit n'avait pas de nom accessible, parce que son libellé contient aussi un bouton ;
+  - les liens de la carte « Nouveautés » étaient trop petits sur téléphone ;
+  - les deux sont corrigés. L'audit des écrans du marchand en mode démonstration ne relève rien.
+- 256 tests sur 256, parcours de bout en bout 57/57.

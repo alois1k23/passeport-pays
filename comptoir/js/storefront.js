@@ -221,7 +221,9 @@ function renduFiche(etat, p, qte = 1) {
   const avis = (etat.avisRecents || []).filter(a => (a.produitId || a.produit_id) === p.id).slice(0, 3);
   const args = (etat.boutique.sections.find(s => s.type === 'arguments') || {}).props || {};
   const reassurance = [args.a1, args.a2, args.a3].filter(Boolean);
-  const epuise = p.type !== 'drop' && p.stock <= 0;
+  // Produit à variantes : épuisé si la variante choisie à l'ouverture (lien ?variante=…, sinon la première en stock) l'est.
+  const vOuverte = Array.isArray(p.variantes) && p.variantes.length ? ((typeof varianteVoulue === 'function' && varianteVoulue(p)) || p.variantes.find(v => v.stock > 0) || p.variantes[0]) : null;
+  const epuise = p.type !== 'drop' && (vOuverte ? vOuverte.stock <= 0 : p.stock <= 0);
   const max = p.type === 'drop' || (Array.isArray(p.variantes) && p.variantes.length) ? 10 : Math.max(1, Math.min(10, p.stock));   // variante : bornée à son stock à l'ajout
   return `<div class="sf-fiche-fond" data-sf="fermer-fiche"></div>
   <div class="sf-fiche" role="dialog" aria-modal="true" aria-label="${esc(p.nom)}">

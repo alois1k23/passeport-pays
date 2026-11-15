@@ -2590,7 +2590,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         if (l.type === 'drop' || l.numerique || !l.produitId) continue;
         const q = typeof l.retireStock === 'number' ? l.retireStock : (Number(l.qte) || 0);
         // Lot : ses composants, au plus ce qui reste du lot après un retour partiel (composants non remis en stock compris).
-        if (Array.isArray(l.composantsRetires) && l.composantsRetires.length) { for (const c of l.composantsRetires) { const parLot = (Number(c.qte) || 0) / Math.max(1, Number(l.qte) || 1), plafond = Math.round(parLot * q); const n = Math.min(part(c, Number(c.retireStock ?? c.qte) || 0), eid ? Infinity : plafond); if (n > 0) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + n; } continue; }
+        if (Array.isArray(l.composantsRetires) && l.composantsRetires.length) { for (const c of l.composantsRetires) { const parLot = (Number(c.qte) || 0) / Math.max(1, Number(l.qte) || 1), plafond = Math.round(parLot * q); const n = Math.min(part(c, Number(c.retireStock ?? c.qte) || 0), plafond); if (n > 0) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + n; } continue; }
         const comps = composantsDe(bid, l);
         if (comps.length && comps[0].produitId !== l.produitId) { if (!eid) for (const c of comps) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + c.qte; continue; }
         const k = `${l.produitId}|${l.varianteId || ''}`, n = part(l, q); if (n) e[k] = (e[k] || 0) + n;
@@ -5278,6 +5278,9 @@ ${bloc}</main></body></html>`;
     const ouverte = abo.etat(b.marchand_id).actif;
     const produits = ouverte ? listerProduits(b.id).filter(vendable) : [];
     const p = produitId ? produits.find(x => x.id === produitId) : null;
+    // Variante demandée par l'adresse (?variante=…) : son prix partout sur la page (balises, données structurées, sans JavaScript).
+    const vPage = p && variante && Array.isArray(p.variantes) ? p.variantes.find(v => v.id === variante) || null : null;
+    const prixPage = p ? (vPage && typeof vPage.prix === 'number' ? vPage.prix : p.prix) : 0;
     const nom = config.boutique.nom;
     const hero = (config.boutique.sections || []).find(s => s.type === 'hero');
     const devise = config.boutique.devise || 'EUR';
@@ -5285,14 +5288,14 @@ ${bloc}</main></body></html>`;
     const urlProduit = x => `${base}/p/${encodeURIComponent(x.id)}`;
     const court = t => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 158);
     const titre = p ? `${p.nom} · ${nom}` : config.boutique.slogan ? `${nom} · ${config.boutique.slogan}` : nom;
-    const description = court(p ? (p.description || `${p.nom}, ${formatMontant(p.prix, config)}`) : (config.boutique.slogan || (hero && hero.props && (hero.props.sousTitre || hero.props.texte)) || `Boutique en ligne ${nom} : ${produits.slice(0, 4).map(x => x.nom).join(', ')}`));
+    const description = court(p ? (p.description || `${p.nom}, ${formatMontant(prixPage, config)}`) : (config.boutique.slogan || (hero && hero.props && (hero.props.sousTitre || hero.props.texte)) || `Boutique en ligne ${nom} : ${produits.slice(0, 4).map(x => x.nom).join(', ')}`));
     const image = p && p.image ? `${urlPublique}/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : null;
     const langueOk = ['de', 'it', 'en'].includes(langue) && (config.boutique.langues || []).includes(langue) ? langue : null;
     const sansLangue = p ? urlProduit(p) : base + '/';
     const canonique = langueOk ? `${sansLangue}?lang=${langueOk}` : sansLangue;   // chaque version linguistique est sa propre page
     const ld = p ? { '@context': 'https://schema.org', '@type': 'Product', name: p.nom, description: court(p.description), ...(image ? { image } : {}), ...(p.ean ? { [`gtin${p.ean.length === 12 ? 12 : p.ean.length === 8 ? 8 : p.ean.length === 14 ? 14 : 13}`]: p.ean } : {}), url: canonique, brand: { '@type': 'Brand', name: p.marque || nom },
       // Variantes : fourchette de prix (AggregateOffer) ; sinon une offre simple
-      offers: Array.isArray(p.variantes) && p.variantes.length && variante && p.variantes.some(v => v.id === variante) ? (v => ({ '@type': 'Offer', price: (typeof v.prix === 'number' ? v.prix : p.prix).toFixed(2), priceCurrency: devise, availability: v.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: `${canonique}?variante=${encodeURIComponent(v.id)}`, ...(v.ean ? { gtin: v.ean } : {}) }))(p.variantes.find(v => v.id === variante)) : Array.isArray(p.variantes) && p.variantes.length ? (prixV => ({ '@type': 'AggregateOffer', lowPrice: Math.min(...prixV).toFixed(2), highPrice: Math.max(...prixV).toFixed(2), offerCount: p.variantes.length, priceCurrency: devise, availability: p.variantes.some(v => v.stock > 0) ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique }))(p.variantes.map(v => typeof v.prix === 'number' ? v.prix : p.prix))
+      offers: vPage ? (v => ({ '@type': 'Offer', price: prixPage.toFixed(2), priceCurrency: devise, availability: v.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: `${sansLangue}?variante=${encodeURIComponent(v.id)}${langueOk ? `&lang=${langueOk}` : ''}`, ...(v.ean ? { gtin: v.ean } : {}) }))(vPage) : Array.isArray(p.variantes) && p.variantes.length ? (prixV => ({ '@type': 'AggregateOffer', lowPrice: Math.min(...prixV).toFixed(2), highPrice: Math.max(...prixV).toFixed(2), offerCount: p.variantes.length, priceCurrency: devise, availability: p.variantes.some(v => v.stock > 0) ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique }))(p.variantes.map(v => typeof v.prix === 'number' ? v.prix : p.prix))
         : { '@type': 'Offer', price: Number(p.prix).toFixed(2), priceCurrency: devise, availability: p.type === 'drop' || p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: canonique } }
       : { '@context': 'https://schema.org', '@type': 'OnlineStore', name: nom, url: canonique, description, ...(config.entreprise && config.entreprise.email ? { email: config.entreprise.email } : {}) };
     const tete = [
@@ -5305,11 +5308,11 @@ ${bloc}</main></body></html>`;
       `<meta property="og:type" content="${p ? 'product' : 'website'}">`, `<meta property="og:site_name" content="${escHtml(nom)}">`, `<meta property="og:title" content="${escHtml(p ? p.nom : nom)}">`,
       `<meta property="og:description" content="${escHtml(description)}">`, `<meta property="og:url" content="${escHtml(canonique)}">`, `<meta property="og:locale" content="fr_${config.boutique.pays === 'ch' ? 'CH' : config.boutique.pays === 'be' ? 'BE' : 'FR'}">`,
       ...(image ? [`<meta property="og:image" content="${escHtml(image)}">`, '<meta name="twitter:card" content="summary_large_image">'] : ['<meta name="twitter:card" content="summary">']),
-      ...(p ? [`<meta property="product:price:amount" content="${Number(p.prix).toFixed(2)}">`, `<meta property="product:price:currency" content="${devise}">`] : []),
+      ...(p ? [`<meta property="product:price:amount" content="${Number(prixPage).toFixed(2)}">`, `<meta property="product:price:currency" content="${devise}">`] : []),
       `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`
     ].join('\n');
     // Contenu lisible sans JavaScript (robots, aperçus) ; remplacé par la boutique interactive au chargement.
-    const sansJs = `<noscript><main class="page-erreur"><h1>${escHtml(p ? p.nom : nom)}</h1>${p ? `<p>${escHtml(court(p.description))}</p><p><strong>${escHtml(formatMontant(p.prix, config))}</strong></p>` : `<p>${escHtml(description)}</p><ul>${produits.slice(0, 60).map(x => `<li><a href="${escHtml(urlProduit(x))}">${escHtml(x.nom)}</a> · ${escHtml(formatMontant(x.prix, config))}</li>`).join('')}</ul>`}<p>Activez JavaScript pour commander.</p></main></noscript>`;
+    const sansJs = `<noscript><main class="page-erreur"><h1>${escHtml(p ? p.nom : nom)}</h1>${p ? `<p>${escHtml(court(p.description))}</p><p><strong>${escHtml(formatMontant(prixPage, config))}</strong></p>` : `<p>${escHtml(description)}</p><ul>${produits.slice(0, 60).map(x => `<li><a href="${escHtml(urlProduit(x))}">${escHtml(x.nom)}</a> · ${escHtml(formatMontant(x.prix, config))}</li>`).join('')}</ul>`}<p>Activez JavaScript pour commander.</p></main></noscript>`;
     return fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace(/<title>[^<]*<\/title>/, '').replace('<html lang="fr">', () => `<html lang="${langueOk || 'fr'}">`).replace('<head>', () => `<head>\n${tete}`).replace('<div id="app"></div>', () => `<div id="app"></div>${sansJs}`);   // fonctions : « $' » ou « $& » dans un nom de boutique restent du texte
   }
   /* Journal : liste et articles en pages HTML complètes (sans JavaScript), avec données structurées et adresse canonique. */
@@ -5387,11 +5390,19 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
      (les robots de Google et Meta le relisent souvent ; chaque calcul parcourt les produits et les commandes en attente). */
   const FLUX_MEMO = new Map();
   function envoyerFlux(req, res, b, racine) {
-    try { auth.limiter('flux-produits:' + ipClient(req), 60 * facteurLimites, 600000, ''); }
-    catch { res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '600' }); return res.end('Trop de demandes.'); }
+    // Limite par boutique et par adresse (les robots de Google et Meta lisent les flux de nombreuses boutiques depuis peu
+    // d'adresses), et seulement pour les calculs : une réponse gardée en mémoire ne coûte rien.
+    const duree = Number(env.FLUX_MEMO_MS ?? 60000) || 0, maintenant = Date.now();
     const cle = `${b.id}|${racine}`, m = FLUX_MEMO.get(cle);
-    let xml = m && Date.now() - m.le < (Number(env.FLUX_MEMO_MS ?? 60000) || 0) ? m.xml : null;
-    if (!xml) { xml = fluxProduits(b, racine); FLUX_MEMO.set(cle, { le: Date.now(), xml }); if (FLUX_MEMO.size > 2000) FLUX_MEMO.delete(FLUX_MEMO.keys().next().value); }
+    let xml = m && maintenant - m.le < duree ? m.xml : null;
+    if (!xml) {
+      try { auth.limiter(`flux-produits:${b.id}:${ipClient(req)}`, 60 * facteurLimites, 600000, ''); }
+      catch { res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '600' }); return res.end('Trop de demandes.'); }
+      xml = fluxProduits(b, racine);
+      // Entrées échues retirées ; mémoire bornée en octets (pas seulement en nombre de boutiques).
+      for (const [k, v] of FLUX_MEMO) if (maintenant - v.le >= duree) FLUX_MEMO.delete(k);
+      if (duree) { FLUX_MEMO.set(cle, { le: maintenant, xml }); let total = 0; for (const v of FLUX_MEMO.values()) total += v.xml.length; while (total > 50e6 && FLUX_MEMO.size) { const [k, v] = FLUX_MEMO.entries().next().value; total -= v.xml.length; FLUX_MEMO.delete(k); } }
+    }
     res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' });
     return res.end(xml);
   }

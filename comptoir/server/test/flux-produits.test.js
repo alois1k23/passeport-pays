@@ -32,6 +32,7 @@ test('flux produits : contenu, variantes, échappement, boutique fermée', async
     assert.match(xml, new RegExp(`<g:id>${ts}-[0-9a-f]{10}</g:id><title>T-shirt – S</title>.*?<g:availability>out of stock</g:availability>.*?<g:gtin>96385074</g:gtin><g:item_group_id>${ts}</g:item_group_id><g:size>S</g:size>`));
     // Page de la variante (lien du flux) : offre de cette variante, prix et code compris (Google compare la page et le flux).
     const pageV = await (await fetch(`${base}/s/${slug}/p/${ts}?variante=M`)).text();
+    assert.match(pageV, /<meta property="product:price:amount" content="32.00">/, 'prix de la variante dans les balises aussi');
     assert.match(pageV, /"offers":\{"@type":"Offer","price":"32.00","priceCurrency":"CHF","availability":"https:\/\/schema.org\/InStock","url":"[^"]*\?variante=M"/);
     assert.match(xml, new RegExp(`<title>T-shirt – S</title><description>T-shirt</description><link>[^<]*/p/${ts}\\?variante=S</link>`), 'lien vers la variante');
     assert.match(xml, new RegExp(`<g:id>${ts}-[0-9a-f]{10}</g:id><title>T-shirt – M</title>.*?<g:price>32\\.00 CHF</g:price><g:availability>in stock</g:availability>.*?<g:identifier_exists>no</g:identifier_exists><g:item_group_id>${ts}</g:item_group_id>`));
@@ -78,8 +79,27 @@ test('flux produits : gardé une minute en mémoire, limité à 60 demandes par 
     assert.match(await (await fetch(`${base}/s/${slug}/produits.xml`)).text(), /Avant/);
     await c('PUT', `/api/admin/produits/${id}`, { produit: { nom: 'Après', prix: 5, stock: 3 } });
     assert.match(await (await fetch(`${base}/s/${slug}/produits.xml`)).text(), /Avant/, 'gardé en mémoire une minute');
-    let dernier = 200;
-    for (let i = 0; i < 60; i++) dernier = (await fetch(`${base}/s/${slug}/produits.xml`)).status;
-    assert.equal(dernier, 429, 'au-delà de 60 demandes en 10 minutes');
+    let dernier = 0;
+    for (let i = 0; i < 70; i++) dernier = (await fetch(`${base}/s/${slug}/produits.xml`)).status;
+    assert.equal(dernier, 200, 'réponses gardées en mémoire : jamais limitées (robots de Google et Meta)');
+  } finally { s.close(); }
+});
+
+test('flux produits : 60 calculs par 10 minutes, par boutique et par adresse', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non', FLUX_MEMO_MS: '0' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const slugs = [];
+  try {
+    for (const nom of ['Un', 'Deux']) {
+      let cookie = '';
+      const r = await fetch(base + '/api/auth/inscription', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `${nom}@exemple.ch`, motDePasse: 'un mot de passe solide', config: { boutique: { nom } } }) });
+      cookie = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; ');
+      slugs.push((await (await fetch(base + '/api/admin/etat', { headers: { Cookie: cookie } })).json()).serveur.slug);
+    }
+    let dernier = 0;
+    for (let i = 0; i < 61; i++) dernier = (await fetch(`${base}/s/${slugs[0]}/produits.xml`)).status;
+    assert.equal(dernier, 429);
+    assert.equal((await fetch(`${base}/s/${slugs[1]}/produits.xml`)).status, 200, 'une autre boutique n’est pas touchée');
   } finally { s.close(); }
 });

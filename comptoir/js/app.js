@@ -689,7 +689,7 @@ function vueProduits() {
       ${visuelProduit(p, true)}
       <div class="rangee"><button type="button" id="pf-photo-btn" class="btn petit fantome" data-action="choisir-photo">${p.image ? 'Changer la photo' : 'Ajouter une photo'}</button><input id="pf-photo" type="file" accept="image/jpeg,image/png,image/webp" hidden>${p.image ? '<button type="button" class="btn petit fantome danger-doux" data-action="retirer-photo">Retirer la photo</button>' : ''}<span class="sous">JPEG, PNG ou WebP, réduite automatiquement.</span></div>
       <label class="champ"><span>Nom</span><input id="pf-nom" name="nom" required value="${esc(p.nom)}"></label>
-      <label class="champ"><span>Description <button type="button" class="lien bouton-lien" data-action="rediger">Rédiger pour moi</button></span><textarea id="pf-desc" name="description" rows="4">${esc(p.description)}</textarea></label>
+      <label class="champ"><span>Description <button type="button" class="lien bouton-lien" data-action="rediger">Rédiger pour moi</button></span><textarea id="pf-desc" name="description" rows="4" aria-label="Description">${esc(p.description)}</textarea></label>
       <div class="deux"><label class="champ"><span>Prix TTC (${devise()})</span><input id="pf-prix" name="prix" type="number" min="0" step="0.01" required value="${p.prix}"></label>
       ${p.type === 'drop' ? '<input type="hidden" name="stock" value="999">' : aVariantesEdit(p) ? `<label class="champ"><span>Stock (somme des variantes)</span><input id="pf-stock" name="stock" type="number" readonly value="${p.variantes.reduce((a, v) => a + (Number(v.stock) || 0), 0)}"></label>` : `<label class="champ"><span>Stock</span><input id="pf-stock" name="stock" type="number" min="0" step="1" required value="${p.stock}"></label>`}</div>
       ${editeurVariantes(p)}
@@ -1257,7 +1257,7 @@ document.addEventListener('click', e => {
         <p class="sous">Les produits numériques et les produits masqués n’y figurent pas.</p>` };
       rendreModal(); break;
     }
-    case 'nouveautes-fermer': try { localStorage.setItem('comptoir-nouveautes-vu', NOUVEAUTES.version); } catch { /* ignoré */ } rendre(); document.querySelector('main h1, h1')?.focus?.(); break;
+    case 'nouveautes-fermer': { try { localStorage.setItem('comptoir-nouveautes-vu', NOUVEAUTES.version); } catch { /* ignoré */ } rendre(); const h = document.querySelector('main h1, h1'); if (h) { h.tabIndex = -1; h.focus(); } break; }
     case 'etiquettes-ean': ui.modal = { type: 'html', html: `<h2>Étiquettes code-barres</h2>${etiquettesEan()}` }; rendreModal(); break;
     case 'bon-un': ui.modal = { type: 'html', html: `<h2>Bon de préparation</h2>${bonsPreparation([id])}` }; rendreModal(); break;
     case 'groupe-vider': ui.selection.clear(); rendre(); break;
