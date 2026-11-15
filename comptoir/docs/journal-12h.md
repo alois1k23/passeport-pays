@@ -406,3 +406,10 @@ Un article de conseils (« Entretenir le lin ») mène maintenant directement au
   - choix des produits dans l'éditeur ;
   - cartes affichées sous l'article, avec les photos chargées malgré la politique de sécurité du contenu ;
   - aucune erreur.
+
+### Cycle 14 (23 h 15) : précommandes dans « À faire » (chantier 82)
+
+- **Vue d'ensemble** : le bloc « À faire » liste les précommandes payées à expédier, regroupées par produit et par date annoncée (5 au plus, la plus proche d'abord). Ce rappel complète l'e-mail du chantier 79.
+- **Signalement** : une date dans les 3 jours est marquée en alerte, une date passée est affichée « en retard ». Les dates sont celles du jour de Lausanne.
+- **Vérifié dans Chromium**, bureau et mobile, avec deux produits en précommande (dans 2 jours et dans 20 jours) : le premier est en alerte, le second non. Aucune erreur.
+- Rien ne change côté serveur, les tests existants couvrent les données utilisées.
