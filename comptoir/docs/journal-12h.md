@@ -204,7 +204,7 @@ Les coffrets cadeaux, les lots « 3 pour 2 » et les kits sont un classique du c
 
 ### Cycle 5 (22 h 35) : clients professionnels (chantier 74)
 
-Vendre aux professionnels (hôtels, restaurants, revendeurs) avec leurs propres prix est réservé, chez Shopify, à la formule la plus chère (B2B de Shopify Plus) ; ailleurs, il faut une extension. Désormais :
+Vendre aux professionnels (hôtels, restaurants, revendeurs) avec leurs propres prix demande souvent, sur les autres plateformes, une formule haut de gamme ou une extension (à vérifier plateforme par plateforme au chantier 76, sources à l'appui). Désormais :
 
 - **Côté marchand, Paramètres > Clients pro** : ouverture de comptes pro avec raison sociale, e-mail de commande, numéro de TVA ou IDE, remise de 0 à 50 %, paiement sur facture QR et plafond des factures impayées.
   - E-mail et raison sociale sont chiffrés au repos, comme les données des clients des commandes.
