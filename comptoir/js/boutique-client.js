@@ -26,6 +26,10 @@ let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
 const vue = { saisie: {}, fiche: null, panier: lirePanier(), ouvert: false, livraison: null, envoi: false, message: null, legal: null, code: null, codeMessage: '', carte: null, carteMessage: '', fid: null, fidMessage: '' };
 
+/* Espace professionnel : jeton de session (30 jours) gardé dans ce navigateur ; tarif relu auprès du serveur. */
+const CLE_PRO = 'comptoir-pro-' + slug;
+function lirePro() { try { const v = JSON.parse(localStorage.getItem(CLE_PRO)); return v && typeof v.jeton === 'string' ? v : null; } catch { return null; } }
+function garderPro(v) { try { if (v) localStorage.setItem(CLE_PRO, JSON.stringify(v)); else localStorage.removeItem(CLE_PRO); } catch { /* ignoré */ } }
 function lirePanier() { try { return JSON.parse(localStorage.getItem(CLE_PANIER)) || []; } catch { return []; } }
 function garderPanier() { try { localStorage.setItem(CLE_PANIER, JSON.stringify(vue.panier)); } catch { /* ignoré */ } }
 const $ = s => document.querySelector(s);
@@ -54,6 +58,9 @@ async function demarrer() {
     return { produitId: p.id, nom: p.nom, prix: p.prix, qte: l.qte };
   }).filter(Boolean);
   vue.livraison = Object.keys(donnees.livraisons)[0];
+  vue.pro = lirePro();
+  if (vue.pro) fetch(`/api/public/${encodeURIComponent(slug)}/pro/moi`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton: vue.pro.jeton }) })
+    .then(r => r.json()).then(j => { vue.pro = j.pro ? { ...j.pro, jeton: vue.pro.jeton } : null; garderPro(vue.pro); rendre(); }).catch(() => {});
   mesurer('vue');
   const q = new URLSearchParams(location.search);
   if (q.get('reprendre')) { reprendrePaiement(q.get('reprendre'), q.get('jeton')); return; }
@@ -103,6 +110,11 @@ function varianteChoisie(p) {
   return choix.length === (p.options || []).length ? p.variantes.find(v => v.id === choix.join('/')) : null;
 }
 function calculPanier() {
+  if (vue.pro && vue.pro.remise > 0) {
+    const lignes = vue.panier.map(l => ({ ...l, prixInitial: l.prix, prix: Math.round(l.prix * (1 - vue.pro.remise / 100) * 100) / 100 }));
+    const sousTotal = Math.round(vue.panier.reduce((a, l) => a + l.prix * l.qte, 0) * 100) / 100, apres = Math.round(lignes.reduce((a, l) => a + l.prix * l.qte, 0) * 100) / 100;
+    return { lignes, sousTotal, remise: Math.round((sousTotal - apres) * 100) / 100, apresRemise: apres, taux: vue.pro.remise, motif: { type: 'pro', libelle: `Tarif professionnel (−${vue.pro.remise} %)` }, codeSaisi: null, codeValide: null, codeMinimum: null, prochainPalier: null };
+  }
   const config = { offres: { ...donnees.offres, codes: vue.code ? [vue.code] : [] } };
   return Remises.appliquer(vue.panier, config, vue.code ? vue.code.code : '');
 }
@@ -192,7 +204,8 @@ function rendreBrut() {
           ${calc.prochainPalier ? `<p class="palier">Ajoutez ${calc.prochainPalier.manque} article${calc.prochainPalier.manque > 1 ? 's' : ''} : <b>−${calc.prochainPalier.remise} %</b> sur toute la commande.</p>` : ''}
           ${produitOffre ? `<label class="offre-panier">${visuelProduit(produitOffre)}<span><input type="checkbox" data-c="offre" data-regle="${esc(regle.id)}" data-id="${esc(produitOffre.id)}"> <strong>Ajouter ${esc(produitOffre.nom)}</strong><br><s>${euros(produitOffre.prix)}</s> <b>${euros(produitOffre.prix * (1 - regle.remise / 100))}</b> · −${regle.remise} % seulement avec cette commande</span></label>` : ''}
           ${suggestion ? `<div class="suggestion">${visuelProduit(suggestion)}<div><small>Souvent ajouté</small><strong>${esc(suggestion.nom)}</strong><span>${euros(suggestion.prix)}</span></div><button class="sf-btn sf-btn-ligne" data-sf="ajouter" data-id="${esc(suggestion.id)}">Ajouter</button></div>` : ''}
-          <form id="form-code" class="code-promo"><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(vue.code ? vue.code.code : '')}" autocomplete="off"><button class="sf-btn sf-btn-ligne">${vue.code ? 'Changer' : 'Appliquer'}</button></form>
+          ${vue.pro ? `<p class="sf-note"><b>Tarif professionnel</b> · ${esc(vue.pro.raison)}${vue.pro.remise ? ` (−${vue.pro.remise} %)` : ''}. <button type="button" class="bouton-lien" data-action="doc" data-id="pro">Espace pro</button></p>` : ''}
+          <form id="form-code" class="code-promo"${vue.pro ? ' hidden' : ''}><input name="code" placeholder="Code promo" aria-label="Code promo" value="${esc(vue.code ? vue.code.code : '')}" autocomplete="off"><button class="sf-btn sf-btn-ligne">${vue.code ? 'Changer' : 'Appliquer'}</button></form>
           ${vue.codeMessage ? `<p class="mini">${esc(vue.codeMessage)}</p>` : ''}
           <form id="form-carte" class="code-promo"><input name="carte" placeholder="Carte cadeau" aria-label="Code de la carte cadeau" value="${esc(vue.carte ? vue.carte.code : '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"><button class="sf-btn sf-btn-ligne">${vue.carte ? 'Retirer' : 'Utiliser'}</button></form>
           ${vue.carteMessage ? `<p class="mini" role="status">${esc(vue.carteMessage)}</p>` : ''}
@@ -209,6 +222,9 @@ function rendreBrut() {
             <div class="deux"><label class="champ"><span>${ch ? 'NPA' : 'Code postal'}</span><input name="npa" required inputmode="numeric" autocomplete="postal-code" ${ch ? 'pattern="[0-9]{4}" maxlength="4"' : ''}></label>`}
             ${numerique ? '' : `<label class="champ"><span>Ville</span><input name="ville" required autocomplete="address-level2"></label>${retrait ? '' : '</div>'}`}
             ${avecNumerique() ? `<label class="case-sf"><input type="checkbox" name="consentementNumerique" required> J’accepte que le fichier me soit envoyé dès le paiement, et je reconnais perdre ainsi mon droit de rétractation pour ce contenu numérique.</label>` : ''}
+            ${!donnees.factureQr && vue.pro && vue.pro.facture ? `<fieldset class="moyens-sf"><legend>Paiement</legend>
+              <label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>
+              <label class="case-sf"><input type="radio" name="moyen" value="facture"> Facture QR (compte pro), dans la limite de votre plafond</label></fieldset>` : ''}
             ${donnees.factureQr ? `<fieldset class="moyens-sf"><legend>Paiement</legend>
               ${donnees.factureQr.enLigne === false ? '' : `<label class="case-sf"><input type="radio" name="moyen" value="en-ligne" checked> ${donnees.paiement === 'stripe' && donnees.moyens && donnees.moyens.twint ? 'TWINT ou carte' : 'Carte'}, maintenant</label>`}
               <label class="case-sf"><input type="radio" name="moyen" value="facture"${donnees.factureQr.enLigne === false ? ' checked' : ''}> Facture QR, payable sous ${donnees.factureQr.echeanceJours} jours (expédition dès réception du paiement)</label></fieldset>` : ''}
@@ -220,7 +236,7 @@ function rendreBrut() {
           </form>` : '<p>Votre panier est vide.</p>'}
       </aside>
     </div>
-    ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal" ${['commandes', 'carte-cadeau'].includes(vue.legal) ? '' : 'data-legal'}>${texteLegal(vue.legal)}</article></div></div>` : ''}`;
+    ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal" ${['commandes', 'carte-cadeau', 'pro'].includes(vue.legal) ? '' : 'data-legal'}>${texteLegal(vue.legal)}</article></div></div>` : ''}`;
 }
 
 function texteLegal(type) {
@@ -236,6 +252,16 @@ function texteLegal(type) {
       <p class="erreur-form" role="alert" hidden></p>
       <button class="sf-btn plein">Payer et envoyer la carte</button>
     </form>`;
+  if (type === 'pro') {
+    if (vue.pro) return `<h2>Espace professionnel</h2><p>Connecté : <b>${esc(vue.pro.raison)}</b>.${vue.pro.remise ? ` Vos prix sont remisés de ${vue.pro.remise} %, appliqués au panier.` : ''}${vue.pro.facture ? ' Vous pouvez payer sur facture, dans la limite de votre plafond.' : ''}</p><p class="mini">Commandez avec l’adresse e-mail de votre compte pro.</p><button type="button" class="sf-btn sf-btn-ligne" data-c="pro-deconnexion">Se déconnecter</button>`;
+    const ps = vue.proSaisie || {};
+    return `<h2>Espace professionnel</h2><p>Votre entreprise a un compte pro chez ${esc(b.nom)} ? Recevez un code par e-mail pour voir vos prix.</p>
+      ${ps.demande ? `<form data-pro-code><p class="mini">Si ${esc(ps.email)} a un compte pro, un code vient d’y être envoyé (valable 15 minutes).</p>
+        <label class="champ"><span>Code reçu</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
+        <p class="erreur-form" role="alert"${ps.erreur ? '' : ' hidden'}>${esc(ps.erreur || '')}</p><button class="sf-btn">Se connecter</button> <button type="button" class="bouton-lien" data-c="pro-recommencer">Autre adresse</button></form>`
+      : `<form data-pro-email><label class="champ"><span>E-mail de votre compte pro</span><input name="email" type="email" required autocomplete="email" value="${esc(ps.email || '')}"></label>
+        <p class="erreur-form" role="alert"${ps.erreur ? '' : ' hidden'}>${esc(ps.erreur || '')}</p><button class="sf-btn">Recevoir un code</button></form>`}`;
+  }
   if (type === 'commandes') return `<h2>Mes commandes</h2><p>Recevez par e-mail le lien de suivi de chacune de vos commandes chez ${esc(b.nom)}.</p>
     <form data-mes-commandes><label class="champ"><span>E-mail utilisé pour commander</span><input type="email" name="email" required autocomplete="email"></label><button class="sf-btn">Recevoir mes liens</button></form>`;
   if (type === 'cgv') return `<h2>Conditions générales de vente</h2>
@@ -263,7 +289,7 @@ async function envoyerCommande(form) {
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/commandes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: panierNumerique() ? 'numerique' : vue.livraison, consentementNumerique: d.get('consentementNumerique') === 'on', code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
+      body: JSON.stringify({ lignes: vue.panier.map(l => ({ produitId: l.produitId, qte: l.qte, ...(l.varianteId ? { varianteId: l.varianteId } : {}), ...(l.offre ? { offre: l.offre } : {}) })), livraison: panierNumerique() ? 'numerique' : vue.livraison, pro: vue.pro ? vue.pro.jeton : undefined, consentementNumerique: d.get('consentementNumerique') === 'on', code: vue.code && !calculPanier().codeMinimum ? vue.code.code : undefined,   // sous son minimum, le code n'est pas envoyé (la commande reste possible)
         carteCadeau: vue.carte ? vue.carte.code : undefined, fidelite: vue.fid && vue.fid.utiliser && vue.fid.code ? { code: vue.fid.code, demande: vue.fid.demande } : undefined, moyen: d.get('moyen') === 'facture' ? 'facture' : undefined, langue: typeof Traductions !== 'undefined' ? Traductions.langue : 'fr', client: { ...Object.fromEntries([...d].filter(([k]) => k !== 'moyen')), consentement: d.get('consentement') === 'on' } })
     });
     const json = await rep.json();
@@ -376,7 +402,7 @@ document.addEventListener('click', e => {
     return;
   }
   const doc = e.target.closest('[data-action="doc"]');
-  if (doc) { vue.legal = ['cgv', 'commandes', 'carte-cadeau'].includes(doc.dataset.id) ? doc.dataset.id : 'mentions'; rendre(); document.querySelector('#modal input, #modal button')?.focus(); return; }
+  if (doc) { vue.legal = ['cgv', 'commandes', 'carte-cadeau', 'pro'].includes(doc.dataset.id) ? doc.dataset.id : 'mentions'; rendre(); document.querySelector('#modal input, #modal button')?.focus(); return; }
   const el = e.target.closest('[data-c]');
   if (!el) return;
   const c = el.dataset.c;
@@ -408,6 +434,8 @@ document.addEventListener('click', e => {
     annoncer(l.qte <= 0 ? `${l.nom} retiré du panier.` : `${l.nom} : quantité ${l.qte}.`);
   } else if (c === 'cookies') { try { localStorage.setItem('comptoir-cookies', el.dataset.v); } catch { /* ignoré */ } if (el.dataset.v === 'accord') mesurer('vue'); rendre(); }
   else if (c === 'legal') { vue.legal = el.dataset.v; rendre(); }
+  else if (c === 'pro-deconnexion') { const j = vue.pro && vue.pro.jeton; vue.pro = null; garderPro(null); vue.proSaisie = null; fetch(`/api/public/${encodeURIComponent(slug)}/pro/deconnexion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton: j }) }).catch(() => {}); rendre(); }
+  else if (c === 'pro-recommencer') { vue.proSaisie = { email: (vue.proSaisie || {}).email }; rendre(); document.querySelector('#modal input')?.focus(); }
   else if (c === 'legal-fermer') { vue.legal = null; rendre(); }
   else if (c === 'fid-reset') { vue.fid = null; vue.fidMessage = ''; rendre(); }
 });
@@ -692,3 +720,28 @@ document.addEventListener('click', async e => {
     if (zone) zone.hidden = true;
   } catch (x) { if (zone) { zone.textContent = trad(x.message); zone.hidden = false; } }
 });
+
+/* Espace pro : e-mail → code reçu → connexion (jeton gardé dans ce navigateur). */
+document.addEventListener('submit', async e => {
+  const estEmail = e.target.matches && e.target.matches('[data-pro-email]'), estCode = e.target.matches && e.target.matches('[data-pro-code]');
+  if (!estEmail && !estCode) return;
+  e.preventDefault();
+  const d = new FormData(e.target), b = e.target.querySelector('button.sf-btn'); if (b) b.disabled = true;
+  try {
+    if (estEmail) {
+      const email = String(d.get('email') || '').trim();
+      const r = await fetch(`/api/public/${encodeURIComponent(slug)}/pro/code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const j = await r.json();
+      vue.proSaisie = r.ok ? { email, demande: j.demande } : { email, erreur: j.erreur || 'Envoi impossible : réessayez.' };
+    } else {
+      const ps = vue.proSaisie || {};
+      const r = await fetch(`/api/public/${encodeURIComponent(slug)}/pro/connexion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: ps.email, demande: ps.demande, code: String(d.get('code') || '').trim() }) });
+      const j = await r.json();
+      if (r.ok) { vue.pro = { ...j.pro, jeton: j.jeton }; garderPro(vue.pro); vue.proSaisie = null; }
+      else vue.proSaisie = { ...ps, erreur: j.erreur || 'Code incorrect.' };
+    }
+  } catch { vue.proSaisie = { ...(vue.proSaisie || {}), erreur: 'Pas de connexion : réessayez.' }; }
+  rendre();
+  document.querySelector('#modal input, #modal button')?.focus();
+});
+

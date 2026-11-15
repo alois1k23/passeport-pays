@@ -923,6 +923,7 @@ li.fait a { color: var(--muted); text-decoration: line-through; text-decoration-
   .table-cartes td[data-label]::before { content: attr(data-label); display: block; font-size: .66rem; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin-bottom: 1px; }
   .table-cartes td.carte-titre { grid-column: 1 / -1; font-weight: 600; }
   .table-cartes td.carte-titre::before { display: none; }
+  .table-cartes td.carte-plein { grid-column: 1 / -1; overflow-wrap: anywhere; }
   .table-cartes td.col-case { position: absolute; top: 12px; right: 12px; width: auto; }
   .table-cartes td.vignette { position: absolute; top: 12px; right: 14px; width: 36px; }
   .table-cartes tr:has(td.vignette) td.carte-titre { padding-right: 48px !important; }

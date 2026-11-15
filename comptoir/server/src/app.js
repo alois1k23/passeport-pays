@@ -14,6 +14,7 @@ const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const ImportCatalogue = require('../../js/import-catalogue.js');
 const { creerNumerique, dispositionPieceJointe } = require('./numerique');
+const { creerPro } = require('./pro');
 const EmailsClients = require('./emails-clients');
 const FactureElectronique = require('./facture-electronique');
 const FacturxPdf = require('./facturx-pdf');
@@ -166,6 +167,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     return c.compte;
   }
   /* Paiement sur facture QR (Suisse) : activé par le marchand, IBAN suisse valable, boutique en CHF. */
+  // Facture pour un client pro : mêmes exigences que la facture QR (IBAN suisse, adresse du vendeur), sans que la boutique
+  // la propose à tous.
+  const factureProPossible = config => !!(config.boutique.pays === 'ch' && QrFacture.ibanValide((config.entreprise || {}).iban)
+    && QrFacture.adresseComplete({ nom: (config.entreprise || {}).raison || config.boutique.nom, ...QrFacture.decouperAdresse((config.entreprise || {}).adresse, 'CH') }));
   const factureQrPossible = config => !!(config.reglages && config.reglages.factureQr && config.boutique.pays === 'ch' && QrFacture.ibanValide((config.entreprise || {}).iban)
     && QrFacture.adresseComplete({ nom: (config.entreprise || {}).raison || config.boutique.nom, ...QrFacture.decouperAdresse((config.entreprise || {}).adresse, 'CH') }));
   // Référence de paiement unique par commande : QRR avec un QR-IBAN, référence créancier (RF…) sinon.
@@ -233,6 +238,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   }
   const avecImage = p => p.image === IMG ? { ...p, image: imageDe(p.id) } : p;
   const NUM = creerNumerique({ db, erreur });   // produits numériques : fichiers et liens de téléchargement
+  const PRO = creerPro({ db, erreur, pii: () => PII });   // clients professionnels
   /* Lots et coffrets : un produit composé d'autres produits en stock. Son stock est calculé à la lecture (le nombre de
      lots que permettent ses composants) ; à la vente, ce sont les composants qui sont décomptés. */
   const stockLots = produits => {
@@ -2285,6 +2291,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       for (const b of db.prepare('SELECT id FROM boutiques WHERE marchand_id = ?').all(m.id)) {
         db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE boutique_id = ?)').run(b.id);
         NUM.toutSupprimer(b.id);   // fichiers des produits numériques, liens, envois
+        PRO.toutSupprimer(b.id);   // clients professionnels, codes, sessions
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails', 'comptes_stripe']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
@@ -2577,6 +2584,33 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     };
     await Promise.all([suivant(), suivant(), suivant(), suivant()]);
   }
+  /* ---------- Clients professionnels ---------- */
+  r.get('/api/admin/pro', exigerMarchand, ctx => ({ clients: PRO.liste(ctx.boutique.id), factureDisponible: factureProPossible(lireConfig(ctx.boutique)) }));
+  r.post('/api/admin/pro', exigerMarchand, ctx => { const c = PRO.enregistrer(ctx.boutique.id, ctx.corps); noterActivite(ctx.marchand.id, 'client-pro', c.raison, ctx); return { statut: 201, corps: { client: c } }; });
+  r.put('/api/admin/pro/:id', exigerMarchand, ctx => ({ client: PRO.enregistrer(ctx.boutique.id, ctx.corps, String(ctx.params.id)) }));
+  r.delete('/api/admin/pro/:id', exigerMarchand, ctx => { if (!PRO.supprimer(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Client pro introuvable.', 'introuvable'); return { ok: true }; });
+  // Boutique : connexion du client pro par code reçu par e-mail. Même réponse que l'adresse ait un compte pro ou non.
+  r.post('/api/public/:slug/pro/code', ctx => {
+    const b = boutiqueOuverte(ctx.params.slug);
+    const email = valider.email(ctx.corps.email);
+    auth.limiter(`pro-code-ip:${b.id}:${reseauIp(ctx.ip)}`, 10 * facteurLimites, 3600000, 'Trop de demandes de code : réessayez dans une heure.');
+    auth.limiter(`pro-code:${b.id}:${email.toLowerCase()}`, 5 * facteurLimites, 3600000, 'Un code vient déjà d’être envoyé à cette adresse : vérifiez votre boîte de réception.');
+    const r0 = PRO.nouveauCode(b.id, email);
+    if (r0.code) envoyerEmail(b.id, r0.client.email, `Votre code d’accès professionnel ${lireConfig(b).boutique.nom}`, `Bonjour,\n\nVotre code pour accéder aux tarifs professionnels de ${lireConfig(b).boutique.nom} : ${r0.code}\n\nIl est valable 15 minutes. Si vous n’avez rien demandé, ignorez cet e-mail.\n\n${lireConfig(b).boutique.nom}`);
+    return { demande: r0.demande };
+  });
+  r.post('/api/public/:slug/pro/connexion', ctx => {
+    const b = boutiqueOuverte(ctx.params.slug);
+    auth.verifierEchecs([`pro-connexion:${b.id}:${reseauIp(ctx.ip)}`], 20 * facteurLimites);
+    const r0 = PRO.connecter(b.id, ctx.corps.email, ctx.corps.demande, ctx.corps.code);
+    if (!r0) { auth.noterEchec([`pro-connexion:${b.id}:${reseauIp(ctx.ip)}`]); throw erreur(401, 'Code incorrect ou expiré.', 'pro_code'); }
+    return { jeton: r0.jeton, pro: { raison: r0.client.raison, remise: r0.client.remise, facture: r0.client.facture && factureProPossible(lireConfig(b)) } };
+  });
+  r.post('/api/public/:slug/pro/moi', ctx => {
+    const b = boutiqueOuverte(ctx.params.slug), c = PRO.deJeton(b.id, ctx.corps.jeton);
+    return { pro: c ? { raison: c.raison, remise: c.remise, facture: c.facture && factureProPossible(lireConfig(b)) } : null };
+  });
+  r.post('/api/public/:slug/pro/deconnexion', ctx => { const b = boutiqueOuverte(ctx.params.slug); PRO.deconnecter(b.id, ctx.corps.jeton); return { ok: true }; });
   /* ---------- Produits numériques : fichier envoyé en morceaux, liens de téléchargement ---------- */
   const produitNumerique = ctx => {
     const ligne = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(String(ctx.params.id), ctx.boutique.id);
@@ -3254,9 +3288,21 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Commandes impayées : elles réservent le stock (30 minutes). Au plus 3 en cours par adresse e-mail et par réseau
     // (empreinte, jamais l'adresse IP en clair) : un visiteur ne garde pas un produit « épuisé » en enchaînant des
     // commandes jamais payées. Les commandes payées ne comptent pas.
+    // Client professionnel connecté : remise de son compte et facture possible ; jamais cumulés avec un code ou des points.
+    const pro = ctx.corps.pro ? PRO.deJeton(b.id, ctx.corps.pro) : null;
+    if (ctx.corps.pro && !pro) throw erreur(401, 'Session professionnelle expirée : reconnectez-vous à votre espace pro.', 'pro_session');
+    if (pro && client.email.toLowerCase() !== pro.email) throw erreur(400, `Commandez avec l’adresse de votre compte pro (${pro.email.replace(/^(.).*@/, '$1…@')}).`, 'pro_email');
+    if (pro && (ctx.corps.code || ctx.corps.fidelite)) throw erreur(400, 'Le tarif professionnel ne se cumule pas avec un code promo ou des points de fidélité.', 'pro_cumul');
     const impayees = impayeesActives(b.id, { index: PII.index(b.id, client.email) || '', reseau: empreinteReseau });
     if (impayees >= 3 * facteurLimites) throw erreur(429, 'Plusieurs commandes attendent déjà leur paiement : terminez un paiement en cours, ou réessayez dans 30 minutes.', 'trop_impayees');
     const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
+    // Tarif professionnel : la remise du compte remplace les paliers (prix unitaire arrondi au centime, comme les remises).
+    if (pro && pro.remise > 0) {
+      calcul.lignes = lignesBrutes.map(l => ({ ...l, prixInitial: l.prix, prix: prix.arrondi(l.prix * (1 - pro.remise / 100)) }));
+      calcul.apresRemise = prix.arrondi(calcul.lignes.reduce((a, l) => a + l.prix * l.qte, 0));
+      calcul.remise = prix.arrondi(calcul.sousTotal - calcul.apresRemise);
+      calcul.motif = { type: 'pro', libelle: `Tarif professionnel (−${pro.remise} %)` };
+    }
     if (ctx.corps.code && calcul.codeValide === false) throw erreur(400, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
     if (calcul.codeMinimum) throw erreur(400, `Ce code s’applique dès ${formatMontant(calcul.codeMinimum, config)} d’achat.`, 'code_minimum');
     const codePromo = calcul.motif && calcul.motif.type === 'code' ? calcul.motif.code : null;
@@ -3292,11 +3338,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const devise = config.boutique.devise || 'EUR';
     // Paiement sur facture QR : pas de paiement en ligne ; facture émise tout de suite, payable à l'échéance.
     const parFacture = ctx.corps.moyen === 'facture';
-    if (parFacture && !factureQrPossible(config)) throw erreur(400, 'Le paiement sur facture n’est pas proposé par cette boutique.', 'moyen_invalide');
+    if (parFacture && pro && pro.facture && factureProPossible(config)) {
+      // Plafond du compte : factures pro encore impayées + cette commande.
+      const encours = db.prepare("SELECT COALESCE(SUM(json_extract(donnees, '$.total')), 0) t FROM commandes WHERE boutique_id = ? AND statut = 'attente' AND json_extract(donnees, '$.moyen') = 'facture' AND json_extract(donnees, '$.pro.id') = ?").get(b.id, pro.id).t;
+      if (Math.round((encours + total) * 100) > Math.round(pro.plafond * 100)) throw erreur(409, `Plafond de facture atteint (${formatMontant(pro.plafond, config)}, dont ${formatMontant(encours, config)} encore à régler) : payez en ligne ou réglez une facture.`, 'pro_plafond');
+    } else if (parFacture && !factureQrPossible(config)) throw erreur(400, 'Le paiement sur facture n’est pas proposé par cette boutique.', 'moyen_invalide');
     // Facture QR : numéro de facture et e-mail envoyés tout de suite, d'où des limites plus serrées (comptabilité, e-mails à des tiers).
     if (parFacture) {
       auth.limiter(`facture-ip:${b.id}:${ctx.ip}`, 5 * facteurLimites, 3600000, 'Trop de commandes sur facture en peu de temps. Réessayez plus tard ou payez en ligne.');
-      auth.limiter(`facture-email:${b.id}:${String(client.email || '').toLowerCase()}`, 3 * facteurLimites, 86400000, 'Trop de commandes sur facture pour cette adresse aujourd’hui.');
+      if (!pro) auth.limiter(`facture-email:${b.id}:${String(client.email || '').toLowerCase()}`, 3 * facteurLimites, 86400000, 'Trop de commandes sur facture pour cette adresse aujourd’hui.');
       auth.limiter(`facture-boutique:${b.id}`, 200 * facteurLimites, 86400000, 'Commandes sur facture momentanément indisponibles : payez en ligne.');
     }
     // Carte cadeau : un moyen de paiement (pas une remise : la TVA porte sur les articles). Montant réservé en la débitant
@@ -3325,6 +3375,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, ...(codeBienvenue ? { codeBienvenue: true } : {}), ...(codePromo ? { codePromo } : {}), client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
+      if (pro) c.pro = { id: pro.id, raison: pro.raison, ide: pro.ide, remise: pro.remise };   // tarif et facture du compte pro
       if (avecNumerique) c.consentementNumerique = now;   // preuve du consentement (livraison immédiate, rétractation)
       if (typeof ctx.corps.langue === 'string' && ctx.corps.langue !== 'fr' && EmailsClients.LANGUES.includes(ctx.corps.langue) && (config.boutique.langues || []).includes(ctx.corps.langue)) c.langue = ctx.corps.langue;
       // Score de risque (fraude, revente) : explicable, il ne bloque pas la vente.
@@ -4512,6 +4563,7 @@ ${bloc}</main></body></html>`;
     try { db.prepare('DELETE FROM reinitialisations WHERE expire_le < ?').run(maintenant); } catch { /* table absente */ }
     db.prepare('DELETE FROM signaux_securite WHERE date < ?').run(maintenant - 90 * 86400000);   // signaux d'attaque : 90 jours
     NUM.menage(maintenant);   // envois de fichiers abandonnés, liens expirés
+    PRO.menage(maintenant);   // codes et sessions pro échus
     // Fichier d'un produit supprimé : gardé tant qu'un lien payé peut encore servir, puis effacé.
     db.prepare('DELETE FROM fichiers_numeriques WHERE produit_id IN (SELECT id FROM produits WHERE supprime = 1) AND produit_id NOT IN (SELECT produit_id FROM telechargements WHERE expire_le > ?)').run(maintenant);
     db.prepare('DELETE FROM cles_api_reseaux WHERE cle_id NOT IN (SELECT id FROM cles_api WHERE revoquee = 0) OR dernier_le < ?').run(maintenant - 365 * 86400000);

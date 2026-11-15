@@ -202,3 +202,39 @@ Les coffrets cadeaux, les lots « 3 pour 2 » et les kits sont un classique du c
   - **Défaut introduit par la correction et rattrapé avant commit** : à l'inscription, les produits sans identifiant recevaient tous le même nouvel identifiant, et le test des retours partiels restait bloqué. Corrigé : un identifiant par produit.
 - Après corrections : 241 tests sur 241, parcours de bout en bout 57/57.
 
+### Cycle 5 (22 h 35) : clients professionnels (chantier 74)
+
+Vendre aux professionnels (hôtels, restaurants, revendeurs) avec leurs propres prix est réservé, chez Shopify, à la formule la plus chère (B2B de Shopify Plus) ; ailleurs, il faut une extension. Désormais :
+
+- **Côté marchand, Paramètres > Clients pro** : ouverture de comptes pro avec raison sociale, e-mail de commande, numéro de TVA ou IDE, remise de 0 à 50 %, paiement sur facture QR et plafond des factures impayées.
+  - E-mail et raison sociale sont chiffrés au repos, comme les données des clients des commandes.
+  - On cherche un compte en déchiffrant la liste de la boutique (500 comptes au plus), pas par un index : une rotation des clés ne rend jamais un client pro introuvable.
+  - La facture n'est proposable qu'avec un IBAN suisse valide et l'adresse complète de l'entreprise.
+- **Côté client, « Espace pro » dans le pied de page** :
+  - e-mail, puis code à 6 chiffres reçu par e-mail : 15 minutes, 5 essais, lié à la demande du navigateur qui l'a faite ;
+  - même réponse qu'une adresse ait un compte pro ou non (aucun e-mail envoyé sinon) ;
+  - au plus 5 codes par adresse et 10 par réseau et par heure, et 20 échecs de connexion par réseau ;
+  - ensuite, un jeton de 30 jours, dont seule l'empreinte est gardée ;
+  - le panier affiche « Tarif professionnel (−15 %) », masque le code promo et propose la facture si le compte y a droit.
+- **Commande** : tout est relu par le serveur à partir du jeton.
+  - La remise du compte remplace les paliers, avec les mêmes arrondis au centime que le panier.
+  - Il faut commander avec l'adresse du compte pro. Aucun cumul avec un code promo ou des points.
+  - La facture est possible même si la boutique ne la propose pas au public, et le plafond compte les factures pro encore impayées.
+  - Le compte pro est gardé avec la commande. Un compte supprimé ferme sa session.
+- **Limites, notées** :
+  - la facture PDF n'affiche pas encore la raison sociale ni le numéro de TVA de l'acheteur (ils sont dans la commande) ;
+  - pas d'autoliquidation de la TVA pour les clients professionnels de l'Union européenne ;
+  - pas de prix par produit propres à un client (une remise globale par compte).
+- **Tests** :
+  - validation des comptes, doublon, chiffrement au repos ;
+  - code : adresse inconnue sans e-mail, faux code, code d'une autre demande, usage unique ;
+  - commande : remise appliquée (100 → 85), autre adresse, code promo, jeton inconnu refusés ;
+  - facture pro alors que la boutique ne la propose pas au public, plafond atteint refusé, facture refusée sans compte pro ;
+  - compte supprimé : session fermée.
+- **Vérifié dans Chromium**, bureau et mobile :
+  - ouverture du compte dans les Paramètres, puis connexion dans la boutique avec le code reçu ;
+  - panier au tarif pro avec l'option facture, commande enregistrée à 85 ;
+  - aucune erreur de page ;
+  - la capture mobile a fait passer le tableau des comptes pro en cartes (colonnes qui se chevauchaient).
+- 242 tests sur 242, parcours de bout en bout 57/57.
+
