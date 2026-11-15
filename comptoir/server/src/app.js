@@ -3468,7 +3468,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
 ${FEUILLE_1}</head><body>
 <p class="imp">Imprimer ou enregistrer en PDF : Ctrl + P (⌘ + P sur Mac)</p>
 <div class="page"><div class="haut"><div><b>${escHtml(e.raison || config.boutique.nom)}</b><br>${escHtml(e.adresse || '')}${e.email ? `<br>${escHtml(e.email)}` : ''}${e.siret ? `<br>IDE ${escHtml(e.siret)}` : ''}${e.tvaIntra ? `<br>TVA ${escHtml(e.tvaIntra)}` : ''}</div>
-<div>${escHtml(c.client.nom)}<br>${escHtml(c.client.adresse || '')}<br>${escHtml(`${c.client.npa || ''} ${c.client.ville || ''}`)}</div></div>
+<div>${c.client.entreprise ? `<b>${escHtml(c.client.entreprise)}</b><br>${c.client.ide ? `TVA / IDE ${escHtml(c.client.ide)}<br>` : ''}À l’attention de ` : ''}${escHtml(c.client.nom)}<br>${escHtml(c.client.adresse || '')}<br>${escHtml(`${c.client.npa || ''} ${c.client.ville || ''}`)}</div></div>
 <h1>Facture ${escHtml(c.facture || '')}</h1><p>Commande n° ${c.numero} du ${new Date(c.date).toLocaleDateString('fr-CH')} · payable jusqu’au <b>${new Date(c.echeance || c.date).toLocaleDateString('fr-CH')}</b></p>
 <table><thead><tr><th>Article</th><th class="n">Qté</th><th class="n">Prix</th><th class="n">Total</th></tr></thead><tbody>${lignes}
 ${c.remise ? `<tr><td colspan="3">Remise</td><td class="n">−${formatMontant(c.remise, config)}</td></tr>` : ''}<tr><td colspan="3">Livraison</td><td class="n">${formatMontant(c.port || 0, config)}</td></tr>

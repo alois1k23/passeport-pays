@@ -52,6 +52,13 @@ test('clients professionnels de bout en bout', async () => {
     assert.equal(c1.lignes[0].prix, 85); assert.equal(c1.moyen, 'facture'); assert.equal(c1.pro.id, cpt.j.client.id);
     assert.ok(!db.prepare('SELECT donnees FROM commandes WHERE id = ?').get(o1.j.commandeId).donnees.includes('Hôtel du Lac'), 'raison sociale chiffrée avec le client');
     assert.equal((await c('GET', '/api/admin/etat')).j.commandes.find(x => x.id === o1.j.commandeId).client.entreprise, 'Hôtel du Lac SA');
+    // Facture : l'entreprise et son numéro sont l'acheteur (page imprimable et facture électronique).
+    const pageFacture = await fetch(`${base}/api/admin/commandes/${o1.j.commandeId}/facture-qr`, { headers: { Cookie: cookie } });
+    assert.equal(pageFacture.status, 200);
+    { const h = await pageFacture.text(); assert.match(h, /Hôtel du Lac SA/); assert.match(h, /CHE-111\.222\.333/); }
+    const xml = await fetch(`${base}/api/admin/commandes/${o1.j.commandeId}/facture-electronique`, { headers: { Cookie: cookie } });
+    assert.equal(xml.status, 200);
+    assert.match(await xml.text(), /<ram:BuyerTradeParty><ram:Name>Hôtel du Lac SA<\/ram:Name>/);
     // Plafond : 150, une facture de 85 (+ port) encore impayée : une seconde est refusée.
     assert.equal((await commander({ moyen: 'facture' })).j.code, 'pro_plafond');
     // Sans compte pro, la facture n'est pas proposée par cette boutique.

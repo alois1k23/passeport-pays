@@ -109,7 +109,8 @@ function composer(c, config, { avoir, devise }) {
   const format = { format: brut };
   const argent = n => brut(signe * n);
   const tauxLigne = l => typeof l.tauxTva === 'number' ? l.tauxTva : typeof c.tauxTva === 'number' ? c.tauxTva : defaut;
-  const client = c.client || {};
+  // Client professionnel : l'entreprise est l'acheteur (nom, numéro de TVA ou IDE), la personne vient « à l'attention de ».
+  const client = c.client && c.client.entreprise ? { ...c.client, nom: c.client.entreprise, tva: c.client.tva || c.client.ide || '', adresse: [`À l’attention de ${c.client.nom}`, c.client.adresse].filter(Boolean).join(' · ') } : (c.client || {});
   const numero = avoir ? c.avoir.numero : c.facture;
   const dateDoc = avoir ? c.avoir.date : (c.dateFacture || c.date);
   const paye = FactureElectronique.estPayee(c);

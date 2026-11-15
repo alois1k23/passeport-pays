@@ -135,7 +135,8 @@ function produire(c, config, { avoir = false, devise = 'EUR' } = {}) {
   const du = r2(ttc - prepaye + arrondi);
   const numero = avoir ? c.avoir.numero : c.facture;
   const dateDoc = avoir ? c.avoir.date : (c.dateFacture || c.date);
-  const client = c.client || {};
+  // Client professionnel (compte pro) : l'entreprise est l'acheteur, avec son numéro de TVA ou IDE.
+  const client = c.client && c.client.entreprise ? { ...c.client, nom: c.client.entreprise, tva: c.client.tva || c.client.ide || '' } : (c.client || {});
   const legal = identifiantLegal(e.siret, pays);
 
   return `<?xml version="1.0" encoding="UTF-8"?>

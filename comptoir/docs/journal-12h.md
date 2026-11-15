@@ -36,6 +36,13 @@ Ordre de priorité : ce qui fait venir un marchand d'une autre plateforme, puis 
 75. **Blog et pages de contenu** : articles en texte enrichi sûr (sans HTML libre), référencement (plan du site, données structurées).
 76. **Comparaison honnête** avec les plateformes comparables, avec ses sources.
 
+**Deuxième phase** (ajoutée le 15 novembre vers 22 h 50 : la première avance plus vite que prévu ; elle reprend d'abord les limites notées en chemin) :
+
+77. **Facture d'un client pro** : l'entreprise et son numéro de TVA ou IDE sont l'acheteur, sur la facture QR, la facture électronique et le PDF.
+78. **Produits numériques, suite** : e-mail des liens dans la langue du client, liens aussi après une vente en caisse.
+79. **Précommandes, suite** : rappel au marchand avant la date d'expédition annoncée.
+80. **Abonnements de produits** (livraison récurrente : café, cosmétiques, fleurs), sans extension.
+
 ## Cycles
 
 ### Cycle 1 (21 h 40) : import du catalogue depuis une autre plateforme (chantier 70)
@@ -282,4 +289,15 @@ Les autres plateformes ont un blog intégré ; c'est un levier de référencemen
   - lecture sans JavaScript ;
   - aucune erreur de page ni de console.
 - 244 tests sur 244, parcours de bout en bout 57/57, fuzzing sans constat.
+
+### Cycle 7 (22 h 55) : facture d'un client pro (chantier 77)
+
+La relecture du chantier 74 avait noté que la facture d'un client pro ne montrait que le nom de la personne. Désormais :
+
+- **Facture QR imprimable** : l'entreprise en tête, son numéro de TVA ou IDE, puis « À l'attention de » la personne qui a commandé.
+- **Facture électronique (XML EN 16931)** : l'entreprise est l'acheteur (BuyerTradeParty), avec son numéro de TVA s'il a la forme d'un numéro européen.
+- **PDF Factur-X** : l'entreprise est l'acheteur, avec son numéro et la mention « À l'attention de ».
+- **Tests** : la facture QR et le XML d'une commande pro portent la raison sociale et le numéro.
+- **Non traité, noté** : l'autoliquidation de la TVA pour un client professionnel de l'Union européenne (mention et taux zéro). Elle demande de vérifier le numéro de TVA (VIES), ce que Comptoir ne fait pas encore.
+- 244 tests sur 244.
 
