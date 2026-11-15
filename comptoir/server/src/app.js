@@ -5383,6 +5383,18 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
   const creneauxPris = (bid, maintenant = Date.now(), sauf = '') => db.prepare("SELECT id, date, statut, donnees FROM commandes WHERE boutique_id = ? AND date > ? AND id <> ? AND statut NOT IN ('annulee', 'remboursee', 'livree', 'retiree') AND json_extract(donnees, '$.retraitCreneau') > ?").all(bid, maintenant - 30 * 86400000, sauf, maintenant - 86400000)
     .map(r => ({ r, d: JSON.parse(r.donnees) })).filter(({ r, d }) => r.statut !== 'attente' || reservationActive(r.date, d, maintenant)).map(({ r, d }) => ({ debut: Number(d.retraitCreneau), fin: Number(d.retraitCreneauFin) || Number(d.retraitCreneau) + 60000, reseau: d.reseau, attente: r.statut === 'attente' }));
   const creneauxLibres = (b, config, maintenant = Date.now(), sauf = '') => Creneaux.liste(Creneaux.regles(config), maintenant, creneauxPris(b.id, maintenant, sauf));
+  /* Flux produits servi : au plus 60 demandes par 10 minutes et par adresse, et gardé une minute en mémoire par boutique
+     (les robots de Google et Meta le relisent souvent ; chaque calcul parcourt les produits et les commandes en attente). */
+  const FLUX_MEMO = new Map();
+  function envoyerFlux(req, res, b, racine) {
+    try { auth.limiter('flux-produits:' + ipClient(req), 60 * facteurLimites, 600000, ''); }
+    catch { res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '600' }); return res.end('Trop de demandes.'); }
+    const cle = `${b.id}|${racine}`, m = FLUX_MEMO.get(cle);
+    let xml = m && Date.now() - m.le < (Number(env.FLUX_MEMO_MS ?? 60000) || 0) ? m.xml : null;
+    if (!xml) { xml = fluxProduits(b, racine); FLUX_MEMO.set(cle, { le: Date.now(), xml }); if (FLUX_MEMO.size > 2000) FLUX_MEMO.delete(FLUX_MEMO.keys().next().value); }
+    res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' });
+    return res.end(xml);
+  }
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
     const produits = abo.etat(b.marchand_id).actif ? listerProduits(b.id).filter(vendable) : [];
@@ -5638,7 +5650,7 @@ ${FEUILLE_4}</head>
         if (b) {
           const racine = `https://${hote}/`;
           if (chemin === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, racine)); }
-          if (chemin === '/produits.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' }); return res.end(fluxProduits(b, racine)); }
+          if (chemin === '/produits.xml') return envoyerFlux(req, res, b, racine);
           if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(`User-agent: *\nAllow: /\nAllow: /api/public/*/image/\nDisallow: /api/\nSitemap: ${racine}sitemap.xml\n`); }
           const mj = /^\/journal(?:\/([\w-]+))?\/?$/.exec(chemin);
           if (mj) { const art = mj[1] && abo.etat(b.marchand_id).actif ? ART.publie(b.id, mj[1]) : null; return envoyerHtml(res, mj[1] && !art ? 404 : 200, pageJournal(b, { racine, article: art })); }
@@ -5663,7 +5675,7 @@ ${FEUILLE_4}</head>
             if (b) { const a = mJournal[2] && abo.etat(b.marchand_id).actif ? ART.publie(b.id, mJournal[2]) : null; return envoyerHtml(res, mJournal[2] && !a ? 404 : 200, pageJournal(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, article: a })); }
           }
           const mFlux = /^\/s\/([\w-]+)\/produits\.xml$/.exec(chemin);
-          if (mFlux) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mFlux[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' }); return res.end(fluxProduits(b, domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`)); } }
+          if (mFlux) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mFlux[1]); if (b) return envoyerFlux(req, res, b, domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`); }
           const mPlan = /^\/s\/([\w-]+)\/sitemap\.xml$/.exec(chemin);
           if (mPlan) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mPlan[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, `${urlPublique}/s/${b.slug}/`)); } }
           if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('User-agent: *\nAllow: /\nAllow: /s/\nDisallow: /app\nDisallow: /demo\nAllow: /api/public/*/image/\nDisallow: /api/\nDisallow: /paiement-simule/\nDisallow: /abonnement-simule/\n'); }

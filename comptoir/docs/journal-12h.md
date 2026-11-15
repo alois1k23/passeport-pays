@@ -792,7 +792,7 @@ Constats corrigés :
   - **Écran d'inventaire** : il dit quels statuts comptent comme « en rayon » (payée, en préparation, prête) et demande d'expédier ou de marquer « retirées » les commandes déjà emballées avant de compter.
 - **Noté** :
   - le flux produits peut annoncer épuisé un article retenu 35 minutes par une commande non payée, avec un cache de 15 minutes ;
-  - le flux n'a pas de limite de fréquence propre ;
+  - (le flux a sa limite de fréquence depuis le cycle 40) ;
   - la limite de créneaux par réseau se contourne en changeant d'adresse IP, comme toute limite par réseau.
 - 254 tests sur 254, parcours de bout en bout 57/57.
 
@@ -817,3 +817,9 @@ Constats corrigés :
 - **Tests** : lien de la variante dans le flux, offre de la variante (32.00 CHF) sur sa page.
 - **Vérifié dans Chromium**, bureau et mobile : taille présélectionnée, prix juste, ajout au panier de la bonne variante, taille par défaut sans paramètre. Aucune erreur.
 - 254 tests sur 254, parcours de bout en bout 57/57.
+
+### Cycle 40 (00 h 40) : flux produits limité et gardé en mémoire (chantier 101)
+
+- **Limite** : au plus 60 demandes du flux par 10 minutes et par adresse. Au-delà, le serveur répond 429 avec Retry-After. Le flux est public et chaque calcul parcourt les produits et les commandes en attente.
+- **Mémoire** : le flux est gardé une minute par boutique. Les robots qui le relisent souvent ne le font plus recalculer à chaque fois, et le cache HTTP de 15 minutes reste en place.
+- **Tests** : le flux reste le même pendant une minute après une modification, et la 61e demande reçoit 429.

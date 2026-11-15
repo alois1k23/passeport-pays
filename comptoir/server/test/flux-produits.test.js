@@ -9,7 +9,7 @@ const { creerApp } = require('../src/app');
 test('flux produits : contenu, variantes, échappement, boutique fermée', async () => {
   const db = ouvrir(':memory:');
   const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
-  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', FLUX_MEMO_MS: '0' }, urlPublique: base, journal: { log() {}, error() {} } }));
   let cookie = '';
   const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
   try {
@@ -60,5 +60,26 @@ test('flux produits : contenu, variantes, échappement, boutique fermée', async
     // Abonnement terminé : flux vide (pas de vitrine gratuite chez Google).
     db.prepare("UPDATE abonnements SET statut = 'resilie'").run();
     assert.equal(((await (await fetch(`${base}/s/${slug}/produits.xml`)).text()).match(/<item>/g) || []).length, 0);
+    // Limite de fréquence : au-delà de 60 demandes par 10 minutes (facteur des tests : 1000), refus 429.
+    assert.equal((await fetch(`${base}/s/${slug}/produits.xml`)).status, 200);
+  } finally { s.close(); }
+});
+
+test('flux produits : gardé une minute en mémoire, limité à 60 demandes par 10 minutes', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'memo@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Memo', pays: 'ch' } } });
+    const id = (await c('POST', '/api/admin/produits', { produit: { nom: 'Avant', prix: 5, stock: 3 } })).j.id;
+    const slug = (await c('GET', '/api/admin/etat')).j.serveur.slug;
+    assert.match(await (await fetch(`${base}/s/${slug}/produits.xml`)).text(), /Avant/);
+    await c('PUT', `/api/admin/produits/${id}`, { produit: { nom: 'Après', prix: 5, stock: 3 } });
+    assert.match(await (await fetch(`${base}/s/${slug}/produits.xml`)).text(), /Avant/, 'gardé en mémoire une minute');
+    let dernier = 200;
+    for (let i = 0; i < 60; i++) dernier = (await fetch(`${base}/s/${slug}/produits.xml`)).status;
+    assert.equal(dernier, 429, 'au-delà de 60 demandes en 10 minutes');
   } finally { s.close(); }
 });
