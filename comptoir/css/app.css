@@ -1512,3 +1512,6 @@ details.en-ligne form { margin-top: 6px; }
 .creneaux-jours { display: grid; gap: 6px; margin: 8px 0 12px; }
 .creneau-jour { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .creneau-jour input[type=time] { width: 7.5em; }
+.liste-nouveautes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 18px; }
+.liste-nouveautes li { display: grid; gap: 2px; }
+.liste-nouveautes .ou { display: block; font-size: .78rem; color: var(--faint); }

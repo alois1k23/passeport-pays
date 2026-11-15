@@ -305,6 +305,7 @@ function vueTableau() {
   <div class="tete"><div><h1>Vue d’ensemble</h1><p class="sous">Activité de ${esc(etat.boutique.nom)} sur les 30 derniers jours, comparée aux 30 jours précédents.</p></div>
     <div class="rangee"><a class="btn fantome" href="#analyse">Analyse détaillée</a><a class="btn" href="#boutique">Voir la boutique</a></div></div>
   ${blocLancement()}
+  ${blocNouveautes()}
   <div class="kpis">
     ${tuile({ nom: 'Chiffre d’affaires', valeur: euros(cur.ca), actuel: cur.ca, precedent: prev.ca, tendance: jours.map(j => j.v) })}
     ${tuile({ nom: 'Bénéfice avant publicité (estimé)', valeur: euros(bCur), actuel: bCur, precedent: bPrev, tendance: jours.map(j => j.net) })}
@@ -370,6 +371,23 @@ function vueTableau() {
       })()}
     </section>
   </div>`;
+}
+
+/* Nouveautés : ce qui a été ajouté récemment, avec où le trouver. Masquable ; revient à la prochaine série de nouveautés. */
+const NOUVEAUTES = { version: '2026-11-16', liste: [
+  ['Inventaire au lecteur de codes-barres', 'Comptez vos articles, voyez les écarts, appliquez d’un coup (aussi par emplacement).', 'produits', 'Produits › Inventaire'],
+  ['Codes-barres et étiquettes', 'Code EAN par produit et par variante, lecture en caisse, planche d’étiquettes à imprimer.', 'produits', 'Fiche produit'],
+  ['Google Shopping et Meta', 'Votre catalogue en flux produits, avec marque, code-barres et variantes.', 'produits', 'Produits › Google Shopping'],
+  ['Créneaux de retrait', 'Vos clients choisissent l’heure à laquelle ils passent chercher leur commande.', 'magasin', 'Magasin et caisse'],
+  ['Emballage cadeau', 'Case « C’est un cadeau » et message sur le bon de préparation.', 'parametres', 'Paramètres › Livraison'],
+  ['Rappels de réassort', 'Le client demande à être prévenu au moment de recommander (café, thé, savon…).', 'produits', 'Fiche produit › Rappel de réassort'],
+  ['Journal et produits', 'Présentez jusqu’à six produits sous chaque article.', 'parametres', 'Paramètres › Journal']
+] };
+function blocNouveautes() {
+  let vu = ''; try { vu = localStorage.getItem('comptoir-nouveautes-vu') || ''; } catch { /* ignoré */ }
+  if (vu === NOUVEAUTES.version || (typeof SERVEUR !== 'undefined' && SERVEUR.role === 'commandes')) return '';
+  return `<section class="carte nouveautes" aria-labelledby="titre-nouveautes"><div class="carte-tete"><h2 id="titre-nouveautes">Nouveautés</h2><button class="btn petit fantome" data-action="nouveautes-fermer">Masquer</button></div>
+    <ul class="liste-nouveautes">${NOUVEAUTES.liste.map(([t, d, route, ou]) => `<li><a href="#${route}"><b>${esc(t)}</b></a><span class="sous">${esc(d)} <span class="ou">${esc(ou)}</span></span></li>`).join('')}</ul></section>`;
 }
 
 /* ---------- Commandes ---------- */
@@ -1239,6 +1257,7 @@ document.addEventListener('click', e => {
         <p class="sous">Les produits numériques et les produits masqués n’y figurent pas.</p>` };
       rendreModal(); break;
     }
+    case 'nouveautes-fermer': try { localStorage.setItem('comptoir-nouveautes-vu', NOUVEAUTES.version); } catch { /* ignoré */ } rendre(); document.querySelector('main h1, h1')?.focus?.(); break;
     case 'etiquettes-ean': ui.modal = { type: 'html', html: `<h2>Étiquettes code-barres</h2>${etiquettesEan()}` }; rendreModal(); break;
     case 'bon-un': ui.modal = { type: 'html', html: `<h2>Bon de préparation</h2>${bonsPreparation([id])}` }; rendreModal(); break;
     case 'groupe-vider': ui.selection.clear(); rendre(); break;

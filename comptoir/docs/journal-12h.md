@@ -795,3 +795,15 @@ Constats corrigés :
   - le flux n'a pas de limite de fréquence propre ;
   - la limite de créneaux par réseau se contourne en changeant d'adresse IP, comme toute limite par réseau.
 - 254 tests sur 254, parcours de bout en bout 57/57.
+
+### Cycle 38 (00 h 35) : carte « Nouveautés » (chantier 99)
+
+- **Vue d'ensemble** : une carte liste les fonctions ajoutées cette nuit :
+  - inventaire, codes-barres et étiquettes ;
+  - Google Shopping et Meta ;
+  - créneaux de retrait, emballage cadeau ;
+  - rappels de réassort, produits sous les articles du journal.
+  
+  Chacune a une phrase d'explication, l'endroit où la trouver et un lien. Une fonction qui n'est pas connue ne sert à rien.
+- **Masquer** : le choix est gardé sur l'appareil, et la carte revient à la prochaine série de nouveautés (numéro de version). Elle n'est pas montrée au rôle « Commandes ».
+- **Vérifié dans Chromium**, bureau et mobile : 7 nouveautés, lien vers « Magasin et caisse », carte masquée après rechargement. Aucune erreur.
