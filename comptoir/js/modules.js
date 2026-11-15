@@ -129,7 +129,7 @@ function vueMagasin() {
         ${connecteAuServeur() ? '<p class="sous">Synchronisation avec votre fiche Google (horaires et stock) : bientôt disponible.</p>' : `<label class="case"><input id="mg-g" type="checkbox" data-magasin="googleSync" ${m.googleSync ? 'checked' : ''}> Synchroniser la fiche Google (horaires et stock)</label>
         ${m.googleSync ? `<p class="sous"><span class="pill good">Synchronisée</span> ${visibles} produits en stock visibles sur Google (simulé)</p>` : ''}`}
       </section>
-      ${m.clickCollect && connecteAuServeur() ? carteCreneaux(m) : ''}
+      ${m.clickCollect && connecteAuServeur() && SERVEUR.role !== 'commandes' ? carteCreneaux(m) : ''}
     </div>
   </div>`;
 }
@@ -557,7 +557,7 @@ document.addEventListener('change', e => {
   if (t.dataset.creneau === 'actif') { c.actif = t.checked; if (c.actif && !Object.keys(c.jours).length) for (const j of [2, 3, 4, 5, 6]) c.jours[j] = ['10:00', '18:00']; }
   else if (t.dataset.creneau) c[t.dataset.creneau] = Number(t.value);
   else if (t.dataset.creneauJour) { const j = t.dataset.creneauJour; if (t.checked) c.jours[j] = ['10:00', '18:00']; else delete c.jours[j]; }
-  else { const j = t.dataset.creneauDebut || t.dataset.creneauFin, p = [...(c.jours[j] || ['10:00', '18:00'])]; p[t.dataset.creneauDebut ? 0 : 1] = t.value; if (p[1] <= p[0]) { toast('La fin doit être après le début.'); rendre(); return; } c.jours[j] = p; }
+  else { const j = t.dataset.creneauDebut || t.dataset.creneauFin, p = [...(c.jours[j] || ['10:00', '18:00'])]; if (!/^\d{2}:\d{2}$/.test(t.value)) { toast('Indiquez une heure (ou décochez le jour pour le fermer).'); rendre(); return; } p[t.dataset.creneauDebut ? 0 : 1] = t.value; if (p[1] <= p[0]) { toast('La fin doit être après le début.'); rendre(); return; } c.jours[j] = p; }
   sauver(); if (t.type === 'checkbox') { rendre(); document.querySelector(`[data-creneau${t.dataset.creneau ? `="${t.dataset.creneau}"` : `-jour="${t.dataset.creneauJour}"`}]`)?.focus(); }
 });
 document.addEventListener('change', e => {

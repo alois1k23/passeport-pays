@@ -40,19 +40,25 @@ function instant(a, m, j, minDuJour) {
 function liste(r, maintenant = Date.now(), pris = new Map()) {
   if (!r.actif) return [];
   const out = [], debutPossible = maintenant + r.delai * 60000;
+  // Jours du calendrier à Lausanne (et non tranches de 24 heures : un changement d'heure ne saute ni ne double un jour).
+  const w0 = mural(maintenant);
   for (let k = 0; k <= r.horizon; k++) {
-    const w = mural(maintenant + k * 86400000), plage = r.jours[w.js];
+    const d = new Date(Date.UTC(w0.a, w0.m - 1, w0.j + k));
+    const w = { a: d.getUTCFullYear(), m: d.getUTCMonth() + 1, j: d.getUTCDate(), js: d.getUTCDay() }, plage = r.jours[w.js];
     if (!plage) continue;
     for (let t = plage[0]; t + r.duree <= plage[1]; t += r.duree) {
       const debut = instant(w.a, w.m, w.j, t);
       const verif = mural(debut);
       if (verif.h * 60 + verif.min !== t) continue;   // heure qui n'existe pas (passage à l'heure d'été)
       if (debut < debutPossible) continue;
-      const reste = r.capacite - (pris.get(debut) || 0);
-      if (reste > 0) out.push({ debut, fin: debut + r.duree * 60000, reste });
+      // Places prises : par début exact (Map) ou par chevauchement (liste de réservations : la durée a pu changer depuis).
+      const fin = debut + r.duree * 60000;
+      const n = Array.isArray(pris) ? pris.filter(x => x.debut < fin && (x.fin || x.debut + 1) > debut).length : (pris.get(debut) || 0);
+      const reste = r.capacite - n;
+      if (reste > 0) out.push({ debut, fin, reste });
     }
   }
-  return [...new Map(out.map(x => [x.debut, x])).values()].sort((a, b) => a.debut - b.debut).slice(0, 400);
+  return [...new Map(out.map(x => [x.debut, x])).values()].sort((a, b) => a.debut - b.debut).slice(0, 1500);
 }
 const libelle = (debut, fin) => {
   const f = o => new Intl.DateTimeFormat('fr-CH', { timeZone: FUSEAU, ...o }).format(new Date(debut));

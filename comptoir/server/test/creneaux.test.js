@@ -17,6 +17,16 @@ test('génération des créneaux', () => {
   // Passage à l'heure d'été (28 mars 2027) : 2 h n'existe pas, aucun créneau fantôme.
   const r2 = C.regles({ magasin: { creneaux: { actif: true, jours: { 0: ['01:00', '04:00'] }, duree: 60, capacite: 1, delai: 60, horizon: 3 } } });
   assert.deepEqual(C.liste(r2, Date.parse('2027-03-27T00:00:00Z')).map(x => C.libelle(x.debut, x.fin)), ['dimanche 28 mars, 01 h 00 – 03 h 00', 'dimanche 28 mars, 03 h 00 – 04 h 00']);
+  // Samedi 23 h 30, veille du passage à l'heure d'été : le dimanche n'est pas sauté (jours du calendrier).
+  const r4 = C.regles({ magasin: { creneaux: { actif: true, jours: { 0: ['10:00', '11:00'], 1: ['10:00', '11:00'] }, duree: 60, capacite: 1, delai: 60, horizon: 3 } } });
+  assert.deepEqual(C.liste(r4, Date.parse('2027-03-27T22:30:00Z')).map(x => C.libelle(x.debut, x.fin).split(',')[0]), ['dimanche 28 mars', 'lundi 29 mars']);
+  // Automne (heure répétée) : chaque jour une seule fois, horizon complet.
+  const r5 = C.regles({ magasin: { creneaux: { actif: true, jours: { 0: ['10:00', '11:00'], 1: ['10:00', '11:00'], 6: ['10:00', '11:00'], 2: ['10:00', '11:00'] }, duree: 60, capacite: 1, delai: 60, horizon: 3 } } });
+  assert.deepEqual(C.liste(r5, Date.parse('2026-10-23T22:30:00Z')).map(x => C.libelle(x.debut, x.fin).split(',')[0]), ['samedi 24 octobre', 'dimanche 25 octobre', 'lundi 26 octobre', 'mardi 27 octobre']);
+  // Réservations comptées par chevauchement (durée changée de 30 à 60 minutes).
+  const r6 = C.regles({ magasin: { creneaux: { actif: true, jours: { 1: ['10:00', '12:00'] }, duree: 60, capacite: 1, delai: 60, horizon: 1 } } });
+  const l6 = C.liste(r6, Date.parse('2026-11-16T06:00:00Z'));
+  assert.equal(C.liste(r6, Date.parse('2026-11-16T06:00:00Z'), [{ debut: l6[0].debut + 30 * 60000, fin: l6[0].debut + 60 * 60000 }]).length, l6.length - 1);
   // Valeurs bornées (configuration venue du navigateur).
   const r3 = C.regles({ magasin: { creneaux: { actif: true, jours: { 1: ['25:00', '26:00'], 2: ['12:00', '11:00'], 3: ['<b>', '9:00'] }, duree: 7, capacite: 9999, delai: 5, horizon: 365 } } });
   assert.equal(r3.actif, false); assert.equal(r3.duree, 30); assert.equal(r3.capacite, 50); assert.equal(r3.delai, 120); assert.equal(r3.horizon, 7);
@@ -45,6 +55,16 @@ test('créneaux à la commande : obligatoire, revérifié, dernière place', asy
     // Capacité 1 : la place est prise (même en attente de paiement), le créneau disparaît de la liste.
     assert.equal((await commander({ creneau: liste[0].debut }, 'lou@exemple.ch')).j.code, 'creneau_pris');
     assert.ok(!(await c('GET', `/api/public/${slug}/creneaux`, null, { avecCookie: false })).j.creneaux.some(x => x.debut === liste[0].debut));
+    // Un même réseau ne retient pas plus de 2 créneaux sans payer.
+    const deux = await commander({ creneau: liste[1].debut }, 'b@exemple.ch');
+    assert.equal(deux.s, 201, JSON.stringify(deux.j));
+    assert.equal((await commander({ creneau: liste[2].debut }, 'c@exemple.ch')).j.code, 'creneau_limite');
+    // Réservation impayée de plus de 35 minutes : la place se libère ; le paiement repris plus tard est refusé si elle a été reprise.
+    db.prepare('UPDATE commandes SET date = ? WHERE id = ?').run(Date.now() - 40 * 60000, deux.j.commandeId);
+    const reprise = await commander({ creneau: liste[1].debut }, 'd@exemple.ch');
+    assert.equal(reprise.s, 201, 'place libérée après 35 minutes');
+    const jeton = db.prepare('SELECT jeton_client FROM commandes WHERE id = ?').get(deux.j.commandeId).jeton_client;
+    assert.equal((await c('POST', `/api/public/${slug}/commandes/${deux.j.commandeId}/reprendre`, { jeton }, { avecCookie: false })).j.code, 'creneau_pris', 'paiement repris pour un créneau repris : refusé');
     await fetch(ok.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
     const cmd = (await c('GET', '/api/admin/etat')).j.commandes.find(x => x.id === ok.j.commandeId);
     assert.equal(cmd.retraitCreneau, liste[0].debut); assert.equal(cmd.retraitCreneauFin, liste[0].debut + 3600000);

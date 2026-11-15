@@ -32,13 +32,18 @@ test('inventaire : application, conflit, forcer, refus', async () => {
     assert.equal(conflit.s, 409); assert.equal(conflit.j.code, 'inventaire_conflit');
     assert.deepEqual(conflit.j.conflits.map(x => [x.nom, x.stockVu, x.actuel, x.compte]), [['Bougie', 10, 9, 8]]);
     assert.deepEqual(await stock(), { a: 9, s: 4, m: 6, t: 10 }, 'rien appliqué');
-    // Forcer : le comptage fait foi ; le total des variantes suit.
+    // Forcer : le comptage fait foi, moins la bougie vendue (payée) mais encore en rayon ; le total des variantes suit.
     const ok = await c('POST', '/api/admin/inventaire', { lignes, forcer: true });
     assert.equal(ok.s, 200, JSON.stringify(ok.j)); assert.equal(ok.j.appliques, 2); assert.equal(ok.j.ecarts.length, 2);
-    assert.deepEqual(await stock(), { a: 8, s: 3, m: 6, t: 9 });
+    assert.deepEqual(await stock(), { a: 7, s: 3, m: 6, t: 9 });
+    assert.deepEqual((await c('GET', '/api/admin/inventaire/engages')).j.engages, { [`${a}|`]: 1 });
     // Sans vente entre-temps : appliqué directement ; noté dans l'activité du compte.
     assert.equal((await c('POST', '/api/admin/inventaire', { lignes: [{ produitId: t, varianteId: 'M', compte: 7, stockVu: 6 }] })).s, 200);
-    assert.deepEqual(await stock(), { a: 8, s: 3, m: 7, t: 10 });
+    assert.deepEqual(await stock(), { a: 7, s: 3, m: 7, t: 10 });
+    // Commande expédiée : la bougie a quitté le rayon, plus rien n'est retenu.
+    db.prepare("UPDATE commandes SET statut = 'expediee'").run();
+    assert.deepEqual((await c('GET', '/api/admin/inventaire/engages')).j.engages, {});
+    assert.equal((await c('POST', '/api/admin/inventaire', { lignes: Array.from({ length: 10001 }, () => ({ produitId: a, compte: 1, stockVu: 7 })) })).j.code, 'inventaire_trop');
     assert.ok(db.prepare("SELECT 1 FROM journal_compte WHERE type = 'inventaire'").get());
   } finally { s.close(); }
 });

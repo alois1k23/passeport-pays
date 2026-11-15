@@ -2578,9 +2578,28 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   /* Inventaire : le marchand compte ses articles (au scanner ou à la main) puis applique. Chaque ligne porte le stock vu au
      début du comptage : si une vente l'a changé entre-temps, la ligne n'est pas appliquée et revient en conflit (à
      recompter, ou à forcer). Tout ou rien, dans une transaction ; lots, dropshipping et produits numériques exclus. */
+  /* Articles vendus (payés) mais encore en rayon : commandes payées, en préparation ou prêtes au retrait. Le stock les a
+     déjà déduits ; un comptage physique les trouve encore sur l'étagère. Clé « produit|variante ». */
+  function engagesEnRayon(bid) {
+    const e = {};
+    for (const r0 of db.prepare("SELECT donnees FROM commandes WHERE boutique_id = ? AND statut IN ('payee', 'preparation', 'prete')").all(bid)) {
+      const d = JSON.parse(r0.donnees);
+      for (const l of d.lignes || []) {
+        if (l.type === 'drop' || l.numerique || !l.produitId) continue;
+        const q = typeof l.retireStock === 'number' ? l.retireStock : (Number(l.qte) || 0);
+        const comps = composantsDe(bid, l);
+        if (comps.length && comps[0].produitId !== l.produitId) { for (const c of comps) e[`${c.produitId}|`] = (e[`${c.produitId}|`] || 0) + c.qte; continue; }
+        const k = `${l.produitId}|${l.varianteId || ''}`; e[k] = (e[k] || 0) + q;
+      }
+    }
+    return e;
+  }
+  r.get('/api/admin/inventaire/engages', exigerMarchand, ctx => ({ engages: engagesEnRayon(ctx.boutique.id) }));
   r.post('/api/admin/inventaire', exigerMarchand, ctx => {
-    const lignes = Array.isArray(ctx.corps.lignes) ? ctx.corps.lignes.slice(0, 2000) : [];
+    if (Array.isArray(ctx.corps.lignes) && ctx.corps.lignes.length > 10000) throw erreur(413, '10 000 articles au plus par inventaire : appliquez-le en plusieurs fois.', 'inventaire_trop');
+    const lignes = Array.isArray(ctx.corps.lignes) ? ctx.corps.lignes : [];
     if (!lignes.length) throw erreur(400, 'Aucun article compté.', 'inventaire_vide');
+    const engages = engagesEnRayon(ctx.boutique.id);
     const forcer = ctx.corps.forcer === true, conflits = [], appliques = [];
     transaction(db, () => {
       const parProduit = new Map();
@@ -2595,9 +2614,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         if (vid ? !v : (Array.isArray(p.variantes) && p.variantes.length)) throw erreur(400, `${p.nom} : précisez la variante.`, 'inventaire_variante');
         const actuel = v ? v.stock : p.stock;
         if (!forcer && Number(l.stockVu) !== actuel) { conflits.push({ produitId: pid, varianteId: vid || null, nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, stockVu: Number(l.stockVu), actuel, compte }); continue; }
-        if (v) v.stock = compte; else p.stock = compte;
+        // Le comptage voit aussi les articles déjà vendus mais pas encore partis : ils sont retirés du stock disponible.
+        const nouveau = Math.max(0, compte - (engages[`${pid}|${vid}`] || 0));
+        if (v) v.stock = nouveau; else p.stock = nouveau;
         if (v) p.stock = p.variantes.reduce((a, x) => a + x.stock, 0);
-        appliques.push({ nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, avant: actuel, apres: compte });
+        appliques.push({ nom: v ? `${p.nom} (${v.valeurs.join(' / ')})` : p.nom, avant: actuel, apres: nouveau, compte });
       }
       if (conflits.length && !forcer) return;   // rien n'est appliqué tant qu'un conflit n'est pas réglé
       for (const [pid, p] of parProduit) if (p) { db.prepare('UPDATE produits SET donnees = ? WHERE id = ? AND boutique_id = ?').run(serialiserProduit(pid, p), pid, ctx.boutique.id); reconcilierProduit(ctx.boutique.id, pid); }
@@ -3563,6 +3584,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (ctx.corps.livraison === 'retrait' && config.magasin.clickCollect && Creneaux.regles(config).actif) {
         const debut = Number(ctx.corps.creneau);
         if (!Number.isFinite(debut) || !debut) throw erreur(400, 'Choisissez un créneau de retrait.', 'creneau_requis');
+        // Un même réseau ne retient pas plus de 2 créneaux sans payer (sinon un robot bloquerait tous les créneaux).
+        if (creneauxPris(b.id, now).filter(x => x.reseau && x.reseau === empreinteReseau).length >= 2) throw erreur(429, 'Vous avez déjà des retraits réservés en attente de paiement : terminez-les avant d’en réserver un autre.', 'creneau_limite');
         const libre = creneauxLibres(b, config, now).find(x => x.debut === debut);
         if (!libre) throw erreur(409, 'Ce créneau de retrait vient d’être pris ou n’est plus disponible : choisissez-en un autre.', 'creneau_pris');
         c.retraitCreneau = debut; c.retraitCreneauFin = libre.fin;
@@ -4640,6 +4663,8 @@ ${bloc}</main></body></html>`;
       AND (email_index = ? OR json_extract(donnees, '$.reseau') = ?)`).get(bid, sauf, Date.now() - 35 * 60000, index, reseau).n;
   async function ouvrirPaiement(b, row, ctx = null) {
     const c = lireCommande(row);
+    // Créneau de retrait : toujours libre et pas encore passé au moment de payer (paiement repris plus tard).
+    if (c.statut === 'attente' && c.retraitCreneau) { const cfg = lireConfig(b); if (Creneaux.regles(cfg).actif && !creneauxLibres(b, cfg, Date.now(), c.id).some(x => x.debut === c.retraitCreneau)) throw erreur(409, 'Le créneau de retrait choisi n’est plus disponible : passez une nouvelle commande avec un autre créneau.', 'creneau_pris'); }
     const devise = lireConfig(b).boutique.devise || 'EUR';
     const compte = compteVente(b);
     // Carte cadeau ou points rendus (paiement abandonné) : repris avant de rouvrir le paiement du reste. Appelé dans la même
@@ -5343,8 +5368,13 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
     return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>${x(config.boutique.nom)}</title><link>${x(base + '/')}</link><description>${x(`Produits de ${config.boutique.nom}`)}</description>\n${items.join('\n')}\n</channel></rss>\n`;
   }
   // Créneaux de retrait déjà pris (commandes en cours, y compris en attente de paiement depuis moins d'une heure).
-  const creneauxPris = (bid, maintenant = Date.now()) => new Map(db.prepare("SELECT json_extract(donnees, '$.retraitCreneau') d, COUNT(*) n FROM commandes WHERE boutique_id = ? AND json_extract(donnees, '$.retraitCreneau') > ? AND statut NOT IN ('annulee', 'remboursee') AND (statut <> 'attente' OR date > ?) GROUP BY d").all(bid, maintenant - 86400000, maintenant - 3600000).map(r => [Number(r.d), r.n]));
-  const creneauxLibres = (b, config, maintenant = Date.now()) => Creneaux.liste(Creneaux.regles(config), maintenant, creneauxPris(b.id, maintenant));
+  /* Réservations de créneaux : commandes payées en cours, et commandes en attente dont la réservation est active (même
+     règle que pour le stock : 35 minutes depuis la commande ou sa reprise, 48 heures sur facture QR, 7 jours pour un devis,
+     sauf paiement abandonné). Commandes récentes seulement (index boutique + date). */
+  const reservationActive = (date, d, maintenant) => { const depuis = Math.max(date, d.reserveDepuis || 0); return !(d.abandonneeLe >= depuis) && depuis > maintenant - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 35 * 60000); };
+  const creneauxPris = (bid, maintenant = Date.now(), sauf = '') => db.prepare("SELECT id, date, statut, donnees FROM commandes WHERE boutique_id = ? AND date > ? AND id <> ? AND statut NOT IN ('annulee', 'remboursee', 'livree', 'retiree') AND json_extract(donnees, '$.retraitCreneau') > ?").all(bid, maintenant - 30 * 86400000, sauf, maintenant - 86400000)
+    .map(r => ({ r, d: JSON.parse(r.donnees) })).filter(({ r, d }) => r.statut !== 'attente' || reservationActive(r.date, d, maintenant)).map(({ d }) => ({ debut: Number(d.retraitCreneau), fin: Number(d.retraitCreneauFin) || Number(d.retraitCreneau) + 60000, reseau: d.reseau }));
+  const creneauxLibres = (b, config, maintenant = Date.now(), sauf = '') => Creneaux.liste(Creneaux.regles(config), maintenant, creneauxPris(b.id, maintenant, sauf));
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
     const produits = abo.etat(b.marchand_id).actif ? listerProduits(b.id).filter(vendable) : [];
@@ -5358,7 +5388,8 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
     const b = boutiqueOuverte(ctx.params.slug), config = lireConfig(b);
     if (!config.magasin.clickCollect) return { creneaux: [] };
     ctx.entetes['Cache-Control'] = 'no-store';
-    return { creneaux: creneauxLibres(b, config).slice(0, 120).map(x => ({ debut: x.debut, libelle: Creneaux.libelle(x.debut, x.fin) })) };
+    auth.limiter('creneaux:' + reseauIp(ctx.ip), 120 * facteurLimites, 600000, 'Trop de demandes : réessayez dans quelques minutes.');
+    return { creneaux: creneauxLibres(b, config).slice(0, 600).map(x => ({ debut: x.debut, libelle: Creneaux.libelle(x.debut, x.fin) })) };
   });
   r.get('/api/public/:slug/image/:id', ctx => {
     const b = boutiqueOuverte(ctx.params.slug);

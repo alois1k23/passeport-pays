@@ -693,3 +693,34 @@ Constats corrigés :
 
 - **Flux produits** : le stock annoncé est celui qui reste une fois déduites les commandes en attente de paiement. C'est le même calcul que celui de la commande et de la reprise de paiement (y compris les composants des lots). Google n'annonce plus « en stock » un dernier exemplaire que la boutique refuserait de vendre.
 - **Test** : pièce unique retenue par une commande non payée, annoncée « out of stock ».
+
+### Cycle 32 (00 h 15) : relecture indépendante des chantiers 92 et 93
+
+Constats corrigés :
+
+- **Élevé, inventaire** : les articles payés mais pas encore expédiés ou retirés étaient comptés deux fois. Le stock les avait déjà déduits, alors qu'ils étaient encore sur l'étagère. Exemple : 10 en rayon dont 2 vendus à préparer donnait un stock de 10 au lieu de 8, d'où une survente.
+  - Le serveur calcule maintenant ces articles (commandes payées, en préparation ou prêtes au retrait, composants des lots compris) et les retire du comptage à l'application.
+  - L'écran affiche « En rayon attendu » (stock plus articles à remettre) et le détail « dont N vendus à remettre » (testé).
+- **Moyen, inventaire** : au-delà de 2 000 lignes, le comptage était coupé sans le dire. Il est maintenant refusé avec un message (10 000 au plus, testé).
+- **Moyen, créneaux** : la réservation d'un créneau impayé suivait une règle à part (1 heure).
+  - Elle suit maintenant la même règle que le stock : 35 minutes depuis la commande ou sa reprise, 48 heures sur facture QR, 7 jours pour un devis, rien si le paiement est abandonné.
+  - Un paiement repris pour un créneau donné entre-temps à un autre client est refusé (testé).
+- **Moyen, créneaux** : un robot pouvait bloquer tous les créneaux avec des commandes impayées. Un même réseau ne retient plus que 2 créneaux sans payer (testé). La liste publique est limitée en fréquence.
+- **Moyen, créneaux** : la veille d'un changement d'heure, un jour était sauté (le dimanche du passage à l'heure d'été) ou doublé (en automne). Les jours sont maintenant ceux du calendrier de Lausanne (testé pour le 28 mars 2027 et le 25 octobre 2026).
+- **Bas** :
+  - **Inventaire** :
+    - la tabulation passe au champ suivant sans tout réafficher ;
+    - le comptage est gardé par boutique ;
+    - les valeurs relues sont contrôlées et les articles supprimés oubliés ;
+    - le stock est rechargé au début du comptage, pour éviter des conflits fictifs.
+  - **Créneaux** :
+    - le message « créneau pris » reste affiché au-dessus de la liste rechargée ;
+    - les places sont comptées par chevauchement (la durée d'un créneau a pu changer) ;
+    - jusqu'à 600 créneaux sont proposés au lieu de 120 ;
+    - une heure effacée est refusée ;
+    - le réglage n'est plus montré au rôle « Commandes », qui ne peut pas l'enregistrer.
+  - **Traductions** : les nouveaux textes de la boutique (créneau, emballage cadeau) sont traduits en allemand, italien et anglais.
+- **Noté** :
+  - les intitulés des jours dans la liste des créneaux restent en français ;
+  - l'inventaire corrige le total sans le répartir par emplacement de stock ;
+  - l'e-mail « commande prête » ne rappelle pas le créneau.

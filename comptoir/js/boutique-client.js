@@ -304,7 +304,7 @@ async function envoyerCommande(form) {
     const json = await rep.json();
     // Code de fidélité expiré ou déjà utilisé : retour à la demande d'un nouveau code (sinon le client resterait bloqué).
     if (!rep.ok && json.code === 'fidelite_code') { vue.fid = null; vue.fidMessage = json.erreur; }
-    if (!rep.ok && json.code === 'creneau_pris') { vue.creneaux = null; vue.creneau = null; }   // liste à relire : le créneau vient d'être pris
+    if (!rep.ok && (json.code === 'creneau_pris' || json.code === 'creneau_limite')) { vue.creneaux = null; vue.creneau = null; vue.creneauMessage = json.erreur; }   // liste à relire : le créneau vient d'être pris
     if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
     try { if (json.commandeId) sessionStorage.setItem('comptoir-paiement-' + json.commandeId, '1'); } catch { /* ignoré */ }
     if (json.factureUrl) { vue.panier = []; try { localStorage.removeItem('comptoir-panier-' + slug); } catch { /* ignoré */ } location.href = json.factureUrl; return; }   // facture QR : la facture s'ouvre, à payer avec l'application bancaire
@@ -787,8 +787,9 @@ function champCreneau() {
     if (!vue.creneauxEnCours) { vue.creneauxEnCours = true; fetch(`/api/public/${encodeURIComponent(slug)}/creneaux`).then(r => r.json()).then(j => { vue.creneaux = Array.isArray(j.creneaux) ? j.creneaux : []; }).catch(() => { vue.creneaux = []; }).finally(() => { vue.creneauxEnCours = false; rendre(); }); }
     return '<p class="sous" role="status">Chargement des créneaux de retrait…</p>';
   }
-  if (!vue.creneaux.length) return '<p class="sf-note" role="alert">Aucun créneau de retrait libre pour l’instant : choisissez la livraison, ou revenez plus tard.</p>';
+  const msg = vue.creneauMessage ? `<p class="sf-note" role="alert">${esc(vue.creneauMessage)}</p>` : '';
+  if (!vue.creneaux.length) return msg + '<p class="sf-note" role="alert">Aucun créneau de retrait libre pour l’instant : choisissez la livraison, ou revenez plus tard.</p>';
   const jours = [...new Set(vue.creneaux.map(c => c.libelle.split(',')[0]))];
-  return `<label class="champ"><span>Créneau de retrait</span><select name="creneau" required data-creneau-retrait><option value="">Choisir un créneau…</option>${jours.map(j => `<optgroup label="${esc(j)}">${vue.creneaux.filter(c => c.libelle.startsWith(j + ',')).map(c => `<option value="${c.debut}" ${String(vue.creneau) === String(c.debut) ? 'selected' : ''}>${esc(c.libelle.split(', ').slice(1).join(', '))}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
+  return `${msg}<label class="champ"><span>Créneau de retrait</span><select name="creneau" required data-creneau-retrait><option value="">Choisir un créneau…</option>${jours.map(j => `<optgroup label="${esc(j)}">${vue.creneaux.filter(c => c.libelle.startsWith(j + ',')).map(c => `<option value="${c.debut}" ${String(vue.creneau) === String(c.debut) ? 'selected' : ''}>${esc(c.libelle.split(', ').slice(1).join(', '))}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
 }
-document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-creneau-retrait]')) vue.creneau = e.target.value; });
+document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-creneau-retrait]')) { vue.creneau = e.target.value; vue.creneauMessage = ''; } });
