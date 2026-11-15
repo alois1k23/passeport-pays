@@ -4,7 +4,7 @@ const NUMERIQUE_UI = { envoi: null };
 
 function blocFichierNumerique(p) {
   if (p.type === 'drop') return '';
-  return `<label class="case"><input id="pf-numerique" type="checkbox" name="numerique" ${p.numerique ? 'checked' : ''} data-numerique> Produit numérique : fichier envoyé par e-mail après paiement, sans livraison</label>
+  return `<label class="case case-longue"><input id="pf-numerique" type="checkbox" name="numerique" ${p.numerique ? 'checked' : ''} data-numerique> Produit numérique : fichier envoyé par e-mail après paiement, sans livraison</label>
     <div id="pf-fichier-zone">${zoneFichierNumerique(p)}</div>`;
 }
 function zoneFichierNumerique(p) {

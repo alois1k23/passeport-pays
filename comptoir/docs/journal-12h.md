@@ -161,3 +161,34 @@ Vendre un article avant qu'il arrive (nouvelle collection, livre à paraître, r
   - **Moyen** : au passage en caisse, le choix de livraison affichait encore « 2 à 3 jours » à côté de la précommande. Il affiche la date d'expédition prévue.
   - **Bas** : le panier et l'e-mail emploient la même formulation (« expédition prévue le … ») ; la référence juridique est corrigée (L111-1 3°, et non L216-1).
 
+### Cycle 4 (22 h 45) : lots et coffrets (chantier 73)
+
+Les coffrets cadeaux, les lots « 3 pour 2 » et les kits sont un classique du commerce de détail ; ailleurs, ils passent souvent par une extension payante qui synchronise mal le stock. Désormais :
+
+- **Fiche produit** : case « Lot ou coffret », puis de 2 à 10 lignes produit et quantité, avec ajout et retrait. Ce qui a déjà été tapé dans la fiche n'est pas perdu.
+- **Composants admis** : produits en stock simples de la même boutique. Le serveur refuse les produits à variantes, les produits numériques, ceux en dropshipping, un autre lot et le lot lui-même.
+- **Stock calculé** : nombre de lots complets que permettent les composants. Le stock saisi pour le lot est ignoré. Un composant peut être masqué de la boutique, pour n'être vendu que dans le lot.
+- **Vente** :
+  - ce sont les composants qui baissent, emplacements compris ;
+  - la ligne du lot garde ce qui a été retiré de chacun ;
+  - un retour partiel puis un remboursement rendent exactement ce qui a été pris, jamais deux fois (testé : 2 coffrets vendus, 1 rendu, puis remboursement du reste : stock revenu à l'identique).
+- **Paiements en cours** :
+  - un lot en attente de paiement retient ses composants ;
+  - le stock des lots est recalculé après ces réservations, au moment de la commande comme de la reprise d'un paiement ;
+  - un panier qui mêle lots et composants est contrôlé sur la somme de ce qu'il demande à chaque composant.
+- **Boutique** : la fiche du lot affiche « Contient : 2 × Savon, 1 × Bougie ». Les identifiants et le stock des composants ne sont pas publiés.
+- **Limite, notée** : en démonstration hors ligne, le stock d'un lot n'est pas recalculé.
+- **Tests** :
+  - compositions refusées ;
+  - stock calculé avec un composant masqué ;
+  - contenu publié sans identifiants ;
+  - panier mixte au-delà du stock refusé ;
+  - composants retenus pendant un paiement ;
+  - vente, retour partiel, remboursement.
+- **Défaut découvert par les tests** : une variable mal nommée dans le calcul des réservations faisait échouer toute reprise de paiement (erreur 500). Quatre tests existants l'ont signalée, et c'est corrigé avant commit.
+- **Vérifié dans Chromium**, bureau et mobile :
+  - composition dans la fiche (nom et quantités conservés à l'ajout et au retrait d'une ligne), stock calculé, contenu affiché dans la boutique ;
+  - aucune erreur de page ;
+  - au passage, les cases à long libellé de la fiche (numérique, lot, précommande) sont alignées en haut.
+- 241 tests sur 241, parcours de bout en bout 57/57.
+

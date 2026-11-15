@@ -227,6 +227,7 @@ function renduFiche(etat, p, qte = 1) {
       ${prixBarreAffiche(p, etat) ? `<p class="sf-fiche-note">Prix barré : prix pratiqué pendant au moins 30 jours avant la baisse.</p>` : ''}
       ${p.avis && p.avis.n ? `<p class="sf-note">★ ${p.avis.moyenne.toFixed(1).replace('.', ',')} sur 5 · ${p.avis.n} avis vérifiés</p>` : ''}
       ${p.description ? `<p class="sf-fiche-desc" data-sans-traduction>${esc(p.description)}</p>` : ''}
+      ${Array.isArray(p.contenu) && p.contenu.length ? `<p class="sf-fiche-note" data-sans-traduction><strong>Contient</strong> : ${p.contenu.map(c => `${Number(c.qte) || 1} × ${esc(c.nom)}`).join(', ')}</p>` : ''}
       <p class="sf-fiche-delai">${enPrecommande(p) ? `<strong>Précommande</strong> : expédition prévue le ${esc(dateIsoCourte(p.expeditionPrevue))}. Vous payez maintenant ; votre commande part dès que l’article arrive.` : esc(fenetreLivraison(delaiProduit(p)))}</p>
       ${(() => {
         // Pays d'expédition (les CGV y renvoient) et, hors du pays du client, frais d'importation possibles.

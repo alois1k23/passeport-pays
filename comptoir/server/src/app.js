@@ -241,6 +241,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     return produits;
   };
+  // Composants retenus par une ligne de lot (quantités multipliées) ; aucune pour un produit simple.
+  const composantsDe = (bid, l) => { const r0 = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ?').get(l.produitId, bid); const d = r0 && JSON.parse(r0.donnees); return d && Array.isArray(d.composants) ? d.composants.map(c => ({ produitId: c.produitId, qte: c.qte * (l.qte || 0) })) : []; };
   const listerProduits = (boutiqueId, avecSupprimes = false) =>
     stockLots(db.prepare(`SELECT id, donnees, supprime FROM produits WHERE boutique_id = ? ${avecSupprimes ? '' : 'AND supprime = 0'} ORDER BY ordre, rowid`).all(boutiqueId)
       .map(p => ({ ...JSON.parse(p.donnees), id: p.id, ...(p.supprime ? { supprime: 1 } : {}) })));
@@ -332,6 +334,28 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const p = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ?').get(l.produitId, boutiqueId);
       if (!p) continue;
       const d = JSON.parse(p.donnees);
+      // Lot : ce sont ses composants qui bougent. La ligne garde ce qui a été retiré de chacun (et d'où), pour que
+      // retours partiels et remboursement rendent exactement ce qui a été pris, jamais deux fois.
+      if (Array.isArray(d.composants) && d.composants.length) {
+        if (sens < 0) {
+          l.composantsRetires = d.composants.map(c => ({ produitId: c.produitId, qte: c.qte * l.qte, type: 'stock', parLot: c.qte }));
+          ajusterStock(boutiqueId, l.composantsRetires, -1, canal);
+          l.retireStock = l.qte;
+        } else {
+          const unites = typeof l.retireStock === 'number' ? l.retireStock : l.qte;
+          const comps = Array.isArray(l.composantsRetires) ? l.composantsRetires : d.composants.map(c => ({ produitId: c.produitId, qte: c.qte * unites, retireStock: c.qte * unites, type: 'stock', parLot: c.qte }));
+          for (const cl of comps) {
+            const pris = typeof cl.retireStock === 'number' ? cl.retireStock : cl.qte, k = Math.min(pris, (cl.parLot || 1) * unites);
+            if (k <= 0) continue;
+            const tmp = { produitId: cl.produitId, qte: k, retireStock: k, type: 'stock', ...(cl.emplacements ? { emplacements: { ...cl.emplacements } } : {}) };
+            ajusterStock(boutiqueId, [tmp], +1, canal);
+            cl.retireStock = pris - k;
+            if (cl.emplacements) for (const [eid, n] of Object.entries(tmp.emplacementsRepris || {})) { cl.emplacements[eid] -= n; if (cl.emplacements[eid] <= 0) delete cl.emplacements[eid]; }
+          }
+          l.retireStock = 0;
+        }
+        continue;
+      }
       // Variante : son stock bouge, et le stock du produit reste la somme des variantes.
       const v = l.varianteId && Array.isArray(d.variantes) ? d.variantes.find(x => x.id === l.varianteId) : null;
       if (l.varianteId && Array.isArray(d.variantes) && !v) { if (sens < 0) l.retireStock = 0; continue; }   // variante supprimée depuis : rien à rendre ni à retirer, la somme reste juste
@@ -2405,10 +2429,22 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     if (emailEntreprise(avant) && emailEntreprise(config) !== emailEntreprise(avant)) noterActivite(ctx.marchand.id, 'email-entreprise-modifie', emailEntreprise(config).replace(/^(.).*@/, '$1…@'), ctx);
   }
+  // Composants d'un lot : produits de la même boutique, en stock propre, simples (ni variantes, ni numérique, ni lot,
+  // ni dropshipping), et pas le lot lui-même.
+  function verifierLot(bid, propre, idLot) {
+    if (!propre.composants) return propre;
+    for (const c of propre.composants) {
+      const r0 = c.produitId === idLot ? null : db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(c.produitId, bid);
+      const x = r0 && JSON.parse(r0.donnees);
+      if (!x || x.type === 'drop' || x.numerique || (Array.isArray(x.composants) && x.composants.length) || (Array.isArray(x.variantes) && x.variantes.length))
+        throw erreur(400, 'Un lot se compose de produits en stock simples de votre boutique (sans variantes, ni produit numérique, ni autre lot).', 'lot_composant');
+    }
+    return propre;
+  }
   r.post('/api/admin/produits', exigerMarchand, ctx => {
     const id = auth.nouvelId('p_');
     const ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) + 1 AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
-    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, serialiserProduit(id, produitDuNavigateur(ctx.corps.produit || {})), ordre);
+    db.prepare('INSERT INTO produits (id, boutique_id, donnees, ordre) VALUES (?, ?, ?, ?)').run(id, ctx.boutique.id, serialiserProduit(id, verifierLot(ctx.boutique.id, produitDuNavigateur(ctx.corps.produit || {}), id)), ordre);
     reconcilierProduit(ctx.boutique.id, id);   // emplacements : le stock de départ va à l'emplacement principal
     return { statut: 201, corps: { id } };
   });
@@ -2424,7 +2460,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const fusion = { ...recu, type: avant.type, source: avant.source, fournisseur: avant.fournisseur, entrepot: avant.entrepot, delai: avant.delai, portF: avant.portF, codeFournisseur: avant.codeFournisseur };
     // Photo inchangée (renvoyée telle quelle par le navigateur) : celle enregistrée reste.
     if (avant.image === IMG && fusion.image === imageDe(ctx.params.id)) fusion.image = IMG;
-    transaction(db, () => { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id); reconcilierProduit(ctx.boutique.id, ctx.params.id); });   // fiche et emplacements ensemble
+    transaction(db, () => { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, verifierLot(ctx.boutique.id, nettoyerProduit(fusion, avant.historiquePrix || []), ctx.params.id)), ctx.params.id); reconcilierProduit(ctx.boutique.id, ctx.params.id); });   // fiche et emplacements ensemble
     return { ok: true };
   });
   r.delete('/api/admin/produits/:id', exigerMarchand, ctx => {
@@ -3076,9 +3112,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const config = configVente(b);
     const notes = statsAvis(b.id);
     const regime = config.boutique.pays === 'ch' ? 'ch' : 'ue';
-    const produits = listerProduits(b.id).filter(vendable).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, ...p }) => {
+    const tousPub = listerProduits(b.id);
+    const produits = tousPub.filter(vendable).map(({ cout, portF, codeFournisseur, fournisseur, source, aVerifier, historiquePrix, prixReference, composants, ...p }) => {
       const pb = PrixBarres.verifier({ prix: p.prix, prixReference, historiquePrix }, regime);
-      return { ...p, ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(({ ref, ...v }) => v) } : {}), ...(p.image === IMG ? { image: `/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` } : {}), avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };   // photo chargée à part (mise en cache par le navigateur)
+      // Lot : son contenu (noms et quantités), composants masqués compris ; jamais leurs identifiants ni leur stock.
+      const contenu = Array.isArray(composants) ? composants.map(c => ({ nom: (tousPub.find(x => x.id === c.produitId) || {}).nom || 'Article', qte: c.qte })) : null;
+      return { ...p, ...(contenu ? { contenu } : {}), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(({ ref, ...v }) => v) } : {}), ...(p.image === IMG ? { image: `/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` } : {}), avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };   // photo chargée à part (mise en cache par le navigateur)
     });
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
     // Un code promo affiché dans la bannière doit exister au paiement ; un contact d'exemple est remplacé par l'e-mail de l'entreprise.
@@ -3144,10 +3183,17 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // seule adresse retiendrait tout le stock en plusieurs commandes).
       if (active && d.reseau === empreinteReseau && d.moyen !== 'facture' && d.canal !== 'devis') for (const l of d.lignes || []) if (l.type !== 'drop') parReseau[l.produitId] = (parReseau[l.produitId] || 0) + (l.qte || 0);
       if (!active || (indexClient && r2.email_index === indexClient)) continue;   // son propre essai précédent ne bloque pas le stock du client
+      for (const l of d.lignes || []) if (l.type !== 'drop') for (const c of composantsDe(b.id, l)) reserve[c.produitId] = (reserve[c.produitId] || 0) + c.qte;   // un lot en attente retient ses composants
       for (const l of d.lignes || []) if (l.type !== 'drop') { reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0); if (l.varianteId) reserve[`${l.produitId}:${l.varianteId}`] = (reserve[`${l.produitId}:${l.varianteId}`] || 0) + (l.qte || 0); }
     }
-    const produits = listerProduits(b.id).filter(vendable).map(p => !reserve[p.id] || p.type === 'drop' ? p : { ...p, stock: Math.max(0, p.stock - reserve[p.id]), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(v => ({ ...v, stock: Math.max(0, v.stock - (reserve[`${p.id}:${v.id}`] || 0)) })) } : {}) });   // produit masqué ou du fournisseur de démonstration : « plus disponible »
+    // Lots : leur stock est recalculé depuis leurs composants (réservations déduites), y compris des composants masqués.
+    const tousProduits = stockLots(listerProduits(b.id).map(p => !reserve[p.id] || p.type === 'drop' || p.composants ? p : { ...p, stock: Math.max(0, p.stock - reserve[p.id]), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(v => ({ ...v, stock: Math.max(0, v.stock - (reserve[`${p.id}:${v.id}`] || 0)) })) } : {}) }));
+    const produits = tousProduits.filter(vendable);   // produit masqué ou du fournisseur de démonstration : « plus disponible »
     const lignesBrutes = prix.construireLignes(produits, ctx.corps.lignes).map(l => ({ ...l, codeFournisseur: (produits.find(p => p.id === l.produitId) || {}).codeFournisseur }));
+    // Lots et composants dans le même panier : la somme de ce qu'ils demandent à chaque composant ne dépasse pas son stock.
+    { const besoin = {};
+      for (const l of lignesBrutes) { const p = tousProduits.find(x => x.id === l.produitId); if (!p || p.type === 'drop' || l.varianteId) continue; if (p.composants) for (const c of p.composants) besoin[c.produitId] = (besoin[c.produitId] || 0) + c.qte * l.qte; else besoin[p.id] = (besoin[p.id] || 0) + l.qte; }
+      for (const [pid, q] of Object.entries(besoin)) { const x = tousProduits.find(y => y.id === pid); if (lignesBrutes.some(l => (tousProduits.find(y => y.id === l.produitId) || {}).composants) && (!x || x.stock < q)) throw erreur(409, `Stock insuffisant pour « ${x ? x.nom : 'un article du lot'} » (lot compris).`, 'stock_insuffisant'); } }
     // Un même réseau ne réserve pas tout le stock sans payer : ses commandes impayées (adresses e-mail différentes, souvent
     // jetables ; la commande en cours comprise) retiennent au plus la moitié du stock d'un produit, au moins 3, au plus 20.
     // Un achat courant (jusqu'à 3 exemplaires, même s'ils sont les derniers) passe toujours (simulation de 60 jours : des
@@ -4303,6 +4349,7 @@ ${bloc}</main></body></html>`;
       const d = JSON.parse(r2.donnees);
       const depuis = Math.max(r2.date, d.reserveDepuis || 0);
       if (d.abandonneeLe >= depuis || !(depuis > Date.now() - (d.moyen === 'facture' ? 48 * 3600000 : d.canal === 'devis' ? 7 * 86400000 : 35 * 60000))) continue;
+      for (const l of d.lignes || []) if (l.type !== 'drop') for (const c of composantsDe(bid, l)) reserve[c.produitId] = (reserve[c.produitId] || 0) + c.qte;   // un lot en attente retient ses composants
       for (const l of d.lignes || []) if (l.type !== 'drop') { reserve[l.produitId] = (reserve[l.produitId] || 0) + (l.qte || 0); if (l.varianteId) reserve[`${l.produitId}:${l.varianteId}`] = (reserve[`${l.produitId}:${l.varianteId}`] || 0) + (l.qte || 0); }
     }
     return reserve;
@@ -4348,10 +4395,10 @@ ${bloc}</main></body></html>`;
         for (const [pid, q] of Object.entries(parProduit)) { const p = tous.find(x => x.id === pid); if ((parReseau[pid] || 0) + q > Math.min(20, Math.max(3, Math.ceil(Math.max(0, p ? p.stock : 0) / 2))) * facteurLimites) throw erreur(429, 'Quantité trop grande pour une commande en ligne non payée : terminez d’abord un paiement en cours, ou demandez un devis à la boutique.', 'trop_reserve'); }
         frais.reseau = reseau;
       }
-      const autres = reservationsAutres(b.id, c.id), prods = listerProduits(b.id);
+      const autres = reservationsAutres(b.id, c.id), prods = stockLots(listerProduits(b.id).map(p => p.composants || p.type === 'drop' ? p : { ...p, stock: p.stock - (autres[p.id] || 0) }));   // lots : recalculés depuis leurs composants réservés
       const manque = frais.lignes.filter(l => l.type !== 'drop').find(l => { const p = prods.find(x => x.id === l.produitId); if (!p || p.type === 'drop') return false;
         const v = l.varianteId && Array.isArray(p.variantes) ? p.variantes.find(y => y.id === l.varianteId) : null;
-        const dispo = v ? v.stock - (autres[`${l.produitId}:${l.varianteId}`] || 0) : p.stock - (autres[l.produitId] || 0);
+        const dispo = v ? v.stock - (autres[`${l.produitId}:${l.varianteId}`] || 0) : p.composants ? p.stock : p.stock;   // stocks déjà nets des réservations des autres commandes
         return dispo < frais.lignes.filter(y => y.produitId === l.produitId && (!v || y.varianteId === l.varianteId)).reduce((a, y) => a + y.qte, 0); });
       if (manque) throw erreur(409, `« ${manque.nom} » n’est plus disponible dans cette quantité : passez une nouvelle commande.`, 'stock_insuffisant');
       { const refus = limiteCode(b.id, configVente(b), frais.codePromo, frais.client.email, c.id); if (refus) throw erreur(409, `${refus.message} Passez une nouvelle commande sans lui.`, refus.code); }

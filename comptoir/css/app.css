@@ -1477,3 +1477,8 @@ details.en-ligne form { margin-top: 6px; }
 @media (max-width: 520px) { .dialogue-import .col-etat { display: none; } }
 .liste-import { margin: 8px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; font-size: .875rem; }
 .dialogue-identite .erreur { color: var(--bad, #b42318); margin: 0; }
+.lot-composants { display: grid; gap: 8px; }
+.lot-ligne { align-items: flex-end; flex-wrap: wrap; }
+.lot-ligne .champ { flex: 1 1 200px; margin: 0; }
+.lot-ligne .lot-qte { flex: 0 0 90px; }
+

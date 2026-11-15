@@ -627,7 +627,7 @@ function vueProduits() {
           <td class="num" data-label="Prix">${euros(x.prix)}</td>
           <td class="num ${margeProduit(x).nette < 0 ? 'neg' : ''}" data-label="Marge nette">${euros(margeProduit(x).nette)}</td>
           <td class="num" data-label="Stock">${x.type === 'drop' ? '<span class="sous" title="Stock géré par le fournisseur">—</span>' : x.stock <= 5 ? `<span class="stock-bas ${x.stock <= 0 ? 'rupture' : ''}" title="${x.stock <= 0 ? 'Rupture de stock' : 'Stock bas'}">${x.stock}</span>` : x.stock}${(n => n ? `<div class="sous" title="Clients qui attendent le retour en stock">${n} en attente</div>` : '')(Object.entries(etat.attentesStock || {}).filter(([k]) => k.startsWith(x.id + '|')).reduce((a, [, n]) => a + n, 0))}${(f => f && x.stock > 0 && f.jours <= 30 ? `<div class="sous" title="Au rythme des 28 derniers jours">≈ ${f.jours} j</div>` : '')(previsionStock(x))}</td>
-          <td data-label="Statut">${x.aVerifier ? '<span class="pill warn">À vérifier</span>' : x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}${x.precommande ? ' <span class="pill">Précommande</span>' : ''}${x.numerique ? ' <span class="pill">Numérique</span>' : ''}</td></tr>`).join('')}
+          <td data-label="Statut">${x.aVerifier ? '<span class="pill warn">À vérifier</span>' : x.actif ? '<span class="pill good">En ligne</span>' : '<span class="pill muted">Masqué</span>'}${x.precommande ? ' <span class="pill">Précommande</span>' : ''}${x.numerique ? ' <span class="pill">Numérique</span>' : ''}${Array.isArray(x.composants) && x.composants.length ? ' <span class="pill">Lot</span>' : ''}</td></tr>`).join('')}
       </tbody></table></div>${produitsFiltres().length ? '' : etatVide('produits', etat.produits.length ? 'Aucun produit ne correspond' : 'Aucun produit', etat.produits.length ? 'Modifiez la recherche ou le filtre.' : 'Importez un produit du catalogue fournisseurs ou créez le vôtre.', '<a class="btn petit" href="#sourcing">Trouver des produits</a>')}</section>
     ${p ? `<aside class="carte detail"><form data-form="produit">
       <div class="carte-tete"><h2>${etat.produits.find(x => x.id === p.id) ? 'Modifier le produit' : 'Nouveau produit'}</h2><button type="button" class="icone" data-action="fermer-produit">Fermer</button></div>
@@ -647,7 +647,8 @@ function vueProduits() {
       <label class="champ"><span>Catégorie</span><select id="pf-cat" name="categorie">${[...new Set([p.categorie, ...cats])].map(c => `<option ${c === p.categorie ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="case"><input id="pf-actif" type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Visible dans la boutique</label>
       ${typeof blocFichierNumerique === 'function' ? blocFichierNumerique(p) : ''}
-      ${p.type !== 'drop' ? `<label class="case"><input id="pf-precommande" type="checkbox" name="precommande" ${p.precommande ? 'checked' : ''}> Précommande : vendu avant d’être disponible, avec une date d’expédition annoncée</label>
+      ${typeof blocLot === 'function' ? blocLot(p) : ''}
+      ${p.type !== 'drop' ? `<label class="case case-longue"><input id="pf-precommande" type="checkbox" name="precommande" ${p.precommande ? 'checked' : ''}> Précommande : vendu avant d’être disponible, avec une date d’expédition annoncée</label>
       <label class="champ"><span>Date d’expédition prévue (si précommande)</span><input id="pf-expedition" type="date" name="expeditionPrevue" value="${esc(p.expeditionPrevue || '')}"></label>
       <p class="sous">En précommande, le stock indique combien d’exemplaires peuvent être précommandés.</p>` : ''}
       <label class="case"><input id="pf-taux" type="checkbox" name="tauxReduit" ${p.tauxReduit ? 'checked' : ''}> TVA à taux réduit (denrées alimentaires : ${estSuisse() ? '2,6 %' : etat.boutique.pays === 'be' ? '6 %' : '5,5 %'})</label>
@@ -1313,7 +1314,7 @@ document.addEventListener('submit', e => {
   const f = e.target;
   if (f.dataset.form === 'produit') {
     const d = new FormData(f);
-    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined, tauxReduit: d.get('tauxReduit') === 'on', numerique: d.get('numerique') === 'on', precommande: d.get('precommande') === 'on', expeditionPrevue: d.get('expeditionPrevue') || undefined };
+    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined, tauxReduit: d.get('tauxReduit') === 'on', numerique: d.get('numerique') === 'on', precommande: d.get('precommande') === 'on', expeditionPrevue: d.get('expeditionPrevue') || undefined, composants: typeof lireComposants === 'function' ? lireComposants(d) : undefined };
     p.historiquePrix = PrixBarres.noterPrix(ui.produitEdite.historiquePrix, p.prix);
     const i = etat.produits.findIndex(x => x.id === p.id);
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);
