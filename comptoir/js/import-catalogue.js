@@ -85,6 +85,16 @@ function convertir(texte) {
   const erreurs = [], produits = [];
   // Code-barres : gardé seulement s'il est valide (chiffre de contrôle) et pas déjà pris par un autre produit importé.
   const G = typeof module !== 'undefined' && module.exports ? require('./gtin.js') : racine.Gtin, eansVus = new Set();
+  const eanVariante = (p, v) => {   // code d'une variante : mêmes règles, avertissement une seule fois
+    if (v._ean !== undefined) return v._ean;
+    v._ean = '';
+    if (!v.ean || !G) return '';
+    const e = G.normaliser(v.ean);
+    if (!G.valide(e)) erreurs.push({ ligne: v.ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » (${v.valeurs.join(' / ')}) : code-barres invalide, ignoré.` });
+    else if (eansVus.has(e)) erreurs.push({ ligne: v.ligne, avertissement: true, message: `« ${p.nom.slice(0, 40)} » (${v.valeurs.join(' / ')}) : code-barres ${e} déjà utilisé, ignoré.` });
+    else { eansVus.add(e); v._ean = e; }
+    return v._ean;
+  };
   const ajouter = (p, ligne, eanBrut) => {
     if (eanBrut && G) {
       const e = G.normaliser(eanBrut);
@@ -105,7 +115,7 @@ function convertir(texte) {
       const t = ls[0], nom = col(t.r, 'Title');
       if (!nom) { erreurs.push({ ligne: t.ligne, message: `Produit « ${handle.slice(0, 40)} » sans titre ignoré.` }); continue; }
       const optNoms = [col(t.r, 'Option1 Name'), col(t.r, 'Option2 Name')].filter(n => n && n !== 'Title');
-      const variantes = ls.filter(x => col(x.r, 'Variant Price') !== '').map(x => ({ valeurs: [col(x.r, 'Option1 Value'), col(x.r, 'Option2 Value')].slice(0, optNoms.length), prix: prixOk(col(x.r, 'Variant Price'), x.ligne, 'Prix'), barre: prixOk(col(x.r, 'Variant Compare At Price'), x.ligne, 'Prix barré'), stock: stockOk(col(x.r, 'Variant Inventory Qty')) }));
+      const variantes = ls.filter(x => col(x.r, 'Variant Price') !== '').map(x => ({ valeurs: [col(x.r, 'Option1 Value'), col(x.r, 'Option2 Value')].slice(0, optNoms.length), prix: prixOk(col(x.r, 'Variant Price'), x.ligne, 'Prix'), barre: prixOk(col(x.r, 'Variant Compare At Price'), x.ligne, 'Prix barré'), stock: stockOk(col(x.r, 'Variant Inventory Qty')), ean: col(x.r, 'Variant Barcode'), ligne: x.ligne }));
       if (variantes.some(v => Number.isNaN(v.prix))) continue;
       const base = variantes[0] || { prix: null };
       if (base.prix === null) { erreurs.push({ ligne: t.ligne, message: `« ${nom.slice(0, 40)} » sans prix ignoré.` }); continue; }
@@ -113,7 +123,7 @@ function convertir(texte) {
       if (base.barre && base.barre > base.prix) p.prixReference = base.barre;
       if (optNoms.length && variantes.length > 1) {
         p.options = optNoms.map((n, k) => ({ nom: n, valeurs: [...new Set(variantes.map(v => v.valeurs[k]).filter(Boolean))] }));
-        p.variantes = variantes.map(v => ({ id: v.valeurs.join('/'), valeurs: v.valeurs, stock: v.stock, ...(v.prix !== base.prix ? { prix: v.prix } : {}), stockSaisi: true }));
+        p.variantes = variantes.map(v => ({ id: v.valeurs.join('/'), valeurs: v.valeurs, stock: v.stock, ...(v.prix !== base.prix ? { prix: v.prix } : {}), ...(eanVariante(p, v) ? { ean: eanVariante(p, v) } : {}), stockSaisi: true }));
       }
       ajouter(p, t.ligne, p.variantes ? '' : col(t.r, 'Variant Barcode'));
     }

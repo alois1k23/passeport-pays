@@ -21,6 +21,9 @@ test('import : code-barres valide gardé, invalide ou en double ignoré avec un 
   assert.equal(r.produits.find(p => p.nom === 'Plaid').ean, undefined);
   assert.equal(r.erreurs.filter(e => /code-barres/.test(e.message)).length, 2);
   const shop = 'Handle,Title,Variant Price,Variant Barcode\ncafe,Café,14,96385074\n';
+  const varShop = 'Handle,Title,Option1 Name,Option1 Value,Variant Price,Variant Barcode\nts,T-shirt,Taille,S,30,96385074\nts,,Taille,M,30,4006381333932\n';
+  const vs = I.convertir(varShop).produits[0].variantes;
+  assert.equal(vs.find(v => v.id === 'S').ean, '96385074'); assert.equal(vs.find(v => v.id === 'M').ean, undefined);
   assert.equal(I.convertir(shop).produits[0].ean, '96385074');
 });
 
@@ -44,6 +47,13 @@ test('code-barres : fiche, unicité, page produit', async () => {
     assert.equal((await c('PUT', `/api/admin/produits/${id}`, { produit: { nom: 'Chocolat noir', prix: 5, stock: 3, ean: '' } })).s, 200);
     assert.equal((await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === id).ean, undefined);
     assert.equal((await c('POST', '/api/admin/produits', { produit: { nom: 'Autre', prix: 5, stock: 3, ean: '4006381333931' } })).s, 201, 'code libéré');
+    // Variantes : un code par taille, unique aussi face aux autres produits ; un code faux est refusé.
+    const opts = [{ nom: 'Taille', valeurs: ['S', 'M'] }];
+    assert.equal((await c('POST', '/api/admin/produits', { produit: { nom: 'T-shirt', prix: 30, options: opts, variantes: [{ id: 'S', valeurs: ['S'], stock: 2, ean: '96385074' }, { id: 'M', valeurs: ['M'], stock: 2, ean: '96385075' }] } })).j.code, 'ean_invalide');
+    assert.equal((await c('POST', '/api/admin/produits', { produit: { nom: 'T-shirt', prix: 30, options: opts, variantes: [{ id: 'S', valeurs: ['S'], stock: 2, ean: '96385074' }, { id: 'M', valeurs: ['M'], stock: 2, ean: '96385074' }] } })).j.code, 'ean_doublon');
+    const ts = (await c('POST', '/api/admin/produits', { produit: { nom: 'T-shirt', prix: 30, options: opts, variantes: [{ id: 'S', valeurs: ['S'], stock: 2, ean: '96385074' }, { id: 'M', valeurs: ['M'], stock: 2 }] } })).j.id;
+    assert.equal((await c('GET', '/api/admin/etat')).j.produits.find(p => p.id === ts).variantes.find(v => v.id === 'S').ean, '96385074');
+    assert.equal((await c('POST', '/api/admin/produits', { produit: { nom: 'Bonnet', prix: 20, stock: 1, ean: '96385074' } })).j.code, 'ean_doublon', 'code d’une variante d’un autre produit');
     // Import d'un produit dont le code-barres est déjà dans la boutique : importé sans le code, avec un avertissement.
     const imp = await c('POST', '/api/admin/produits/importer-csv', { csv: 'Nom,Prix,EAN13\nBiscuit,4,4006381333931\n' });
     assert.equal(imp.s, 200, JSON.stringify(imp.j));

@@ -1378,8 +1378,8 @@ function editeurVariantes(p) {
     <p class="sous">Une ou deux options, valeurs séparées par des virgules. ${p.type === 'drop' ? 'Chaque combinaison peut avoir sa référence chez le fournisseur (transmise avec la commande) et un prix différent.' : 'Chaque combinaison a son stock, et un prix différent si besoin.'}</p>
     ${o.map((x, i) => `<div class="deux"><label class="champ"><span>Option ${i + 1}</span><input data-opt-nom="${i}" value="${esc(x.nom)}" placeholder="${i ? 'ex. Couleur' : 'ex. Taille'}" maxlength="30"></label>
       <label class="champ"><span>Valeurs</span><input data-opt-valeurs="${i}" value="${esc(x.valeurs)}" placeholder="${i ? 'Bleu, Sable' : 'S, M, L'}"></label></div>`).join('')}
-    ${aVariantesEdit(p) ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Variante</th><th class="num">${p.type === 'drop' ? 'Réf. fournisseur' : 'Stock'}</th><th class="num" title="Vide : prix du produit (${euros(p.prix)})">Prix</th></tr></thead><tbody>
-      ${p.variantes.map(v => `<tr><td>${esc(v.valeurs.join(' / '))}</td><td class="num">${p.type === 'drop' ? `<input value="${esc(v.ref || '')}" maxlength="60" data-var-ref="${esc(v.id)}" aria-label="Référence fournisseur ${esc(v.valeurs.join(' / '))}" placeholder="facultatif">` : `<input type="number" min="0" step="1" value="${Number(v.stock) || 0}" data-var-stock="${esc(v.id)}" aria-label="Stock ${esc(v.valeurs.join(' / '))}" class="qte-lien">`}</td><td class="num"><input type="number" min="0" step="0.01" value="${v.prix ?? ''}" data-var-prix="${esc(v.id)}" aria-label="Prix ${esc(v.valeurs.join(' / '))}" placeholder="${esc(String(p.prix))}" class="qte-lien"></td></tr>`).join('')}
+    ${aVariantesEdit(p) ? `<div class="table-wrap"><table class="table compacte"><thead><tr><th>Variante</th><th class="num">${p.type === 'drop' ? 'Réf. fournisseur' : 'Stock'}</th><th class="num" title="Vide : prix du produit (${euros(p.prix)})">Prix</th>${p.type === 'drop' ? '' : '<th>Code-barres</th>'}</tr></thead><tbody>
+      ${p.variantes.map(v => `<tr><td>${esc(v.valeurs.join(' / '))}</td><td class="num">${p.type === 'drop' ? `<input value="${esc(v.ref || '')}" maxlength="60" data-var-ref="${esc(v.id)}" aria-label="Référence fournisseur ${esc(v.valeurs.join(' / '))}" placeholder="facultatif">` : `<input type="number" min="0" step="1" value="${Number(v.stock) || 0}" data-var-stock="${esc(v.id)}" aria-label="Stock ${esc(v.valeurs.join(' / '))}" class="qte-lien">`}</td><td class="num"><input type="number" min="0" step="0.01" value="${v.prix ?? ''}" data-var-prix="${esc(v.id)}" aria-label="Prix ${esc(v.valeurs.join(' / '))}" placeholder="${esc(String(p.prix))}" class="qte-lien"></td>${p.type === 'drop' ? '' : `<td><input value="${esc(v.ean || '')}" data-var-ean="${esc(v.id)}" inputmode="numeric" maxlength="20" autocomplete="off" spellcheck="false" aria-label="Code-barres ${esc(v.valeurs.join(' / '))}" placeholder="facultatif"></td>`}</tr>`).join('')}
     </tbody></table></div>` : ''}</details>`;
 }
 document.addEventListener('change', e => {
@@ -1395,7 +1395,7 @@ document.addEventListener('change', e => {
   p.options = options;
   // Valeur renommée (même nombre de combinaisons) : stock et prix repris à la même position
   const ids = combis.map(c => c.join('/'));
-  p.variantes = combis.map((valeurs, i) => { const id = valeurs.join('/'); const v = avant.find(x => x.id === id) || (avant.length === combis.length && avant[i] && !ids.includes(avant[i].id) ? { ...avant[i], stockSaisi: true } : null); return { id, valeurs, stock: p.type === 'drop' ? 999 : v ? v.stock : 0, ...(v && v.ref ? { ref: v.ref } : {}), ...(v && v.stockSaisi ? { stockSaisi: true } : {}), ...(v && v.prix !== undefined && v.prix !== null && v.prix !== '' ? { prix: v.prix } : {}) }; });
+  p.variantes = combis.map((valeurs, i) => { const id = valeurs.join('/'); const v = avant.find(x => x.id === id) || (avant.length === combis.length && avant[i] && !ids.includes(avant[i].id) ? { ...avant[i], stockSaisi: true } : null); return { id, valeurs, stock: p.type === 'drop' ? 999 : v ? v.stock : 0, ...(v && v.ref ? { ref: v.ref } : {}), ...(v && v.ean ? { ean: v.ean } : {}), ...(v && v.stockSaisi ? { stockSaisi: true } : {}), ...(v && v.prix !== undefined && v.prix !== null && v.prix !== '' ? { prix: v.prix } : {}) }; });
   if (!p.variantes.length) { delete p.options; delete p.variantes; }
   else if (p.type !== 'drop') p.stock = p.variantes.reduce((a, v) => a + (Number(v.stock) || 0), 0);
   // Ce qui est déjà saisi dans la fiche (nom, prix…) est gardé avant le nouvel affichage
@@ -1403,12 +1403,14 @@ document.addEventListener('change', e => {
   if (f) { const d = new FormData(f); for (const k of ['nom', 'description', 'categorie']) if (d.has(k)) p[k] = d.get(k); for (const k of ['prix', 'cout', 'prixReference']) if (d.has(k) && d.get(k) !== '') p[k] = Number(d.get(k)); p.actif = d.has('actif'); p.tauxReduit = d.has('tauxReduit'); }
   // Nouvel affichage après le déplacement du curseur (tabulation, clic) : le marchand le retrouve dans le champ où il est allé
   setTimeout(() => {
-    const actif = document.activeElement, suite = actif && actif.matches && actif.matches('[data-opt-nom], [data-opt-valeurs], [data-var-stock], [data-var-prix], [data-var-ref]') ? [...actif.attributes].find(a => a.name.startsWith('data-')) : null;
+    const actif = document.activeElement, suite = actif && actif.matches && actif.matches('[data-opt-nom], [data-opt-valeurs], [data-var-stock], [data-var-prix], [data-var-ref], [data-var-ean]') ? [...actif.attributes].find(a => a.name.startsWith('data-')) : null;
     rendre();
     if (suite) document.querySelector(`[${suite.name}="${CSS.escape(suite.value)}"]`)?.focus();
   }, 0);
 });
 document.addEventListener('input', e => {
+  const ve = e.target.closest('[data-var-ean]');
+  if (ve && ui.produitEdite) { const v = (ui.produitEdite.variantes || []).find(x => x.id === ve.dataset.varEan); if (v) { if (ve.value.trim()) v.ean = ve.value.trim().slice(0, 20); else delete v.ean; } return; }
   const rf = e.target.closest('[data-var-ref]');
   if (rf && ui.produitEdite) { const v = (ui.produitEdite.variantes || []).find(x => x.id === rf.dataset.varRef); if (v) { if (rf.value.trim()) v.ref = rf.value.trim().slice(0, 60); else delete v.ref; } return; }
   const s = e.target.closest('[data-var-stock]'), pr = e.target.closest('[data-var-prix]'); if ((!s && !pr) || !ui.produitEdite) return;

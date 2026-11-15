@@ -487,7 +487,7 @@ Suite des constats « non faits » de la relecture.
   - Un code inconnu, un produit à variantes ou un produit épuisé donne un message, sans rien ajouter.
 - **Import CSV** : les colonnes « Variant Barcode » (Shopify), « GTIN, UPC, EAN, or ISBN » (WooCommerce), « EAN13 » (PrestaShop) et « EAN / code-barres » (tableur) sont reprises. Un code invalide ou en double est ignoré, avec un avertissement. Un code déjà présent dans la boutique est retiré du produit importé, et l'import continue.
 - **Page produit** : le code figure dans les données structurées (gtin8, gtin12, gtin13 ou gtin14), ce que demandent Google Shopping et les comparateurs.
-- **Limite** : un seul code par produit. Les variantes (taille, couleur) n'ont pas encore leur propre code.
+- **Limite levée au cycle 21** : les variantes ont maintenant leur propre code.
 - **Tests** :
   - chiffre de contrôle, valeurs justes et fausses ;
   - import (gardé, faux, en double, Shopify) ;
@@ -518,3 +518,13 @@ Pas d'injection, pas de fuite entre boutiques, et la politique de sécurité du 
 - **Sans objet** : le jeton d'arrêt était déjà masqué dans le journal des e-mails du marchand (le paramètre « j= » est masqué partout).
 - **Noté** : une commande marquée payée à la main ne déclenche pas d'e-mail de confirmation, donc le client découvre son rappel au premier envoi. Ce comportement existe depuis le début pour ces commandes.
 - Après corrections : 248 tests sur 248, parcours de bout en bout 57/57.
+
+### Cycle 21 (23 h 30) : un code-barres par variante (chantier 87)
+
+- **Fiche produit** : le tableau des variantes a une colonne « Code-barres » (produits en stock). Chaque taille ou couleur a son code, vérifié comme celui du produit.
+- **Unicité** : les codes du produit et de ses variantes sont uniques entre eux et face à tous les autres produits de la boutique, variantes comprises (requête sur les variantes enregistrées).
+- **Caisse** : le code d'une variante ajoute directement cette variante au ticket (« T-shirt (M) »). Le code du produit seul demande toujours de choisir la variante.
+- **Import Shopify** : le code de chaque ligne de variante (« Variant Barcode ») est repris. Un code invalide, en double ou déjà présent dans la boutique est ignoré, avec un avertissement.
+- **Mobile** : le champ est étroit. Le tableau défile dans son cadre, comme les autres tableaux de l'application.
+- **Tests** : code faux refusé, deux codes identiques dans un même produit refusés, code enregistré, code d'une variante refusé pour un autre produit, import Shopify avec un code juste et un faux.
+- **Vérifié dans Chromium**, bureau et mobile : saisie du code de la taille M, enregistrement, lecture au scanner. Le ticket donne « 1×T-shirt (M) ». Aucune erreur.

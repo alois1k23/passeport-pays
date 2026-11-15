@@ -29,7 +29,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 
 ### En boutique physique
 
-- **Caisse** (marchés, pop-up, magasin), avec un stock unique pour la caisse et le site. Lecture des codes-barres au scanner (EAN-8, UPC-A, EAN-13, GTIN-14) : le produit est ajouté au ticket, le champ reste prêt pour l'article suivant. Le code est saisi dans la fiche produit (chiffre de contrôle vérifié, unique dans la boutique) ou repris de l'import CSV (Shopify, WooCommerce, PrestaShop, tableur). Il figure aussi dans les données structurées de la page produit (gtin), pour Google Shopping.
+- **Caisse** (marchés, pop-up, magasin), avec un stock unique pour la caisse et le site. Lecture des codes-barres au scanner (EAN-8, UPC-A, EAN-13, GTIN-14) : le produit est ajouté au ticket, le champ reste prêt pour l'article suivant. Le code est saisi dans la fiche produit, aussi pour chaque variante (chiffre de contrôle vérifié, unique dans la boutique) ou repris de l'import CSV (Shopify, WooCommerce, PrestaShop, tableur). Il figure aussi dans les données structurées de la page produit (gtin), pour Google Shopping.
 - Retrait en magasin.
 
 ### Après la vente

@@ -836,7 +836,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
           const v = avant.find(x => x && x.id === id) || (memePosition && !combis.some(c2 => c2.join('/') === memePosition.id) ? memePosition : null) || {};   // valeur renommée : stock gardé
           const prixV = v.prix !== undefined && v.prix !== null && v.prix !== '' ? prix.arrondi(valider.nombre(v.prix, 'Le prix de la variante', { min: 0, max: 100000 })) : null;
           const ref = type === 'drop' && v.ref ? String(v.ref).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60) : '';
-          return { id, valeurs, stock: type === 'drop' ? 999 : valider.entier(v.stock ?? 0, 'Le stock de la variante', { min: 0, max: 1e6 }), ...(prixV !== null ? { prix: prixV } : {}), ...(ref ? { ref } : {}) };
+          // Code-barres propre à la variante (taille, couleur) : lu au scanner en caisse.
+          if (type === 'stock' && v.ean && String(v.ean).trim() && !Gtin.valide(v.ean)) throw erreur(400, `Code-barres invalide pour la variante ${valeurs.join(' / ')}.`, 'ean_invalide');
+          const eanV = type === 'stock' && v.ean && String(v.ean).trim() ? Gtin.normaliser(v.ean) : '';
+          return { id, valeurs, stock: type === 'drop' ? 999 : valider.entier(v.stock ?? 0, 'Le stock de la variante', { min: 0, max: 1e6 }), ...(prixV !== null ? { prix: prixV } : {}), ...(ref ? { ref } : {}), ...(eanV ? { ean: eanV } : {}) };
         });
         if (type !== 'drop') propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
       }
@@ -2504,8 +2507,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Composants d'un lot : produits de la même boutique, en stock propre, simples (ni variantes, ni numérique, ni lot,
   // ni dropshipping), et pas le lot lui-même.
   function verifierLot(bid, propre, idLot) {
-    // Code-barres unique dans la boutique (la caisse retrouve le produit au scanner).
-    if (propre.ean && db.prepare("SELECT 1 FROM produits WHERE boutique_id = ? AND supprime = 0 AND id <> ? AND json_extract(donnees, '$.ean') = ?").get(bid, String(idLot || ''), propre.ean)) throw erreur(409, `Code-barres ${propre.ean} déjà utilisé par un autre produit.`, 'ean_doublon');
+    // Codes-barres uniques dans la boutique, produits et variantes confondus (la caisse retrouve l'article au scanner).
+    const eans = [propre.ean, ...(Array.isArray(propre.variantes) ? propre.variantes.map(v => v.ean) : [])].filter(Boolean);
+    if (new Set(eans).size !== eans.length) throw erreur(409, 'Deux codes-barres identiques dans ce produit.', 'ean_doublon');
+    for (const e of eans) if (db.prepare("SELECT 1 FROM produits p WHERE p.boutique_id = ? AND p.supprime = 0 AND p.id <> ? AND (json_extract(p.donnees, '$.ean') = ? OR EXISTS (SELECT 1 FROM json_each(p.donnees, '$.variantes') v WHERE json_extract(v.value, '$.ean') = ?))").get(bid, String(idLot || ''), e, e)) throw erreur(409, `Code-barres ${e} déjà utilisé par un autre produit.`, 'ean_doublon');
     if (!propre.composants) return propre;
     for (const c of propre.composants) {
       const r0 = c.produitId === idLot ? null : db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(c.produitId, bid);
@@ -2589,8 +2594,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (existants + nouveaux.length > MAX_PRODUITS_BOUTIQUE) throw erreur(409, `${MAX_PRODUITS_BOUTIQUE} produits au plus par boutique : cet import en ajouterait ${nouveaux.length} aux ${existants} existants.`, 'trop_de_produits');
     const erreurs = [...res.erreurs], crees = [];
     // Code-barres déjà porté par un produit de la boutique : retiré du produit importé (l'import ne s'arrête pas pour ça).
-    const eansPris = new Set(db.prepare("SELECT json_extract(donnees, '$.ean') e FROM produits WHERE boutique_id = ? AND supprime = 0 AND json_extract(donnees, '$.ean') IS NOT NULL").all(ctx.boutique.id).map(r => r.e));
-    for (const p of nouveaux) if (p.ean && eansPris.has(p.ean)) { delete p.ean; erreurs.push({ avertissement: true, message: `« ${String(p.nom).slice(0, 40)} » : code-barres déjà utilisé dans la boutique, ignoré.` }); }
+    const eansPris = new Set([...db.prepare("SELECT json_extract(donnees, '$.ean') e FROM produits WHERE boutique_id = ? AND supprime = 0 AND json_extract(donnees, '$.ean') IS NOT NULL").all(ctx.boutique.id).map(r => r.e),
+      ...db.prepare("SELECT json_extract(v.value, '$.ean') e FROM produits p, json_each(p.donnees, '$.variantes') v WHERE p.boutique_id = ? AND p.supprime = 0 AND json_extract(v.value, '$.ean') IS NOT NULL").all(ctx.boutique.id).map(r => r.e)]);
+    const avertirEan = p => erreurs.push({ avertissement: true, message: `« ${String(p.nom).slice(0, 40)} » : code-barres déjà utilisé dans la boutique, ignoré.` });
+    for (const p of nouveaux) {
+      if (p.ean && eansPris.has(p.ean)) { delete p.ean; avertirEan(p); }
+      for (const v of p.variantes || []) if (v.ean && eansPris.has(v.ean)) { delete v.ean; avertirEan(p); }
+    }
     transaction(db, () => {
       let ordre = db.prepare('SELECT COALESCE(MAX(ordre), 0) AS o FROM produits WHERE boutique_id = ?').get(ctx.boutique.id).o;
       for (const p of nouveaux) {
