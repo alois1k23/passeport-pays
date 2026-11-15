@@ -1482,4 +1482,7 @@ details.en-ligne form { margin-top: 6px; }
 .lot-ligne { align-items: flex-end; flex-wrap: wrap; }
 .lot-ligne .champ { flex: 1 1 200px; margin: 0; }
 .lot-ligne .lot-qte { flex: 0 0 90px; }
+.apercu-journal { line-height: 1.6; }
+.apercu-journal h2 { font-size: 1.2rem; margin: 16px 0 6px; }
+.apercu-journal h3 { font-size: 1.05rem; margin: 12px 0 4px; }
 

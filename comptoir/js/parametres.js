@@ -7,7 +7,7 @@ function sectionsVisibles() {
   if (role === 'complet') return SECTIONS_PARAM.filter(([k]) => !['abonnement', 'integrations', 'equipe', 'sensible'].includes(k));
   return SECTIONS_PARAM.filter(([k]) => k !== 'equipe' || (typeof SERVEUR !== 'undefined' && SERVEUR.connecte));
 }
-const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['pro', 'Clients pro'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['securite', 'Sécurité'], ['integrations', 'Intégrations'], ['equipe', 'Équipe'], ['sensible', 'Zone sensible']];
+const SECTIONS_PARAM = [['general', 'Général'], ['apparence', 'Apparence'], ['paiements', 'Paiements'], ['livraison', 'Livraison'], ['pro', 'Clients pro'], ['journal', 'Journal'], ['emails', 'E-mails'], ['domaine', 'Domaine'], ['abonnement', 'Abonnement'], ['donnees', 'Données'], ['securite', 'Sécurité'], ['integrations', 'Intégrations'], ['equipe', 'Équipe'], ['sensible', 'Zone sensible']];
 
 function enLigne() { return typeof SERVEUR !== 'undefined' && SERVEUR.connecte; }
 
@@ -126,6 +126,8 @@ function vueParametres() {
       <p class="sous">Sur Comptoir : double authentification (application Google Authenticator, 1Password, Bitwarden…), codes de secours, liste des appareils connectés avec déconnexion à distance, journal d’activité et alerte par e-mail à chaque connexion depuis un nouvel appareil.</p></section>`;
   } else if (s === 'equipe') {
     corps = typeof vueEquipe === 'function' ? vueEquipe() : '';
+  } else if (s === 'journal') {
+    corps = typeof vueJournal === 'function' ? vueJournal() : '';
   } else if (s === 'pro') {
     corps = typeof vuePro === 'function' ? vuePro() : '';
   } else if (s === 'integrations') {

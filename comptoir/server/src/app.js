@@ -15,6 +15,7 @@ const Risque = require('./risque');
 const ImportCatalogue = require('../../js/import-catalogue.js');
 const { creerNumerique, dispositionPieceJointe } = require('./numerique');
 const { creerPro } = require('./pro');
+const Articles = require('./articles');
 const EmailsClients = require('./emails-clients');
 const FactureElectronique = require('./facture-electronique');
 const FacturxPdf = require('./facturx-pdf');
@@ -67,6 +68,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
 .haut{display:flex;justify-content:space-between;gap:10mm}.bas{position:absolute;left:0;bottom:0}.imp{position:fixed;top:8px;right:12px;margin:0;background:#fff;padding:6px 10px;border-radius:6px;font-size:9pt}
 @media print{body{background:#fff}.page{margin:0;box-shadow:none}.imp{display:none}@page{size:A4;margin:0}}${QrFacture.CSS}`);
   const FEUILLE_2 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}*{box-sizing:border-box}body{font:16px/1.5 system-ui,sans-serif;background:#F3F4F7;color:#151821;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:12px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}h1{font-size:1.3rem;margin:0}.total{font-size:1.8rem;font-weight:700}button{font:inherit;font-weight:600;padding:12px;border-radius:8px;border:1px solid #151821;width:100%;cursor:pointer}.payer{background:#151821;color:#fff}.annuler{background:#fff}.note{color:#5B6372;font-size:.85rem}`);
+  // Journal de la boutique (pages d'articles rendues par le serveur) : feuille fixe, autorisée par son empreinte.
+  const FEUILLE_JOURNAL = feuille(`body{margin:0;font:17px/1.65 Georgia,'Times New Roman',serif;background:#FAF8F5;color:#1D1B18}header,main,footer{max-width:720px;margin:0 auto;padding:0 20px}header{padding-top:28px;font:600 15px/1.4 system-ui,sans-serif}header a{color:inherit;text-decoration:none}main{padding-bottom:40px}h1{font-size:2rem;line-height:1.2;margin:28px 0 8px}h2{font-size:1.4rem;margin:32px 0 8px}h3{font-size:1.15rem;margin:24px 0 6px}.date{font:14px system-ui,sans-serif;color:#6B655C}a{color:#1F5C70}ul{padding-left:22px}.liste{list-style:none;padding:0}.liste li{padding:18px 0;border-bottom:1px solid #E4DED4}.liste h2{margin:0 0 4px;font-size:1.3rem}.liste h2 a{color:inherit;text-decoration:none}.liste p{margin:4px 0 0;color:#4A453E}.retour{display:inline-block;margin-top:28px;font:600 15px system-ui,sans-serif}footer{padding:24px 20px 40px;font:14px system-ui,sans-serif;color:#6B655C;border-top:1px solid #E4DED4}`);
   const FEUILLE_3 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}`);
   const FEUILLE_4 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#F4F5F7;color:#151821;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:24px;max-width:720px;margin:24px auto}h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 4px}a{color:#1D5C70}.alerte{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px}`);
   const paiement = choisirPrestataire(env, urlPublique, fetchImpl);
@@ -239,6 +242,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const avecImage = p => p.image === IMG ? { ...p, image: imageDe(p.id) } : p;
   const NUM = creerNumerique({ db, erreur });   // produits numériques : fichiers et liens de téléchargement
   const PRO = creerPro({ db, erreur, pii: () => PII });   // clients professionnels
+  const ART = Articles.creerArticles({ db, erreur });   // journal (blog) de chaque boutique
   /* Lots et coffrets : un produit composé d'autres produits en stock. Son stock est calculé à la lecture (le nombre de
      lots que permettent ses composants) ; à la vente, ce sont les composants qui sont décomptés. */
   const stockLots = produits => {
@@ -2292,6 +2296,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         db.prepare('DELETE FROM images_produits WHERE produit_id IN (SELECT id FROM produits WHERE boutique_id = ?)').run(b.id);
         NUM.toutSupprimer(b.id);   // fichiers des produits numériques, liens, envois
         PRO.toutSupprimer(b.id);   // clients professionnels, codes, sessions
+        ART.toutSupprimer(b.id);   // articles du journal
         for (const t of ['publications', 'evenements', 'avis', 'abonnes', 'envois_auto', 'emails', 'comptes_stripe']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(b.id);
       }
       db.prepare('DELETE FROM emails WHERE boutique_id IS NULL AND lower(destinataire) = ?').run(String(m.email).toLowerCase());   // seulement les e-mails de compte, pas ceux reçus comme client d'autres boutiques   // e-mails de compte (réinitialisation, abonnement)
@@ -2584,6 +2589,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     };
     await Promise.all([suivant(), suivant(), suivant(), suivant()]);
   }
+  /* ---------- Journal (blog) ---------- */
+  r.get('/api/admin/articles', exigerMarchand, ctx => ({ articles: ART.liste(ctx.boutique.id) }));
+  r.post('/api/admin/articles', exigerMarchand, ctx => ({ statut: 201, corps: { article: ART.enregistrer(ctx.boutique.id, ctx.corps) } }));
+  r.put('/api/admin/articles/:id', exigerMarchand, ctx => ({ article: ART.enregistrer(ctx.boutique.id, ctx.corps, String(ctx.params.id)) }));
+  r.delete('/api/admin/articles/:id', exigerMarchand, ctx => { if (!ART.supprimer(ctx.boutique.id, ctx.params.id)) throw erreur(404, 'Article introuvable.', 'introuvable'); return { ok: true }; });
+  r.post('/api/admin/articles/apercu', exigerMarchand, ctx => ({ rendu: Articles.versHtml(String(ctx.corps.corps || '')) }));   // « rendu » : une clé « html » serait servie comme page
   /* ---------- Clients professionnels ---------- */
   r.get('/api/admin/pro', exigerMarchand, ctx => ({ clients: PRO.liste(ctx.boutique.id), factureDisponible: factureProPossible(lireConfig(ctx.boutique)) }));
   r.post('/api/admin/pro', exigerMarchand, ctx => { const c = PRO.enregistrer(ctx.boutique.id, ctx.corps); noterActivite(ctx.marchand.id, 'client-pro', c.raison, ctx); return { statut: 201, corps: { client: c } }; });
@@ -3203,7 +3214,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       boutique: { ...config.boutique, sections: sectionsPubliques },
       magasin: { clickCollect: !!config.magasin.clickCollect, adresse: config.magasin.adresse || '' },
       entreprise: { raison: config.entreprise.raison, adresse: config.entreprise.adresse, email: config.entreprise.email, forme: config.entreprise.forme, siret: config.entreprise.siret, regime: config.entreprise.regime, tvaIntra: config.entreprise.tvaIntra, mediateur: config.entreprise.mediateur, telephone: config.entreprise.telephone, retoursJours: Number(config.entreprise.retoursJours) || 0 },
-      produits, avisRecents,
+      produits, avisRecents, journal: ART.liste(b.id, { publies: true }).length,
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: Remises.offresDe(config).seuilPort,
       cartesCadeaux: (() => { const v = Cartes.reglagesVente(b.id); return v.actif ? { montants: v.montants } : null; })(),
@@ -5002,10 +5013,32 @@ ${bloc}</main></body></html>`;
     const sansJs = `<noscript><main class="page-erreur"><h1>${escHtml(p ? p.nom : nom)}</h1>${p ? `<p>${escHtml(court(p.description))}</p><p><strong>${escHtml(formatMontant(p.prix, config))}</strong></p>` : `<p>${escHtml(description)}</p><ul>${produits.slice(0, 60).map(x => `<li><a href="${escHtml(urlProduit(x))}">${escHtml(x.nom)}</a> · ${escHtml(formatMontant(x.prix, config))}</li>`).join('')}</ul>`}<p>Activez JavaScript pour commander.</p></main></noscript>`;
     return fs.readFileSync(path.join(RACINE_FRONT, 'boutique.html'), 'utf8').replace(/<title>[^<]*<\/title>/, '').replace('<html lang="fr">', () => `<html lang="${langueOk || 'fr'}">`).replace('<head>', () => `<head>\n${tete}`).replace('<div id="app"></div>', () => `<div id="app"></div>${sansJs}`);   // fonctions : « $' » ou « $& » dans un nom de boutique restent du texte
   }
+  /* Journal : liste et articles en pages HTML complètes (sans JavaScript), avec données structurées et adresse canonique. */
+  function pageJournal(b, { racine, article = null }) {
+    const config = lireConfig(b), nom = config.boutique.nom, base = racine.replace(/\/$/, '');
+    const ouverte = abo.etat(b.marchand_id).actif;
+    const urlArt = a => `${base}/journal/${encodeURIComponent(a.slug)}`;
+    const date = t => new Date(t).toLocaleDateString('fr-CH', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Zurich' });
+    const arts = ART.liste(b.id, { publies: true });
+    const titre = article ? `${article.titre} · ${nom}` : `Journal · ${nom}`;
+    const description = (article ? (article.resume || Articles.texteBrut(article.corps)) : `Les articles de ${nom}.`).slice(0, 158);
+    const canonique = article ? urlArt(article) : `${base}/journal`;
+    const ld = article ? { '@context': 'https://schema.org', '@type': 'BlogPosting', headline: article.titre, datePublished: new Date(article.publieLe).toISOString(), dateModified: new Date(article.majLe).toISOString(), url: canonique, publisher: { '@type': 'Organization', name: nom }, description }
+      : { '@context': 'https://schema.org', '@type': 'Blog', name: `Journal · ${nom}`, url: canonique };
+    const corps = article
+      ? `<article><h1>${escHtml(article.titre)}</h1><p class="date">${escHtml(date(article.publieLe))}</p>${Articles.versHtml(article.corps)}</article><a class="retour" href="${escHtml(base)}/journal">← Tous les articles</a>`
+      : `<h1>Journal</h1>${arts.length ? `<ul class="liste">${arts.map(a => `<li><h2><a href="${escHtml(urlArt(a))}">${escHtml(a.titre)}</a></h2><p class="date">${escHtml(date(a.publieLe))}</p>${a.resume ? `<p>${escHtml(a.resume)}</p>` : ''}</li>`).join('')}</ul>` : '<p>Aucun article pour l’instant.</p>'}`;
+    return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escHtml(titre)}</title>
+<meta name="description" content="${escHtml(description)}"><link rel="canonical" href="${escHtml(canonique)}">${ouverte ? '' : '<meta name="robots" content="noindex">'}
+<meta property="og:type" content="${article ? 'article' : 'website'}"><meta property="og:title" content="${escHtml(article ? article.titre : `Journal · ${nom}`)}"><meta property="og:description" content="${escHtml(description)}"><meta property="og:url" content="${escHtml(canonique)}"><meta property="og:site_name" content="${escHtml(nom)}">
+<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>
+${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom)}</a> · <a href="${escHtml(base)}/journal">Journal</a></header><main>${corps}</main><footer><a href="${escHtml(base)}/">Retour à la boutique ${escHtml(nom)}</a></footer></body></html>`;
+  }
   function planDuSite(b, racine) {
     const base = racine.replace(/\/$/, '');
     const produits = abo.etat(b.marchand_id).actif ? listerProduits(b.id).filter(vendable) : [];
-    const urls = [`${base}/`, ...produits.map(p => `${base}/p/${encodeURIComponent(p.id)}`)];
+    const articles = abo.etat(b.marchand_id).actif ? ART.liste(b.id, { publies: true }) : [];
+    const urls = [`${base}/`, ...produits.map(p => `${base}/p/${encodeURIComponent(p.id)}`), ...(articles.length ? [`${base}/journal`, ...articles.map(a => `${base}/journal/${encodeURIComponent(a.slug)}`)] : [])];
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u => `  <url><loc>${escHtml(u)}</loc></url>`).join('\n')}\n</urlset>\n`;
   }
   // Image d'un produit en fichier (pour l'aperçu de partage : og:image doit être une adresse, pas une image intégrée).
@@ -5223,12 +5256,14 @@ ${FEUILLE_4}</head>
         && db.prepare("SELECT 1 FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote)) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Introuvable'); return;
       }
-      if (hote && hote !== hotePrincipal && req.method === 'GET' && (chemin === '/' || chemin === '/index.html' || /^\/p\/[\w-]+$/.test(chemin) || chemin === '/sitemap.xml' || chemin === '/robots.txt')) {
+      if (hote && hote !== hotePrincipal && req.method === 'GET' && (chemin === '/' || chemin === '/index.html' || /^\/p\/[\w-]+$/.test(chemin) || /^\/journal(\/[\w-]+)?\/?$/.test(chemin) || chemin === '/sitemap.xml' || chemin === '/robots.txt')) {
         const b = db.prepare("SELECT * FROM boutiques WHERE lower(json_extract(config, '$.boutique.domaine.domaine')) = ? AND json_extract(config, '$.boutique.domaine.actif') = 1").get(hote);
         if (b) {
           const racine = `https://${hote}/`;
           if (chemin === '/sitemap.xml') { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, racine)); }
           if (chemin === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(`User-agent: *\nAllow: /\nAllow: /api/public/*/image/\nDisallow: /api/\nSitemap: ${racine}sitemap.xml\n`); }
+          const mj = /^\/journal(?:\/([\w-]+))?\/?$/.exec(chemin);
+          if (mj) { const art = mj[1] ? ART.publie(b.id, mj[1]) : null; return envoyerHtml(res, mj[1] && !art ? 404 : 200, pageJournal(b, { racine, article: art })); }
           const pid = chemin.startsWith('/p/') ? decodeURIComponent(chemin.slice(3)) : null;
           return envoyerHtml(res, pid && !produitVisible(b, pid) ? 404 : 200, pageBoutique(b, { racine, produitId: pid, langue: url.searchParams.get('lang') }));
         }
@@ -5243,6 +5278,11 @@ ${FEUILLE_4}</head>
             const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mBoutique[1]);
             // Produit absent, masqué ou retiré : vrai 404 (la page reste utilisable : elle montre la boutique).
             if (b) return envoyerHtml(res, mBoutique[2] && !produitVisible(b, mBoutique[2]) ? 404 : 200, pageBoutique(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, produitId: mBoutique[2] || null, langue: url.searchParams.get('lang') }));
+          }
+          const mJournal = /^\/s\/([\w-]+)\/journal(?:\/([\w-]+))?\/?$/.exec(chemin);
+          if (mJournal) {
+            const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mJournal[1]);
+            if (b) { const a = mJournal[2] ? ART.publie(b.id, mJournal[2]) : null; return envoyerHtml(res, mJournal[2] && !a ? 404 : 200, pageJournal(b, { racine: domaineDe(b) ? `https://${domaineDe(b)}/` : `${urlPublique}/s/${b.slug}/`, article: a })); }
           }
           const mPlan = /^\/s\/([\w-]+)\/sitemap\.xml$/.exec(chemin);
           if (mPlan) { const b = db.prepare('SELECT * FROM boutiques WHERE slug = ?').get(mPlan[1]); if (b) { res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' }); return res.end(planDuSite(b, `${urlPublique}/s/${b.slug}/`)); } }

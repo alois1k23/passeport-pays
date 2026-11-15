@@ -248,3 +248,38 @@ Vendre aux professionnels (hôtels, restaurants, revendeurs) avec leurs propres 
   - **Noté** : le plafond ne compte que les factures encore en attente. Un marchand qui expédie à crédit en marquant la commande payée libère le plafond avant le paiement réel.
 - Après corrections : 242 tests sur 242, parcours de bout en bout 57/57.
 
+### Cycle 6 (22 h 45) : journal de la boutique (chantier 75)
+
+Les autres plateformes ont un blog intégré ; c'est un levier de référencement pour une petite boutique (conseils, coulisses, nouveautés). Désormais :
+
+- **Paramètres > Journal** : titre, résumé (repris dans la liste et par les moteurs de recherche), texte et case « Publié ». L'aperçu est rendu par le serveur, donc identique à la page publique, sans perdre la saisie.
+- **Texte enrichi sûr** : « ## » et « ### » pour les intertitres, **gras**, *italique*, listes, et liens [texte](https://…).
+  - Le texte est échappé d'abord, puis seuls ces motifs deviennent des balises : aucun HTML saisi ne passe, même maquillé.
+  - Les liens ne sont que https, avec `rel="nofollow noopener"`.
+  - Testé : `<script>`, `<img onerror>`, liens `javascript:` et `data:`, guillemets dans une adresse, balise dans du gras.
+- **Pages publiques rendues par le serveur**, à `/s/<boutique>/journal` et `/journal/<article>`, et à `/journal` sur un domaine personnalisé :
+  - HTML complet, lisible sans JavaScript ;
+  - titre, description, adresse canonique, Open Graph, données structurées (Blog, BlogPosting) ;
+  - feuille de style fixe autorisée par son empreinte (la politique de sécurité reste stricte) ;
+  - un brouillon ou une adresse inconnue répond 404 ;
+  - une boutique sans abonnement actif n'est pas indexée.
+- **Plan du site** : le journal et chaque article publié y figurent.
+- **Boutique** : lien « Journal » en bas de page dès le premier article publié.
+- **Adresses** : tirées du titre, sans accents ; un -2, -3… s'ajoute si l'adresse est prise. Au plus 300 articles par boutique.
+- **Défaut trouvé par les tests** : l'aperçu répondait en page HTML au lieu de JSON, parce que le routeur sert telle quelle toute réponse qui porte une clé `html`. La clé est renommée.
+- **Limites, notées** :
+  - pas d'image dans les articles ;
+  - pas de version traduite des articles ;
+  - pas de commentaires.
+- **Tests** :
+  - texte enrichi et injections ;
+  - adresse unique, brouillon absent de la liste, de la page et du plan du site ;
+  - article publié avec intertitre, gras, données structurées et adresse canonique ;
+  - nom de boutique échappé ;
+  - modification, suppression, aperçu.
+- **Vérifié dans Chromium**, bureau et mobile :
+  - écriture avec aperçu, publication, lien en pied de boutique, liste, article ;
+  - lecture sans JavaScript ;
+  - aucune erreur de page ni de console.
+- 244 tests sur 244, parcours de bout en bout 57/57, fuzzing sans constat.
+
