@@ -22,8 +22,9 @@ function euros(n) {
   return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: d });
 }
 
-function visuelProduit(p, grand = false) {
-  if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${/^data:image\/(jpeg|png|webp);base64,/.test(p.image) || /^\/api\/public\/[\w-]+\/image\/[\w-]+$/.test(p.image) ? esc(p.image) : ''}" loading="lazy" alt="${esc(p.nom)}"></div>`;
+// prioritaire : image principale visible tout de suite (fiche produit) : chargée sans attendre, en priorité.
+function visuelProduit(p, grand = false, prioritaire = false) {
+  if (p.image) return `<div class="sf-visuel photo${grand ? ' grand' : ''}"><img src="${/^data:image\/(jpeg|png|webp);base64,/.test(p.image) || /^\/api\/public\/[\w-]+\/image\/[\w-]+$/.test(p.image) ? esc(p.image) : ''}" ${prioritaire ? 'fetchpriority="high"' : 'loading="lazy"'} width="600" height="600" alt="${esc(p.nom)}"></div>`;
   const h = p.teinte ?? 30;
   // Sans photo : fond uni teinté et pictogramme de la catégorie (plus sobre que des initiales).
   return `<div class="sf-visuel sans-photo${grand ? ' grand' : ''}" data-vars="--teinte:${Number(h) || 0}" role="img" aria-label="${esc(p.nom)}">${pictoProduit(p)}</div>`;
@@ -225,7 +226,7 @@ function renduFiche(etat, p, qte = 1) {
   return `<div class="sf-fiche-fond" data-sf="fermer-fiche"></div>
   <div class="sf-fiche" role="dialog" aria-modal="true" aria-label="${esc(p.nom)}">
     <button type="button" class="sf-fiche-fermer" data-sf="fermer-fiche" aria-label="Fermer">×</button>
-    <div class="sf-fiche-visuel">${visuelProduit(p)}</div>
+    <div class="sf-fiche-visuel">${visuelProduit(p, false, true)}</div>
     <div class="sf-fiche-infos">
       ${p.categorie ? `<small class="sf-fiche-cat">${esc(p.categorie)}</small>` : ''}
       <h2 data-sans-traduction>${esc(p.nom)}</h2>

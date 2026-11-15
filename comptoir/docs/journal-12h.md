@@ -755,3 +755,20 @@ Les **7 étapes sont réussies**. Après les corrections de la relecture 92-93 e
   - un emplacement inconnu est refusé.
 - **Tests** : emplacement inconnu, conflit sans aucune écriture, quantité posée dans le bon emplacement, total égal à la somme, mouvement « inventaire » au registre.
 - **Vérifié dans Chromium**, bureau et mobile : entrepôt choisi (stock 6), 5 lectures au lecteur, application. Résultat : entrepôt 5, magasin 4 inchangé, total 9. Aucune erreur.
+
+### Cycle 36 (00 h 25) : mesure des performances de la boutique (chantier 98)
+
+- **Outil** `outils/simulation/performance-boutique.js` : 24 produits avec une photo réaliste, mesurés comme sur un téléphone (processeur ralenti 4 fois, réseau 4G lente). Il relève le poids transféré, le nombre de requêtes, le plus grand affichage (LCP), les décalages de mise en page (CLS) et le temps de blocage.
+- **Mesures avant correction** :
+  - accueil et page produit : environ 172 Ko et 12 requêtes, LCP 1,25 s, blocage 104 à 112 ms ;
+  - journal : 4 Ko et 1 requête, LCP 0,26 s ;
+  - photos des cartes chargées à la demande ;
+  - **mais** CLS de 0,11 sur la page produit, au-dessus du seuil de 0,1.
+- **Cause, trouvée en observant les décalages** : sur téléphone, la fiche produit s'ouvre ancrée en bas de l'écran. Quand sa photo arrivait, la fiche grandissait de 80 px et tout remontait. En plus, cette photo principale était chargée « à la demande », comme celles des cartes.
+- **Corrections** :
+  - sur téléphone, la place de la photo est réservée (format carré) ;
+  - la photo principale est chargée tout de suite, en priorité (`fetchpriority="high"`) ;
+  - les images ont des dimensions déclarées.
+- **Après** : CLS de 0,027 sur la page produit et 0 sur l'accueil, LCP 1,23 s, blocage 64 à 72 ms. La fiche a été revue en capture d'écran, sur bureau et sur téléphone.
+- **Limite** : la mesure se fait en local, sans le temps de réponse d'un vrai serveur ni d'un CDN.
+- 254 tests sur 254, parcours de bout en bout 57/57.
