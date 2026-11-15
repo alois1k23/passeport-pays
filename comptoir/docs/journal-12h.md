@@ -413,3 +413,41 @@ Un article de conseils (« Entretenir le lin ») mène maintenant directement au
 - **Signalement** : une date dans les 3 jours est marquée en alerte, une date passée est affichée « en retard ». Les dates sont celles du jour de Lausanne.
 - **Vérifié dans Chromium**, bureau et mobile, avec deux produits en précommande (dans 2 jours et dans 20 jours) : le premier est en alerte, le second non. Aucune erreur.
 - Rien ne change côté serveur, les tests existants couvrent les données utilisées.
+
+### Cycle 15 (23 h 15) : relecture indépendante des chantiers 79 et 80
+
+Aucune faille critique. La relecture a surtout trouvé des rappels qui continuaient alors qu'ils n'auraient pas dû. Corrigés et testés :
+
+- **Moyen** : une commande remboursée ou annulée gardait son rappel de réassort. La demande retient maintenant sa commande d'origine et tombe au remboursement ou à l'annulation, quel que soit le chemin (testé).
+- **Moyen** : un client qui recommandait sans recocher la case recevait quand même son ancien rappel, parfois quelques jours après. Toute commande payée remet à zéro ses rappels pour les mêmes produits (testé).
+- **Moyen** : des demandes mortes restaient en base des années (produit supprimé, boutique réinitialisée). Elles sont supprimées au passage suivant, et aucune demande ne dure plus de deux ans (testé).
+- **Moyen** : pour une précommande, le délai partait du paiement. Il part maintenant de la date d'expédition annoncée (testé).
+- **Moyen** : les rappels n'avaient pas d'en-tête de désinscription. Chaque rappel porte maintenant l'en-tête List-Unsubscribe (arrêt en un clic, RFC 8058) vers son propre lien d'arrêt (testé).
+- **Bas** :
+  - une ligne illisible ne bloque plus tous les rappels (erreur isolée) ;
+  - l'envoi se fait par lots jusqu'à épuisement (20 secondes au plus) ;
+  - chaque rappel est réservé de façon atomique, donc pas de doublon si plusieurs processus tournent ;
+  - une commande marquée payée à la main (facture QR, virement) crée sa demande comme un paiement en ligne (testé) ;
+  - l'effacement d'un client se fait dans la même transaction que le reste ;
+  - l'export des données d'un client indique ses rappels ;
+  - une demande refusée à cause de la limite par boutique est journalisée ;
+  - le rappel des précommandes ne relit plus les commandes d'un produit déjà rappelé.
+- **Noté, non fait** :
+  - le marchand ne voit pas encore la liste des clients qui ont demandé un rappel, et ne peut pas en arrêter un seul (seul l'effacement complet le fait) ;
+  - l'e-mail de confirmation de commande ne mentionne pas encore le rappel demandé ;
+  - un produit réenregistré après sa date de précommande perd l'état « précommande », et son rappel de retard n'est alors pas envoyé.
+
+### Cycle 16 (23 h 15) : audit d'accessibilité automatique de la boutique (chantier 83)
+
+- **Audit** : le script `outils/simulation/accessibilite-boutique.js` complète `accessibilite.js`, qui couvre les écrans du marchand. Il contrôle quatre pages publiques (accueil, produit, panier ouvert, article du journal), sur bureau et sur mobile. Il vérifie :
+  - la langue de la page et l'unicité des identifiants ;
+  - les noms accessibles des boutons et des liens, les libellés des champs, le texte alternatif des images ;
+  - l'ordre des titres (un seul h1, aucun niveau sauté) ;
+  - les contrastes, selon les seuils WCAG AA ;
+  - la taille des cibles tactiles sur mobile (24 px, WCAG 2.2 AA).
+- **Résultat sur bureau** : aucun constat.
+- **Résultat sur mobile** :
+  - les titres des cartes produit (19 px de haut) et le lien « Tous les articles » du journal étaient trop petits. Ils sont corrigés et font maintenant 24 px au moins ;
+  - restent des cases à cocher de 20 px placées dans leur libellé (toute la ligne est cliquable) et le lien « CGV » au milieu d'une phrase. Les deux relèvent des exceptions prévues par WCAG 2.2.
+- **Limite** : cet audit automatique ne remplace pas un essai avec un lecteur d'écran.
+- Après corrections : 245 tests sur 245, parcours de bout en bout 57/57.

@@ -70,7 +70,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
 @media print{body{background:#fff}.page{margin:0;box-shadow:none}.imp{display:none}@page{size:A4;margin:0}}${QrFacture.CSS}`);
   const FEUILLE_2 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}*{box-sizing:border-box}body{font:16px/1.5 system-ui,sans-serif;background:#F3F4F7;color:#151821;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:12px;padding:28px;max-width:420px;width:100%;display:grid;gap:14px}h1{font-size:1.3rem;margin:0}.total{font-size:1.8rem;font-weight:700}button{font:inherit;font-weight:600;padding:12px;border-radius:8px;border:1px solid #151821;width:100%;cursor:pointer}.payer{background:#151821;color:#fff}.annuler{background:#fff}.note{color:#5B6372;font-size:.85rem}`);
   // Journal de la boutique (pages d'articles rendues par le serveur) : feuille fixe, autorisée par son empreinte.
-  const FEUILLE_JOURNAL = feuille(`body{margin:0;font:17px/1.65 Georgia,'Times New Roman',serif;background:#FAF8F5;color:#1D1B18}header,main,footer{max-width:720px;margin:0 auto;padding:0 20px}header{padding-top:28px;font:600 15px/1.4 system-ui,sans-serif}header a{color:inherit;text-decoration:none}main{padding-bottom:40px}h1{font-size:2rem;line-height:1.2;margin:28px 0 8px}h2{font-size:1.4rem;margin:32px 0 8px}h3{font-size:1.15rem;margin:24px 0 6px}.date{font:14px system-ui,sans-serif;color:#6B655C}a{color:#1F5C70}ul{padding-left:22px}.liste{list-style:none;padding:0}.liste li{padding:18px 0;border-bottom:1px solid #E4DED4}.liste h2{margin:0 0 4px;font-size:1.3rem}.liste h2 a{color:inherit;text-decoration:none}.liste p{margin:4px 0 0;color:#4A453E}.retour{display:inline-block;margin-top:28px;font:600 15px system-ui,sans-serif}footer{padding:24px 20px 40px;font:14px system-ui,sans-serif;color:#6B655C;border-top:1px solid #E4DED4}.produits ul{list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}.produits a{display:flex;flex-direction:column;gap:4px;text-decoration:none;color:inherit;font:15px/1.4 system-ui,sans-serif;background:#fff;border:1px solid #E6E1D8;border-radius:10px;padding:10px}.produits img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;border-radius:6px}.produits .nom{font-weight:600}.produits .prix{color:#6B655C}`);
+  const FEUILLE_JOURNAL = feuille(`body{margin:0;font:17px/1.65 Georgia,'Times New Roman',serif;background:#FAF8F5;color:#1D1B18}header,main,footer{max-width:720px;margin:0 auto;padding:0 20px}header{padding-top:28px;font:600 15px/1.4 system-ui,sans-serif}header a{color:inherit;text-decoration:none}main{padding-bottom:40px}h1{font-size:2rem;line-height:1.2;margin:28px 0 8px}h2{font-size:1.4rem;margin:32px 0 8px}h3{font-size:1.15rem;margin:24px 0 6px}.date{font:14px system-ui,sans-serif;color:#6B655C}a{color:#1F5C70}ul{padding-left:22px}.liste{list-style:none;padding:0}.liste li{padding:18px 0;border-bottom:1px solid #E4DED4}.liste h2{margin:0 0 4px;font-size:1.3rem}.liste h2 a{color:inherit;text-decoration:none}.liste p{margin:4px 0 0;color:#4A453E}.retour{display:inline-block;margin-top:28px;padding:6px 0;font:600 15px system-ui,sans-serif}footer{padding:24px 20px 40px;font:14px system-ui,sans-serif;color:#6B655C;border-top:1px solid #E4DED4}.produits ul{list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}.produits a{display:flex;flex-direction:column;gap:4px;text-decoration:none;color:inherit;font:15px/1.4 system-ui,sans-serif;background:#fff;border:1px solid #E6E1D8;border-radius:10px;padding:10px}.produits img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;border-radius:6px}.produits .nom{font-weight:600}.produits .prix{color:#6B655C}`);
   const FEUILLE_3 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#F4F5F7;color:#151821;display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:28px;max-width:440px;display:grid;gap:12px}h1{font-size:1.2rem;margin:0}button{font:inherit;padding:11px 16px;border-radius:9px;border:1px solid #151821;background:#151821;color:#fff;font-weight:600;cursor:pointer}`);
   const FEUILLE_4 = feuille(`.tab-console{border-collapse:collapse;width:100%;margin-top:12px}.tab-console td{padding:8px;border-bottom:1px solid #ddd;color:#555}.tab-console td.d{text-align:right;color:inherit}.tab-console tr.alerte td{color:#b42318;background:#fff4f2}.tab-console td.d span{font-weight:400;font-size:.875em}body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#F4F5F7;color:#151821;padding:16px}main{background:#fff;border:1px solid #E0E3EA;border-radius:14px;padding:24px;max-width:720px;margin:24px auto}h1{font-size:1.5rem;margin:0 0 8px}h2{font-size:1.05rem;margin:20px 0 4px}a{color:#1D5C70}.alerte{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px}`);
   const paiement = choisirPrestataire(env, urlPublique, fetchImpl);
@@ -330,6 +330,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   };
   const enregistrerCommande = c => {
     const { id, numero, date, statut, ...donnees } = c;
+    if (statut === 'remboursee' || statut === 'annulee') RE.supprimerCommande(id);   // commande remboursée ou annulée : plus de rappel de réassort
     const avant = db.prepare('SELECT statut, boutique_id FROM commandes WHERE id = ?').get(id);
     const ix = avant ? indexEmail(donnees, avant.boutique_id) : undefined;
     if (avant && ix !== undefined) db.prepare('UPDATE commandes SET statut = ?, donnees = ?, email_index = ?, maj_le = ? WHERE id = ?').run(statut, stockerDonneesCommande(donnees, avant.boutique_id, id), ix, Date.now(), id);
@@ -701,7 +702,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     envoyerEmail(b.id, c.client.email, `Votre commande n° ${c.numero} est en route`,
       `Bonjour ${c.client.nom},\n\nVotre colis est parti${c.transporteur ? ` avec ${c.transporteur}` : ''}.${c.suivi ? `\nNuméro de suivi : ${c.suivi}` : ''}${c.suivi && lien ? `\nSuivre le colis : ${lien}` : ''}\n\nVotre commande : ${lienCommande(b, c.id)}\n\nMerci et à bientôt,\n${config.boutique.nom}`);
   };
-  const envoyerEmail = (boutiqueId, destinataire, sujet, corps, { marketing = false, motif = 'nouvelles', langue = null } = {}) => {
+  const envoyerEmail = (boutiqueId, destinataire, sujet, corps, { marketing = false, motif = 'nouvelles', langue = null, lienArret = null } = {}) => {
     if (!destinataire) return;
     if (marketing && boutiqueId && estDesinscrit(boutiqueId, destinataire)) return;
     let pied = '', lien = null;
@@ -713,6 +714,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (marketing) lien = `${urlPublique}/desinscription?j=${jetonDesinscription(boutiqueId, destinataire)}${tp ? `&lang=${langue}` : ''}`;
       pied = `\n\n—\n${identite}${lien ? `\n${tp ? (motif === 'commande' ? tp.commande : tp.nouvelles)(conf.boutique.nom) : motif === 'commande' ? `Vous recevez cet e-mail à la suite de votre commande chez ${conf.boutique.nom}. Pour ne plus recevoir ce type de message` : `Vous recevez cet e-mail car vous avez accepté les nouvelles de ${conf.boutique.nom}. Pour ne plus les recevoir`} : ${lien}` : ''}`;
     }
+    if (!lien && lienArret) lien = lienArret;   // e-mail récurrent demandé par le client (rappel) : son propre lien d'arrêt en un clic (List-Unsubscribe)
     const insere = db.prepare('INSERT INTO emails (boutique_id, destinataire, sujet, corps, cree_le, desinscription) VALUES (?, ?, ?, ?, ?, ?)').run(boutiqueId, destinataire, sujet, corps.replace(/\s+$/, '') + pied, Date.now(), lien);
     if (env.LOG_EMAILS) journal.log(`[e-mail] à ${courriel.masquerAdresses(destinataire)} (boutique ${boutiqueId || '-'})`);   // (débogage ; ni adresse en clair ni sujet, qui peut porter un prénom)
     return Number(insere.lastInsertRowid);
@@ -1059,10 +1061,22 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (traduit) { envoyerEmail(boutique.id, c.client.email, traduit.sujet, traduit.corps, { langue: c.langue }); return; }
     envoyerEmail(boutique.id, c.client.email, `Vos téléchargements : commande n° ${c.numero}`, `Bonjour${c.client.nom && c.client.nom !== 'Client en boutique' ? ` ${c.client.nom}` : ''},\n\nMerci pour votre achat chez ${config.boutique.nom}. Voici vos fichiers :\n\n${liens.map(l => `${l.nom} (${l.fichier})\n${urlPublique}/telecharger/${l.jeton}`).join('\n\n')}\n\nChaque lien est personnel : il sert ${NUM.TELECHARGEMENTS} fois, pendant 30 jours. Ne le transmettez pas. S’il expire, écrivez à la boutique pour en recevoir un nouveau.\n\n${config.boutique.nom}`);
   }
+  /* Commande payée : les rappels de réassort du client pour ces produits repartent de zéro (il vient de recommander),
+     et une nouvelle demande est créée s'il a coché la case. Précommande : le délai part de la date d'expédition annoncée. */
+  function suiteReassort(b, c) {
+    try {
+      if (!c.client || !c.client.email) return;
+      RE.repousser(b.id, c.client.email, (c.lignes || []).map(l => l.produitId).filter(Boolean));
+      if (!c.reassort) return;
+      const pre = (c.lignes || []).map(l => l.precommande).filter(Boolean).sort().pop();
+      const r = RE.creer(b.id, { email: c.client.email, nom: c.client.nom, langue: c.langue || null, jours: c.reassort.jours, lignes: c.reassort.lignes, commandeId: c.id, depart: pre ? Date.parse(pre + 'T12:00:00Z') : 0 });
+      if (r && r.plein) journal.error('[reassort] limite de demandes atteinte', b.id);
+    } catch (e) { journal.error('[reassort]', e.message); }
+  }
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
     if (res.liens && res.liens.length) envoyerLiens(res.boutique, res.c, res.liens, config);
-    if (res.c.reassort && res.c.client && res.c.client.email) try { RE.creer(res.boutique.id, { email: res.c.client.email, nom: res.c.client.nom, langue: res.c.langue || null, jours: res.c.reassort.jours, lignes: res.c.reassort.lignes }); } catch (e) { journal.error('[reassort]', e.message); }
+    suiteReassort(res.boutique, res.c);
     if (res.c.alerteNumerique) { const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(res.boutique.marchand_id); if (mch) envoyerEmail(null, mch.email, `Action requise : commande n° ${res.c.numero} sans fichier à télécharger`, `Bonjour,\n\nLa commande n° ${res.c.numero} contient un produit numérique, mais aucun fichier n’était attaché au moment du paiement : le client n’a reçu aucun lien.\n\nAjoutez le fichier dans la fiche produit, puis « Renvoyer de nouveaux liens » depuis la commande.\n${urlPublique}/app#commandes\n\nL’équipe Comptoir`); }
     // Carte cadeau vendue : le client a reçu sa carte (ou son avis d'envoi) ; le marchand est simplement informé.
     if (res.c.canal === 'carte') {
@@ -2713,6 +2727,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     try { return await fn(); } finally { remboursementsEnCours.delete(id); }
   };
   const changerStatut = async ctx => {
+    let aPrevoirReassort = false;   // paiement constaté à la main (facture QR, virement) : même suite qu'un paiement en ligne
     const c = commandeDeBoutique(ctx.boutique.id, ctx.params.id);
     const cible = ctx.corps.statut;
     if (cible === 'remboursee' && c.retour && c.retour.statut === 'demande') c.retour.statut = 'rembourse';
@@ -2791,7 +2806,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (cible === 'payee' && !c.payeLe && !c.payeManuelLe) c.payeManuelLe = Date.now();   // paiement reçu hors ligne : la facture électronique le dit payé, même si elle est annulée ensuite
     // Une facture émise ne s'efface pas : le remboursement produit un avoir numéroté qui la référence.
     if ((cible === 'remboursee' || cible === 'annulee') && c.facture && !c.avoir) { c.avoir = { numero: prochaineFacture(ctx.boutique.id, Date.now(), 'AV'), date: Date.now(), montant: Retours.resteAvoir(c) / 100 }; if ((c.retoursPartiels || []).length) { const vt = Retours.ventilationReste(c); if (vt) c.avoir.ventilation = vt; } }
-    if (c.statut === 'attente' && cible === 'payee') ajusterStock(ctx.boutique.id, c.lignes, -1, canalStock(c));   // vendu : le stock baisse comme pour un paiement en ligne
+    if (c.statut === 'attente' && cible === 'payee') { ajusterStock(ctx.boutique.id, c.lignes, -1, canalStock(c)); aPrevoirReassort = true; }   // vendu : le stock baisse comme pour un paiement en ligne
     if ((cible === 'remboursee' || cible === 'annulee') && c.statut !== 'attente') ajusterStock(ctx.boutique.id, c.lignes, +1, canalStock(c));
     // Carte cadeau vendue : remboursable seulement si elle n'a pas servi ; elle est alors désactivée.
     if ((cible === 'remboursee' || cible === 'annulee') && c.carteEmise && !c.carteEmise.desactivee) {
@@ -2823,6 +2838,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     historique(c, textes[cible] + (cible === 'expediee' ? (c.suivi ? `, suivi ${c.suivi}` : ', sans numéro de suivi') : ''));
     enregistrerCommande(c);
     });
+    if (aPrevoirReassort) suiteReassort(ctx.boutique, c);
     if (cible === 'expediee') emailExpedition(ctx.boutique, c, config);
     if (cible === 'prete' && EmailsClients.langueDe(c)) { const m = EmailsClients.pret(c, { ...optionsEmail(ctx.boutique, c, config), adresse: config.magasin.adresse || '', horaires: config.magasin.horaires }); envoyerEmail(ctx.boutique.id, c.client.email, m.sujet, m.corps, { langue: c.langue }); }
     else if (cible === 'prete') envoyerEmail(ctx.boutique.id, c.client.email, `Votre commande n° ${c.numero} est prête`, `Bonjour ${c.client.nom},\n\nVotre commande vous attend en boutique : ${config.magasin.adresse || ''}${config.magasin.horaires ? `\nHoraires : ${config.magasin.horaires}` : ''}.\nPrésentez ce numéro de commande : ${c.numero}.\n\nVotre commande : ${lienCommande(ctx.boutique, c.id)}\n\n${config.boutique.nom}`);
@@ -3195,7 +3211,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!commandes.length) throw erreur(404, 'Aucune commande avec cette adresse.', 'introuvable');
     const ids = new Set(commandes.map(c => c.id));
     return {
-      exporteLe: new Date().toISOString(), boutique: lireConfig(ctx.boutique).boutique.nom, email,
+      exporteLe: new Date().toISOString(), boutique: lireConfig(ctx.boutique).boutique.nom, email, rappelsReassort: RE.compterClient(ctx.boutique.id, email),
       commandes: commandes.map(c => ({ numero: c.numero, date: new Date(c.date).toISOString(), statut: c.statut, client: c.client, lignes: c.lignes.map(l => ({ nom: l.nom, qte: l.qte, prix: l.prix })), total: c.total, livraison: c.livraison, suivi: c.suivi || null })),
       avis: db.prepare('SELECT commande_id, note, texte, prenom, ville, cree_le FROM avis WHERE boutique_id = ?').all(ctx.boutique.id).filter(a => ids.has(a.commande_id)),
       newsletter: !!db.prepare('SELECT 1 FROM abonnes WHERE boutique_id = ? AND email = ?').get(ctx.boutique.id, email)
@@ -3206,12 +3222,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const email = valider.email(ctx.corps.email).toLowerCase();
     const commandes = commandesDuClient(ctx.boutique.id, email);
     const ouvertes = commandes.filter(c => ['attente', 'payee', 'preparation', 'fournisseur', 'prete'].includes(c.statut));
-    if (!ouvertes.length) { const cp = PRO.parEmail(ctx.boutique.id, email); if (cp) PRO.supprimer(ctx.boutique.id, cp.id); RE.supprimerClient(ctx.boutique.id, email); }   // compte pro effacé avec le reste
+    if (!ouvertes.length) { const cp = PRO.parEmail(ctx.boutique.id, email); if (cp) PRO.supprimer(ctx.boutique.id, cp.id); }   // compte pro effacé avec le reste
     if (ouvertes.length) throw erreur(409, `Commande n° ${ouvertes[0].numero} encore en cours : effacez les données une fois qu’elle est expédiée ou annulée (l’adresse sert à la livraison).`, 'commande_en_cours');
     db.exec('PRAGMA secure_delete = ON');   // effacement : les données retirées ne restent pas lisibles dans le fichier
     try {
     transaction(db, () => {
       FID.effacer(ctx.boutique.id, email);   // points de fidélité de ce client
+      RE.supprimerClient(ctx.boutique.id, email);   // rappels de réassort demandés
       DV.anonymiser(ctx.boutique.id, email, PII.normEmail);   // devis de ce client professionnel
       for (const c of commandes) {
         c.client = { nom: 'Client effacé', email: '', adresse: '', npa: '', ville: '', consentement: null };
@@ -4771,7 +4788,10 @@ ${bloc}</main></body></html>`;
       parBoutique.get(r.boutique_id).push({ id: r.id, nom: String(p.nom || ''), date });
     }
     let n = 0;
-    for (const [bid, produitsPre] of parBoutique) {
+    for (const [bid, tousPre] of parBoutique) {
+      // Rappel déjà fait pour ce produit et cette date : les commandes ne sont pas relues (déchiffrées) pour rien.
+      const produitsPre = tousPre.filter(p => { const retard = p.date <= hier; if (!retard && p.date < aujourdhui) return false; return !db.prepare('SELECT 1 FROM envois_auto WHERE boutique_id = ? AND cle = ?').get(bid, `precommande${retard ? '-retard' : ''}:${p.id}:${p.date}`); });
+      if (!produitsPre.length) continue;
       const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid);
       if (!b || !abo.etat(b.marchand_id).actif) continue;
       const mch = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id); if (!mch) continue;
@@ -4798,22 +4818,34 @@ ${bloc}</main></body></html>`;
     if (maintenant - dernierReassort < 3600000) return 0;
     dernierReassort = maintenant;
     let n = 0;
-    const cache = new Map();
-    for (const r of RE.dus(maintenant)) {
-      if (!cache.has(r.boutiqueId)) { const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.boutiqueId); cache.set(r.boutiqueId, b && abo.etat(b.marchand_id).actif ? { b, config: lireConfig(b), produits: listerProduits(b.id).filter(vendable) } : null); }
-      const sb = cache.get(r.boutiqueId);
-      if (!sb) { RE.avancer(r.id, maintenant); continue; }
-      if (estDesinscrit(r.boutiqueId, r.email)) { RE.supprimerId(r.id); continue; }
-      const dispo = r.lignes.map(l => ({ l, p: sb.produits.find(p => p.id === l.produitId) })).filter(x => x.p && x.p.reassortJours && (x.p.type === 'drop' || x.p.stock > 0));
-      if (!dispo.length) { RE.avancer(r.id, maintenant); continue; }
-      const langue = EmailsClients.langueDe({ langue: r.langue });
-      const panier = `${urlBoutique(sb.b)}?panier=${dispo.map(x => `${encodeURIComponent(x.p.id)}:${x.l.qte}`).join(',')}${langue ? `&lang=${langue}` : ''}`;
-      const stop = `${urlPublique}/reassort/arreter?j=${encodeURIComponent(r.jeton)}${langue ? `&lang=${langue}` : ''}`;
-      const liste = dispo.map(x => `- ${x.l.qte} × ${x.p.nom}`).join('\n');
-      const m = EmailsClients.reassort({ langue, client: { nom: r.nom } }, { nomBoutique: sb.config.boutique.nom, liste, panier, stop });
-      if (m) envoyerEmail(r.boutiqueId, r.email, m.sujet, m.corps, { langue });
-      else envoyerEmail(r.boutiqueId, r.email, `Le moment de recommander chez ${sb.config.boutique.nom} ?`, `Bonjour${r.nom ? ` ${r.nom}` : ''},\n\nIl y a quelque temps, vous avez commandé chez ${sb.config.boutique.nom} :\n${liste}\n\nComme vous l’avez demandé, voici votre rappel pour recommander. Votre panier est prêt (rien n’est débité sans votre commande) :\n${panier}\n\nNe plus recevoir ces rappels : ${stop}\n\n${sb.config.boutique.nom}`);
-      RE.avancer(r.id, maintenant); n++;
+    const cache = new Map(), limiteTemps = Date.now() + 20000;
+    const existants = bid => new Set(db.prepare("SELECT id FROM produits WHERE boutique_id = ? AND supprime = 0 AND json_extract(donnees, '$.reassortJours') IS NOT NULL").all(bid).map(x => x.id));
+    // Par lots de 500 jusqu'à épuisement (ou 20 secondes) : pas de retard qui s'accumule.
+    for (let lot = RE.dus(maintenant); lot.length && Date.now() < limiteTemps; lot = RE.dus(maintenant)) {
+      let traites = 0;
+      for (const r of lot) {
+        try {
+          if (!cache.has(r.boutiqueId)) { const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.boutiqueId); cache.set(r.boutiqueId, b ? { b, actif: abo.etat(b.marchand_id).actif, config: lireConfig(b), produits: listerProduits(b.id).filter(vendable), existants: existants(b.id) } : null); }
+          const sb = cache.get(r.boutiqueId);
+          // Plus rien à rappeler (produits supprimés ou sans rappel, boutique supprimée), demande de plus de deux ans,
+          // client désinscrit : la demande est supprimée (pas de données gardées pour rien).
+          if (!sb || !r.lignes.some(l => sb.existants.has(l.produitId)) || maintenant - r.creeLe > 730 * 86400000 || estDesinscrit(r.boutiqueId, r.email)) { RE.supprimerId(r.id); traites++; continue; }
+          if (!RE.reserver(r, maintenant)) continue;   // pris par un autre processus
+          traites++;
+          if (!sb.actif) continue;   // boutique sans abonnement : rappel sauté
+          const dispo = r.lignes.map(l => ({ l, p: sb.produits.find(p => p.id === l.produitId) })).filter(x => x.p && x.p.reassortJours && (x.p.type === 'drop' || x.p.stock > 0));
+          if (!dispo.length) continue;   // momentanément épuisé : rappel sauté, le suivant viendra
+          const langue = EmailsClients.langueDe({ langue: r.langue });
+          const panier = `${urlBoutique(sb.b)}?panier=${dispo.map(x => `${encodeURIComponent(x.p.id)}:${x.l.qte}`).join(',')}${langue ? `&lang=${langue}` : ''}`;
+          const stop = `${urlPublique}/reassort/arreter?j=${encodeURIComponent(r.jeton)}${langue ? `&lang=${langue}` : ''}`;
+          const liste = dispo.map(x => `- ${x.l.qte} × ${x.p.nom}`).join('\n');
+          const m = EmailsClients.reassort({ langue, client: { nom: r.nom } }, { nomBoutique: sb.config.boutique.nom, liste, panier, stop });
+          if (m) envoyerEmail(r.boutiqueId, r.email, m.sujet, m.corps, { langue, lienArret: stop });
+          else envoyerEmail(r.boutiqueId, r.email, `Le moment de recommander chez ${sb.config.boutique.nom} ?`, `Bonjour${r.nom ? ` ${r.nom}` : ''},\n\nIl y a quelque temps, vous avez commandé chez ${sb.config.boutique.nom} :\n${liste}\n\nComme vous l’avez demandé, voici votre rappel pour recommander. Votre panier est prêt (rien n’est débité sans votre commande) :\n${panier}\n\nNe plus recevoir ces rappels : ${stop}\n\n${sb.config.boutique.nom}`, { lienArret: stop });
+          n++;
+        } catch (e) { journal.error('[reassort]', r.id, e.message); try { RE.reserver(r, maintenant) || RE.supprimerId(r.id); } catch { /* ignoré */ } traites++; }
+      }
+      if (!traites) break;   // rien n'a avancé (tout pris ailleurs) : on s'arrête
     }
     return n;
   }

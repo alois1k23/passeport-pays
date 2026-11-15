@@ -62,6 +62,31 @@ test('rappel de réassort : demandé, envoyé, arrêté, effacé', async () => {
     assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts').get().n, 0);
     gerer.automatisationsEcheances(Date.now() + 70 * 86400000);
     assert.equal(rappels('ana@exemple.ch').length, 2, 'plus rien après l’arrêt');
+    // Arrêt en un clic aussi par l'en-tête List-Unsubscribe de la messagerie.
+    assert.match(db.prepare("SELECT desinscription FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE 'Le moment%'").get().desinscription, /\/reassort\/arreter\?j=/);
+    // Remboursée : la demande tombe.
+    cookie = ''; await c('POST', '/api/auth/connexion', { email: 're@exemple.ch', motDePasse: 'un mot de passe solide' });   // session effacée par l'entretien avancé dans le temps
+    const remb = await commander('remb@exemple.ch', { rappelReassort: true });
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts WHERE commande_id = ?').get(remb.commandeId).n, 1);
+    assert.equal((await c('POST', `/api/admin/commandes/${remb.commandeId}/statut`, { statut: 'remboursee' })).s, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts WHERE commande_id = ?').get(remb.commandeId).n, 0, 'remboursée : plus de rappel');
+    // Le client recommande sans cocher la case : son rappel repart de zéro (pas de rappel juste après sa commande).
+    const r1c = await commander('re@client.ch', { rappelReassort: true });
+    db.prepare('UPDATE reassorts SET prochain = ? WHERE commande_id = ?').run(Date.now() + 86400000, r1c.commandeId);
+    await commander('re@client.ch', {});
+    assert.ok(db.prepare('SELECT prochain FROM reassorts WHERE commande_id = ?').get(r1c.commandeId).prochain > Date.now() + 20 * 86400000, 'rappel repoussé');
+    db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(r1c.commandeId);
+    // Paiement constaté à la main (facture, virement) : la demande est créée comme pour un paiement en ligne.
+    const man = await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: cafe, qte: 1 }], livraison: 'poste-eco', rappelReassort: true, client: { nom: 'Eva', email: 'eva@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, { avecCookie: false });
+    assert.equal((await c('POST', `/api/admin/commandes/${man.j.commandeId}/statut`, { statut: 'payee' })).s, 200);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts WHERE commande_id = ?').get(man.j.commandeId).n, 1);
+    db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(man.j.commandeId);
+    // Précommande : le délai part de la date d'expédition annoncée.
+    const plaid = (await c('POST', '/api/admin/produits', { produit: { nom: 'Café de Noël', prix: 20, stock: 9, reassortJours: 30, precommande: true, expeditionPrevue: new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10) } })).j.id;
+    const rp = await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: plaid, qte: 1 }], livraison: 'poste-eco', rappelReassort: true, client: { nom: 'Noé', email: 'noe@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, { avecCookie: false });
+    await fetch(rp.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    assert.ok(db.prepare('SELECT prochain FROM reassorts WHERE commande_id = ?').get(rp.j.commandeId).prochain > Date.now() + 85 * 86400000, 'après l’expédition annoncée');
+    db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(rp.j.commandeId);
     // Commande en allemand : rappel en allemand. Effacement du client : sa demande disparaît.
     await commander('max@exemple.ch', { rappelReassort: true, langue: 'de' });
     gerer.automatisationsEcheances(Date.now() + 100 * 86400000);
@@ -75,5 +100,9 @@ test('rappel de réassort : demandé, envoyé, arrêté, effacé', async () => {
     const eff = await c('POST', '/api/admin/clients/effacer', { email: 'lou@exemple.ch' });
     assert.equal(eff.s, 200, JSON.stringify(eff.j));
     assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts').get().n, 1);
+    // Produits supprimés : la demande restante disparaît au passage suivant (pas de données gardées pour rien).
+    for (const id of [cafe, the]) assert.equal((await c('DELETE', `/api/admin/produits/${id}`)).s, 200);
+    gerer.automatisationsEcheances(Date.now() + 300 * 86400000);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM reassorts').get().n, 0);
   } finally { s.close(); }
 });

@@ -993,6 +993,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .sf-carte-lien:hover .visuel, .sf-carte-lien:hover img { transform: scale(1.02); }
 .sf-carte-lien .visuel, .sf-carte-lien img { transition: transform .3s ease; }
 .sf-titre-lien:hover { text-decoration: underline; text-underline-offset: 3px; }
+.sf-titre-lien { min-height: 24px; }   /* cible tactile de 24 px au moins (WCAG 2.2 AA) */
 .sf-fiche-fond { position: fixed; inset: 0; z-index: 40; background: rgba(10, 12, 18, .5); }
 .sf-fiche { position: fixed; z-index: 41; inset: 5vh 50% auto auto; transform: translateX(50%); width: min(920px, calc(100% - 32px)); max-height: 90vh; overflow: auto; background: var(--sf-bg); color: var(--sf-text); font-family: var(--sf-body); border-radius: calc(var(--sf-radius) + 4px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .6); }
 .sf-fiche-visuel { background: var(--sf-surface); min-height: 100%; display: grid; }

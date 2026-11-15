@@ -13,13 +13,16 @@ function creerReassort({ db, pii, signer }) {
   db.exec(`CREATE TABLE IF NOT EXISTS reassorts (id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, email_index TEXT NOT NULL, cle_produits TEXT NOT NULL, donnees TEXT NOT NULL, jours INTEGER NOT NULL, prochain INTEGER NOT NULL, envois INTEGER NOT NULL DEFAULT 0, cree_le INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS reassorts_prochain ON reassorts(prochain);
     CREATE INDEX IF NOT EXISTS reassorts_client ON reassorts(boutique_id, email_index);`);
+  try { db.exec('ALTER TABLE reassorts ADD COLUMN commande_id TEXT'); } catch { /* déjà là */ }   // commande d'origine : remboursée ou annulée, le rappel tombe
+  db.exec('CREATE INDEX IF NOT EXISTS reassorts_commande ON reassorts(commande_id)');
   const P = () => pii();
   const index = (bid, email) => { const x = P(); const e = String(email || '').trim().toLowerCase(); return x ? x.index(bid, e) : crypto.createHash('sha256').update(`${bid}|${e}`).digest('hex'); };
   const fermer = (bid, id, o) => { const x = P(); return x ? x.chiffrer(o, { boutique: bid, commande: `reassort:${id}` }) : JSON.stringify(o); };
   const ouvrir = (bid, id, t) => { const x = P(); try { return x && /^v\d\./.test(t) ? x.dechiffrer(t, { boutique: bid, commande: `reassort:${id}` }) : JSON.parse(t); } catch { return null; } };
   const jetonDe = id => `${id}.${signer(`reassort|${id}`)}`;
 
-  /* Demande (après paiement) : { email, nom, langue, jours, lignes: [{ produitId, qte }] }. */
+  /* Demande (après paiement) : { email, nom, langue, jours, lignes: [{ produitId, qte }], commandeId, depart }.
+     depart : début du délai (précommande : la date d'expédition annoncée, pas le jour du paiement). */
   function creer(bid, d, maintenant = Date.now()) {
     const jours = Math.round(Number(d.jours));
     if (!d.email || !Number.isFinite(jours) || jours < JOURS_MIN || jours > JOURS_MAX) return null;
@@ -27,10 +30,11 @@ function creerReassort({ db, pii, signer }) {
     if (!lignes.length) return null;
     const idx = index(bid, d.email), cle = lignes.map(l => l.produitId).sort().join(',');
     db.prepare('DELETE FROM reassorts WHERE boutique_id = ? AND email_index = ? AND cle_produits = ?').run(bid, idx, cle);   // même client, mêmes produits : la nouvelle commande remplace
-    if (db.prepare('SELECT COUNT(*) n FROM reassorts WHERE boutique_id = ?').get(bid).n >= MAX_PAR_BOUTIQUE) return null;
+    if (db.prepare('SELECT COUNT(*) n FROM reassorts WHERE boutique_id = ?').get(bid).n >= MAX_PAR_BOUTIQUE) return { plein: true };
     const id = 'ra_' + crypto.randomBytes(9).toString('hex');
-    db.prepare('INSERT INTO reassorts (id, boutique_id, email_index, cle_produits, donnees, jours, prochain, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, bid, idx, cle, fermer(bid, id, { email: String(d.email).trim().toLowerCase(), nom: String(d.nom || '').slice(0, 120), langue: d.langue || null, lignes }), jours, maintenant + jours * 86400000, maintenant);
+    const depart = Math.max(maintenant, Number(d.depart) || 0);
+    db.prepare('INSERT INTO reassorts (id, boutique_id, email_index, cle_produits, donnees, jours, prochain, cree_le, commande_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, bid, idx, cle, fermer(bid, id, { email: String(d.email).trim().toLowerCase(), nom: String(d.nom || '').slice(0, 120), langue: d.langue || null, lignes }), jours, depart + jours * 86400000, maintenant, d.commandeId || null);
     return { id, jeton: jetonDe(id) };
   }
   /* Rappels arrivés à échéance (lot borné), avec données déchiffrées. Illisibles (clé changée) : supprimés. */
@@ -39,16 +43,25 @@ function creerReassort({ db, pii, signer }) {
     for (const r of db.prepare('SELECT * FROM reassorts WHERE prochain <= ? ORDER BY prochain LIMIT ?').all(maintenant, limite)) {
       const d = ouvrir(r.boutique_id, r.id, r.donnees);
       if (!d) { db.prepare('DELETE FROM reassorts WHERE id = ?').run(r.id); continue; }
-      out.push({ id: r.id, boutiqueId: r.boutique_id, jours: r.jours, envois: r.envois, ...d, jeton: jetonDe(r.id) });
+      if (!Array.isArray(d.lignes)) { db.prepare('DELETE FROM reassorts WHERE id = ?').run(r.id); continue; }
+      out.push({ id: r.id, boutiqueId: r.boutique_id, jours: r.jours, envois: r.envois, prochain: r.prochain, creeLe: r.cree_le, ...d, jeton: jetonDe(r.id) });
     }
     return out;
   }
-  // Rappel envoyé (ou sauté) : prochain dans N jours ; au 12e, la demande s'éteint.
-  function avancer(id, maintenant = Date.now()) {
-    const r = db.prepare('SELECT * FROM reassorts WHERE id = ?').get(id); if (!r) return;
-    if (r.envois + 1 >= MAX_RAPPELS) db.prepare('DELETE FROM reassorts WHERE id = ?').run(id);
-    else db.prepare('UPDATE reassorts SET envois = envois + 1, prochain = ? WHERE id = ?').run(maintenant + r.jours * 86400000, id);
+  /* Rappel pris en charge (envoyé ou sauté), de façon atomique : seul le processus qui fait passer « prochain » de sa
+     valeur lue à la suivante l'envoie (aucun doublon si plusieurs processus tournent). Au 12e, la demande s'éteint. */
+  function reserver(r, maintenant = Date.now()) {
+    if (r.envois + 1 >= MAX_RAPPELS) return db.prepare('DELETE FROM reassorts WHERE id = ? AND prochain = ?').run(r.id, r.prochain).changes === 1;
+    return db.prepare('UPDATE reassorts SET envois = envois + 1, prochain = ? WHERE id = ? AND prochain = ?').run(maintenant + r.jours * 86400000, r.id, r.prochain).changes === 1;
   }
+  // Le client vient de recommander (avec ou sans la case) : ses rappels pour ces produits repartent de zéro.
+  function repousser(bid, email, produitIds, maintenant = Date.now()) {
+    const ids = new Set(produitIds);
+    for (const r of db.prepare('SELECT id, cle_produits, jours FROM reassorts WHERE boutique_id = ? AND email_index = ?').all(bid, index(bid, email)))
+      if (r.cle_produits.split(',').some(x => ids.has(x))) db.prepare('UPDATE reassorts SET prochain = ? WHERE id = ?').run(maintenant + r.jours * 86400000, r.id);
+  }
+  const supprimerCommande = commandeId => db.prepare('DELETE FROM reassorts WHERE commande_id = ?').run(commandeId).changes;
+  const compterClient = (bid, email) => db.prepare('SELECT COUNT(*) n FROM reassorts WHERE boutique_id = ? AND email_index = ?').get(bid, index(bid, email)).n;
   const supprimerId = id => db.prepare('DELETE FROM reassorts WHERE id = ?').run(id).changes > 0;
   // Lien d'arrêt : identifiant signé (aucun secret gardé), comparaison à temps constant.
   function deJeton(jeton) {
@@ -62,7 +75,7 @@ function creerReassort({ db, pii, signer }) {
   const compter = bid => db.prepare('SELECT COUNT(*) n FROM reassorts WHERE boutique_id = ?').get(bid).n;
   const supprimerClient = (bid, email) => db.prepare('DELETE FROM reassorts WHERE boutique_id = ? AND email_index = ?').run(bid, index(bid, email)).changes;
   const toutSupprimer = bid => db.prepare('DELETE FROM reassorts WHERE boutique_id = ?').run(bid);
-  return { creer, dus, avancer, supprimerId, deJeton, compter, supprimerClient, toutSupprimer, MAX_RAPPELS };
+  return { creer, dus, reserver, repousser, supprimerCommande, compterClient, supprimerId, deJeton, compter, supprimerClient, toutSupprimer, MAX_RAPPELS };
 }
 
 const joursValides = j => { const n = Math.round(Number(j)); return Number.isFinite(n) && n >= JOURS_MIN && n <= JOURS_MAX ? n : null; };
