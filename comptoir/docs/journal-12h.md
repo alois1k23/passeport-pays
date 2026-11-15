@@ -161,7 +161,7 @@ Vendre un article avant qu'il arrive (nouvelle collection, livre à paraître, r
   - **Moyen** : au passage en caisse, le choix de livraison affichait encore « 2 à 3 jours » à côté de la précommande. Il affiche la date d'expédition prévue.
   - **Bas** : le panier et l'e-mail emploient la même formulation (« expédition prévue le … ») ; la référence juridique est corrigée (L111-1 3°, et non L216-1).
 
-### Cycle 4 (22 h 45) : lots et coffrets (chantier 73)
+### Cycle 4 (22 h 10) : lots et coffrets (chantier 73)
 
 Les coffrets cadeaux, les lots « 3 pour 2 » et les kits sont un classique du commerce de détail ; ailleurs, ils passent souvent par une extension payante qui synchronise mal le stock. Désormais :
 
