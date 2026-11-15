@@ -131,3 +131,28 @@ Shopify, Wix ou WooCommerce vendent des fichiers à télécharger (livres, musiq
 - **Défaut découvert par le parcours de bout en bout** (en préparant le chantier 72) : une fonction de la boutique portait le même nom qu'une fonction de l'espace marchand. Les deux fichiers se chargent ensemble, et le second plantait au chargement. Renommée ; le parcours repasse.
 - Après corrections : 240 tests sur 240, parcours de bout en bout 57/57, simulation de 100 marchands sur 60 jours sans anomalie (9 053 commandes).
 
+### Cycle 3 (22 h 05) : précommandes (chantier 72)
+
+Vendre un article avant qu'il arrive (nouvelle collection, livre à paraître, réassort) est courant sur les autres plateformes, souvent par une extension payante. Le modèle choisi ne change aucune règle de stock, et ne fait donc courir aucun risque de vente en double :
+
+- **Fiche produit** : case « Précommande » et date d'expédition prévue, de demain à un an (vérifiée par le serveur). Le stock indique combien d'exemplaires peuvent être précommandés. Un produit numérique n'est jamais en précommande.
+- **Boutique** :
+  - la carte et la fiche du produit affichent « Précommande · expédition prévue le … » au lieu du délai habituel ;
+  - le bouton devient « Précommander », puis « Précommandes complètes » quand le plafond est atteint ;
+  - le panier prévient qu'une commande mixte est expédiée en une fois, à partir de la date la plus tardive.
+- **Commande** : chaque ligne précommandée garde sa date. Elle figure dans l'e-mail de confirmation, en français, allemand, italien et anglais : la date de livraison doit être annoncée (France, Code de la consommation L216-1). Elle figure aussi dans le détail de la commande côté marchand, et la liste des produits porte un badge.
+- **Date dépassée** (fiche non mise à jour) : plus annoncée, plus reportée sur les nouvelles commandes ; l'article se vend normalement.
+- **Au passage** : le récapitulatif des e-mails nommait le mode « numérique » par son code ; il dit maintenant « envoi par e-mail ».
+- **Limites, notées** :
+  - pas de rappel automatique au marchand à l'approche de la date ;
+  - pas de paiement différé (le client paie à la commande, comme chez la plupart des plateformes).
+- **Tests** :
+  - date exigée, passée ou à plus d'un an : refusée ;
+  - produit numérique jamais en précommande ;
+  - vitrine publique, ligne de commande et e-mail avec la date ;
+  - date dépassée : plus reportée.
+- **Vérifié dans Chromium**, bureau et mobile :
+  - fiche marchand, badge, carte, fiche produit, bouton « Précommander », note du panier ;
+  - aucune erreur de page.
+- 241 tests sur 241, parcours de bout en bout 57/57.
+
