@@ -1406,7 +1406,7 @@ Relecture indépendante, qui a reproduit deux bugs. Constats corrigés :
   - une commande restée illisible relance son rattrapage d'index canonique à chaque démarrage (journal bavard, sans perte) ;
   - les comptes pro et la fidélité restent lisibles grâce à l'ancienne clé, sans être rechiffrés.
 
-### Cycle 69 (05 h 50) : e-mail de remerciement du parrainage dans la langue du parrain (chantier 117)
+### Cycle 69 (05 h 45) : e-mail de remerciement du parrainage dans la langue du parrain (chantier 117)
 
 - **Le problème** (laissé ouvert aux cycles 63 et 64) : l'e-mail qui porte le code « MERCI… » partait toujours en français.
 - **La correction** :
