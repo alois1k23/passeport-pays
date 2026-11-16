@@ -1239,3 +1239,38 @@ Relecture indépendante : ni XSS, ni fuite de donnée personnelle, ni produit d'
   - avis de plusieurs phrases affichés phrase par phrase, chacune traduite.
 - **L'outil `liste-partagee.js`** vérifie désormais vraiment que l'adresse garde la liste après fermeture du panier (le contrôle précédent passait toujours). Il vérifie aussi le libellé du lien, un lien sans produit valide, et une liste de produits épuisés (pas de tiroir vide, avis traduit en allemand). 0 écart ; audit des traductions : 131 textes, 0 manquant.
 - **Laissé ouvert :** le partage natif du téléphone (`navigator.share`) n'existe pas dans Chromium sans interface et n'est donc pas testé. Le lien impose la langue de celui qui partage.
+
+### Cycle 63 (03 h 50) : parrainage (chantier 115)
+
+Un programme de parrainage intégré, sans extension.
+
+- **Marchand** : carte « Parrainage » dans Conversion. Elle permet d'activer le programme et de régler la remise du filleul et celle du code de remerciement (5 à 30 % chacune, 10 % par défaut). Elle affiche le nombre de parrains, de remerciements envoyés et de commandes en attente du délai.
+- **Client** : sur la page de suivi d'une commande payée, un bloc « Offrez −10 % à vos proches ». Le bouton « Obtenir mon lien » donne un code personnel (« AMI… », toujours le même) et un lien `?code=AMI…`, à copier ou à partager. Le jeton de la commande prouve qu'il en est le client.
+- **Filleul** : le lien applique le code dès l'arrivée, et le garde pendant la visite. Le panier affiche « Code AMI… appliqué : −10 %. Parrainage : valable sur une première commande. »
+- **Contrôles du serveur** :
+  - le code ne vaut que pour une première commande dans cette boutique, avec la même règle que le code de bienvenue (commandes en attente encore payables comprises) ;
+  - il ne s'applique jamais à la propre adresse du parrain.
+- **Récompense** : un code « MERCI… » envoyé par e-mail au parrain 14 jours après le paiement du filleul, si la commande n'a été ni annulée ni remboursée. Payer, toucher la récompense puis se faire rembourser ne rapporte donc rien.
+  - Le code est à usage unique, réservé à l'adresse du parrain et valable un an.
+  - Une commande de filleul ne donne qu'une récompense, même si la tâche horaire repasse.
+- **Discrétion** :
+  - adresse et nom du parrain chiffrés au repos (vérifié par le test), index aveugle pour comparer, retrouver ou effacer ;
+  - codes sans rien de personnel ;
+  - effacement des données d'un client : son code de parrain et ses récompenses disparaissent.
+- **Mise en œuvre** :
+  - module `server/src/parrainage.js` ;
+  - le code est ajouté aux codes de la boutique pour la requête seulement, si bien que la remise passe par le même calcul que les codes promo (panier, TVA, facture, limites d'utilisation) ;
+  - récompenses dans leur propre table (les codes manuels sont limités à 50).
+- **Traductions** en allemand, italien et anglais : bloc, lien, conditions, erreurs du serveur. Le test statique des routes publiques couvre la nouvelle route.
+- **Test** :
+  - réglages bornés ;
+  - programme inactif ; jeton faux ; commande non payée ; même code à chaque demande ; adresse chiffrée ;
+  - code refusé sur soi, filleul à −10 % (100 → 90), deuxième commande refusée ;
+  - rien à 10 jours, une seule récompense à 15 et 16 jours (−15 %) ; récompense refusée à une autre adresse, acceptée pour le parrain, puis épuisée ;
+  - filleul remboursé : pas de récompense.
+- **Vérifié dans Chromium**, bureau en français et mobile en allemand :
+  - le marchand active le programme ;
+  - A paie et obtient son lien (« Ihr Empfehlungslink (Code AMI…) ») ;
+  - B ouvre le lien, ajoute le vase : « Rabatt · Code AMI… (−10 %) −CHF 10.00 » ;
+  - aucune erreur.
+- **Limites** : l'e-mail de récompense part en français seulement. Le délai de 14 jours est fixe.

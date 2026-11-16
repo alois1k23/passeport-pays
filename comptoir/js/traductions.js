@@ -8,6 +8,8 @@ const Traductions = (() => {
   const D = {
     de: {
       // Nouveautés de la nuit du 16 novembre (compléments, commande minimum, liens de panier)
+      // Parrainage
+      "Obtenir mon lien": "Meinen Link erhalten", "Partager": "Teilen", "Copier le lien": "Link kopieren", "Lien copié.": "Link kopiert.", "Lien indisponible pour l’instant.": "Link im Moment nicht verfügbar.", "Parrainage : valable sur une première commande.": "Empfehlung: gültig für eine erste Bestellung.", "Code de remerciement : avec l’adresse e-mail qui l’a reçu.": "Dankeschön-Code: mit der E-Mail-Adresse, an die er gesendet wurde.", "Votre propre code de parrainage est pour vos proches : il ne s’applique pas à vos commandes.": "Ihr eigener Empfehlungscode ist für Ihre Bekannten: Er gilt nicht für Ihre eigenen Bestellungen.", "Ce code de remerciement s’utilise avec l’adresse e-mail de la personne qui l’a reçu.": "Dieser Dankeschön-Code gilt nur mit der E-Mail-Adresse der Person, die ihn erhalten hat.", "Le parrainage n’est pas proposé par cette boutique.": "Dieser Shop bietet kein Empfehlungsprogramm an.", "Votre lien de parrainage est disponible une fois la commande payée.": "Ihr Empfehlungslink ist verfügbar, sobald die Bestellung bezahlt ist.",
       // Liste de favoris partagée
       "Ces produits sont déjà dans votre panier.": "Diese Produkte sind bereits in Ihrem Warenkorb.", "Produits ajoutés aux favoris.": "Produkte zu den Favoriten hinzugefügt.",
       "Voir tous les produits": "Alle Produkte anzeigen", "Ajouté aux favoris.": "Zu den Favoriten hinzugefügt.", "Retiré des favoris.": "Aus den Favoriten entfernt.",
@@ -63,6 +65,8 @@ const Traductions = (() => {
     },
     it: {
       // Nouveautés de la nuit du 16 novembre (compléments, commande minimum, liens de panier)
+      // Parrainage
+      "Obtenir mon lien": "Ottieni il mio link", "Partager": "Condividi", "Copier le lien": "Copia il link", "Lien copié.": "Link copiato.", "Lien indisponible pour l’instant.": "Link al momento non disponibile.", "Parrainage : valable sur une première commande.": "Invito: valido per un primo ordine.", "Code de remerciement : avec l’adresse e-mail qui l’a reçu.": "Codice di ringraziamento: con l’indirizzo e-mail che lo ha ricevuto.", "Votre propre code de parrainage est pour vos proches : il ne s’applique pas à vos commandes.": "Il tuo codice di invito è per le persone a cui tieni: non vale per i tuoi ordini.", "Ce code de remerciement s’utilise avec l’adresse e-mail de la personne qui l’a reçu.": "Questo codice di ringraziamento si usa con l’indirizzo e-mail della persona che lo ha ricevuto.", "Le parrainage n’est pas proposé par cette boutique.": "Questo negozio non offre il programma inviti.", "Votre lien de parrainage est disponible une fois la commande payée.": "Il tuo link di invito è disponibile una volta pagato l’ordine.",
       // Liste de favoris partagée
       "Ces produits sont déjà dans votre panier.": "Questi prodotti sono già nel tuo carrello.", "Produits ajoutés aux favoris.": "Prodotti aggiunti ai preferiti.",
       "Voir tous les produits": "Mostra tutti i prodotti", "Ajouté aux favoris.": "Aggiunto ai preferiti.", "Retiré des favoris.": "Rimosso dai preferiti.",
@@ -118,6 +122,8 @@ const Traductions = (() => {
     },
     en: {
       // Nouveautés de la nuit du 16 novembre (compléments, commande minimum, liens de panier)
+      // Parrainage
+      "Obtenir mon lien": "Get my link", "Partager": "Share", "Copier le lien": "Copy link", "Lien copié.": "Link copied.", "Lien indisponible pour l’instant.": "Link unavailable right now.", "Parrainage : valable sur une première commande.": "Referral: valid on a first order.", "Code de remerciement : avec l’adresse e-mail qui l’a reçu.": "Thank-you code: with the email address that received it.", "Votre propre code de parrainage est pour vos proches : il ne s’applique pas à vos commandes.": "Your own referral code is for friends and family: it does not apply to your orders.", "Ce code de remerciement s’utilise avec l’adresse e-mail de la personne qui l’a reçu.": "This thank-you code works with the email address of the person who received it.", "Le parrainage n’est pas proposé par cette boutique.": "This shop does not offer referrals.", "Votre lien de parrainage est disponible une fois la commande payée.": "Your referral link is available once the order is paid.",
       // Liste de favoris partagée
       "Ces produits sont déjà dans votre panier.": "These products are already in your cart.", "Produits ajoutés aux favoris.": "Products added to favourites.",
       "Voir tous les produits": "View all products", "Ajouté aux favoris.": "Added to favourites.", "Retiré des favoris.": "Removed from favourites.",
@@ -212,6 +218,8 @@ const Traductions = (() => {
   const motifPaiement = (t, l) => { const i = { de: 0, it: 1, en: 2 }[l]; if (MOTIFS_PAIEMENT[t]) return MOTIFS_PAIEMENT[t][i]; const m = /^la carte cadeau ····(\w{4}) n’a plus le solde réservé$/.exec(t); return m ? [`der Geschenkgutschein ····${m[1]} hat das reservierte Guthaben nicht mehr`, `la carta regalo ····${m[1]} non ha più il saldo riservato`, `gift card ····${m[1]} no longer has the reserved balance`][i] : t; };
   const MODELES = {
     de: [
+      [/^Offrez −(\d+) % à vos proches$/, m => `Schenken Sie Ihren Bekannten −${m[1]} %`], [/^Votre lien de parrainage \(code ([A-Z0-9]+)\)$/, m => `Ihr Empfehlungslink (Code ${m[1]})`],
+      [/^Partagez votre lien : ils ont −(\d+) % sur leur première commande, et vous recevez un code de −(\d+) % quand ils ont commandé\.$/, m => `Teilen Sie Ihren Link: Ihre Bekannten erhalten −${m[1]} % auf ihre erste Bestellung, und Sie erhalten einen Code über −${m[2]} %, sobald sie bestellt haben.`],
       [/^(\d+) produits? de la liste (?:est épuisé|sont épuisés)\.$/, m => `${m[1]} ${m[1] === '1' ? 'Produit' : 'Produkte'} der Liste ${m[1] === '1' ? 'ist' : 'sind'} ausverkauft.`],
       [/^Liste partagée \((\d+)\)$/, m => `Geteilte Liste (${m[1]})`], [/^(\d+) produits? de la liste (?:a|ont) des variantes : choisissez la taille ou la couleur sur leur fiche\.$/, m => `${m[1]} ${m[1] === '1' ? 'Produit' : 'Produkte'} der Liste ${m[1] === '1' ? 'hat' : 'haben'} Varianten: Wählen Sie Grösse oder Farbe auf der Produktseite.`],
       [/^Le code (\S+) a atteint son nombre d’utilisations\.( Passez une nouvelle commande sans lui\.)?$/, m => `Der Code ${m[1]} hat die maximale Anzahl Verwendungen erreicht.${m[2] ? ' Geben Sie eine neue Bestellung ohne ihn auf.' : ''}`],
@@ -255,6 +263,8 @@ const Traductions = (() => {
       [/^Stock insuffisant pour « (.+) »\.$/, m => `Nicht genügend Vorrat für « ${m[1]} ».`], [/^Quantité invalide \((\d+) au maximum par article\)\.$/, m => `Ungültige Menge (höchstens ${m[1]} pro Artikel).`],
       [/^Commande n° (\d+)$/, m => `Bestellung Nr. ${m[1]}`]],
     it: [
+      [/^Offrez −(\d+) % à vos proches$/, m => `Regala −${m[1]} % alle persone a cui tieni`], [/^Votre lien de parrainage \(code ([A-Z0-9]+)\)$/, m => `Il tuo link di invito (codice ${m[1]})`],
+      [/^Partagez votre lien : ils ont −(\d+) % sur leur première commande, et vous recevez un code de −(\d+) % quand ils ont commandé\.$/, m => `Condividi il tuo link: hanno −${m[1]} % sul primo ordine, e tu ricevi un codice di −${m[2]} % quando hanno ordinato.`],
       [/^(\d+) produits? de la liste (?:est épuisé|sont épuisés)\.$/, m => `${m[1]} ${m[1] === '1' ? 'prodotto' : 'prodotti'} della lista ${m[1] === '1' ? 'è esaurito' : 'sono esauriti'}.`],
       [/^Liste partagée \((\d+)\)$/, m => `Lista condivisa (${m[1]})`], [/^(\d+) produits? de la liste (?:a|ont) des variantes : choisissez la taille ou la couleur sur leur fiche\.$/, m => `${m[1]} ${m[1] === '1' ? 'prodotto' : 'prodotti'} della lista ${m[1] === '1' ? 'ha' : 'hanno'} varianti: scegli taglia o colore nella scheda.`],
       [/^Le code (\S+) a atteint son nombre d’utilisations\.( Passez une nouvelle commande sans lui\.)?$/, m => `Il codice ${m[1]} ha raggiunto il numero massimo di utilizzi.${m[2] ? ' Effettua un nuovo ordine senza usarlo.' : ''}`],
@@ -298,6 +308,8 @@ const Traductions = (() => {
       [/^Stock insuffisant pour « (.+) »\.$/, m => `Scorte insufficienti per « ${m[1]} ».`], [/^Quantité invalide \((\d+) au maximum par article\)\.$/, m => `Quantità non valida (al massimo ${m[1]} per articolo).`],
       [/^Commande n° (\d+)$/, m => `Ordine n. ${m[1]}`]],
     en: [
+      [/^Offrez −(\d+) % à vos proches$/, m => `Give your friends −${m[1]}%`], [/^Votre lien de parrainage \(code ([A-Z0-9]+)\)$/, m => `Your referral link (code ${m[1]})`],
+      [/^Partagez votre lien : ils ont −(\d+) % sur leur première commande, et vous recevez un code de −(\d+) % quand ils ont commandé\.$/, m => `Share your link: they get −${m[1]}% on their first order, and you receive a −${m[2]}% code once they have ordered.`],
       [/^(\d+) produits? de la liste (?:est épuisé|sont épuisés)\.$/, m => `${m[1]} ${m[1] === '1' ? 'product' : 'products'} in the list ${m[1] === '1' ? 'is' : 'are'} sold out.`],
       [/^Liste partagée \((\d+)\)$/, m => `Shared list (${m[1]})`], [/^(\d+) produits? de la liste (?:a|ont) des variantes : choisissez la taille ou la couleur sur leur fiche\.$/, m => `${m[1]} ${m[1] === '1' ? 'product' : 'products'} in the list ${m[1] === '1' ? 'has' : 'have'} variants: choose the size or colour on the product page.`],
       [/^Le code (\S+) a atteint son nombre d’utilisations\.( Passez une nouvelle commande sans lui\.)?$/, m => `The code ${m[1]} has reached its usage limit.${m[2] ? ' Place a new order without it.' : ''}`],

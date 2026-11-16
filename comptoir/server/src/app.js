@@ -42,6 +42,7 @@ const fournisseurs = require('./fournisseurs');
 const social = require('./social');
 const relances = require('./relances');
 const { creerReassort, joursValides } = require('./reassort');
+const Parrainage = require('./parrainage');
 const Creneaux = require('./creneaux');
 const Remises = require('../../js/remises.js');
 const PrixBarres = require('../../js/prix-barres.js');
@@ -417,6 +418,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   if (!db.prepare("SELECT 1 FROM cles WHERE nom = 'desinscription'").get()) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('desinscription', ?)").run(crypto.randomBytes(32).toString('hex'));
   const cleDesinscription = db.prepare("SELECT valeur FROM cles WHERE nom = 'desinscription'").get().valeur;
   const signerDesinscription = (boutiqueId, email) => crypto.createHmac('sha256', cleDesinscription).update(`${boutiqueId}|${String(email).toLowerCase()}`).digest('base64url').slice(0, 32);
+  const PAR = Parrainage.creerParrainage({ db, pii: () => PII });   // parrainage : codes des parrains, commandes des filleuls, récompenses
   const RE = creerReassort({ db, pii: () => PII, signer: t => crypto.createHmac('sha256', cleDesinscription).update(t).digest('base64url').slice(0, 32) });   // rappels de réassort demandés par les clients
   const jetonDesinscription = (boutiqueId, email) => `${Buffer.from(`${boutiqueId}|${String(email).toLowerCase()}`).toString('base64url')}.${signerDesinscription(boutiqueId, email)}`;
   const lireJetonDesinscription = j => {
@@ -763,6 +765,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       cookies: config.cookies || null,
       social: social.nettoyerReglages(config.social),
       automatisations: relances.nettoyer(config.automatisations),
+      parrainage: Parrainage.nettoyerReglages(config.parrainage),
       offres: Remises.offresDe(config),
       fournisseursSuivi: Object.fromEntries(Object.entries(config.fournisseursSuivi || {}).slice(0, 50).map(([k, v]) => [String(k).slice(0, 80), Object.fromEntries(['echantillon', 'reponse', 'delai', 'douane'].map(c => [c, !!(v && v[c])]))])),
       lancement: Object.fromEntries(Object.entries(config.lancement || {}).slice(0, 30).map(([k, v]) => [String(k).slice(0, 20), !!v])),
@@ -1126,6 +1129,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   }
   async function apresPaiement(res) {
     const config = lireConfig(res.boutique);
+    if (res.c.parrainage && res.c.parrainage.type === 'filleul') PAR.payee(res.c.id);   // le délai de 14 jours avant la récompense commence
     if (res.liens && res.liens.length) envoyerLiens(res.boutique, res.c, res.liens, config);
     const arretReassort = suiteReassort(res.boutique, res.c);
     const noteReassort = (res.c.retraitCreneau ? `\n\n${texteCreneau(res.c)}` : '') + (arretReassort ? `\n\n${EmailsClients.noteReassort(res.c, res.c.reassort.jours, arretReassort, (res.c.lignes || []).some(l => l.precommande))}` : '');
@@ -2457,7 +2461,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const audience = db.prepare("SELECT strftime('%Y-%m-%d', date / 1000, 'unixepoch', 'localtime') AS jour, type, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND date > ? GROUP BY jour, type").all(ctx.boutique.id, Date.now() - 366 * 86400000);
     const offresVues = Object.fromEntries(db.prepare("SELECT valeur, COUNT(DISTINCT session) AS n FROM evenements WHERE boutique_id = ? AND type = 'offre_vue' GROUP BY valeur").all(ctx.boutique.id).map(x => [x.valeur, x.n]));
     const desinscrits = db.prepare('SELECT email FROM desinscriptions WHERE boutique_id = ?').all(ctx.boutique.id).map(r => r.email);
-    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage).map(p => p.numerique ? { ...p, fichier: NUM.fichierDe(p.id) } : p), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), utilisationsCodes: Object.fromEntries(Remises.offresDe(config).codes.map(x => [x.code, utilisationsCode(ctx.boutique.id, x.code, { depuis: x.cree })])), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
+    const etatComplet = { version: 2, ...config, desinscrits, produits: listerProduits(ctx.boutique.id).map(avecImage).map(p => p.numerique ? { ...p, fichier: NUM.fichierDe(p.id) } : p), commandes, publications, abonnes, envois, avis, audience, offresVues, visites30j: 0, compteurFacture: ctx.boutique.compteur_facture, serveur: { parrainage: PAR.stats(ctx.boutique.id), slug: ctx.boutique.slug, email: ctx.marchand.email, emailVerifie: emailVerifie(ctx.marchand.id), paiement: paiement.nom, emails: serviceEmail ? serviceEmail.nom : null, creeLe: ctx.boutique.cree_le , abonnement: abo.etat(ctx.boutique.marchand_id), jetonDomaine: jetonDomaine(ctx.boutique.id), utilisationsCodes: Object.fromEntries(Remises.offresDe(config).codes.map(x => [x.code, utilisationsCode(ctx.boutique.id, x.code, { depuis: x.cree })])), lectureSeule: !!ctx.lectureSeule, paiementsBoutique: paiement.nom === 'stripe' ? { mode: 'stripe', pret: !!(compteStripe(ctx.boutique.id) || {}).pret, compte: !!compteStripe(ctx.boutique.id), twint: !!(moyensDe(ctx.boutique.id) || {}).twint, bancontact: !!(moyensDe(ctx.boutique.id) || {}).bancontact } : { mode: paiement.nom, pret: true }, urlBoutique: urlBoutique(ctx.boutique) } };
     etatComplet.reassortsActifs = RE.commandesActives(ctx.boutique.id);   // commandes dont le client attend un rappel de réassort
     etatComplet.attentesStock = Object.fromEntries(db.prepare("SELECT produit_id || '|' || variante_id AS k, COUNT(*) AS n FROM alertes_stock WHERE boutique_id = ? GROUP BY produit_id, variante_id").all(ctx.boutique.id).map(x => [x.k, x.n]));   // « clients en attente » par produit et variante
     // Rôle « commandes » : ni IBAN ni listes marketing (désinscrits, abonnés, envois) ; le reste sert à préparer et expédier.
@@ -3408,6 +3412,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     transaction(db, () => {
       FID.effacer(ctx.boutique.id, email);   // points de fidélité de ce client
       RE.supprimerClient(ctx.boutique.id, email);   // rappels de réassort demandés
+      PAR.effacer(ctx.boutique.id, PAR.index(ctx.boutique.id, email));   // code de parrain et récompenses
       DV.anonymiser(ctx.boutique.id, email, PII.normEmail);   // devis de ce client professionnel
       for (const c of commandes) {
         c.client = { nom: 'Client effacé', email: '', adresse: '', npa: '', ville: '', consentement: null };
@@ -3483,6 +3488,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       paiementsActifs: paiementsActifs(b) || factureQrPossible(config),
       factureQr: factureQrPossible(config) ? { echeanceJours: config.reglages.echeanceJours, enLigne: paiementsActifs(b) } : null,
       cadeau: !!(config.reglages && config.reglages.emballageCadeau),   // emballage cadeau offert, avec message
+      parrainage: (r => (r.actif ? { filleul: r.filleul, parrain: r.parrain } : null))(Parrainage.nettoyerReglages(config.parrainage)),
       minimum: (r => (Number(r.minimumCommande) > 0 ? { montant: Math.round(Math.min(1000, Number(r.minimumCommande))), retrait: !!r.minimumRetrait } : null))(config.reglages || {}),
       creneaux: Creneaux.regles(config).actif && !!config.magasin.clickCollect,   // retrait sur créneau : liste à part (toujours fraîche)
       moyens: paiement.nom === 'stripe' ? (moyensDe(b.id) || {}) : null,   // TWINT ou Bancontact : annoncés seulement s'ils sont activés   // sinon la boutique prévient avant que le client remplisse le panier
@@ -3520,6 +3526,14 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!m) return calculerEnsembles(boutiqueId);
     if (Date.now() - m.le >= 600000 && !m.enCours) { m.enCours = true; setImmediate(() => { try { calculerEnsembles(boutiqueId); } catch (e) { m.enCours = false; journal.error(`[complements] ${e.message}`); } }); }
     return m.v;
+  };
+  /* Code de parrainage (filleul) ou de récompense (parrain) : ajouté aux codes de la boutique pour cette requête seulement,
+     en tête (les codes manuels sont limités à 50). La récompense est à usage unique (max 1, comptée depuis sa création). */
+  const avecParrainage = (b, config, saisi) => {
+    const par = PAR.trouver(b.id, saisi, Parrainage.nettoyerReglages(config.parrainage));
+    if (!par) return { config, par: null };
+    const code = { code: par.code, remise: par.remise, ...(par.type === 'recompense' ? { max: 1 } : {}) };   // code unique : ses utilisations se comptent depuis toujours
+    return { config: { ...config, offres: { ...Remises.offresDe(config), codes: [code, ...Remises.offresDe(config).codes.filter(c => c.code !== par.code)] } }, par };
   };
   const minimumDe = (config, livraison) => { const r = config.reglages || {}, m = Math.max(0, Math.min(1000, Math.round(Number(r.minimumCommande) || 0))); return m && livraison !== 'numerique' && (livraison !== 'retrait' || r.minimumRetrait) ? m : 0; };
   const compteursRisque = Risque.creerCompteurs(), paniersMoyens = new Map();
@@ -3604,7 +3618,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (pro && (ctx.corps.code || ctx.corps.fidelite)) throw erreur(400, 'Le tarif professionnel ne se cumule pas avec un code promo ou des points de fidélité.', 'pro_cumul');
     const impayees = impayeesActives(b.id, { index: PII.index(b.id, client.email) || '', reseau: empreinteReseau });
     if (impayees >= 3 * facteurLimites) throw erreur(429, 'Plusieurs commandes attendent déjà leur paiement : terminez un paiement en cours, ou réessayez dans 30 minutes.', 'trop_impayees');
-    const calcul = Remises.appliquer(lignesBrutes, config, ctx.corps.code);
+    const { config: configCode, par } = avecParrainage(b, config, ctx.corps.code);
+    const calcul = Remises.appliquer(lignesBrutes, configCode, ctx.corps.code);
     // Tarif professionnel : la remise du compte remplace les paliers (prix unitaire arrondi au centime, comme les remises).
     if (pro && pro.remise > 0) {
       // Les offres du panier ne s'appliquent pas au tarif pro : leurs lignes deviennent des lignes ordinaires.
@@ -3620,12 +3635,15 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Le code de bienvenue est annoncé « sur votre première commande » : refusé à une adresse qui a déjà commandé ici.
     const bienvenue = ((config.automatisations || {}).bienvenue || {});
     const codeBienvenue = !!(calcul.motif && calcul.motif.code && bienvenue.code && calcul.motif.code.toUpperCase() === String(bienvenue.code).toUpperCase());
-    if (codeBienvenue) {
+    const parUtilise = par && calcul.motif && calcul.motif.type === 'code' && calcul.motif.code === par.code ? par : null;
+    if (parUtilise && PAR.index(b.id, client.email) === parUtilise.emailIndex && parUtilise.type === 'filleul') throw erreur(400, 'Votre propre code de parrainage est pour vos proches : il ne s’applique pas à vos commandes.', 'parrainage_soi');
+    if (parUtilise && PAR.index(b.id, client.email) !== parUtilise.emailIndex && parUtilise.type === 'recompense') throw erreur(400, 'Ce code de remerciement s’utilise avec l’adresse e-mail de la personne qui l’a reçu.', 'recompense_autre');
+    if (codeBienvenue || (parUtilise && parUtilise.type === 'filleul')) {
       // Commandes en attente comprises si leur paiement est encore possible (lien ouvert depuis moins de 35 minutes, ou
       // facture QR) : deux commandes ouvertes ensemble ne profitent pas toutes deux du code. Une commande dont le client a
       // annulé le paiement ne compte pas : il peut recommencer avec le code. Reprendre plus tard l'ancienne est alors refusé.
       const deja = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND email_index = ? AND statut NOT IN ('annulee', 'remboursee') AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, PII.index(b.id, client.email) || '', Date.now() - 35 * 60000);
-      if (deja) throw erreur(400, `Le code ${bienvenue.code} est réservé à une première commande.`, 'code_premiere_commande');
+      if (deja) throw erreur(400, `Le code ${codeBienvenue ? bienvenue.code : parUtilise.code} est réservé à une première commande.`, 'code_premiere_commande');
     }
     let lignes = calcul.lignes, remise = calcul.remise, apresRemise = calcul.apresRemise;
     const sousTotal = calcul.sousTotal;
@@ -3688,9 +3706,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const numero = db.prepare('UPDATE boutiques SET compteur_commande = compteur_commande + 1 WHERE id = ? RETURNING compteur_commande').get(b.id).compteur_commande;
       const now = Date.now();
       if (fidelite && !FID.verifierCode(b.id, client.email, String(ctx.corps.fidelite.code || ''), { demande: String(ctx.corps.fidelite.demande || ''), reseau: reseauIp(ctx.ip), consommer: true })) throw erreur(400, 'Code de fidélité invalide ou expiré : demandez-en un nouveau.', 'fidelite_code');
-      { const refus = limiteCode(b.id, config, codePromo, client.email); if (refus) throw refus; }   // dans la transaction : deux commandes simultanées ne prennent pas la dernière utilisation
+      { const refus = limiteCode(b.id, configCode, codePromo, client.email); if (refus) throw refus; }   // dans la transaction : deux commandes simultanées ne prennent pas la dernière utilisation
       const motifs = [calcul.motif ? calcul.motif.libelle : null, fidelite ? `${fidelite.points} points de fidélité` : null].filter(Boolean);
-      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, ...(codeBienvenue ? { codeBienvenue: true } : {}), ...(codePromo ? { codePromo } : {}), client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
+      const c = { id: auth.nouvelId('c_'), numero, date: now, statut: 'attente', reseau: empreinteReseau, ...(codeBienvenue ? { codeBienvenue: true } : {}), ...(codePromo ? { codePromo } : {}), ...(parUtilise ? { parrainage: { type: parUtilise.type, code: parUtilise.code } } : {}), client, lignes, sousTotal, remise, motifRemise: motifs.length ? motifs.join(' + ') : null, ...(fidelite ? { fidelite } : {}), port, total, tauxTva: prix.tauxTva(config), livraison: ctx.corps.livraison, canal: 'web', suivi: '', note: '', historique: [{ date: now, texte: 'Commande passée en ligne, paiement en attente' + (remise ? ` (remise : ${motifs.join(' + ')})` : '') }] };
       prix.figerTaux(c, config);   // taux de TVA figé par ligne (taux réduit des denrées alimentaires)
       // Langue dans laquelle le client a commandé (parmi celles de la boutique) : ses e-mails suivent.
       if (pro) { c.pro = { id: pro.id, remise: pro.remise }; c.client.entreprise = pro.raison; if (pro.ide) c.client.ide = pro.ide; }   // raison sociale et IDE : avec les données chiffrées du client
@@ -3741,6 +3759,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       insererCommande(id, b.id, n, date, statut, jeton, donnees);
+      if (parUtilise && parUtilise.type === 'filleul') PAR.noterFilleul(b.id, id, parUtilise.code, now);   // récompense du parrain 14 jours après le paiement
       // Débit conditionnel (solde suffisant) : deux commandes simultanées ne dépensent pas deux fois la même carte.
       if (carte && !Cartes.debiter(carte.id, centimesCarte, { commandeId: c.id, texte: `Commande n° ${numero}`, maintenant: now })) throw erreur(409, 'Le solde de la carte cadeau vient de changer : vérifiez-le et réessayez.', 'carte_solde');
       if (donnees.facture) sceller(b.id, c);   // facture QR émise à la commande
@@ -4606,6 +4625,13 @@ ${bloc}</main></body></html>`;
     auth.limiter('code:' + ctx.ip, 40 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
     const b = boutiqueParSlug(ctx.params.slug);
     const saisi = String(ctx.corps.code || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Code de parrainage ou de récompense : conditions dites dès la saisie (contrôlées à la commande avec l'e-mail).
+    { const { config: cp, par } = avecParrainage(b, configVente(b), saisi);
+      if (par) {
+        if (par.type === 'recompense' && limiteCode(b.id, cp, par.code, '')) throw erreur(404, `Le code ${par.code} a atteint son nombre d’utilisations.`, 'code_epuise');
+        const texte = par.type === 'filleul' ? 'Parrainage : valable sur une première commande.' : 'Code de remerciement : avec l’adresse e-mail qui l’a reçu.';
+        return { code: par.code, remise: par.remise, conditions: [{ type: par.type === 'filleul' ? 'premiere' : 'client', texte }], condition: texte };
+      } }
     const c = Remises.codesValables(configVente(b)).find(x => x.code === saisi);
     if (!c) throw erreur(404, 'Ce code promo n’existe pas ou a expiré.', 'code_invalide');
     // Le code de bienvenue ne vaut que pour une première commande : on le dit dès sa saisie (contrôlé au paiement avec l'e-mail).
@@ -4614,6 +4640,23 @@ ${bloc}</main></body></html>`;
     if (m && m.max && utilisationsCode(b.id, c.code, { depuis: m.cree }) >= m.max) throw erreur(404, `Le code ${c.code} a atteint son nombre d’utilisations.`, 'code_epuise');
     const conditions = [bv.code && String(bv.code).toUpperCase() === c.code ? { type: 'premiere', texte: 'Valable sur une première commande.' } : null, m && m.minimum ? { type: 'minimum', texte: `Dès ${formatMontant(m.minimum, configVente(b))} d’achat.` } : null, m && m.unParClient ? { type: 'client', texte: 'Une fois par adresse e-mail.' } : null].filter(Boolean);
     return { code: c.code, remise: c.remise, ...(m && m.minimum ? { minimum: m.minimum } : {}), ...(conditions.length ? { conditions, condition: conditions.map(x => x.texte).join(' ') } : {}) };
+  });
+  /* Parrainage : le client d'une commande payée obtient son code personnel (le même à chaque fois) et le lien à partager.
+     Le jeton de la commande prouve qu'il en est le client ; rien d'autre n'est demandé ni montré. */
+  r.post('/api/public/:slug/parrainage', ctx => {
+    auth.limiter('parrainage:' + ctx.ip, 20 * facteurLimites, 15 * 60000, 'Trop de requêtes en peu de temps. Réessayez dans quelques minutes.');
+    const b = boutiqueParSlug(ctx.params.slug);
+    const reg = Parrainage.nettoyerReglages(configVente(b).parrainage);
+    if (!reg.actif) throw erreur(404, 'Le parrainage n’est pas proposé par cette boutique.', 'parrainage_inactif');
+    const row = db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(String(ctx.corps.commandeId || ''), b.id);
+    if (!row || !auth.egal(String(ctx.corps.jeton || ''), row.jeton_client)) throw erreur(404, 'Commande introuvable.', 'commande_introuvable');
+    if (!['payee', 'preparation', 'expediee', 'livree', 'prete', 'retiree'].includes(row.statut)) throw erreur(409, 'Votre lien de parrainage est disponible une fois la commande payée.', 'parrainage_attente');
+    const c = lireCommande(row);
+    if (!c.client || c.client.illisible || !c.client.email) throw erreur(409, 'Votre lien de parrainage est disponible une fois la commande payée.', 'parrainage_attente');
+    const code = PAR.codePour(b.id, c.client.email, c.client.nom);
+    if (!code) throw erreur(503, 'Les demandes sont momentanément complètes pour cette boutique. Réessayez plus tard.', 'complet');
+    const racine = urlBoutique(b).replace(/\/?$/, '/');
+    return { code, lien: `${racine}?code=${code}`, filleul: reg.filleul, parrain: reg.parrain };
   });
   /* Mes commandes : les liens de suivi des commandes de cette adresse (12 derniers mois) envoyés à cette adresse seule.
      Réponse identique que l'adresse soit connue ou non : le formulaire ne révèle pas qui est client. */
@@ -5106,11 +5149,23 @@ ${bloc}</main></body></html>`;
     }
     return n;
   }
+  /* Récompenses de parrainage dues (filleul payé depuis 14 jours, commande gardée) : un code « MERCI… » par e-mail au parrain. */
+  function recompensesParrainage(maintenant = Date.now()) {
+    const statutDe = id => (db.prepare('SELECT statut FROM commandes WHERE id = ?').get(id) || {}).statut;
+    const reglagesDe = bid => { const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid); return Parrainage.nettoyerReglages(b ? lireConfig(b).parrainage : null); };
+    for (const r of PAR.echeances(statutDe, reglagesDe, maintenant)) {
+      const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.bid); if (!b) continue;
+      const config = lireConfig(b), url = urlBoutique(b).replace(/\/?$/, '/');
+      envoyerEmail(b.id, r.email, `Merci ! Votre remise de ${r.remise} % chez ${config.boutique.nom}`,
+        `Bonjour${r.nom ? ' ' + r.nom.split(' ')[0] : ''},\n\nUne personne à qui vous avez recommandé ${config.boutique.nom} a passé sa première commande. Merci !\n\nVotre code de remerciement : ${r.code}\n−${r.remise} % sur votre prochaine commande, à utiliser une fois avec cette adresse e-mail, jusqu'au ${new Date(r.expire).toLocaleDateString('fr-CH')}.\n\n${url}?code=${r.code}\n\n${config.boutique.nom}`);
+    }
+  }
   function automatisationsEcheances(maintenant = Date.now()) {
     try { rappelsReassort(maintenant); } catch (e) { journal.error('[reassort]', e.message); }
     let n = 0;
     entretien(maintenant);
     try { rappelsPrecommandes(maintenant); } catch (e) { journal.error('[precommandes]', e.message); }
+    try { recompensesParrainage(maintenant); } catch (e) { journal.error('[parrainage]', e.message); }
     try { rapportsHebdo(maintenant); } catch (e) { journal.error('[rapport-hebdo]', e.message); }
     try { alertesRetourStock(maintenant); } catch (e) { journal.error('[retour-stock]', e.message); }
     try { appliquerRecuperations(maintenant); } catch (e) { journal.error('[recuperation]', e.message); }

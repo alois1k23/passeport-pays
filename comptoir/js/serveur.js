@@ -198,7 +198,7 @@ async function rechargerEtat() {
   { const pb = SERVEUR.paiementsBoutique; if (pb && pb.mode === 'stripe' && pb.compte && !pb.pret) api('GET', '/api/admin/paiements/etat').then(r => { if (r.pret) { SERVEUR.paiementsBoutique = r; rendre(); } }).catch(() => {}); } SERVEUR.urlBoutique = e.serveur.urlBoutique || null;
 }
 const urlBoutique = () => `${location.origin}/s/${SERVEUR.slug}`;
-const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, offres: etat.offres, lancement: etat.lancement || {}, fournisseursSuivi: etat.fournisseursSuivi || {} });
+const configActuelle = () => ({ boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, reglages: etat.reglages, campagnes: etat.campagnes, rdv: etat.rdv, cookies: etat.cookies, social: etat.social, tests: etat.tests || [], automatisations: etat.automatisations, parrainage: etat.parrainage, offres: etat.offres, lancement: etat.lancement || {}, fournisseursSuivi: etat.fournisseursSuivi || {} });
 async function rafraichir(message) {
   try { await rechargerEtat(); } catch (e) { toast(e.message); }
   rendre();

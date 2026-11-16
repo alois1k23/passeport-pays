@@ -1,0 +1,76 @@
+// Parrainage : code personnel après une commande payée, remise du filleul sur sa première commande seulement (jamais sur
+// soi-même), récompense du parrain 14 jours après le paiement si la commande est gardée, à usage unique et personnelle.
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const { ouvrir } = require('../src/db');
+const { creerApp } = require('../src/app');
+const Parrainage = require('../src/parrainage');
+
+test('réglages du parrainage : bornés de 5 à 30 %, inactif par défaut', () => {
+  assert.deepEqual(Parrainage.nettoyerReglages(undefined), { actif: false, filleul: 10, parrain: 10 });
+  assert.deepEqual(Parrainage.nettoyerReglages({ actif: true, filleul: 90, parrain: 1 }), { actif: true, filleul: 30, parrain: 5 });
+  assert.equal(Parrainage.nettoyerReglages({ actif: 'oui' }).actif, false);
+});
+
+test('parrainage : lien, remise du filleul, refus sur soi et après une première commande, récompense à 14 jours', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const gerer = s.listeners('request')[0];
+  let cookie = '';
+  const c = async (m, chemin, corps, avec = true) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && avec ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc && avec) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'p@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Atelier', pays: 'ch' }, entreprise: { raison: 'A Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'p@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } } });
+    const vase = (await c('POST', '/api/admin/produits', { produit: { nom: 'Vase', prix: 100, stock: 50 } })).j.id;
+    const etat = (await c('GET', '/api/admin/etat')).j, slug = etat.serveur.slug;
+    const commander = (email, extra = {}) => c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: vase, qte: 1 }], livraison: 'poste-eco', client: { nom: email.split('@')[0] + ' Rossi', email, adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' }, ...extra }, false);
+    const payer = async r => { assert.equal(r.s, 201, JSON.stringify(r.j)); await fetch(r.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' }); return r.j; };
+    const lien = cmd => c('POST', `/api/public/${slug}/parrainage`, { commandeId: cmd.commandeId, jeton: cmd.jeton }, false);
+    // Programme inactif : pas de lien, et un code « AMI… » n'existe pas.
+    const ana1 = await payer(await commander('ana@exemple.ch'));
+    assert.equal((await lien(ana1)).j.code, 'parrainage_inactif');
+    const cfg = { boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, livraisons: etat.livraisons, offres: etat.offres, reglages: etat.reglages, parrainage: { actif: true, filleul: 10, parrain: 15 } };
+    assert.equal((await c('PUT', '/api/admin/config', { config: cfg })).s, 200);
+    assert.deepEqual((await c('GET', `/api/public/${slug}`, null, false)).j.parrainage, { filleul: 10, parrain: 15 });
+    // Lien : jeton exigé ; commande non payée refusée ; le même code à chaque demande.
+    assert.equal((await c('POST', `/api/public/${slug}/parrainage`, { commandeId: ana1.commandeId, jeton: 'faux' }, false)).s, 404);
+    const enAttente = await commander('zoe@exemple.ch'); assert.equal((await lien(enAttente.j)).j.code, 'parrainage_attente');
+    const l1 = (await lien(ana1)).j, l2 = (await lien(ana1)).j;
+    assert.match(l1.code, /^AMI[A-Z2-9]{6}$/); assert.equal(l1.code, l2.code); assert.match(l1.lien, new RegExp(`/s/${slug}/\\?code=${l1.code}$`));
+    { const d = db.prepare('SELECT donnees FROM parrains').get().donnees; assert.match(d, /^v\d\./, 'adresse du parrain chiffrée au repos'); assert.ok(!d.includes('ana@exemple.ch')); }
+    // Saisie du code : remise et condition annoncées.
+    const code = await c('POST', `/api/public/${slug}/code`, { code: l1.code.toLowerCase() }, false);
+    assert.equal(code.j.remise, 10); assert.match(code.j.condition, /première commande/);
+    // Sur soi-même : refusé.
+    assert.equal((await commander('ana@exemple.ch', { code: l1.code })).j.code, 'parrainage_soi');
+    // Filleul : −10 % (100 → 90 + port), commande payée ; une deuxième commande avec le code est refusée.
+    const bob = await commander('bob@exemple.ch', { code: l1.code });
+    const sans = (await commander('carl@exemple.ch')).j;
+    assert.equal(Math.round((sans.total - bob.j.total) * 100) / 100, 10, `remise du filleul (${sans.total} / ${bob.j.total})`);
+    await payer(bob);
+    assert.equal((await commander('bob@exemple.ch', { code: l1.code })).j.code, 'code_premiere_commande');
+    assert.equal(db.prepare("SELECT statut FROM filleuls WHERE commande_id = ?").get(bob.j.commandeId).statut, 'attente');
+    // Avant 14 jours : rien. Après : un code « MERCI… » de −15 % envoyé au parrain, une seule fois.
+    gerer.automatisationsEcheances(Date.now() + 10 * 86400000);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE 'Merci !%'").get().n, 0);
+    gerer.automatisationsEcheances(Date.now() + 15 * 86400000);
+    gerer.automatisationsEcheances(Date.now() + 16 * 86400000);
+    const mails = db.prepare("SELECT corps FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE 'Merci !%'").all();
+    assert.equal(mails.length, 1, 'une seule récompense');
+    const merci = /(MERCI[A-Z2-9]{6})/.exec(mails[0].corps)[1];
+    assert.match(mails[0].corps, /−15 %/);
+    // La récompense : seulement avec l'adresse du parrain, une seule fois.
+    assert.equal((await commander('bob@exemple.ch', { code: merci })).j.code, 'recompense_autre');
+    const ana2 = await commander('ana@exemple.ch', { code: merci });
+    assert.equal(ana2.s, 201, JSON.stringify(ana2.j)); await payer(ana2);
+    assert.equal((await commander('ana@exemple.ch', { code: merci })).j.code, 'code_epuise');
+    // Filleul remboursé avant 14 jours : pas de récompense.
+    const dan = await payer(await commander('dan@exemple.ch', { code: l1.code }));
+    db.prepare("UPDATE commandes SET statut = 'remboursee' WHERE id = ?").run(dan.commandeId);
+    gerer.automatisationsEcheances(Date.now() + 40 * 86400000);
+    assert.equal(db.prepare("SELECT statut FROM filleuls WHERE commande_id = ?").get(dan.commandeId).statut, 'annule');
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE 'Merci !%'").get().n, 1);
+  } finally { s.close(); }
+});

@@ -1552,3 +1552,8 @@ details.en-ligne form { margin-top: 6px; }
 .sf-liste-partagee .rangee-sf { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .sf-lien-liste { margin: 8px 0 14px; max-width: 520px; }
 .sf-lien-liste input { width: 100%; }
+/* Parrainage (page de suivi d'une commande payée) */
+.sf-parrainage { display: grid; gap: 8px; margin: 14px 0; padding: 12px 14px; border-radius: var(--sf-radius); background: color-mix(in srgb, var(--sf-primary) 8%, transparent); }
+.sf-parrainage h4 { margin: 0; font-size: 1rem; }
+.sf-parrainage p { margin: 0; }
+.sf-parrainage input { width: 100%; }

@@ -180,6 +180,7 @@ function vueConversion() {
       <label class="case"><input type="checkbox" data-offre="suggestions" ${o.suggestions ? 'checked' : ''}> Suggérer un produit complémentaire dans le panier</label>
     </section>
     ${blocRegles(o)}
+    ${blocParrainage()}
     <section class="carte sans-pad">
       <div class="carte-tete pad"><h2>Codes promo valables</h2><span class="sous">${codes.length} code${codes.length > 1 ? "s" : ""}</span></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Code</th><th class="num">Remise</th><th>Origine</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
@@ -213,6 +214,18 @@ function statsRegle(r) {
   const nAcc = reel ? acceptees.length : Math.round(vues * (0.05 + hacheTexte(r.id) * 0.07));
   const ca = reel ? acceptees.reduce((a, c) => a + c.lignes.filter(l => l.offre === r.id).reduce((s, l) => s + l.prix * l.qte, 0), 0) : nAcc * ((etat.produits.find(p => p.id === r.alors) || { prix: 0 }).prix * (1 - r.remise / 100));
   return { vues, acceptees: nAcc, taux: vues ? nAcc / vues : 0, ca };
+}
+/* Parrainage : un client partage son lien ; son filleul a une remise sur sa première commande, et lui un code de
+   remerciement 14 jours après le paiement du filleul (si la commande n'a été ni annulée ni remboursée). */
+function blocParrainage() {
+  const p = { actif: false, filleul: 10, parrain: 10, ...(etat.parrainage || {}) };
+  return `<section class="carte">
+      <div class="carte-tete"><h2>Parrainage</h2><label class="interrupteur petit"><input type="checkbox" data-parrainage="actif" ${p.actif ? 'checked' : ''}><span>${p.actif ? 'Actif' : 'Inactif'}</span></label></div>
+      <p class="sous">Après une commande payée, le client obtient son lien personnel sur la page de suivi. La personne qui l’ouvre a une remise sur sa première commande ; le client reçoit par e-mail un code de remerciement 14 jours après le paiement de cette commande, si elle n’a été ni annulée ni remboursée.</p>
+      <div class="deux"><label class="champ"><span>Remise du filleul (%)</span><input type="number" min="5" max="30" step="1" value="${p.filleul}" data-parrainage="filleul"></label>
+      <label class="champ"><span>Code de remerciement du parrain (%)</span><input type="number" min="5" max="30" step="1" value="${p.parrain}" data-parrainage="parrain"></label></div>
+      ${p.actif && typeof SERVEUR !== 'undefined' && SERVEUR.parrainage ? `<p class="sous">${SERVEUR.parrainage.parrains} parrain${SERVEUR.parrainage.parrains > 1 ? 's' : ''} · ${SERVEUR.parrainage.recompenses} remerciement${SERVEUR.parrainage.recompenses > 1 ? 's' : ''} envoyé${SERVEUR.parrainage.recompenses > 1 ? 's' : ''} · ${SERVEUR.parrainage.enAttente} en attente du délai de 14 jours</p>` : ''}
+    </section>`;
 }
 function blocRegles(o) {
   const opts = (sel, avecTout) => `${avecTout ? `<option value="*" ${sel === '*' ? 'selected' : ''}>N’importe quel panier</option>` : ''}${(() => { const hors = sel && sel !== '*' && !etat.produits.some(p => p.actif && p.id === sel) ? etat.produits.find(p => p.id === sel) : null; return hors ? `<option value="${esc(hors.id)}" selected>${esc(hors.nom)} (hors ligne)</option>` : sel && sel !== '*' && !etat.produits.some(p => p.id === sel) ? `<option value="${esc(sel)}" selected>Produit supprimé</option>` : ''; })()}${etat.produits.filter(p => p.actif).map(p => `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(p.nom)}</option>`).join('')}`;
@@ -268,6 +281,11 @@ document.addEventListener('change', e => {
     etatConversion(); etat.offres.seuilPort = v; sauver(); rendre();
   } else if (t.dataset.offre) {
     etatConversion(); etat.offres[t.dataset.offre] = t.checked; sauver(); rendre();
+  } else if (t.dataset.parrainage) {
+    // Remises bornées comme sur le serveur (5 à 30 %) ; affichées telles qu'elles seront gardées.
+    const p = etat.parrainage = { actif: false, filleul: 10, parrain: 10, ...(etat.parrainage || {}) }, k = t.dataset.parrainage;
+    if (k === 'actif') p.actif = t.checked; else p[k] = Math.max(5, Math.min(30, Math.round(Number(t.value) || 10)));
+    sauver(); rendre();
   } else if (t.dataset.palier) {
     const { o } = etatConversion();
     const [i, k] = t.dataset.palier.split('.');

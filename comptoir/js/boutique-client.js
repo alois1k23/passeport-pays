@@ -24,6 +24,7 @@ function mesurer(type, extra = {}) {
 const CLE_PANIER = `comptoir-panier-${slug}`;
 // Favoris : sur cet appareil seulement (rien n'est envoyé à la boutique), 100 au plus.
 const CLE_FAVORIS = `comptoir-favoris-${slug}`;
+const CLE_CODE = `comptoir-code-${slug}`;   // code reçu par lien, gardé pendant la visite (sessionStorage)
 const FAVORIS = (() => { try { const v = JSON.parse(localStorage.getItem(CLE_FAVORIS) || '[]'); return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 100) : []); } catch { return new Set(); } })();
 // Vus récemment : sur cet appareil seulement (rien n'est envoyé), 12 au plus.
 const CLE_RECENTS = `comptoir-recents-${slug}`;
@@ -60,6 +61,26 @@ function urlRacine(chemin = racineBoutique) {
   if (Array.isArray(vueVitrine.liste) && vueVitrine.liste.length) u.searchParams.set('liste', vueVitrine.liste.join(','));
   if (ici.get('lang')) u.searchParams.set('lang', ici.get('lang'));
   return u.pathname + u.search;
+}
+/* Parrainage : lien personnel du client (commande payée), à partager ; affiché dans le bloc, copié ou partagé. */
+async function obtenirParrainage(bouton) {
+  const bloc = document.getElementById('bloc-parrainage'); if (!bloc) return;
+  bouton.disabled = true;
+  try {
+    const r = await fetch(`/api/public/${encodeURIComponent(slug)}/parrainage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandeId: bouton.dataset.id, jeton: bouton.dataset.jeton }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.erreur || 'Lien indisponible pour l’instant.');
+    const lien = new URL(j.lien); if (typeof Traductions !== 'undefined' && Traductions.langue !== 'fr') lien.searchParams.set('lang', Traductions.langue);
+    const html = `<label class="champ"><span>Votre lien de parrainage (code ${esc(j.code)})</span><input readonly value="${esc(lien.toString())}" data-lien-parrainage></label><button type="button" class="sf-btn" data-c="partager-parrainage">${navigator.share ? 'Partager' : 'Copier le lien'}</button>`;
+    // Gardé dans le message de suivi : un nouvel affichage (panier ouvert, langue) ne le fait pas disparaître.
+    if (vue.message) vue.message = vue.message.replace(/<button type="button" class="sf-btn sf-btn-ligne" data-c="parrainage"[^>]*>[^<]*<\/button>/, html);
+    bouton.insertAdjacentHTML('afterend', html); bouton.remove();
+    const i = bloc.querySelector('[data-lien-parrainage]'); i.focus(); i.select();
+  } catch (e) { bouton.disabled = false; bloc.insertAdjacentHTML('beforeend', `<p class="erreur-form" role="alert">${esc(trad(e.message))}</p>`); }
+}
+async function partagerParrainage() {
+  const i = document.querySelector('[data-lien-parrainage]'); if (!i) return;
+  try { if (navigator.share) { await navigator.share({ title: donnees.boutique.nom, url: i.value }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(i.value); annoncer('Lien copié.'); } catch { i.focus(); i.select(); }
 }
 function fermerListe() { vueVitrine.liste = null; vueVitrine.listeAvis = null; const u = new URL(location.href); u.searchParams.delete('liste'); history.replaceState(history.state, '', u.pathname + u.search); }
 function ajouterListeAuPanier() {
@@ -128,6 +149,10 @@ async function demarrer() {
   if (q.get('reprendre')) { reprendrePaiement(q.get('reprendre'), q.get('jeton')); return; }
   if (q.get('avis')) { formulaireAvis(q.get('avis'), q.get('jeton')); return; }
   if (q.get('commande')) suivreCommande(q.get('commande'), q.get('jeton'), q.get('annule'));
+  // Code reçu par lien (parrainage, remerciement, campagne) : appliqué dès l'arrivée et gardé pendant la visite (onglet).
+  if (q.get('code') && !q.get('panier')) { try { sessionStorage.setItem(CLE_CODE, q.get('code').slice(0, 40)); } catch { /* ignoré */ } }
+  { let garde = null; try { garde = sessionStorage.getItem(CLE_CODE); } catch { /* ignoré */ }
+    if (garde && !q.get('panier') && !vue.code) appliquerCode(garde); }
   // Liste de favoris partagée : identifiants séparés par des virgules (50 au plus) ; les produits retirés sont ignorés à l'affichage.
   if (q.get('liste')) {
     const ids = [...new Set(q.get('liste').split(',').map(x => x.trim()).filter(x => /^[\w-]{1,64}$/.test(x) && donnees.produits.some(p => p.id === x)))].slice(0, 50);
@@ -442,6 +467,7 @@ async function suivreCommande(id, jeton, annule) {
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
         ${c.statut !== 'attente' && c.livraison !== 'carte' ? (() => { const ls = c.lignes.filter(l => l.produitId && donnees.produits.some(p => p.id === l.produitId)); return ls.length ? `<p><a class="sf-btn sf-btn-ligne" href="${esc(racineBoutique)}?panier=${encodeURIComponent([...ls.reduce((m, l) => { const k = `${l.produitId}:${l.varianteId || ''}`; m.set(k, { ...l, qte: (m.get(k) ? m.get(k).qte : 0) + l.qte }); return m; }, new Map()).values()].slice(0, 20).map(l => `${l.produitId}:${Math.min(20, l.qte)}${l.varianteId ? `:${encodeURIComponent(l.varianteId)}` : ''}`).join(','))}">Commander à nouveau</a></p>` : ''; })() : ''}
+        ${donnees.parrainage && ['payee', 'preparation', 'expediee', 'livree', 'prete', 'retiree'].includes(c.statut) && c.livraison !== 'carte' ? `<div class="sf-parrainage" id="bloc-parrainage"><h4>Offrez −${donnees.parrainage.filleul} % à vos proches</h4><p>Partagez votre lien : ils ont −${donnees.parrainage.filleul} % sur leur première commande, et vous recevez un code de −${donnees.parrainage.parrain} % quand ils ont commandé.</p><button type="button" class="sf-btn sf-btn-ligne" data-c="parrainage" data-id="${esc(id)}" data-jeton="${esc(jeton)}">Obtenir mon lien</button></div>` : ''}
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
         ${documentsCommande(c, id, jeton)}
         ${c.retour && c.retour.statut === 'demande' ? `<p class="encart">Retour demandé le ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : renvoyez les articles à l’adresse reçue par e-mail.</p>` : c.retourPossible ? `${c.retour ? `<p class="encart">Retour du ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : remboursé.</p>` : ''}<details class="retour-client"><summary>Demander un retour</summary><form data-retour="${esc(id)}" data-jeton="${esc(jeton)}">
@@ -543,6 +569,8 @@ document.addEventListener('click', e => {
   }
   else if (c === 'retirer-offre') { vue.panier = vue.panier.filter(x => !x.offre); garderPanier(); rendre(); }
   else if (c === 'retour-panier') { vue.message = null; rendre(); }
+  else if (c === 'parrainage') obtenirParrainage(el);
+  else if (c === 'partager-parrainage') partagerParrainage();
   else if (c === 'qte') {
     const l = vue.panier.find(x => x.produitId === el.dataset.id && !x.offre && (x.varianteId || '') === (el.dataset.v || ''));
     const pr = donnees.produits.find(x => x.id === l.produitId), vr = pr && l.varianteId && aVariantes(pr) ? pr.variantes.find(x => x.id === l.varianteId) : null;
@@ -643,7 +671,7 @@ async function utiliserCarte(code) {
 
 async function appliquerCode(code) {
   code = String(code || '').trim();
-  if (!code) { vue.code = null; vue.codeMessage = ''; rendre(); return; }
+  if (!code) { vue.code = null; vue.codeMessage = ''; try { sessionStorage.removeItem(CLE_CODE); } catch { /* ignoré */ } rendre(); return; }
   try {
     const rep = await fetch(`/api/public/${encodeURIComponent(slug)}/code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
     const json = await rep.json();
@@ -652,7 +680,7 @@ async function appliquerCode(code) {
     const calc = calculPanier();
     const autres = (json.conditions || []).filter(x => x.type !== 'minimum').map(x => x.texte).join(' ');
     vue.codeMessage = calc.codeMinimum ? `Code ${json.code} : −${json.remise} % dès ${euros(calc.codeMinimum)} d’achat.${autres ? ' ' + autres : ''}` : calc.motif && calc.motif.type === 'code' ? `Code ${json.code} appliqué : −${json.remise} %.${json.condition ? ' ' + json.condition : ''}` : `Code ${json.code} valable, mais la remise par quantité est plus avantageuse : elle s’applique (non cumulable).`;
-  } catch (e) { vue.code = null; vue.codeMessage = e.message || 'Code non reconnu.'; }
+  } catch (e) { vue.code = null; vue.codeMessage = e.message || 'Code non reconnu.'; try { sessionStorage.removeItem(CLE_CODE); } catch { /* ignoré */ } }
   rendre(); if (vue.codeMessage) annoncer(vue.codeMessage);
 }
 

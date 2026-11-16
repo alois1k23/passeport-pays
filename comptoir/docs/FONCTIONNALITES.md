@@ -93,6 +93,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Commande minimum** (montant d'articles, retrait en magasin dispensé ou non) : vérifiée par le serveur, montant manquant indiqué dans le panier.
 - **Audit des traductions de la boutique** (`outils/simulation/traductions-boutique.js`) : chaque texte visible vérifié en allemand, italien et anglais ; allergènes traduits.
 - **Liste de favoris partagée** : un lien (produits seulement, rien sur la personne) ; celui qui l'ouvre ajoute tout au panier en un clic ou garde la liste dans ses favoris.
+- **Parrainage** : lien personnel après une commande payée, remise du filleul sur sa première commande, code de remerciement au parrain 14 jours après le paiement si la commande est gardée ; adresses chiffrées, effaçables.
 - **Export du catalogue** au format CSV de Shopify (variantes, prix, stock, codes-barres, marque, photos), relu par l'import de Comptoir et par d'autres plateformes. Les cellules sont neutralisées contre les formules de tableur.
 - Aucune ressource tierce dans les boutiques : ni traceur, ni police Google.
 - En-têtes de sécurité stricts (CSP sans script externe), cookie de session `__Host-`. Les navigateurs signalent ce qu'ils bloquent (tentative d'injection), sans donnée personnelle.
