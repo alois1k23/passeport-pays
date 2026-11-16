@@ -1,5 +1,5 @@
 // Parrainage : code personnel après une commande payée, remise du filleul sur sa première commande seulement (jamais sur
-// soi-même), récompense du parrain 14 jours après le paiement si la commande est gardée, à usage unique et personnelle.
+// soi-même), récompense du parrain 14 jours après la livraison si la commande est gardée, à usage unique et personnelle.
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -14,6 +14,7 @@ test('réglages du parrainage : bornés de 5 à 30 %, inactif par défaut', () =
   assert.equal(Parrainage.canonique(' A.Na+promo@GoogleMail.com '), 'ana@gmail.com');
   assert.equal(Parrainage.canonique('ana+x@exemple.ch'), 'ana@exemple.ch');
   assert.equal(Parrainage.canonique('a.na@exemple.ch'), 'a.na@exemple.ch', 'les points ne comptent que chez Gmail');
+  assert.equal(Parrainage.canonique('A.n-a@pm.me'), 'ana@proton.me'); assert.equal(Parrainage.canonique('ana-promo@yahoo.com'), 'ana@yahoo.com');
   assert.equal(Parrainage.nettoyerReglages({ actif: 'oui' }).actif, false);
 });
 
@@ -67,6 +68,8 @@ test('parrainage : lien, remise du filleul, refus sur soi et après une premièr
     await payer(await commander('gus@exemple.ch', { code: l1.code }));
     const reprise = await c('POST', `/api/public/${slug}/commandes/${gusA.commandeId}/reprendre`, { jeton: gusA.jeton }, false);
     assert.equal(reprise.j && reprise.j.code, 'code_premiere_commande', JSON.stringify(reprise.j));
+    // Toutes les commandes du test viennent du même poste : le parrain reçoit ici un autre réseau (règle testée plus bas).
+    db.prepare("UPDATE parrains SET reseau = 'reseau-du-parrain'").run();
     // Payée mais pas livrée : rien, même après des semaines. Livrée : le délai de 14 jours part de là.
     gerer.automatisationsEcheances(Date.now() + 30 * 86400000);
     assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE 'Merci !%'").get().n, 0);
@@ -99,6 +102,23 @@ test('parrainage : lien, remise du filleul, refus sur soi et après une premièr
     assert.equal(db.prepare("SELECT statut FROM filleuls WHERE commande_id = ?").get(dan.commandeId).statut, 'annule');
     assert.equal(db.prepare("SELECT statut FROM filleuls WHERE commande_id = ?").get(fay.commandeId).statut, 'annule');
     assert.equal(db.prepare("SELECT COUNT(*) n FROM emails WHERE destinataire = 'ana@exemple.ch' AND sujet LIKE 'Merci !%'").get().n, 1);
+    // Relecture 2 : client existant sous un alias, retour partiel puis alias, un seul code par personne, délai repris.
+    await payer(await commander('carl@exemple.ch'));   // déjà client, sans code
+    assert.equal((await commander('carl+ami@exemple.ch', { code: l1.code })).j.code, 'code_premiere_commande', 'client existant sous un alias');
+    assert.equal((await commander('fay+2@exemple.ch', { code: l1.code })).j.code, 'code_premiere_commande', 'filleul revenu avec un alias après un retour partiel');
+    { const anaB = await payer(await commander('ana+b@exemple.ch')); assert.equal((await lien(anaB)).j.code, l1.code, 'un seul code pour une adresse et ses alias'); }
+    const hal = await payer(await commander('hal@exemple.ch', { code: l1.code }));
+    db.prepare("UPDATE commandes SET statut = 'livree' WHERE id = ?").run(hal.commandeId);
+    gerer.automatisationsEcheances(Date.now() + 81 * 86400000);   // vue livrée
+    db.prepare("UPDATE commandes SET statut = 'expediee' WHERE id = ?").run(hal.commandeId);   // repassée en arrière
+    gerer.automatisationsEcheances(Date.now() + 82 * 86400000);
+    assert.equal(db.prepare('SELECT livre_le FROM filleuls WHERE commande_id = ?').get(hal.commandeId).livre_le, null, 'délai de rétractation repris à zéro');
+    // Même réseau que le parrain : pas de récompense (la remise du filleul reste).
+    db.prepare("UPDATE commandes SET statut = 'livree' WHERE id = ?").run(hal.commandeId);
+    db.prepare("UPDATE parrains SET reseau = (SELECT json_extract(donnees, '$.reseau') FROM commandes WHERE id = ?)").run(hal.commandeId);
+    gerer.automatisationsEcheances(Date.now() + 83 * 86400000);
+    gerer.automatisationsEcheances(Date.now() + 98 * 86400000);
+    assert.equal(db.prepare('SELECT statut FROM filleuls WHERE commande_id = ?').get(hal.commandeId).statut, 'annule', 'même réseau que le parrain');
     // Effacement du parrain : code, récompenses et index disparaissent.
     // (le saut de 80 jours a fait expirer la session du marchand : nouvelle connexion)
     cookie = ''; assert.equal((await c('POST', '/api/auth/connexion', { email: 'p@exemple.ch', motDePasse: 'un mot de passe solide' })).s, 200);

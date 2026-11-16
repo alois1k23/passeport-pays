@@ -1317,3 +1317,34 @@ Relecture indépendante, qui a reproduit les abus. Constats corrigés :
   - **e-mail de récompense :** en français seulement ;
   - **même réseau :** la commande du filleul n'est pas comparée au réseau du parrain ;
   - **caisse :** les codes ne s'y utilisent pas.
+
+### Cycle 65 (04 h 15) : seconde relecture du parrainage (chantier 115)
+
+Seconde relecture, ciblée sur les corrections du cycle 64 : elles tiennent (aucun constat grave). Elle a reproduit cinq contournements, maintenant fermés :
+
+- **Client existant sous un alias.** carl@ déjà client passait pour un filleul avec carl+ami@. Les commandes portent désormais un index de leur adresse canonique (colonne `email_canon`, rattrapée au démarrage pour les commandes existantes). La règle « première commande » le compare, à la création comme à la reprise ; le code de bienvenue en profite aussi.
+- **Retour partiel, puis alias.** Une ligne de filleul annulée (retour partiel, litige, plafond) ne bloquait plus le même client sous un alias. Toute commande gardée, quel que soit le sort de la récompense, compte désormais ; seule une commande annulée ou remboursée libère le code.
+- **Plafond contourné par plusieurs codes.** Une adresse et ses alias n'ont plus qu'un seul code, et le plafond de 10 récompenses par an se compte par personne (forme canonique).
+- **Commande livrée repassée en arrière.** Le délai de rétractation repart de zéro.
+- **Alias non reconnus.**
+  - **Formes canoniques :** Proton (points, tirets et soulignés ignorés ; proton.me, protonmail.com, protonmail.ch et pm.me réunis) et le « - » des adresses jetables Yahoo.
+  - **Signal réseau :** une commande de filleul venue du même réseau que le parrain ne rapporte pas de récompense. On compare l'empreinte réseau, jamais l'adresse IP. Le filleul garde sa remise.
+- **Faibles :**
+  - une commande de filleul payée tard, après une autre du même client, garde sa remise, mais sans récompense ; c'est signalé dans l'historique ;
+  - une facture QR encore impayée n'est plus oubliée à 60 jours ;
+  - une commande supprimée parce que le paiement n'a pas pu s'ouvrir ne laisse plus de ligne de filleul ;
+  - l'effacement d'un parrain supprime aussi les récompenses gagnées sous ses alias ;
+  - une ligne abîmée ne bloque plus la tâche horaire (erreur journalisée, les autres continuent) ;
+  - même règle (annulée ou remboursée exclue) à la création et à la reprise ;
+  - commentaires mis à jour.
+- **Tests ajoutés :**
+  - client existant sous un alias ;
+  - alias après un retour partiel ;
+  - un seul code pour ana@ et ana+b@ ;
+  - délai repris à zéro ;
+  - même réseau ;
+  - formes canoniques Proton et Yahoo.
+- **Vérifié de nouveau** dans Chromium (bureau et mobile) : parcours complet sans erreur.
+- **Limites assumées :**
+  - les relais d'adresse (iCloud Hide My Email, Firefox Relay…) et les adresses jetables restent hors de portée. Le minimum, le plafond, le délai après livraison et le signal réseau en limitent le gain ;
+  - après l'effacement d'un client à sa demande, la même personne peut redevenir filleul : le droit à l'effacement passe avant.

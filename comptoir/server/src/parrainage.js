@@ -24,6 +24,10 @@ function canonique(email) {
   let local = e.slice(0, at).replace(/\+.*$/, ''), domaine = e.slice(at + 1);
   if (domaine === 'googlemail.com') domaine = 'gmail.com';
   if (domaine === 'gmail.com') local = local.replace(/\./g, '');
+  // Proton : points, tirets et soulignés ignorés ; quatre domaines pour la même boîte.
+  if (['proton.me', 'protonmail.com', 'protonmail.ch', 'pm.me'].includes(domaine)) { domaine = 'proton.me'; local = local.replace(/[._-]/g, ''); }
+  // Yahoo : « nom-motcle » est une adresse jetable de la boîte « nom ».
+  if (/^yahoo\.[a-z.]+$/.test(domaine) || domaine === 'ymail.com') local = local.replace(/-.*$/, '');
   return `${local}@${domaine}`;
 }
 
@@ -42,7 +46,7 @@ function creerParrainage({ db, pii }) {
     CREATE TABLE IF NOT EXISTS filleuls (commande_id TEXT PRIMARY KEY, boutique_id TEXT NOT NULL, code TEXT NOT NULL, statut TEXT NOT NULL, cree_le INTEGER NOT NULL, paye_le INTEGER, recompense TEXT);
     CREATE INDEX IF NOT EXISTS filleuls_echeance ON filleuls(statut, paye_le);
     CREATE TABLE IF NOT EXISTS recompenses (boutique_id TEXT NOT NULL, code TEXT NOT NULL, email_index TEXT NOT NULL, remise INTEGER NOT NULL, cree_le INTEGER NOT NULL, expire INTEGER NOT NULL, PRIMARY KEY (boutique_id, code));`);
-  for (const [t, col] of [['parrains', 'canon TEXT'], ['filleuls', 'filleul_canon TEXT'], ['filleuls', 'livre_le INTEGER'], ['recompenses', 'parrain_code TEXT']]) { try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${col}`); } catch { /* déjà là */ } }
+  for (const [t, col] of [['parrains', 'reseau TEXT'], ['parrains', 'canon TEXT'], ['filleuls', 'filleul_canon TEXT'], ['filleuls', 'livre_le INTEGER'], ['recompenses', 'parrain_code TEXT']]) { try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${col}`); } catch { /* déjà là */ } }
   db.exec('CREATE INDEX IF NOT EXISTS filleuls_canon ON filleuls(boutique_id, filleul_canon)');
   const P = () => pii();
   const index = (bid, email) => { const x = P(); const e = String(email || '').trim().toLowerCase(); return x ? x.index(bid, e) : crypto.createHash('sha256').update(`${bid}|${e}`).digest('hex'); };
@@ -52,14 +56,16 @@ function creerParrainage({ db, pii }) {
   const normaliser = c => String(c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
 
   /* Code personnel d'un client (créé à la première demande, le même ensuite). null si la boutique en a déjà trop. */
-  function codePour(bid, email, nom, maintenant = Date.now()) {
-    const idx = index(bid, email);
-    const r = db.prepare('SELECT code FROM parrains WHERE boutique_id = ? AND email_index = ?').get(bid, idx);
-    if (r) return r.code;
+  /* reseau : empreinte réseau de la commande qui a donné le code (jamais l'adresse IP) : une commande de filleul venue du
+     même réseau ne rapporte pas de récompense. Une adresse et ses alias (forme canonique) n'ont qu'un seul code. */
+  function codePour(bid, email, nom, maintenant = Date.now(), reseau = null) {
+    const idx = index(bid, email), canon = indexCanon(bid, email);
+    const r = db.prepare('SELECT code FROM parrains WHERE boutique_id = ? AND (email_index = ? OR canon = ?) ORDER BY cree_le LIMIT 1').get(bid, idx, canon);
+    if (r) { if (reseau) db.prepare('UPDATE parrains SET reseau = ? WHERE boutique_id = ? AND code = ?').run(String(reseau).slice(0, 80), bid, r.code); return r.code; }
     if (db.prepare('SELECT COUNT(*) n FROM parrains WHERE boutique_id = ?').get(bid).n >= MAX_PARRAINS) return null;
     for (let i = 0; i < 5; i++) {
       const code = 'AMI' + aleatoire(6);
-      try { db.prepare('INSERT INTO parrains (boutique_id, code, email_index, donnees, cree_le, canon) VALUES (?, ?, ?, ?, ?, ?)').run(bid, code, idx, fermer(bid, code, { email: String(email).trim().toLowerCase(), nom: String(nom || '').slice(0, 120) }), maintenant, indexCanon(bid, email)); return code; }
+      try { db.prepare('INSERT INTO parrains (boutique_id, code, email_index, donnees, cree_le, canon, reseau) VALUES (?, ?, ?, ?, ?, ?, ?)').run(bid, code, idx, fermer(bid, code, { email: String(email).trim().toLowerCase(), nom: String(nom || '').slice(0, 120) }), maintenant, canon, reseau ? String(reseau).slice(0, 80) : null); return code; }
       catch (e) { if (!/UNIQUE/.test(e.message)) throw e; if (db.prepare('SELECT 1 FROM parrains WHERE boutique_id = ? AND email_index = ?').get(bid, idx)) return codePour(bid, email, nom, maintenant); }
     }
     return null;
@@ -89,31 +95,51 @@ function creerParrainage({ db, pii }) {
   // Comme le code de bienvenue : une commande abandonnée (lien de paiement fermé depuis 35 minutes) ne compte pas ;
   // une commande payée, sur facture, ou encore payable, oui.
   const dejaParraine = (bid, email, saufCommande = '', maintenant = Date.now()) => !!db.prepare(`SELECT 1 FROM filleuls f JOIN commandes c ON c.id = f.commande_id
-      WHERE f.boutique_id = ? AND f.filleul_canon = ? AND f.commande_id <> ? AND f.statut IN ('attente', 'credite') AND c.statut NOT IN ('annulee', 'remboursee')
+      WHERE f.boutique_id = ? AND f.filleul_canon = ? AND f.commande_id <> ? AND c.statut NOT IN ('annulee', 'remboursee')
         AND (c.statut <> 'attente' OR json_extract(c.donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = c.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1`).get(bid, indexCanon(bid, email), saufCommande, maintenant - 35 * 60000);
   function payee(commandeId, maintenant = Date.now()) {
     db.prepare("UPDATE filleuls SET paye_le = ? WHERE commande_id = ? AND statut = 'attente' AND paye_le IS NULL").run(maintenant, commandeId);
   }
 
+  const annulerFilleul = id => db.prepare("UPDATE filleuls SET statut = 'annule' WHERE commande_id = ? AND statut = 'attente'").run(id);
+  const oublierCommande = id => db.prepare('DELETE FROM filleuls WHERE commande_id = ?').run(id);   // commande supprimée (paiement jamais ouvert)
   /* Échéances (tâche horaire). infoDe(id) : { statut, litige, retours } de la commande (ou null) ; reglagesDe(bid) ;
      peutEnvoyer(bid) : faux tant que la boutique est fermée (abonnement), la récompense attend.
      Renvoie les récompenses à envoyer : [{ bid, email, nom, code, remise, expire, filleulCommande }]. */
-  function echeances(infoDe, reglagesDe, peutEnvoyer, maintenant = Date.now()) {
+  function echeances(infoDe, reglagesDe, peutEnvoyer, maintenant = Date.now(), signaler = () => {}) {
     const aEnvoyer = [], annuler = id => db.prepare("UPDATE filleuls SET statut = 'annule' WHERE commande_id = ?").run(id);
     for (const f of db.prepare("SELECT * FROM filleuls WHERE statut = 'attente' ORDER BY cree_le LIMIT 2000").all()) {
+      // Une ligne fautive (données abîmées) ne bloque ni les suivantes ni les récompenses déjà calculées.
+      try { const r = echeance(f, infoDe, reglagesDe, peutEnvoyer, maintenant, annuler); if (r) aEnvoyer.push(r); } catch (e) { signaler(`${f.commande_id} : ${e.message}`); }
+    }
+    // Récompenses expirées depuis un an : supprimées.
+    db.prepare('DELETE FROM recompenses WHERE expire < ?').run(maintenant - 365 * 86400000);
+    return aEnvoyer;
+  }
+  function echeance(f, infoDe, reglagesDe, peutEnvoyer, maintenant, annuler) {
+    {
       const i = infoDe(f.commande_id);
-      if (!i || ['annulee', 'remboursee'].includes(i.statut) || i.litige || i.retours) { annuler(f.commande_id); continue; }
-      if (i.statut === 'attente') { if (f.cree_le < maintenant - 60 * 86400000) db.prepare('DELETE FROM filleuls WHERE commande_id = ?').run(f.commande_id); continue; }   // jamais payée
-      if (!STATUTS_LIVRES.includes(i.statut)) { if (f.cree_le < maintenant - 180 * 86400000) annuler(f.commande_id); continue; }   // payée, pas encore livrée
+      if (!i || ['annulee', 'remboursee'].includes(i.statut) || i.litige || i.retours) { annuler(f.commande_id); return null; }
+      // Jamais payée : oubliée après 60 jours (sauf facture QR encore payable : sa ligne reste).
+      if (i.statut === 'attente') { if (f.cree_le < maintenant - 60 * 86400000 && !i.facture) db.prepare('DELETE FROM filleuls WHERE commande_id = ?').run(f.commande_id); return null; }
+      if (!STATUTS_LIVRES.includes(i.statut)) {
+        // Payée, pas (ou plus) livrée : une commande revenue en arrière repart de zéro pour le délai de rétractation.
+        if (f.livre_le) db.prepare('UPDATE filleuls SET livre_le = NULL WHERE commande_id = ?').run(f.commande_id);
+        if (f.cree_le < maintenant - 180 * 86400000) annuler(f.commande_id);
+        return null;
+      }
       // Livrée ou retirée : le délai de 14 jours (rétractation) part du premier passage qui la voit livrée.
-      if (!f.livre_le) { db.prepare('UPDATE filleuls SET livre_le = ? WHERE commande_id = ?').run(maintenant, f.commande_id); continue; }
-      if (f.livre_le > maintenant - DELAI_RECOMPENSE) continue;
-      if (f.filleul_canon && db.prepare("SELECT 1 FROM filleuls WHERE boutique_id = ? AND filleul_canon = ? AND statut = 'credite' AND commande_id <> ?").get(f.boutique_id, f.filleul_canon, f.commande_id)) { annuler(f.commande_id); continue; }   // une récompense par filleul
-      if (db.prepare('SELECT COUNT(*) n FROM recompenses WHERE boutique_id = ? AND parrain_code = ? AND cree_le > ?').get(f.boutique_id, f.code, maintenant - 365 * 86400000).n >= PLAFOND_PARRAIN) { annuler(f.commande_id); continue; }
-      if (!peutEnvoyer(f.boutique_id)) continue;   // boutique fermée : la récompense attend sa réouverture
+      if (!f.livre_le) { db.prepare('UPDATE filleuls SET livre_le = ? WHERE commande_id = ?').run(maintenant, f.commande_id); return null; }
+      if (f.livre_le > maintenant - DELAI_RECOMPENSE) return null;
+      if (f.filleul_canon && db.prepare("SELECT 1 FROM filleuls WHERE boutique_id = ? AND filleul_canon = ? AND statut = 'credite' AND commande_id <> ?").get(f.boutique_id, f.filleul_canon, f.commande_id)) { annuler(f.commande_id); return null; }   // une récompense par filleul
       const p = db.prepare('SELECT * FROM parrains WHERE boutique_id = ? AND code = ?').get(f.boutique_id, f.code);
       const d = p && ouvrir(f.boutique_id, p.code, p.donnees);
-      if (!p || !d || !d.email) { annuler(f.commande_id); continue; }   // parrain effacé entre-temps
+      if (!p || !d || !d.email) { annuler(f.commande_id); return null; }   // parrain effacé entre-temps
+      // Même réseau que le parrain (empreinte, jamais l'adresse IP) : la remise du filleul reste, pas de récompense.
+      if (p.reseau && i.reseau && p.reseau === i.reseau) { annuler(f.commande_id); return null; }
+      // Plafond par personne (tous les codes de la même adresse canonique).
+      if (db.prepare('SELECT COUNT(*) n FROM recompenses r JOIN parrains q ON q.boutique_id = r.boutique_id AND q.code = r.parrain_code WHERE r.boutique_id = ? AND q.canon = ? AND r.cree_le > ?').get(f.boutique_id, p.canon || '', maintenant - 365 * 86400000).n >= PLAFOND_PARRAIN) { annuler(f.commande_id); return null; }
+      if (!peutEnvoyer(f.boutique_id)) return null;   // boutique fermée : la récompense attend sa réouverture
       const remise = reglagesDe(f.boutique_id).parrain, code = 'MERCI' + aleatoire(6), expire = maintenant + VALIDITE_RECOMPENSE;
       // Passage à « credite » et création du code ensemble (tout ou rien) ; une seule fois par commande de filleul.
       let fait = false;
@@ -123,11 +149,8 @@ function creerParrainage({ db, pii }) {
         if (fait) db.prepare('INSERT INTO recompenses (boutique_id, code, email_index, remise, cree_le, expire, parrain_code) VALUES (?, ?, ?, ?, ?, ?, ?)').run(f.boutique_id, code, p.email_index, remise, maintenant, expire, p.code);
         db.exec('RELEASE recompense');
       } catch (e) { db.exec('ROLLBACK TO recompense'); db.exec('RELEASE recompense'); throw e; }
-      if (fait) aEnvoyer.push({ bid: f.boutique_id, email: d.email, nom: d.nom, code, remise, expire, filleulCommande: f.commande_id });
+      return fait ? { bid: f.boutique_id, email: d.email, nom: d.nom, code, remise, expire, filleulCommande: f.commande_id } : null;
     }
-    // Récompenses expirées depuis un an : supprimées.
-    db.prepare('DELETE FROM recompenses WHERE expire < ?').run(maintenant - 365 * 86400000);
-    return aEnvoyer;
   }
 
   function stats(bid) {
@@ -137,13 +160,14 @@ function creerParrainage({ db, pii }) {
   /* Effacement des données d'un client (droit à l'effacement) : son code de parrain, ses récompenses, ses traces de filleul. */
   function effacer(bid, email) {
     const idx = index(bid, email), canon = indexCanon(bid, email);
+    // Récompenses gagnées par tous ses codes (alias compris), puis les codes eux-mêmes.
+    db.prepare('DELETE FROM recompenses WHERE boutique_id = ? AND (email_index = ? OR parrain_code IN (SELECT code FROM parrains WHERE boutique_id = ? AND (email_index = ? OR canon = ?)))').run(bid, idx, bid, idx, canon);
     db.prepare('DELETE FROM parrains WHERE boutique_id = ? AND (email_index = ? OR canon = ?)').run(bid, idx, canon);
-    db.prepare('DELETE FROM recompenses WHERE boutique_id = ? AND email_index = ?').run(bid, idx);
     db.prepare("UPDATE filleuls SET filleul_canon = NULL WHERE boutique_id = ? AND filleul_canon = ?").run(bid, canon);
   }
   function supprimerBoutique(bid) { for (const t of ['parrains', 'filleuls', 'recompenses']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(bid); }
 
-  return { codePour, trouver, noterFilleul, dejaParraine, echeances, stats, effacer, supprimerBoutique, index, indexCanon, normaliser };
+  return { codePour, trouver, noterFilleul, dejaParraine, annulerFilleul, oublierCommande, echeances, stats, effacer, supprimerBoutique, index, indexCanon, normaliser };
 }
 
 module.exports = { creerParrainage, nettoyerReglages, canonique, STATUTS_PAYES, DELAI_RECOMPENSE };

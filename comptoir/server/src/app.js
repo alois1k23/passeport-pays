@@ -285,8 +285,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const lireDonneesCommande = row => { const d = JSON.parse(row.donnees); return PII ? PII.depuisStockage(d, { boutique: row.boutique_id, commande: row.id }, { signaler: signalerIllisible }) : d; };
   const stockerDonneesCommande = (donnees, boutiqueId, id) => JSON.stringify(PII ? PII.versStockage(donnees, { boutique: boutiqueId, commande: id }) : donnees);
   const indexEmail = (donnees, boutiqueId) => PII && donnees && donnees.client && !donnees.client.illisible ? PII.index(boutiqueId, donnees.client.email) : undefined;
+  // Index de l'adresse sous sa forme canonique (sans « +étiquette »…) : contrôles anti-abus du parrainage et du code de bienvenue.
+  const indexCanonCommande = (donnees, boutiqueId) => donnees && donnees.client && !donnees.client.illisible && donnees.client.email ? PAR.indexCanon(boutiqueId, donnees.client.email) : null;
   const insererCommande = (id, boutiqueId, numero, date, statut, jeton, donnees) =>
-    db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees, email_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, boutiqueId, numero, date, statut, jeton, stockerDonneesCommande(donnees, boutiqueId, id), indexEmail(donnees, boutiqueId) ?? null);
+    db.prepare('INSERT INTO commandes (id, boutique_id, numero, date, statut, jeton_client, donnees, email_index, email_canon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, boutiqueId, numero, date, statut, jeton, stockerDonneesCommande(donnees, boutiqueId, id), indexEmail(donnees, boutiqueId) ?? null, indexCanonCommande(donnees, boutiqueId));
   const lireCommande = row => row && ({ ...lireDonneesCommande(row), id: row.id, numero: row.numero, date: row.date, statut: row.statut });
   const commandeDeBoutique = (boutiqueId, id) => {
     const c = lireCommande(db.prepare('SELECT * FROM commandes WHERE id = ? AND boutique_id = ?').get(id, boutiqueId));
@@ -337,7 +339,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (statut === 'remboursee' || statut === 'annulee') RE.supprimerCommande(id);   // commande remboursée ou annulée : plus de rappel de réassort
     const avant = db.prepare('SELECT statut, boutique_id FROM commandes WHERE id = ?').get(id);
     const ix = avant ? indexEmail(donnees, avant.boutique_id) : undefined;
-    if (avant && ix !== undefined) db.prepare('UPDATE commandes SET statut = ?, donnees = ?, email_index = ?, maj_le = ? WHERE id = ?').run(statut, stockerDonneesCommande(donnees, avant.boutique_id, id), ix, Date.now(), id);
+    if (avant && ix !== undefined) { db.prepare('UPDATE commandes SET statut = ?, donnees = ?, email_index = ?, maj_le = ? WHERE id = ?').run(statut, stockerDonneesCommande(donnees, avant.boutique_id, id), ix, Date.now(), id); db.prepare('UPDATE commandes SET email_canon = ? WHERE id = ?').run(indexCanonCommande(donnees, avant.boutique_id), id); }
     else db.prepare('UPDATE commandes SET statut = ?, donnees = ?, maj_le = ? WHERE id = ?').run(statut, stockerDonneesCommande(donnees, avant ? avant.boutique_id : '', id), Date.now(), id);   // client illisible : index gardé
     if ((donnees.facture || donnees.avoir) && avant) sceller(avant.boutique_id, c);
     // Changement de statut : les webhooks du marchand sont prévenus (commande.payee, .expediee, .remboursee…).
@@ -542,6 +544,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (illisibles) journal.error(`[donnees-clients] ATTENTION : ${illisibles} commande(s) dont les données client sont illisibles avec les clés connues. SECRET_CHIFFREMENT a-t-il changé ? Remettez l'ancienne valeur.`);
     if (abimees) journal.error(`[donnees-clients] ${abimees} commande(s) aux données illisibles (JSON abîmé), laissées telles quelles`);
   }
+  // Index canonique des commandes (parrainage, code de bienvenue) : colonne ajoutée, rattrapée une fois pour les anciennes.
+  try { db.exec('ALTER TABLE commandes ADD COLUMN email_canon TEXT'); } catch { /* déjà là */ }
+  db.exec('CREATE INDEX IF NOT EXISTS commandes_canon ON commandes(boutique_id, email_canon)');
+  try {
+    const ecrire = db.prepare('UPDATE commandes SET email_canon = ? WHERE rowid = ?'); let n = 0;
+    for (const r of db.prepare("SELECT rowid, id, boutique_id, donnees FROM commandes WHERE email_canon IS NULL AND email_index IS NOT NULL").all()) {
+      try { const ic = indexCanonCommande(lireDonneesCommande(r), r.boutique_id); if (ic) { ecrire.run(ic, r.rowid); n++; } } catch { /* illisible : laissée */ }
+    }
+    if (n) journal.log(`[donnees-clients] ${n} commande(s) indexée(s) sous leur adresse canonique`);
+  } catch (e) { journal.error('[donnees-clients] index canonique', e.message); }
   auth.persisterLimites(db, cleChiffrement);   // compteurs anti-abus rechargés (empreintes HMAC) : un redémarrage ne les remet pas à zéro
   db.exec(`CREATE TABLE IF NOT EXISTS deux_facteurs (marchand_id TEXT PRIMARY KEY REFERENCES marchands(id) ON DELETE CASCADE, secret TEXT NOT NULL, actif INTEGER NOT NULL DEFAULT 0, dernier_pas INTEGER NOT NULL DEFAULT -1, secours TEXT NOT NULL DEFAULT '[]', cree_le INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS journal_compte (id INTEGER PRIMARY KEY AUTOINCREMENT, marchand_id TEXT NOT NULL REFERENCES marchands(id) ON DELETE CASCADE, date INTEGER NOT NULL, type TEXT NOT NULL, detail TEXT, reseau TEXT);
@@ -1216,7 +1228,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Paiement arrivé tard (webhook retardé, lien payé après l'abandon) alors que la dernière utilisation du code a été
       // prise entre-temps : la vente est faite et le client a payé ; le dépassement est signalé au marchand, pas caché.
       if (c1.codePromo) { const b1 = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(row.boutique_id); const refus = limiteCode(row.boutique_id, configAvecCodeCommande(b1, configVente(b1), c1), c1.codePromo, c1.client.email, c1.id);
-        if (refus) { c1.codeDepasse = true; historique(c1, `Paiement reçu tard : ${refus.message} La remise est accordée quand même (le client a payé).`); enregistrerCommande(c1); } }
+        if (refus) { c1.codeDepasse = true; historique(c1, `Paiement reçu tard : ${refus.message} La remise est accordée quand même (le client a payé).`); enregistrerCommande(c1); }
+        // Commande de filleul payée tard alors qu'une autre du même client l'a été entre-temps : remise accordée, pas de récompense.
+        if (c1.parrainage && c1.parrainage.type === 'filleul' && PAR.dejaParraine(row.boutique_id, c1.client.email, c1.id)) { c1.codeDepasse = true; historique(c1, 'Paiement reçu tard : le code de parrainage avait déjà servi pour une autre commande de ce client. La remise est accordée (le client a payé), sans récompense pour le parrain.'); enregistrerCommande(c1); PAR.annulerFilleul(c1.id); } }
       db.prepare("UPDATE paiements SET statut = 'paye', ref_externe = COALESCE(?, ref_externe) WHERE id = ?").run(refExterne || null, p.id);
       // Les autres liens de paiement encore ouverts pour cette commande ne servent plus.
       db.prepare("UPDATE paiements SET statut = 'annule' WHERE commande_id = ? AND id <> ? AND statut = 'cree'").run(p.commande_id, p.id);
@@ -3654,7 +3668,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Commandes en attente comprises si leur paiement est encore possible (lien ouvert depuis moins de 35 minutes, ou
       // facture QR) : deux commandes ouvertes ensemble ne profitent pas toutes deux du code. Une commande dont le client a
       // annulé le paiement ne compte pas : il peut recommencer avec le code. Reprendre plus tard l'ancienne est alors refusé.
-      const deja = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND email_index = ? AND statut NOT IN ('annulee', 'remboursee') AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, PII.index(b.id, client.email) || '', Date.now() - 35 * 60000);
+      const deja = !!db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND (email_index = ? OR email_canon = ?) AND statut NOT IN ('annulee', 'remboursee') AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, PII.index(b.id, client.email) || '', PAR.indexCanon(b.id, client.email), Date.now() - 35 * 60000);   // alias compris (forme canonique)
       if (deja) throw erreur(400, `Le code ${codeBienvenue ? bienvenue.code : parUtilise.code} est réservé à une première commande.`, 'code_premiere_commande');
     }
     let lignes = calcul.lignes, remise = calcul.remise, apresRemise = calcul.apresRemise;
@@ -3771,7 +3785,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const jeton = auth.nouvelId();
       const { id, numero: n, date, statut, ...donnees } = c;
       insererCommande(id, b.id, n, date, statut, jeton, donnees);
-      if (parUtilise && parUtilise.type === 'filleul') PAR.noterFilleul(b.id, id, parUtilise.code, client.email, now);   // récompense du parrain 14 jours après le paiement
+      if (parUtilise && parUtilise.type === 'filleul') PAR.noterFilleul(b.id, id, parUtilise.code, client.email, now);   // récompense du parrain 14 jours après la livraison
       // Débit conditionnel (solde suffisant) : deux commandes simultanées ne dépensent pas deux fois la même carte.
       if (carte && !Cartes.debiter(carte.id, centimesCarte, { commandeId: c.id, texte: `Commande n° ${numero}`, maintenant: now })) throw erreur(409, 'Le solde de la carte cadeau vient de changer : vérifiez-le et réessayez.', 'carte_solde');
       if (donnees.facture) sceller(b.id, c);   // facture QR émise à la commande
@@ -3802,7 +3816,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       transaction(db, () => {
         if (commande.carteCadeau) Cartes.crediter(commande.carteCadeau.id, Math.round(commande.carteCadeau.montant * 100), { commandeId: commande.id, texte: `Commande n° ${commande.numero} : paiement en ligne impossible` });
         if (commande.fidelite && commande.fidelite.debite) FID.crediter(b.id, commande.client.email, commande.fidelite.debite, { commandeId: commande.id, type: 'liberation' });
-        db.prepare('DELETE FROM paiements WHERE commande_id = ?').run(commande.id); db.prepare('DELETE FROM commandes WHERE id = ?').run(commande.id);
+        db.prepare('DELETE FROM paiements WHERE commande_id = ?').run(commande.id); db.prepare('DELETE FROM commandes WHERE id = ?').run(commande.id); PAR.oublierCommande(commande.id);
       });
       throw e;
     }
@@ -4666,7 +4680,7 @@ ${bloc}</main></body></html>`;
     const c = lireCommande(row);
     if (c.livraison === 'carte') throw erreur(404, 'Commande introuvable.', 'commande_introuvable');   // achat de carte cadeau : pas de lien
     if (!c.client || c.client.illisible || !c.client.email) throw erreur(409, 'Votre lien de parrainage est disponible une fois la commande payée.', 'parrainage_attente');
-    const code = PAR.codePour(b.id, c.client.email, c.client.nom);
+    const code = PAR.codePour(b.id, c.client.email, c.client.nom, Date.now(), c.reseau);
     if (!code) throw erreur(503, 'Les demandes sont momentanément complètes pour cette boutique. Réessayez plus tard.', 'complet');
     const racine = urlBoutique(b).replace(/\/?$/, '/');
     return { code, lien: `${racine}?code=${code}`, filleul: reg.filleul, parrain: reg.parrain };
@@ -4880,7 +4894,7 @@ ${bloc}</main></body></html>`;
       { const refus = limiteCode(b.id, configAvecCodeCommande(b, configVente(b), frais), frais.codePromo, frais.client.email, c.id); if (refus) throw erreur(409, `${refus.message} Passez une nouvelle commande sans lui.`, refus.code); }
       if (frais.parrainage && frais.parrainage.type === 'filleul' && PAR.dejaParraine(b.id, frais.client.email, c.id))
         throw erreur(409, 'Le code de parrainage a déjà servi pour une autre commande : passez une nouvelle commande sans lui.', 'code_premiere_commande');
-      if ((frais.codeBienvenue || (frais.parrainage && frais.parrainage.type === 'filleul')) && db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND id <> ? AND email_index = ? AND statut <> 'annulee' AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, c.id, PII.index(b.id, frais.client.email) || '', Date.now() - 35 * 60000))
+      if ((frais.codeBienvenue || (frais.parrainage && frais.parrainage.type === 'filleul')) && db.prepare("SELECT 1 FROM commandes WHERE boutique_id = ? AND id <> ? AND (email_index = ? OR email_canon = ?) AND statut NOT IN ('annulee', 'remboursee') AND (statut <> 'attente' OR json_extract(donnees, '$.moyen') = 'facture' OR EXISTS (SELECT 1 FROM paiements p WHERE p.commande_id = commandes.id AND p.statut = 'cree' AND p.cree_le > ?)) LIMIT 1").get(b.id, c.id, PII.index(b.id, frais.client.email) || '', PAR.indexCanon(b.id, frais.client.email), Date.now() - 35 * 60000))
         throw erreur(409, frais.codeBienvenue ? 'Le code de bienvenue a déjà servi pour une autre commande : passez une nouvelle commande sans lui.' : 'Le code de parrainage a déjà servi pour une autre commande : passez une nouvelle commande sans lui.', 'code_premiere_commande');
       reprendreCartes(frais);   // en dernier : seulement si tout le reste est accepté
       frais.reserveDepuis = Math.max(Date.now(), (frais.abandonneeLe || 0) + 1); enregistrerCommande(frais); Object.assign(c, frais);
@@ -5164,12 +5178,12 @@ ${bloc}</main></body></html>`;
     }
     return n;
   }
-  /* Récompenses de parrainage dues (filleul payé depuis 14 jours, commande gardée) : un code « MERCI… » par e-mail au parrain. */
+  /* Récompenses de parrainage dues (filleul livré depuis 14 jours, commande gardée) : un code « MERCI… » par e-mail au parrain. */
   function recompensesParrainage(maintenant = Date.now()) {
-    const infoDe = id => { const row = db.prepare('SELECT statut, donnees FROM commandes WHERE id = ?').get(id); if (!row) return null; const d = JSON.parse(row.donnees); return { statut: row.statut, litige: !!d.litige, retours: !!(d.retour || (Array.isArray(d.retoursPartiels) && d.retoursPartiels.length)) }; };
+    const infoDe = id => { const row = db.prepare('SELECT statut, donnees FROM commandes WHERE id = ?').get(id); if (!row) return null; const d = JSON.parse(row.donnees); return { statut: row.statut, litige: !!d.litige, retours: !!(d.retour || (Array.isArray(d.retoursPartiels) && d.retoursPartiels.length)), facture: d.moyen === 'facture', reseau: d.reseau || null }; };
     const reglagesDe = bid => { const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid); return Parrainage.nettoyerReglages(b ? configVente(b).parrainage : null); };
     const peutEnvoyer = bid => { const b = db.prepare('SELECT marchand_id FROM boutiques WHERE id = ?').get(bid); return !!b && !!abo.etat(b.marchand_id).actif; };
-    for (const r of PAR.echeances(infoDe, reglagesDe, peutEnvoyer, maintenant)) {
+    for (const r of PAR.echeances(infoDe, reglagesDe, peutEnvoyer, maintenant, (msg) => journal.error('[parrainage]', msg))) {
       const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.bid); if (!b) continue;
       const config = lireConfig(b), url = urlBoutique(b).replace(/\/?$/, '/');
       envoyerEmail(b.id, r.email, `Merci ! Votre remise de ${r.remise} % chez ${config.boutique.nom}`,
