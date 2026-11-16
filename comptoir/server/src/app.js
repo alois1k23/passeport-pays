@@ -857,6 +857,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (typeof p.ingredients === 'string' && p.ingredients.trim()) propre.ingredients = p.ingredients.replace(/\r/g, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').trim().slice(0, 2000);
     if (Array.isArray(p.allergenes)) { const a = [...new Set(p.allergenes.filter(x => typeof x === 'string' && Object.hasOwn(Unites.ALLERGENES, x)))]; if (a.length) propre.allergenes = a; }
     if (typeof p.origine === 'string' && p.origine.trim()) propre.origine = p.origine.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    // Produits complémentaires choisis par le marchand (3 au plus), proposés sur la fiche et dans le panier. Un identifiant
+    // inconnu ou retiré est simplement ignoré à l'affichage.
+    if (Array.isArray(p.complements)) { const c = [...new Set(p.complements.filter(x => typeof x === 'string' && /^[\w-]{1,64}$/.test(x) && x !== p.id))].slice(0, 3); if (c.length) propre.complements = c; }
     // Marque (fabricant) : reprise par Google Shopping et les données structurées ; sinon, le nom de la boutique.
     if (typeof p.marque === 'string' && p.marque.trim()) propre.marque = p.marque.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70);
     // Code-barres (EAN-8, UPC-A, EAN-13, GTIN-14), chiffre de contrôle vérifié : lu au scanner en caisse, repris dans les
@@ -3400,6 +3403,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       const contenu = Array.isArray(composants) ? composants.map(c => ({ nom: (tousPub.find(x => x.id === c.produitId) || {}).nom || 'Article', qte: c.qte })) : null;
       return { ...p, ...(contenu ? { contenu } : {}), ...(Array.isArray(p.variantes) ? { variantes: p.variantes.map(({ ref, ...v }) => v) } : {}), ...(p.image === IMG ? { image: `/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` } : {}), avis: notes[p.id] || null, ...(pb.ok ? { prixBarre: prixReference } : {}) };   // photo chargée à part (mise en cache par le navigateur)
     });
+    // Compléments : choix du marchand d'abord, puis les achats groupés réels ; seulement des produits en vente.
+    const enVente = new Set(produits.map(p => p.id)), groupes = achetesEnsemble(b.id);
+    for (const p of produits) {
+      const c = [...new Set([...(p.complements || []), ...(groupes.get(p.id) || [])])].filter(id => id !== p.id && enVente.has(id)).slice(0, 3);
+      delete p.complements; if (c.length) p.complements = c;
+    }
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
     // Un code promo affiché dans la bannière doit exister au paiement ; un contact d'exemple est remplacé par l'e-mail de l'entreprise.
     Remises.migrerBannieres(config);   // anciennes bannières de campagne (avant leur rattachement)
@@ -3431,6 +3440,25 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       hebergeur: env.HEBERGEUR || null   // identité de l'hébergeur (obligatoire dans les mentions légales en France)
     };
   });
+  /* « Souvent achetés ensemble » : paires de produits présents dans les mêmes commandes payées des 12 derniers mois.
+     Une paire n'est retenue qu'à partir de 3 commandes distinctes : rien ne laisse deviner l'achat d'un seul client.
+     Calcul gardé 10 minutes par boutique. */
+  const ensembles = new Map();
+  const achetesEnsemble = boutiqueId => {
+    const m = ensembles.get(boutiqueId);
+    if (m && Date.now() - m.le < 600000) return m.v;
+    const rows = db.prepare(`SELECT x, y, COUNT(*) n FROM (
+        SELECT DISTINCT c.id, json_extract(a.value, '$.produitId') x, json_extract(b.value, '$.produitId') y
+        FROM commandes c, json_each(c.donnees, '$.lignes') a, json_each(c.donnees, '$.lignes') b
+        WHERE c.boutique_id = ? AND c.date > ? AND c.statut NOT IN ('attente', 'annulee', 'remboursee')
+          AND json_type(c.donnees, '$.lignes') = 'array' AND x IS NOT NULL AND y IS NOT NULL AND x <> y)
+      GROUP BY x, y HAVING n >= 3 ORDER BY n DESC, y LIMIT 5000`).all(boutiqueId, Date.now() - 365 * 86400000);
+    const v = new Map();
+    for (const r of rows) { const l = v.get(r.x) || []; if (l.length < 6) l.push(r.y); v.set(r.x, l); }
+    if (ensembles.size > 2000) ensembles.clear();
+    ensembles.set(boutiqueId, { v, le: Date.now() });
+    return v;
+  };
   const compteursRisque = Risque.creerCompteurs(), paniersMoyens = new Map();
   const panierMoyen = boutiqueId => {
     const m = paniersMoyens.get(boutiqueId);

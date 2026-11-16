@@ -962,3 +962,25 @@ Relecture indépendante (Vus récemment, prix unitaire, informations alimentaire
 - **Laissé tel quel :**
   - le panier n'est vidé au retour du paiement que dans l'onglet qui l'a lancé ;
   - les anciennes demandes de rappel gardent leur ancienne clé (doublon possible pendant la transition).
+
+### Cycle 51 (01 h 20) : « Souvent achetés avec » (chantier 109)
+
+- **Sur la fiche produit**, un bloc « Souvent achetés avec » de trois vignettes cliquables.
+  - En premier, les compléments choisis par le marchand : Produits › formulaire, trois listes « Complément 1 à 3 ».
+  - Ensuite, les produits réellement achetés ensemble.
+- **Dans le panier**, la suggestion propose un complément des articles du panier, au lieu du premier produit disponible du catalogue.
+- **Achats groupés** : comptés en SQL sur les lignes des commandes payées des 12 derniers mois. Les commandes en attente, annulées et remboursées ne comptent pas. Seules les lignes de commande sont lues : les données des clients restent chiffrées et ne sont pas lues. Le calcul est gardé 10 minutes par boutique.
+- **Vie privée** : une paire n'est publiée qu'à partir de 3 commandes distinctes, pour qu'aucun bloc ne révèle l'achat d'un seul client.
+- **Contrôles** :
+  - le serveur retire de la liste le produit lui-même, les doublons et les identifiants invalides, et en garde 3 au plus ;
+  - à la publication, seuls les produits en vente restent : un produit masqué ou supprimé disparaît du bloc.
+- **Test** :
+  - liste nettoyée, produit masqué retiré ;
+  - 2 commandes payées et 1 impayée : rien n'est publié ; à la 3e commande payée, la paire est publiée dans les deux sens ;
+  - le choix du marchand reste en tête.
+- **Vérifié dans Chromium**, bureau et mobile :
+  - compléments choisis dans le formulaire et enregistrés ;
+  - bloc affiché sur la fiche (Tasse, Filtres), sans débordement horizontal ;
+  - un clic ouvre la fiche du complément ;
+  - après l'ajout du café au panier, la suggestion est la tasse ;
+  - aucune erreur.

@@ -202,7 +202,10 @@ function rendreBrut() {
   const regle = vue.panier.length ? Remises.regleApplicable({ offres: donnees.offres }, vue.panier, 'panier') : null;
   const produitOffre = regle ? donnees.produits.find(p => p.id === regle.alors && !aVariantes(p) && (p.type === 'drop' || p.stock > 0)) : null;   // offre en un clic : pas pour un produit à variantes
   if (produitOffre && vue.ouvert) mesurer('offre_vue', { valeur: regle.id });
-  const suggestion = donnees.offres.suggestions && !produitOffre ? donnees.produits.find(p => !vue.panier.some(l => l.produitId === p.id) && (p.type === 'drop' || p.stock > 0)) : null;
+  // Suggestion au panier : d'abord un complément des articles du panier (choix du marchand ou achats groupés), sinon le premier produit disponible.
+  const dispo = p => p && !vue.panier.some(l => l.produitId === p.id) && (p.type === 'drop' || p.stock > 0);
+  const complementsPanier = vue.panier.flatMap(l => (donnees.produits.find(p => p.id === l.produitId) || {}).complements || []).map(id => donnees.produits.find(p => p.id === id));
+  const suggestion = donnees.offres.suggestions && !produitOffre ? complementsPanier.find(dispo) || donnees.produits.find(dispo) || null : null;
   const drops = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.type === 'drop' && p.delai);
   const delai = drops.length ? [Math.max(...drops.map(p => p.delai[0])), Math.max(...drops.map(p => p.delai[1]))] : null;
   const ch = donnees.boutique.pays === 'ch';

@@ -1524,3 +1524,16 @@ details.en-ligne form { margin-top: 6px; }
 .sf-ingredients { white-space: pre-line; margin: 6px 0 0; }
 .pf-allergenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; border: 0; padding: 0; margin: 6px 0; }
 .sf-alim summary { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; display: list-item; }
+/* Souvent achetés avec (fiche produit) : trois vignettes compactes, cliquables. */
+.sf-complements { border-top: 1px solid color-mix(in srgb, var(--sf-text) 12%, transparent); padding-top: 12px; }
+.sf-complements h3 { font-size: 1rem; margin: 0 0 8px; }
+.sf-complements ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sf-complement { display: grid; gap: 4px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sf-complement .sf-visuel, .sf-complement img { aspect-ratio: 1; width: 100%; object-fit: cover; border-radius: var(--sf-radius); }
+.sf-complement span { font-size: .85rem; line-height: 1.25; overflow-wrap: anywhere; }
+.sf-complement b { font-size: .85rem; font-weight: 600; }
+.sf-complement:focus-visible { outline: 2px solid var(--sf-primary); outline-offset: 3px; border-radius: var(--sf-radius); }
+.pf-complements { border: 0; padding: 0; margin: 0; min-width: 0; }
+.pf-complements legend { font-weight: 600; margin-bottom: 6px; }
+.pf-complements .trois { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.pf-complements select { width: 100%; min-width: 0; }
