@@ -34,6 +34,42 @@ function noterVu(id) {
   VUS_RECEMMENT.unshift(id); VUS_RECEMMENT.length = Math.min(VUS_RECEMMENT.length, 12);
   try { localStorage.setItem(CLE_RECENTS, JSON.stringify(VUS_RECEMMENT)); } catch { /* ignoré */ }
 }
+/* Liste de favoris partagée : un lien qui ne contient que les identifiants des produits (publics), rien sur la personne.
+   Celui qui l'ouvre voit ces produits, peut tout ajouter au panier ou les garder dans ses propres favoris. */
+function lienListe() {
+  const ids = [...FAVORIS].filter(id => donnees.produits.some(p => p.id === id)).slice(0, 50);
+  const u = new URL(racineBoutique, location.origin); u.searchParams.set('liste', ids.join(','));
+  if (typeof Traductions !== 'undefined' && Traductions.langue !== 'fr') u.searchParams.set('lang', Traductions.langue);
+  return u.toString();
+}
+async function partagerFavoris() {
+  const url = lienListe(), titre = `${donnees.boutique.nom} : ${trad('ma liste')}`;
+  try { if (navigator.share) { await navigator.share({ title: titre, url }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(url); annoncer('Lien de la liste copié.'); afficherLienListe(url, true); return; } catch { /* presse-papiers refusé : lien affiché */ }
+  afficherLienListe(url, false);
+}
+function afficherLienListe(url, copie) {
+  const p = document.querySelector('.sf-favoris'); if (!p) return;
+  let z = document.getElementById('lien-liste'); if (!z) { z = document.createElement('div'); z.id = 'lien-liste'; z.className = 'sf-lien-liste'; p.after(z); }
+  z.innerHTML = `<label class="champ"><span>${copie ? 'Lien copié : collez-le dans un message' : 'Copiez ce lien'}</span><input readonly value="${esc(url)}"></label>`;
+  const i = z.querySelector('input'); i.focus(); i.select();
+}
+function fermerListe() { vueVitrine.liste = null; const u = new URL(location.href); u.searchParams.delete('liste'); history.replaceState(history.state, '', u.pathname + u.search); }
+function ajouterListeAuPanier() {
+  // Produits simples en stock : ajoutés (1 de chaque, sans dépasser le stock) ; à variantes : la taille ou la couleur reste à choisir.
+  let ajoutes = 0, aChoisir = 0;
+  for (const id of vueVitrine.liste || []) {
+    const p = donnees.produits.find(x => x.id === id); if (!p) continue;
+    if (aVariantes(p)) { aChoisir++; continue; }
+    const max = p.type === 'drop' ? 20 : p.stock; if (max <= 0) continue;
+    const l = vue.panier.find(x => x.produitId === p.id && !x.varianteId && !x.offre);
+    if (l) { if (l.qte < max) { l.qte++; ajoutes++; } } else { vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1 }); ajoutes++; }
+  }
+  garderPanier(); vue.message = null;
+  vue.avisLien = aChoisir ? `${aChoisir} produit${aChoisir > 1 ? 's' : ''} de la liste ${aChoisir > 1 ? 'ont' : 'a'} des variantes : choisissez la taille ou la couleur sur leur fiche.` : null;
+  vue.ouvert = true; rendre(); mesurer('panier', { valeur: 'liste' });
+  annoncer(`${ajoutes} produit${ajoutes > 1 ? 's' : ''} ajouté${ajoutes > 1 ? 's' : ''} au panier.`);
+}
 function garderFavoris() { try { localStorage.setItem(CLE_FAVORIS, JSON.stringify([...FAVORIS].slice(-100))); } catch { /* ignoré */ } }
 let etat = null;           // lu par storefront.js (devise, produits, boutique)
 let donnees = null;
@@ -79,6 +115,11 @@ async function demarrer() {
   if (q.get('reprendre')) { reprendrePaiement(q.get('reprendre'), q.get('jeton')); return; }
   if (q.get('avis')) { formulaireAvis(q.get('avis'), q.get('jeton')); return; }
   if (q.get('commande')) suivreCommande(q.get('commande'), q.get('jeton'), q.get('annule'));
+  // Liste de favoris partagée : identifiants séparés par des virgules (50 au plus) ; les produits retirés sont ignorés à l'affichage.
+  if (q.get('liste')) {
+    vueVitrine.liste = [...new Set(q.get('liste').split(',').map(x => x.trim()).filter(x => /^[\w-]{1,64}$/.test(x)))].slice(0, 50);
+    setTimeout(() => { const t = document.querySelector('#sf-collection h2'); if (t && vueVitrine.liste) { t.setAttribute('tabindex', '-1'); t.scrollIntoView({ block: 'start' }); t.focus({ preventScroll: true }); } }, 0);   // sous une grande bannière
+  }
   // Lien de panier envoyé par le marchand (WhatsApp, Instagram, SMS) ou « Commander à nouveau » : ?panier=id:qte[:variante],…[&code=…]
   // (variante encodée en plus : ses valeurs peuvent contenir « , » ou « : »).
   // Le panier est rempli avec les produits encore en vente (quantité limitée au stock), puis le tiroir s'ouvre.
@@ -451,6 +492,13 @@ document.addEventListener('click', e => {
       if (typeof annoncer === 'function') annoncer(FAVORIS.has(id) ? 'Ajouté aux favoris.' : 'Retiré des favoris.');
     }
     else if (sf.dataset.sf === 'favoris') { vueVitrine.favoris = !vueVitrine.favoris; rendre(); document.querySelector('[data-sf="favoris"]')?.focus(); }
+    else if (sf.dataset.sf === 'partager-favoris') partagerFavoris();
+    else if (sf.dataset.sf === 'liste-favoris') {
+      for (const id of vueVitrine.liste || []) if (donnees.produits.some(p => p.id === id)) FAVORIS.add(id);
+      garderFavoris(); fermerListe(); vueVitrine.favoris = true; rendre(); document.querySelector('[data-sf="favoris"]')?.focus(); annoncer('Ajouté aux favoris.');
+    }
+    else if (sf.dataset.sf === 'liste-panier') ajouterListeAuPanier();
+    else if (sf.dataset.sf === 'liste-fermer') { fermerListe(); rendre(); document.querySelector('.sf-produits h2')?.focus(); }
     else if (sf.dataset.sf === 'fiche') { noterVu(sf.dataset.id); vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
     else if (sf.dataset.sf === 'fermer-fiche') fermerFiche();
     else if (sf.dataset.sf === 'nav') allerSection(document, sf.dataset.v);

@@ -92,6 +92,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Modification groupée des produits** : prix en pourcentage ou fixé (avec ancien prix barré, affiché seulement s'il est licite), catégorie, mise en ligne ou masquage, sur 500 produits au plus, tout ou rien.
 - **Commande minimum** (montant d'articles, retrait en magasin dispensé ou non) : vérifiée par le serveur, montant manquant indiqué dans le panier.
 - **Audit des traductions de la boutique** (`outils/simulation/traductions-boutique.js`) : chaque texte visible vérifié en allemand, italien et anglais ; allergènes traduits.
+- **Liste de favoris partagée** : un lien (produits seulement, rien sur la personne) ; celui qui l'ouvre ajoute tout au panier en un clic ou garde la liste dans ses favoris.
 - **Export du catalogue** au format CSV de Shopify (variantes, prix, stock, codes-barres, marque, photos), relu par l'import de Comptoir et par d'autres plateformes. Les cellules sont neutralisées contre les formules de tableur.
 - Aucune ressource tierce dans les boutiques : ni traceur, ni police Google.
 - En-têtes de sécurité stricts (CSP sans script externe), cookie de session `__Host-`. Les navigateurs signalent ce qu'ils bloquent (tentative d'injection), sans donnée personnelle.

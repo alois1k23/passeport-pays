@@ -55,6 +55,11 @@ const RELEVE = () => {
   await p.goto(u('')); await p.waitForTimeout(700);
   const fav = await p.$('[data-sf="fav"]'); if (fav) { await fav.click(); await p.waitForTimeout(300); }
   await releve();
+  // Vue « Mes favoris » (avec « Partager ma liste »), puis une liste partagée reçue par lien.
+  const vf = await p.$('[data-sf="favoris"]'); if (vf) { await vf.click(); await p.waitForTimeout(300); await releve(); await vf.click().catch(() => {}); }
+  await p.goto(u(`?liste=${encodeURIComponent([info.tasse, info.pull].join(','))}`)); await p.waitForTimeout(800); await releve();
+  await p.click('[data-sf="liste-panier"]'); await p.waitForTimeout(500); await releve();
+  await p.goto(u('')); await p.waitForTimeout(600);
   // Fenêtres : espace pro, suivi des commandes.
   for (const d of ['pro', 'commandes']) { const bt = await p.$(`[data-action="doc"][data-id="${d}"]`); if (bt) { await bt.click(); await p.waitForTimeout(400); await releve(); await p.keyboard.press('Escape'); await p.waitForTimeout(200); } }
   // Panier : livraison (minimum non atteint), puis retrait.

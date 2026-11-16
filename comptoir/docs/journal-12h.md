@@ -1198,3 +1198,23 @@ Relecture indépendante. Aucun constat ne cassait une fonction. Mais le test don
   - « offerta aggiuntiva » et « add-on offer », comme ailleurs dans le dictionnaire.
 - **Vérifié de nouveau :** aucune clé en double dans les dictionnaires ; audit de la boutique à 0 manquant sur 115 textes ; message d'erreur traduit dans Chromium (allemand sur bureau, anglais sur mobile).
 - **Laissé ouvert :** les messages du routeur (« JSON invalide », « Requête trop volumineuse ») ne surviennent qu'avec une requête fabriquée. L'étiquette « Créneau de retrait » emploie encore « Abholzeit » alors que les messages disent « Abholtermin ».
+
+### Cycle 61 (02 h 50) : liste de favoris partagée (chantier 114)
+
+- **Dans « Mes favoris »**, un bouton « Partager ma liste » : liste de naissance, de mariage, idées de cadeaux. Le bouton :
+  - ouvre le partage du téléphone quand il existe ;
+  - sinon, copie le lien dans le presse-papiers et l'affiche, sélectionné, pour le coller dans un message ;
+  - en dernier recours, affiche seulement le lien à copier.
+
+  Le lien ne contient que les identifiants publics des produits (50 au plus) et la langue : rien sur la personne.
+- **Celui qui ouvre le lien** voit « Liste partagée (3) » à la place de la collection, dans l'ordre de la liste et sans les produits retirés de la vente. La page descend jusqu'à la liste. Trois boutons :
+  - « Tout ajouter au panier » : 1 de chaque produit simple en stock, sans dépasser le stock. Pour les produits à variantes, un avis demande de choisir la taille ou la couleur sur leur fiche ;
+  - « Ajouter à mes favoris » ;
+  - « Voir tous les produits ».
+- **Traductions** en allemand, italien et anglais pour tous les nouveaux textes et annonces. L'audit des traductions parcourt aussi la vue « Mes favoris » et une liste partagée : 131 textes, 0 manquant. Il a révélé deux textes anciens jamais traduits, « Voir tous les produits » et « Ajouté aux favoris. », traduits maintenant.
+- **Nouvel outil** `node outils/simulation/liste-partagee.js`, avec deux navigateurs (bureau en français, mobile en allemand) :
+  - A met trois favoris et partage la liste (lien copié) ;
+  - B ouvre le lien et voit Vase, Bol, Pull ;
+  - « Tout ajouter » met 1 vase et 1 bol au panier, avec l'avis pour le pull à variantes ;
+  - B garde la liste dans ses favoris (3), et l'adresse est nettoyée ;
+  - pas de débordement, aucune erreur. L'outil sort en erreur au moindre écart.

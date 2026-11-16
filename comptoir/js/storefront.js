@@ -95,7 +95,7 @@ function prixBarreAffiche(p, etat) {
   return p.prixReference && typeof PrixBarres !== 'undefined' && PrixBarres.verifier(p, etat.boutique.pays === 'ch' ? 'ch' : 'ue').ok ? p.prixReference : 0;
 }
 /* Affichage de la vitrine (pas enregistré avec la boutique) : « Voir tous les produits » et catégorie choisie. */
-const vueVitrine = { tout: null, cat: '', q: '', favoris: false };
+const vueVitrine = { tout: null, cat: '', q: '', favoris: false, liste: null };   // liste : produits d'une liste de favoris partagée (?liste=)
 /* Recherche instantanée : sans accents ni majuscules, chaque mot cherché doit commencer un mot du produit
    (nom, catégorie, description), avec une faute de frappe tolérée pour les mots de 4 lettres et plus. */
 const sansAccents = t => String(t || '').replace(/œ/g, 'oe').replace(/Œ/g, 'OE').replace(/æ/g, 'ae').replace(/Æ/g, 'AE').replace(/ß/g, 'ss').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -163,13 +163,16 @@ function renduSection(s, etat, mode) {
       const fav = mode !== 'edition' && typeof FAVORIS !== 'undefined' ? FAVORIS : null;
       // Filtre « Mes favoris » : sur la première section de produits seulement (une seule liste, pas de doublons).
       const favDispo = fav && (!premiere || premiere.id === s.id) ? prods.filter(x => fav.has(x.id)) : [];
-      const voirFav = !!(fav && vueVitrine.favoris && favDispo.length);
-      const liste = voirFav ? favDispo : q ? dispo.filter(x => correspondRecherche(x, q)) : tout ? filtres : dispo.slice(0, Number(p.nombre) || 4);
+      // Liste de favoris reçue par lien (?liste=) : sur la première section aussi, dans l'ordre du lien, produits en vente seulement.
+      const partagee = mode !== 'edition' && Array.isArray(vueVitrine.liste) && (!premiere || premiere.id === s.id) ? vueVitrine.liste.map(id => prods.find(x => x.id === id)).filter(Boolean) : [];
+      const voirFav = !partagee.length && !!(fav && vueVitrine.favoris && favDispo.length);
+      const liste = partagee.length ? partagee : voirFav ? favDispo : q ? dispo.filter(x => correspondRecherche(x, q)) : tout ? filtres : dispo.slice(0, Number(p.nombre) || 4);
       return `<section class="sf-produits" id="${!premiere || premiere.id === s.id ? 'sf-collection' : 'sf-collection-' + esc(s.id)}">
-        <h2>${esc(tout ? 'Tous nos produits' : p.titre)}</h2>
+        <h2>${partagee.length ? `Liste partagée (${partagee.length})` : esc(tout ? 'Tous nos produits' : p.titre)}</h2>
+        ${partagee.length ? `<p class="sf-liste-partagee">On vous a envoyé cette liste de produits. <span class="rangee-sf"><button type="button" class="sf-btn" data-sf="liste-panier">Tout ajouter au panier</button>${fav ? '<button type="button" class="sf-btn sf-btn-ligne" data-sf="liste-favoris">Ajouter à mes favoris</button>' : ''}<button type="button" class="bouton-lien" data-sf="liste-fermer">Voir tous les produits</button></span></p>` : ''}
         ${recherche ? `<div class="sf-recherche"><input type="search" data-sf-recherche="${esc(s.id)}" value="${esc(vueVitrine.q)}" placeholder="Rechercher un produit" aria-label="Rechercher un produit" autocomplete="off">${q && !voirFav ? `<span class="sf-nb" role="status">${liste.length} résultat${liste.length > 1 ? 's' : ''}</span>` : ''}</div>` : ''}
         ${tout && cats.length > 1 ? `<div class="sf-cats" role="group" aria-label="Catégories"><button type="button" class="${!vueVitrine.cat ? 'actif' : ''}" data-sf="cat" data-v="" aria-pressed="${!vueVitrine.cat}">Tout (${dispo.length})</button>${cats.map(c => `<button type="button" class="${vueVitrine.cat === c ? 'actif' : ''}" data-sf="cat" data-v="${esc(c)}" aria-pressed="${vueVitrine.cat === c}">${esc(c)}</button>`).join('')}</div>` : ''}
-        ${favDispo.length ? `<p class="sf-favoris"><button type="button" class="sf-btn sf-btn-ligne" data-sf="favoris">${voirFav ? 'Voir tous les produits' : `♥ Mes favoris (${favDispo.length})`}</button></p>` : ''}
+        ${favDispo.length && !partagee.length ? `<p class="sf-favoris"><button type="button" class="sf-btn sf-btn-ligne" data-sf="favoris">${voirFav ? 'Voir tous les produits' : `♥ Mes favoris (${favDispo.length})`}</button>${voirFav ? ' <button type="button" class="sf-btn sf-btn-ligne" data-sf="partager-favoris">Partager ma liste</button>' : ''}</p>` : ''}
         <div class="sf-grille">${liste.map(x => `
           <article class="sf-carte">${fav ? `<button type="button" class="sf-fav" data-sf="fav" data-id="${esc(x.id)}" aria-pressed="${fav.has(x.id)}" aria-label="${esc(x.nom)} en favori">${fav.has(x.id) ? '♥' : '♡'}</button>` : ''}
             <button type="button" class="sf-carte-lien" data-sf="fiche" data-id="${esc(x.id)}" aria-label="Voir ${esc(x.nom)}">${visuelProduit(x)}</button>

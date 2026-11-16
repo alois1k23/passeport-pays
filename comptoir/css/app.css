@@ -1547,3 +1547,8 @@ details.en-ligne form { margin-top: 6px; }
 .barre-groupe-champs .champ { margin: 0; min-width: 0; flex: 1 1 160px; max-width: 260px; }
 .barre-groupe-champs .case { align-self: center; }
 @media (max-width: 640px) { .barre-groupe-champs .champ { max-width: none; flex-basis: 100%; } }
+/* Liste de favoris partagée */
+.sf-liste-partagee { display: grid; gap: 10px; margin: 0 0 14px; }
+.sf-liste-partagee .rangee-sf { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.sf-lien-liste { margin: 8px 0 14px; max-width: 520px; }
+.sf-lien-liste input { width: 100%; }
