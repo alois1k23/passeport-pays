@@ -1117,10 +1117,49 @@ Relecture indépendante. Constats corrigés :
   - il relève chaque texte visible et chaque libellé (aria-label, placeholder, title), hors des textes du marchand ;
   - il vérifie que chacun est couvert en allemand, en italien et en anglais (dictionnaire ou modèle). Une fonction `Traductions.couvert` a été ajoutée pour cela ;
   - il termine avec le code 1 s'il manque une traduction.
-- **Premier passage :** 20 textes manquaient dans chaque langue. Il en manque 0 désormais, sur 100 textes relevés. Ajouts :
+- **Premier passage :** 20 textes manquaient dans chaque langue. Il en manquait 0 ensuite, sur 100 textes relevés ; la relecture (cycle 58) a montré que ce résultat ne valait que pour le parcours testé. Ajouts :
   - libellés : « Souvent achetés avec », « Choisir », « Espace pro », « TVA comprise », « … en favori » ;
   - textes avec des valeurs : commande minimum, avis du lien de panier, case du rappel de réassort, libellé de remise de quantité, prix à l'unité de mesure (« pièce ») ;
   - les 14 allergènes, dans chaque langue.
 - **Test** : ces textes ajoutés au test des traductions, avec les noms d'allergènes.
 - **Vérifié dans Chromium**, bureau et mobile, boutique en allemand : « Mindestbestellwert: CHF 30.00 an Artikeln. Es fehlen noch CHF 22.00, oder wählen Sie die Abholung im Geschäft. »
 - **Limite** : les noms des modes de livraison (« La Poste Economy », « Retrait PickPost ») restent tels quels, ce sont des noms de services.
+
+### Cycle 58 (02 h 05) : relecture des traductions (chantier 112)
+
+Relecture indépendante. Constats corrigés :
+
+- **Grave : le « 0 manquant » donnait une fausse assurance.** Le parcours de l'outil ne couvrait qu'un cas. Une copie élargie par la relecture trouvait encore 20 textes manquants par langue, plus les messages d'erreur du serveur. Sont maintenant traduits en allemand, italien et anglais :
+  - mentions de TVA : non assujetti, « TTC » hors de Suisse ;
+  - précommande : bouton, date d'expédition sur la carte, la fiche et le panier, « Précommandes complètes » ;
+  - « Mes favoris » ;
+  - tout l'espace pro (connexion, code, déconnexion, tarif, facture QR) et le suivi des commandes ;
+  - messages de code promo, avec leurs conditions ;
+  - tous les motifs de remise (palier, code, offre, « + offre complémentaire ») ;
+  - envoi des fichiers numériques et consentement ;
+  - créneaux de retrait ; « Stock maximum atteint » ; note des avis ; « Retrait PickPost » ;
+  - les 21 messages d'erreur fixes de la route de commande (plafond de facture, session pro, créneaux, commandes en attente…).
+- **Moyens :**
+  - **« … en favori » s'appliquait à n'importe quel texte.** Il ne sert plus qu'aux étiquettes d'accessibilité, comme « Voir … ». « Notre thé en favori » n'est plus réécrit.
+  - **« contient … » acceptait n'importe quel texte.** Il ne reconnaît plus que la liste des 14 allergènes. « contient 3 sachets de thé. » n'est plus touché.
+  - **Les noms du marchand passés à `demarrer()` étaient ignorés.** Le nom de la boutique et ceux des produits ne sont plus jamais traduits, même hors zone protégée.
+  - **« Contient » des coffrets n'était jamais traduit.** Le libellé est sorti de la zone protégée ; la liste des articles y reste.
+  - **Le titre « Souvent achetés avec »** reprend désormais les traductions déjà en place (« Oft zusammen gekauft », « Spesso acquistati insieme », « Frequently bought together »).
+  - **« Voir …, épuisé »** traduit aussi « épuisé ».
+- **Faibles :**
+  - allemand du rappel de réassort à la première personne (« Mich … erinnern ») ;
+  - anglais plus naturel : « Remaining: », « in items », « on 2+ items », « Trade account », « incl. VAT » ;
+  - contenance avec un point décimal (« 1.5 l »), comme les montants.
+- **Outil d'audit élargi :**
+  - précommande, favori coché, fenêtres « Espace pro » et « Mes commandes » : 115 textes relevés, 0 manquant ;
+  - une adresse e-mail seule est ignorée, mais une phrase qui en contient une est vérifiée ;
+  - « Retrait PickPost » n'est plus ignoré.
+- **Tests :**
+  - nouveaux textes et traductions exactes des conditions ;
+  - deux textes du marchand qui ne doivent pas être réécrits ;
+  - test statique : chaque message d'erreur fixe de la route de commande publique doit être traduit dans les 3 langues (21 messages).
+- **Vérifié de nouveau** dans Chromium, boutique en allemand, bureau et mobile.
+- **Laissé ouvert :**
+  - les messages d'erreur construits avec des valeurs, hors de ceux couverts par des modèles ;
+  - les erreurs des autres routes publiques (avis, retours, cartes cadeaux), à étendre au même test ;
+  - le parcours reste limité au régime suisse assujetti.

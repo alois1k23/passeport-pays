@@ -35,7 +35,16 @@ const TEXTES = [
   'Commande minimum : CHF 50.00 d’articles.', 'Commande minimum : CHF 30.00 d’articles (sauf retrait en magasin).',
   'Certains articles de ce lien ne sont plus disponibles : les autres sont dans votre panier.', 'Les articles de ce lien ne sont plus disponibles.',
   '6 pièces · CHF 1.00 / pièce', 'contient soja, lait (y compris lactose).', 'Remise · 5 % dès 2 articles',
-  'Me rappeler par e-mail de recommander dans 30 jours, avec mon panier prêt (rien n’est débité ; arrêt en un clic dans l’e-mail).'
+  'Me rappeler par e-mail de recommander dans 30 jours, avec mon panier prêt (rien n’est débité ; arrêt en un clic dans l’e-mail).',
+  // Relecture du chantier 112 : précommandes, espace pro, codes promo, TVA, contenu numérique, créneaux, erreurs du serveur.
+  'Entreprise non assujettie à la TVA', 'TTC, TVA incluse', 'Précommander', 'Précommande', 'Précommande · expédition prévue le 06.12.2026',
+  ': expédition prévue le 06.12.2026. Vous payez maintenant ; votre commande part dès que l’article arrive.', 'Expédition prévue le 06.12.2026',
+  '♥ Mes favoris (3)', 'Espace professionnel', 'Votre entreprise a un compte pro chez Atelier Nord ? Recevez un code par e-mail pour voir vos prix.',
+  'Code reçu', 'Se connecter', 'Se déconnecter', 'Tarif professionnel', 'Contient', 'Stock maximum atteint', 'envoi par e-mail',
+  'Code ETE appliqué : −10 %. Valable sur une première commande.', 'Code ETE : −10 % dès CHF 30.00 d’achat. Une fois par adresse e-mail.',
+  'Remise · Code ETE (−10 %) + offre complémentaire', 'Remise · Offre −15 %', 'Ce code s’applique dès CHF 30.00 d’achat.',
+  'Choisissez un créneau de retrait.', 'Ce créneau de retrait vient d’être pris ou n’est plus disponible : choisissez-en un autre.',
+  'Pour utiliser vos points, commandez avec l’adresse ana@exemple.ch.', 'Retrait PickPost / My Post 24'
 ];
 
 for (const langue of ['de', 'it', 'en']) {
@@ -46,6 +55,9 @@ for (const langue of ['de', 'it', 'en']) {
     assert.match(t('Valable en ligne et en boutique chez Atelier Nord. Elle est envoyée par e-mail dès le paiement.'), /Atelier Nord/, 'nom de la boutique gardé');
     assert.match(t('Carte cadeau acceptée : solde CHF 20.00.'), /CHF 20\.00/);
     assert.doesNotMatch(t('contient soja, lait (y compris lactose).'), /lait|soja,/, 'noms des allergènes traduits');
+    // Textes du marchand jamais réécrits par un modèle trop large.
+    assert.equal(t('Notre thé en favori'), null); assert.equal(t('contient 3 sachets de thé.'), null);
+    assert.doesNotMatch(t('Code ETE appliqué : −10 %. Valable sur une première commande.'), /première/, 'condition du code traduite');
     // Annonces pour lecteur d'écran : traduites à part ; jamais appliquées au texte du marchand.
     for (const x of ['Vase ajouté au panier. 2 articles dans le panier.', 'Vase retiré du panier.', 'Vase : quantité 3.']) assert.notEqual(t.annonce(x), x, x);
     assert.equal(t('Le produit a été retiré du panier.'), null, 'texte du marchand intact');
@@ -63,4 +75,16 @@ test('e-mails de la carte cadeau dans la langue de l’acheteur ; code masqué d
   const avis = EmailsClients.carteCadeauAvis('en', o);
   assert.match(avis.corps, /sent to sam@exemple\.ch/); assert.doesNotMatch(avis.corps, /ABCD/, 'l’avis à l’acheteur ne contient jamais le code');
   assert.equal(EmailsClients.carteCadeauCode('fr', o), null); assert.equal(EmailsClients.carteCadeauCode(undefined, o), null);
+});
+
+test('erreurs fixes de la route de commande publique : traduites en allemand, italien et anglais', () => {
+  const T = require('../../js/traductions.js');
+  const src = fs.readFileSync(path.join(__dirname, '../src/app.js'), 'utf8');
+  const debut = src.indexOf("r.post('/api/public/:slug/commandes'"), fin = src.indexOf('\n  r.', debut + 10);
+  const route = src.slice(debut, fin);
+  // Messages littéraux seulement (entre apostrophes droites) ; ceux avec des valeurs sont couverts par des modèles testés plus haut.
+  const messages = [...route.matchAll(/erreur\(4\d\d, '((?:[^'\\]|\\.)+)'/g)].map(m => m[1]);
+  assert.ok(messages.length >= 8, `messages relevés : ${messages.length}`);
+  const manquants = messages.filter(x => ['de', 'it', 'en'].some(l => !T.couvert(x, l)));
+  assert.deepEqual(manquants, []);
 });

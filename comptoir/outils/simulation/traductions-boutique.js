@@ -39,10 +39,11 @@ const RELEVE = () => {
     const tasse = await id({ nom: 'Tasse', prix: 18 });
     const pull = await id({ nom: 'Pull', prix: 60, options: [{ nom: 'Taille', valeurs: ['S', 'M'] }], variantes: [{ id: 'S', valeurs: ['S'], stock: 0 }, { id: 'M', valeurs: ['M'], stock: 3 }] });
     const epuise = await id({ nom: 'Bol', prix: 12, stock: 0 });
+    const pre = await id({ nom: 'Calendrier', prix: 20, stock: 0, precommande: true, expeditionPrevue: new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10), precommandeMax: 50 });
     const etat = await j('GET', '/api/admin/etat');
     await j('PUT', `/api/admin/produits/${the}`, { produit: { ...etat.produits.find(x => x.id === the), complements: [tasse, pull] } });
     await j('PUT', '/api/admin/config', { config: { boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, livraisons: etat.livraisons, offres: etat.offres, reglages: { ...etat.reglages, minimumCommande: 50, emballageCadeau: true } } });
-    return { slug: etat.serveur.slug, the, tasse, pull, epuise };
+    return { slug: etat.serveur.slug, the, tasse, pull, epuise, pre };
   });
   const textes = new Set();
   const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } }); const p = await ctx.newPage();
@@ -50,8 +51,12 @@ const RELEVE = () => {
   const u = chemin => `${base}/s/${info.slug}${chemin}${chemin.includes('?') ? '&' : '?'}lang=fr`;
   await p.goto(u('')); await p.waitForTimeout(900); await releve();
   // Deux fiches vues (« Vus récemment »), fiche complète, fiche à variantes, fiche épuisée.
-  for (const id of [info.tasse, info.pull, info.epuise, info.the]) { await p.goto(u(`/p/${id}`)); await p.waitForTimeout(700); await releve(); }
-  await p.goto(u('')); await p.waitForTimeout(700); await releve();
+  for (const id of [info.tasse, info.pull, info.epuise, info.pre, info.the]) { await p.goto(u(`/p/${id}`)); await p.waitForTimeout(700); await releve(); }
+  await p.goto(u('')); await p.waitForTimeout(700);
+  const fav = await p.$('[data-sf="fav"]'); if (fav) { await fav.click(); await p.waitForTimeout(300); }
+  await releve();
+  // Fenêtres : espace pro, suivi des commandes.
+  for (const d of ['pro', 'commandes']) { const bt = await p.$(`[data-action="doc"][data-id="${d}"]`); if (bt) { await bt.click(); await p.waitForTimeout(400); await releve(); await p.keyboard.press('Escape'); await p.waitForTimeout(200); } }
   // Panier : livraison (minimum non atteint), puis retrait.
   await p.goto(u(`/p/${info.the}`)); await p.waitForTimeout(700);
   await p.click(`.sf-fiche-achat [data-sf="ajouter"][data-id="${info.the}"]`); await p.waitForTimeout(700); await releve();
@@ -61,10 +66,10 @@ const RELEVE = () => {
   await b.close(); s.close();
 
   const manque = {};
-  for (const l of ['de', 'it', 'en']) manque[l] = [...textes].filter(x => { const [k, t] = [x.slice(0, 1), x.slice(2)]; return !T.couvert(t, l, k === 'A') && !/^[−-]?\s*(?:CHF|€)?\s*[\d’'.,\s−-]+(?:CHF|€)?$/.test(t) && !/@/.test(t); }).map(x => x.slice(2));
+  for (const l of ['de', 'it', 'en']) manque[l] = [...textes].filter(x => { const [k, t] = [x.slice(0, 1), x.slice(2)]; return !T.couvert(t, l, k === 'A') && !/^[−-]?\s*(?:CHF|€)?\s*[\d’'.,\s−-]+(?:CHF|€)?$/.test(t) && !/^\S+@\S+$/.test(t); }).map(x => x.slice(2));
   // Noms du marchand (boutique, produits, catégories, options) : jamais traduits.
   // Noms de transporteurs et de modes de livraison (noms propres du service).
-  const noms = new Set(['La Poste Economy', 'La Poste Priority', 'Retrait PickPost / My Post 24', 'Épicerie Nord', 'Thé vert', 'Tasse', 'Pull', 'Bol', 'Maison', 'Japon', 'S', 'M', 'Taille', 'E Sàrl', 'Rue 2, 1003 Lausanne', 'Rue 1, 1003 Lausanne']);
+  const noms = new Set(['La Poste Economy', 'La Poste Priority', 'Calendrier', 'Épicerie Nord', 'Thé vert', 'Tasse', 'Pull', 'Bol', 'Maison', 'Japon', 'S', 'M', 'Taille', 'E Sàrl', 'Rue 2, 1003 Lausanne', 'Rue 1, 1003 Lausanne']);
   let total = 0;
   for (const l of Object.keys(manque)) { manque[l] = manque[l].filter(t => !noms.has(t)); total += manque[l].length; }
   console.log(`${textes.size} textes relevés.`);
