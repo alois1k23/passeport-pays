@@ -53,7 +53,7 @@ Une relance automatique reprend le travail toutes les heures ; un rapport final 
 - **parrainage** : les relais d'adresse et les adresses jetables échappent à l'anti-abus ;
 - **matériel** : les étiquettes code-barres n'ont pas été lues par un vrai scanner ;
 - **traductions** : les messages construits avec des valeurs ne sont traduits que si un modèle existe ;
-- **e-mails** : le partage natif du téléphone (liste de favoris, parrainage) n'est pas testable sans interface.
+- **partage** : le partage natif du téléphone (liste de favoris, parrainage) n'est pas testable sans interface.
 
 **Comparaison honnête avec les autres plateformes.** La comparaison sourcée est dans `docs/COMPARAISON.md` (relevé du 15 novembre sur les pages officielles, avec une section « Ajouté à Comptoir depuis le relevé »). Sur le papier, Comptoir couvre désormais sans extension plusieurs fonctions qui demandent ailleurs une application tierce ou une formule supérieure :
 - import et export du catalogue ;
