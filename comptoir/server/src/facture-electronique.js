@@ -39,11 +39,12 @@ function ventiler(c, defaut = 0) {
 /* « Rue 1, 1003 Lausanne » → { rue, npa, ville } */
 function decouperAdresse(texte) {
   const t = String(texte || '').trim();
+  // Canada d'abord (sans ambiguïté, en fin d'adresse) : « Bureau 200, 1500 boul. René-Lévesque, Montréal QC H3B 1A1 »,
+  // aussi « Montréal, QC, H3B-1A1, Canada ». Le code postal à 4 ou 5 chiffres d'un numéro civique n'est pas pris pour un NPA.
+  const ca = /^(.*),\s*([^,]+?)[,\s]+([A-Z]\d[A-Z])[ -]?(\d[A-Z]\d)(?:\s*,\s*Canada)?$/i.exec(t);
+  if (ca) return { rue: ca[1].trim(), npa: `${ca[3]} ${ca[4]}`.toUpperCase(), ville: ca[2].replace(/[,\s]+$/, '').trim() };
   const mt = /^(.*?)[,\s]+(\d{4,5})\s+(.+)$/.exec(t);
-  if (mt) return { rue: mt[1].trim(), npa: mt[2], ville: mt[3].trim() };
-  // Canada : « 12 rue Saint-Paul, Montréal QC H2Y 1H1 » (code postal à la fin, après la ville et la province).
-  const ca = /^(.*?),\s*(.+?)\s+([A-Z]\d[A-Z] ?\d[A-Z]\d)$/i.exec(t);
-  return ca ? { rue: ca[1].trim(), npa: ca[3].toUpperCase(), ville: ca[2].trim() } : { rue: t, npa: '', ville: '' };
+  return mt ? { rue: mt[1].trim(), npa: mt[2], ville: mt[3].trim() } : { rue: t, npa: '', ville: '' };
 }
 
 /* Identifiant légal du vendeur (BT-30) et son schéma ISO 6523 : SIREN (0002) en France, numéro d'entreprise (0208)

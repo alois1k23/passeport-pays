@@ -1064,7 +1064,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const nomSur = t => { const n = uneLigne(t).slice(0, 70); if (!n) throw erreur(400, 'Indiquez votre nom.', 'nom_invalide'); return sansLien(n, 'Le nom', 'nom_invalide'); };
   function emettreCarteVendue(bid, c, { liberer = false } = {}) {
     if (c.carteEmise) return;
-    const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid), config = lireConfig(b), reg = Cartes.reglagesVente(bid);
+    const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(bid), config = lireConfig(b), reg = Cartes.reglagesVente(bid, config.boutique.pays);
     // Risque élevé (carte bancaire peut-être volée) : la carte n'est pas envoyée tout de suite, le marchand la libère.
     if (!liberer && c.risque && c.risque.niveau === 'eleve') {
       if (!c.carteRetenue) { c.carteRetenue = Date.now(); historique(c, 'Carte cadeau retenue : risque de fraude élevé. Vérifiez puis libérez-la depuis la commande (ou remboursez).'); const m = db.prepare('SELECT email FROM marchands WHERE id = ?').get(b.marchand_id); if (m) envoyerEmail(null, m.email, `Carte cadeau retenue (commande n° ${c.numero})`, `Bonjour,\n\nLa carte cadeau de la commande n° ${c.numero} (${formatMontant(c.total, config)}) n'a pas été envoyée : risque de fraude élevé (${(c.risque.raisons || []).join(' ; ')}).\nVérifiez la commande, puis libérez la carte ou remboursez : ${urlPublique}/app#commandes\n\nComptoir`); }
@@ -3395,7 +3395,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       // Nouveautés : devis (déchiffrés), cartes cadeaux (sans code : il n'est connu que du client), stock par emplacement,
       // programme de fidélité (soldes anonymes : seule une empreinte de l'e-mail est connue).
       devis: DV.lister(b.id).map(d => { const { historique, ...reste } = d; return { ...reste, creeLe: iso(d.creeLe), majLe: iso(d.majLe), historique }; }),
-      cartesCadeaux: { vente: Cartes.reglagesVente(b.id), cartes: Cartes.lister(b.id, 100000).map(k => ({ ...k, creeLe: iso(k.creeLe), expireLe: iso(k.expireLe) })), mouvements: db.prepare('SELECT carte_id, le, type, montant, solde, commande_id FROM cartes_mouvements WHERE boutique_id = ? ORDER BY id').all(b.id).map(m2 => ({ ...m2, montant: m2.montant / 100, solde: m2.solde / 100, le: iso(m2.le) })) },
+      cartesCadeaux: { vente: Cartes.reglagesVente(b.id, lireConfig(b).boutique.pays), cartes: Cartes.lister(b.id, 100000).map(k => ({ ...k, creeLe: iso(k.creeLe), expireLe: iso(k.expireLe) })), mouvements: db.prepare('SELECT carte_id, le, type, montant, solde, commande_id FROM cartes_mouvements WHERE boutique_id = ? ORDER BY id').all(b.id).map(m2 => ({ ...m2, montant: m2.montant / 100, solde: m2.solde / 100, le: iso(m2.le) })) },
       emplacements: { liste: EMP.lister(b.id), repartition: EMP.repartition(b.id), mouvements: EMP.mouvements(b.id, 100000).map(m2 => ({ ...m2, le: iso(m2.le) })) },
       fidelite: { reglages: FID.reglages(b.id), comptes: db.prepare('SELECT points, actif_le FROM fidelite_comptes WHERE boutique_id = ? AND points > 0').all(b.id).map(c2 => ({ points: c2.points, actifLe: iso(c2.actif_le) })) },
       alertesStock: db.prepare('SELECT produit_id, variante_id, email, langue, cree_le FROM alertes_stock WHERE boutique_id = ?').all(b.id).map(a => ({ ...a, cree_le: iso(a.cree_le) })),
@@ -3509,7 +3509,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       produits, avisRecents, journal: ART.compter(b.id),
       livraisons: prix.modesLivraison(config),
       seuilPortOffert: Remises.offresDe(config).seuilPort,
-      cartesCadeaux: (() => { const v = Cartes.reglagesVente(b.id); return v.actif ? { montants: v.montants } : null; })(),
+      cartesCadeaux: (() => { const v = Cartes.reglagesVente(b.id, config.boutique.pays); return v.actif ? { montants: v.montants } : null; })(),
       fidelite: (() => { const f = FID.reglages(b.id); return f.actif ? { pointsParUnite: f.pointsParUnite, valeurPour100: f.valeurPour100, seuil: f.seuil, plafondPct: f.plafondPct } : null; })(),
       offres: (({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles }) => ({ paliersActifs, paliers, suggestions, barrePort, seuilPort, regles: regles.filter(r => r.actif && r.type === 'panier') }))(Remises.offresDe(config)),
       // Le code de bienvenue n'est pas publié (il passerait outre la double confirmation de l'inscription) : seulement s'il existe.
@@ -4240,7 +4240,7 @@ ${bloc}</main></body></html>`;
   });
   r.get('/api/admin/cartes-cadeaux', exigerMarchand, ctx => ({ cartes: Cartes.lister(ctx.boutique.id), registreCoherent: !Cartes.verifier(ctx.boutique.id).length }));
   // Réglages de la vente en ligne : déclarés avant « /:id » (sinon « vente » serait pris pour un identifiant).
-  r.get('/api/admin/cartes-cadeaux/vente', exigerMarchand, ctx => ({ vente: Cartes.reglagesVente(ctx.boutique.id) }));
+  r.get('/api/admin/cartes-cadeaux/vente', exigerMarchand, ctx => ({ vente: Cartes.reglagesVente(ctx.boutique.id, lireConfig(ctx.boutique).boutique.pays) }));
   r.put('/api/admin/cartes-cadeaux/vente', exigerMarchand, ctx => ({ vente: Cartes.ecrireReglagesVente(ctx.boutique.id, ctx.corps || {}, lireConfig(ctx.boutique).boutique.pays) }));
   r.get('/api/admin/cartes-cadeaux/:id', exigerMarchand, ctx => Cartes.detail(ctx.boutique.id, ctx.params.id));
   // Émettre une carte crée un moyen de paiement : réservé au propriétaire et à la gestion complète (le rôle « commandes » n'y a pas accès).
@@ -4262,7 +4262,7 @@ ${bloc}</main></body></html>`;
   });
   /* Achat d'une carte cadeau dans la boutique : une commande à part (canal « carte »), payée en ligne. */
   r.post('/api/public/:slug/cartes-cadeaux/achat', async ctx => {
-    const b = boutiqueOuverte(ctx.params.slug), reg = Cartes.reglagesVente(b.id), config = configVente(b);
+    const b = boutiqueOuverte(ctx.params.slug), config = configVente(b), reg = Cartes.reglagesVente(b.id, config.boutique.pays);
     if (!reg.actif) throw erreur(404, 'Cette boutique ne vend pas de cartes cadeaux en ligne.', 'vente_inactive');
     const adrV = String((config.entreprise || {}).adresse || '').trim();
     if (!adrV || /compléter/i.test(adrV)) throw erreur(409, 'Cette boutique termine la saisie de ses informations légales : la vente ouvre très bientôt.', 'boutique_incomplete');

@@ -59,6 +59,7 @@ test('Canada (relecture) : devis, adresse de facture, carte cadeau sans limite, 
     db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(cfg), row.id);
     assert.equal((await c('GET', '/api/admin/etat')).j.entreprise.regime, 'franchise', 'régime forcé à la lecture');
     // Carte cadeau en ligne : 0 = sans limite accepté au Canada (refusé ailleurs).
+    assert.equal((await c('GET', '/api/admin/cartes-cadeaux/vente')).j.vente.validiteMois, 0, 'sans limite par défaut au Canada');
     const v = await c('PUT', '/api/admin/cartes-cadeaux/vente', { actif: true, montants: [25, 50], validiteMois: 0 });
     assert.equal(v.s, 200, JSON.stringify(v.j));
     // Commande payée : facture PDF disponible avec l'adresse canadienne, sans mention française.
@@ -69,8 +70,17 @@ test('Canada (relecture) : devis, adresse de facture, carte cadeau sans limite, 
     await fetch(r.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
     const pdf = await fetch(`${base}/api/admin/commandes/${r.j.commandeId}/facture-pdf`, { headers: { Cookie: cookie } });
     assert.equal(pdf.status, 200, 'facture PDF produite avec une adresse canadienne : ' + (pdf.status !== 200 ? await pdf.clone().text() : ''));
-    const texte = Buffer.from(await pdf.arrayBuffer()).toString('latin1');
-    assert.doesNotMatch(texte, /293 B|SIRET|L441-10/, 'pas de mention française');
+    // Le PDF est compressé : les mentions se vérifient dans la facture électronique (XML Factur-X).
+    const xml = await (await fetch(`${base}/api/admin/commandes/${r.j.commandeId}/facture-electronique`, { headers: { Cookie: cookie } })).text();
+    assert.match(xml, /<ram:PostcodeCode>H2Y 1H1<\/ram:PostcodeCode>/, 'code postal canadien'); assert.match(xml, /<ram:CountryID>CA<\/ram:CountryID>/);
+    assert.doesNotMatch(xml, /293 B|L441-10/, 'pas de mention française');
+    // Carte cadeau achetée en ligne : sans date d'expiration, e-mail « sans limite de durée ».
+    const carte = await c('POST', `/api/public/${slug}/cartes-cadeaux/achat`, { montant: 25, client: { nom: 'Léa Tremblay', email: 'lea@exemple.ca' } }, false);
+    if (carte.j && carte.j.paiementUrl) {
+      await fetch(carte.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+      assert.equal(db.prepare("SELECT expire_le FROM cartes_cadeaux WHERE origine = 'vente'").get().expire_le, null, 'carte sans date');
+      assert.match(db.prepare("SELECT corps FROM emails WHERE destinataire = 'lea@exemple.ca' AND corps LIKE '%Valable%'").get().corps, /sans limite de durée/);
+    } else assert.fail('achat de carte : ' + JSON.stringify(carte.j));
     const lienVerif = db.prepare("SELECT corps FROM emails WHERE destinataire = 'qc2@exemple.ca' AND sujet LIKE 'Confirmez%'").get().corps.match(/verifier-email=([\w-]+)/)[1];
     assert.equal((await c('POST', '/api/auth/verifier-email', { jeton: lienVerif })).s, 200);
     // Devis canadien (client au Canada) : accepté, mention du petit fournisseur, jamais le CGI français.

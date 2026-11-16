@@ -24,9 +24,9 @@ function mesurer(type, extra = {}) {
 const CLE_PANIER = `comptoir-panier-${slug}`;
 // Favoris : sur cet appareil seulement (rien n'est envoyé à la boutique), 100 au plus.
 const CLE_FAVORIS = `comptoir-favoris-${slug}`;
-const CLE_CODE = `comptoir-code-${slug}`;
+const CLE_CODE = `comptoir-code-${slug}`;   // code reçu par lien, gardé pendant la visite (sessionStorage)
 // Délais de livraison (jours ouvrables) des modes qui ne suivent pas le délai courant de 2 à 3 jours (Postes Canada : délais annoncés des modes).
-const DELAIS_MODES = { 'poste-prio': [1, 1], 'postes-xpress': [1, 3], 'postes-regulier': [2, 9] };   // code reçu par lien, gardé pendant la visite (sessionStorage)
+const DELAIS_MODES = { 'poste-prio': [1, 1], 'postes-xpress': [1, 3], 'postes-regulier': [2, 9] };
 const FAVORIS = (() => { try { const v = JSON.parse(localStorage.getItem(CLE_FAVORIS) || '[]'); return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 100) : []); } catch { return new Set(); } })();
 // Vus récemment : sur cet appareil seulement (rien n'est envoyé), 12 au plus.
 const CLE_RECENTS = `comptoir-recents-${slug}`;

@@ -211,7 +211,7 @@ function documentFacture(c, avoir = false) {
 }
 
 /* Adresse postale complète : rue, puis code postal (4 ou 5 chiffres) et localité ; au Canada, code postal à la fin (H2Y 1H1). */
-const adressePostale = a => !!a && !/compléter/.test(a) && (/\d{4,5}\s+\S/.test(a) || /,.+\s[A-Z]\d[A-Z] ?\d[A-Z]\d$/i.test(a.trim()));
+const adressePostale = a => !!a && !/compléter/.test(a) && (/\d{4,5}\s+\S/.test(a) || /,.+[,\s][A-Z]\d[A-Z][ -]?\d[A-Z]\d(\s*,\s*Canada)?$/i.test(a.trim()));
 const COMPLETER = { Impressum: 'en-adresse', 'Mentions légales': 'en-siret', 'Médiateur de la consommation': 'en-med', TVA: 'en-tva', 'Facture électronique': '', 'Transparence dropshipping': '' };
 function vueConformite() {
   const e = etat.entreprise;
@@ -620,7 +620,7 @@ function vueCartesCadeaux() {
     ${(() => { const v = (ui.cartesCadeaux || {}).vente; if (!v) return ''; return `<form data-form="carte-vente" class="encart">
       <label class="case"><input type="checkbox" name="actif" ${v.actif ? 'checked' : ''}> Vendre des cartes cadeaux dans la boutique en ligne</label>
       <div class="rangee"><label class="champ"><span>Montants proposés</span><input name="montants" value="${esc(v.montants.join(', '))}" placeholder="25, 50, 100"></label>
-      <label class="champ"><span>Validité (mois${etat.boutique.pays === 'ca' ? ', 0 = sans limite' : ''})</span><input name="validiteMois" type="number" min="${etat.boutique.pays === 'ca' ? 0 : etat.boutique.pays === 'be' ? 24 : 12}" max="120" value="${etat.boutique.pays === 'ca' && v.validiteMois === undefined ? 0 : v.validiteMois}" class="champ-court"></label>
+      <label class="champ"><span>Validité (mois${etat.boutique.pays === 'ca' ? ', 0 = sans limite' : ''})</span><input name="validiteMois" type="number" min="${etat.boutique.pays === 'ca' ? 0 : etat.boutique.pays === 'be' ? 24 : 12}" max="120" value="${v.validiteMois}" class="champ-court">${etat.boutique.pays === 'ca' && v.validiteMois ? '<span class="sous alerte-texte">Au Canada, une carte cadeau ne peut en principe pas expirer : 0 recommandé.</span>' : ''}</label>
       <button class="btn petit">Enregistrer</button></div>
       <p class="sous">Le client choisit un montant, paie en ligne et la carte est envoyée par e-mail (à lui ou à la personne à qui il l’offre). Pas de facture : c’est un bon d’achat, la TVA porte sur les articles achetés avec.</p></form>`; })()}
     <form data-form="carte-cadeau" class="rangee">
