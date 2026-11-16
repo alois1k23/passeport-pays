@@ -1432,3 +1432,14 @@ Relecture indépendante, sans constat grave. Corrigé :
   
   En chemin, une vérification de comportement : une langue que la boutique ne propose pas n'est pas retenue, l'e-mail part alors en français.
 - **Laissé tel quel :** la date est affichée dans le fuseau de Zurich pour toutes les boutiques (y compris en France, en Belgique et au Canada).
+
+### Cycle 71 (06 h 55) : traductions des boutiques françaises et belges (chantier 118)
+
+- **L'audit des traductions** (`outils/simulation/traductions-boutique.js`) ne parcourait qu'une boutique suisse assujettie à la TVA (limite notée au cycle 58). Il parcourt maintenant quatre boutiques : Suisse assujettie, Suisse non assujettie, France en franchise de TVA (euros) et Belgique assujettie (euros).
+- **Il a trouvé de vrais trous**, 14 textes par langue, tous corrigés :
+  - **Le bouton « Payer 23,90 € » n'était traduit dans aucune langue pour les boutiques en euros.** Le modèle attendait une espace ordinaire avant « € », alors que le navigateur met une espace insécable. Une boutique belge en anglais affichait donc « Payer » sur son bouton principal. Le modèle accepte maintenant les espaces insécables et les montants en € et en $.
+  - **Mentions de TVA** : « TVA non applicable, art. 293 B du CGI » (France) et la franchise belge des petites entreprises.
+  - **Modes de livraison** : Colissimo, Mondial Relay, Chronopost, bpost (domicile, point d'enlèvement), « Retrait en boutique ».
+- **Audit** : 154 textes relevés sur les quatre boutiques, 0 manquant en allemand, italien et anglais.
+- **Test** des traductions complété : bouton en euros avec les deux espaces insécables, montant gardé tel quel, mentions et modes de livraison.
+- **Vérifié dans Chromium** sur une boutique belge : bureau en anglais (« Pay 46,50 € », « bpost home delivery ») et mobile en allemand (« 46,50 € bezahlen », « bpost nach Hause ») ; aucune erreur.
