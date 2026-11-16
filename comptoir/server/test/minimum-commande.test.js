@@ -21,7 +21,7 @@ test('commande minimum : refusée en dessous (livraison), retrait dispensé sauf
     assert.deepEqual((await pub()).minimum, { montant: 30, retrait: false });
     const commander = (qte, livraison) => c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: rose, qte }], livraison, client: { nom: 'Ana', email: 'ana@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, false);
     let r = await commander(3, 'poste-eco');
-    assert.equal(r.s, 400); assert.equal(r.j.code, 'minimum_commande'); assert.match(r.j.erreur, /30\.00 CHF/);
+    assert.equal(r.s, 400); assert.equal(r.j.code, 'minimum_commande'); assert.match(r.j.erreur, /CHF 30\.00 d’articles \(sauf retrait en magasin\)/);
     // 4 roses = 32 CHF, mais -10 % dès 3 articles (palier par défaut) : 28.80, encore en dessous ; 5 roses : 36 CHF.
     assert.equal((await commander(4, 'poste-eco')).j.code, 'minimum_commande', 'après remise de quantité');
     r = await commander(5, 'poste-eco'); assert.ok(r.j.commandeId, JSON.stringify(r.j));

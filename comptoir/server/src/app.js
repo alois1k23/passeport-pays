@@ -3521,7 +3521,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (Date.now() - m.le >= 600000 && !m.enCours) { m.enCours = true; setImmediate(() => { try { calculerEnsembles(boutiqueId); } catch (e) { m.enCours = false; journal.error(`[complements] ${e.message}`); } }); }
     return m.v;
   };
-  const minimumDe = (config, livraison) => { const r = config.reglages || {}, m = Math.max(0, Math.min(1000, Math.round(Number(r.minimumCommande) || 0))); return m && (livraison !== 'retrait' || r.minimumRetrait) ? m : 0; };
+  const minimumDe = (config, livraison) => { const r = config.reglages || {}, m = Math.max(0, Math.min(1000, Math.round(Number(r.minimumCommande) || 0))); return m && livraison !== 'numerique' && (livraison !== 'retrait' || r.minimumRetrait) ? m : 0; };
   const compteursRisque = Risque.creerCompteurs(), paniersMoyens = new Map();
   const panierMoyen = boutiqueId => {
     const m = paniersMoyens.get(boutiqueId);
@@ -3629,6 +3629,11 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     let lignes = calcul.lignes, remise = calcul.remise, apresRemise = calcul.apresRemise;
     const sousTotal = calcul.sousTotal;
+    // Montant minimum de commande (articles après code promo et tarif pro, avant les points et hors port, comme le seuil de
+    // port offert), contrôlé avant les points de fidélité. Le retrait en magasin en est dispensé sauf réglage contraire ;
+    // l'envoi par e-mail (panier tout numérique) toujours.
+    const minimum = minimumDe(config, envoiEmail ? 'numerique' : ctx.corps.livraison);
+    if (minimum && calcul.apresRemise < minimum) throw erreur(400, `Commande minimum : ${formatMontant(minimum, config)} d’articles${!(config.reglages && config.reglages.minimumRetrait) && Object.hasOwn(modes, 'retrait') ? ' (sauf retrait en magasin)' : ''}.`, 'minimum_commande');
     // Points de fidélité : seulement avec le code reçu par e-mail (vérifié ici, consommé dans la transaction).
     // Les points déjà engagés par une autre commande en attente de ce client ne sont pas comptés deux fois.
     let fidelite = null;
@@ -3644,10 +3649,6 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       fidelite = { points: res.points, montant: res.remise / 100 };
     }
     const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);   // seuil de port offert : avant les points
-    // Montant minimum de commande (articles après code promo, avant les points et hors port, comme le seuil de port offert) ;
-    // le retrait en magasin en est dispensé, sauf si le marchand l'y soumet.
-    const minimum = minimumDe(config, ctx.corps.livraison);
-    if (minimum && calcul.apresRemise < minimum) throw erreur(400, `Commande minimum : ${minimum.toFixed(2)} ${config.boutique.devise || 'EUR'} d’articles${config.reglages.minimumRetrait ? '' : ' (sauf retrait en magasin)'}.`, 'minimum_commande');
     const total = prix.arrondi(apresRemise + port);
     if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(port)) throw erreur(400, 'Montant de la commande invalide.', 'montant_invalide');
     const devise = config.boutique.devise || 'EUR';

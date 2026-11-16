@@ -29,7 +29,13 @@ const TEXTES = [
   'Changer d’adresse ou demander un nouveau code', 'Paiement reçu : la carte cadeau vient de partir par e-mail.',
   'Pas assez de points pour une remise (minimum 100 points).',
   'Facture FA-2026-0001 (PDF)', 'Avoir AV-2026-0002 (PDF)', 'Avoir AV-2026-0003 (PDF, CHF 36.00)', 'Retour du 13.11.2026 : remboursé.',
-  'Retour demandé le 13.11.2026 : renvoyez les articles à l’adresse reçue par e-mail.', 'Quantité à retourner : Vase'
+  'Retour demandé le 13.11.2026 : renvoyez les articles à l’adresse reçue par e-mail.', 'Quantité à retourner : Vase',
+  // Nouveautés du 16 novembre : compléments, commande minimum, liens de panier, prix unitaire, allergènes, réassort.
+  'Souvent achetés avec', 'Choisir', 'Espace pro', 'TVA comprise', 'Il manque', ', ou choisissez le retrait en magasin.',
+  'Commande minimum : CHF 50.00 d’articles.', 'Commande minimum : CHF 30.00 d’articles (sauf retrait en magasin).',
+  'Certains articles de ce lien ne sont plus disponibles : les autres sont dans votre panier.', 'Les articles de ce lien ne sont plus disponibles.',
+  '6 pièces · CHF 1.00 / pièce', 'contient soja, lait (y compris lactose).', 'Remise · 5 % dès 2 articles',
+  'Me rappeler par e-mail de recommander dans 30 jours, avec mon panier prêt (rien n’est débité ; arrêt en un clic dans l’e-mail).'
 ];
 
 for (const langue of ['de', 'it', 'en']) {
@@ -39,6 +45,7 @@ for (const langue of ['de', 'it', 'en']) {
     assert.deepEqual(manquants, []);
     assert.match(t('Valable en ligne et en boutique chez Atelier Nord. Elle est envoyée par e-mail dès le paiement.'), /Atelier Nord/, 'nom de la boutique gardé');
     assert.match(t('Carte cadeau acceptée : solde CHF 20.00.'), /CHF 20\.00/);
+    assert.doesNotMatch(t('contient soja, lait (y compris lactose).'), /lait|soja,/, 'noms des allergènes traduits');
     // Annonces pour lecteur d'écran : traduites à part ; jamais appliquées au texte du marchand.
     for (const x of ['Vase ajouté au panier. 2 articles dans le panier.', 'Vase retiré du panier.', 'Vase : quantité 3.']) assert.notEqual(t.annonce(x), x, x);
     assert.equal(t('Le produit a été retiré du panier.'), null, 'texte du marchand intact');

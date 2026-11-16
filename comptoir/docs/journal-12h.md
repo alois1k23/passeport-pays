@@ -1097,3 +1097,30 @@ Relecture indépendante. Constats corrigés :
     - le gestionnaire de clic ne vise plus que les cases de la modification groupée.
 - **Vérifié de nouveau** dans Chromium, bureau et mobile, sans erreur.
 - **Laissé ouvert :** une précommande dont la date est passée redevient un produit en stock quand on l'enregistre, par la fiche comme en groupe. C'est le comportement actuel de `nettoyerProduit` ; il serait à signaler au marchand.
+
+### Cycle 57 (01 h 50) : relecture de la commande minimum (chantier 111) et audit des traductions (chantier 112)
+
+**Relecture du chantier 111**, constats corrigés :
+- **Moyen : un panier tout numérique (envoi par e-mail) était soumis au minimum.** Le serveur refusait la commande alors que le panier montrait parfois le bouton ouvert ; ou bien il proposait le retrait, caché pour un tel panier. L'envoi par e-mail est maintenant dispensé, des deux côtés.
+- **Moyen : la note n'était pas traduite.** Elle est découpée en morceaux traduisibles (voir le chantier 112 ci-dessous) ; le message du serveur est traduit aussi.
+- **Faibles :**
+  - montant au format de la boutique (« CHF 30.00 », « 30,00 € ») ;
+  - « sauf retrait en magasin » et la suggestion de retrait n'apparaissent que si ce mode existe vraiment ;
+  - le contrôle se fait avant les points de fidélité (il ne consomme plus d'essai) ;
+  - la carte de paramètres affiche la valeur bornée et arrondie que le serveur gardera ;
+  - la case « retrait » est désactivée quand le retrait n'est pas proposé ;
+  - la note n'est plus une zone vivante recréée à chaque affichage.
+
+**Chantier 112 : audit automatique des traductions de la boutique** (`node outils/simulation/traductions-boutique.js`).
+- **Ce que fait l'outil :**
+  - il affiche la boutique en français dans Chromium : accueil, fiches (complète, à variantes, épuisée), « Vus récemment », panier en livraison puis au retrait, lien de panier incomplet ;
+  - il relève chaque texte visible et chaque libellé (aria-label, placeholder, title), hors des textes du marchand ;
+  - il vérifie que chacun est couvert en allemand, en italien et en anglais (dictionnaire ou modèle). Une fonction `Traductions.couvert` a été ajoutée pour cela ;
+  - il termine avec le code 1 s'il manque une traduction.
+- **Premier passage :** 20 textes manquaient dans chaque langue. Il en manque 0 désormais, sur 100 textes relevés. Ajouts :
+  - libellés : « Souvent achetés avec », « Choisir », « Espace pro », « TVA comprise », « … en favori » ;
+  - textes avec des valeurs : commande minimum, avis du lien de panier, case du rappel de réassort, libellé de remise de quantité, prix à l'unité de mesure (« pièce ») ;
+  - les 14 allergènes, dans chaque langue.
+- **Test** : ces textes ajoutés au test des traductions, avec les noms d'allergènes.
+- **Vérifié dans Chromium**, bureau et mobile, boutique en allemand : « Mindestbestellwert: CHF 30.00 an Artikeln. Es fehlen noch CHF 22.00, oder wählen Sie die Abholung im Geschäft. »
+- **Limite** : les noms des modes de livraison (« La Poste Economy », « Retrait PickPost ») restent tels quels, ce sont des noms de services.
