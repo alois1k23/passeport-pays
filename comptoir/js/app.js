@@ -662,7 +662,7 @@ function vueProduits() {
   const cats = SECTEURS[etat.boutique.secteur].categories;
   return `
   <div class="tete"><div><h1>Produits</h1><p class="sous">${etat.produits.length} produits · ${etat.produits.filter(x => x.actif && !x.aVerifier && (typeof SERVEUR === 'undefined' || SERVEUR.fournisseurDemoVendable !== false || x.codeFournisseur !== 'demo')).length} en ligne</p></div>
-    <div class="rangee">${etat.produits.some(x => x.actif && (x.ean || (x.variantes || []).some(v => v.ean))) && typeof Gtin !== 'undefined' ? '<button class="btn fantome" data-action="etiquettes-ean">Étiquettes code-barres</button>' : ''}<button class="btn fantome" data-action="reassort">Réassort</button>${typeof vueInventaire === 'function' && typeof enLigne === 'function' && enLigne() ? '<button class="btn fantome" data-action="inventaire">Inventaire</button>' : ''}${typeof enLigne === 'function' && enLigne() ? '<button class="btn fantome" data-action="flux-produits">Google Shopping</button>' : ''}<button class="btn fantome" data-action="lien-panier">Lien de panier</button><button class="btn fantome" data-action="importer-catalogue">Importer un catalogue</button><button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
+    <div class="rangee">${etat.produits.some(x => x.actif && (x.ean || (x.variantes || []).some(v => v.ean))) && typeof Gtin !== 'undefined' ? '<button class="btn fantome" data-action="etiquettes-ean">Étiquettes code-barres</button>' : ''}<button class="btn fantome" data-action="reassort">Réassort</button>${typeof vueInventaire === 'function' && typeof enLigne === 'function' && enLigne() ? '<button class="btn fantome" data-action="inventaire">Inventaire</button>' : ''}${typeof enLigne === 'function' && enLigne() ? '<button class="btn fantome" data-action="flux-produits">Google Shopping</button>' : ''}<button class="btn fantome" data-action="lien-panier">Lien de panier</button><button class="btn fantome" data-action="importer-catalogue">Importer un catalogue</button>${typeof ExportCatalogue !== 'undefined' && etat.produits.length ? '<button class="btn fantome" data-action="exporter-catalogue">Exporter le catalogue</button>' : ''}<button class="btn fantome" data-action="photos">Ajouter par photo</button><button class="btn" data-action="nouveau-produit">Ajouter un produit</button></div>
     <input type="file" id="photo-input" accept="image/*" multiple hidden><input type="file" id="import-csv" accept=".csv,text/csv,text/plain" hidden aria-label="Fichier CSV du catalogue"></div>
   <p class="astuce">Ajoutez des produits du <a class="lien" href="#sourcing">catalogue fournisseurs</a> (dropshipping) ou prenez vos propres produits en photo : Comptoir crée les fiches (nom, catégorie, prix conseillé, description). Vous n’avez plus qu’à vérifier.</p>
   ${ui.lienPanier && typeof vueLienPanier === 'function' ? vueLienPanier() : ''}
@@ -1266,6 +1266,14 @@ document.addEventListener('click', e => {
       rendreModal(); break;
     }
     case 'nouveautes-fermer': { try { localStorage.setItem('comptoir-nouveautes-vu', NOUVEAUTES.version); } catch { /* ignoré */ } rendre(); const h = document.querySelector('main h1, h1'); if (h) { h.tabIndex = -1; h.focus(); } break; }
+    case 'exporter-catalogue': {
+      // Photos : adresse publique (relue par un autre import) ; produits numériques sans leur fichier.
+      const slugB = typeof SERVEUR !== 'undefined' && SERVEUR.slug;
+      const csv = ExportCatalogue.versShopify(etat.produits, { marqueParDefaut: etat.boutique.nom, urlImage: p => p.image && slugB ? `${location.origin}/api/public/${encodeURIComponent(slugB)}/image/${encodeURIComponent(p.id)}` : '' });
+      try { const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const a = Object.assign(document.createElement('a'), { href: url, download: `catalogue-${new Date().toISOString().slice(0, 10)}.csv` }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000); toast(`${etat.produits.length} produit${etat.produits.length > 1 ? 's' : ''} exporté${etat.produits.length > 1 ? 's' : ''} (format Shopify, relu par l’import de Comptoir).`); }
+      catch { toast('Export impossible dans cet aperçu.'); }
+      break;
+    }
     case 'etiquettes-ean': ui.modal = { type: 'html', html: `<h2>Étiquettes code-barres</h2>${etiquettesEan()}` }; rendreModal(); break;
     case 'bon-un': ui.modal = { type: 'html', html: `<h2>Bon de préparation</h2>${bonsPreparation([id])}` }; rendreModal(); break;
     case 'groupe-vider': ui.selection.clear(); rendre(); break;

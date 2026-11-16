@@ -88,6 +88,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 
 - Sauvegardes quotidiennes, avec contrôle d'intégrité SQLite. Elles sont **chiffrées** (AES-256-GCM) seulement si `SAUVEGARDE_CLE` est définie ; sinon, ce sont des copies en clair. Une copie restaurée se vérifie de bout en bout (test automatique).
 - **Export complet** des données de la boutique (JSON) : le marchand peut partir avec tout, même abonnement terminé.
+- **Export du catalogue** au format CSV de Shopify (variantes, prix, stock, codes-barres, marque, photos), relu par l'import de Comptoir et par d'autres plateformes. Les cellules sont neutralisées contre les formules de tableur.
 - Aucune ressource tierce dans les boutiques : ni traceur, ni police Google.
 - En-têtes de sécurité stricts (CSP sans script externe), cookie de session `__Host-`. Les navigateurs signalent ce qu'ils bloquent (tentative d'injection), sans donnée personnelle.
 

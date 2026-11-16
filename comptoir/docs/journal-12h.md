@@ -933,3 +933,16 @@ Aucune faille. Le double encodage des variantes fait correctement l'aller-retour
   - les autres mentions obligatoires (dénomination légale, poids net, conservation, producteur) restent à écrire par le marchand dans la description ;
   - Comptoir ne contrôle pas l'exhaustivité.
 - 259 tests sur 259, parcours de bout en bout 57/57.
+
+### Cycle 49 (01 h 10) : export du catalogue (chantier 108)
+
+- **Produits › Exporter le catalogue** : un fichier CSV au format de Shopify (repris par de nombreuses plateformes), relu sans perte par l'import de Comptoir. Le fichier contient :
+  - nom, description, marque, catégorie ;
+  - variantes (deux options au plus), prix, prix barré, stock, code-barres ;
+  - adresse publique de la photo et statut (publié ou brouillon).
+  
+  Le marchand garde une copie de ses produits, ou les emporte ailleurs : pas d'enfermement.
+- **Sécurité des tableurs** : une cellule de texte qui commence par = + - @ est neutralisée par une apostrophe, pour qu'un nom de produit piégé (`=HYPERLINK(…)`) ne devienne pas une formule à l'ouverture. Les guillemets sont doublés (RFC 4180).
+- **Module pur** `js/export-catalogue.js`. Test aller-retour (export, puis import de Comptoir) : prix, prix barré, stock, code-barres, marque, catégorie, description, variantes avec leurs prix et codes, statut brouillon, formule neutralisée.
+- **Vérifié dans Chromium**, bureau et mobile : fichier téléchargé (« catalogue-2026-11-16.csv »), puis importé dans une autre boutique. Aperçu : 2 produits, dont un à 2 variantes, aucune erreur.
+- **Limites** : les fichiers des produits numériques et les données propres à Comptoir (lots, précommandes, rappels, contenance, allergènes) ne passent pas par ce format. L'export complet de la boutique (JSON, Paramètres › Données) les garde.
