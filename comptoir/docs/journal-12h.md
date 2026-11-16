@@ -1444,7 +1444,7 @@ Relecture indépendante, sans constat grave. Corrigé :
 - **Test** des traductions complété : bouton en euros avec les deux espaces insécables, montant gardé tel quel, mentions et modes de livraison.
 - **Vérifié dans Chromium** sur une boutique belge : bureau en anglais (« Pay 46,50 € », « bpost home delivery ») et mobile en allemand (« 46,50 € bezahlen », « bpost nach Hause ») ; aucune erreur.
 
-### Cycle 72 (07 h 05) : relecture des traductions françaises et belges (chantier 118)
+### Cycle 72 (06 h 55) : relecture des traductions françaises et belges (chantier 118)
 
 Relecture indépendante, sans constat grave. Corrigé :
 
