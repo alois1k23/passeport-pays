@@ -707,6 +707,7 @@ document.addEventListener('change', e => {
   const p = donnees.produits.find(x => x.id === vue.fiche); if (!aVariantes(p)) return;
   const v = varianteChoisie(p), prixEl = document.querySelector('[data-sf-prix]'), bouton = document.querySelector('.sf-fiche-achat [data-sf="ajouter"]');
   if (prixEl) prixEl.textContent = euros(v && typeof v.prix === 'number' ? v.prix : p.prix);
+  const pu = document.querySelector('[data-sf-unitaire]'); if (pu && typeof texteUnitaire === 'function') pu.textContent = texteUnitaire(p, v && typeof v.prix === 'number' ? v.prix : p.prix);
   if (v && vue.varianteUrl) { vue.varianteUrl = v.id; const u = new URL(location.href); u.searchParams.set('variante', v.id); history.replaceState(history.state, '', u); }   // lien copié : la variante choisie
   if (bouton) { const epuise = !v || v.stock <= 0; bouton.disabled = epuise; bouton.textContent = epuise ? 'Épuisé' : 'Ajouter au panier'; }
   const alerte = document.querySelector('[data-alerte-stock]'); if (alerte) alerte.hidden = !!(v && v.stock > 0);

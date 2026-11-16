@@ -14,6 +14,7 @@ const WebAuthn = require('./webauthn');
 const Risque = require('./risque');
 const ImportCatalogue = require('../../js/import-catalogue.js');
 const Gtin = require('../../js/gtin.js');
+const Unites = require('../../js/unites.js');
 const { creerNumerique, dispositionPieceJointe } = require('./numerique');
 const { creerPro } = require('./pro');
 const Articles = require('./articles');
@@ -844,6 +845,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
         });
         if (type !== 'drop') propre.stock = propre.variantes.reduce((a, v) => a + v.stock, 0);
       }
+    }
+    // Contenance (250 g, 75 cl, 6 pièces…) : prix à l'unité de mesure affiché dans la boutique et transmis à Google.
+    if (p.contenance !== undefined && p.contenance !== null && p.contenance !== '') {
+      const c = Number(p.contenance);
+      if (!Unites.UNITES[p.unite] || !Number.isFinite(c) || c <= 0 || c > 100000) throw erreur(400, 'Contenance : un nombre positif et une unité (g, kg, ml, cl, l, m, pièces).', 'contenance_invalide');
+      propre.contenance = Math.round(c * 1000) / 1000; propre.unite = p.unite;
     }
     // Marque (fabricant) : reprise par Google Shopping et les données structurées ; sinon, le nom de la boutique.
     if (typeof p.marque === 'string' && p.marque.trim()) propre.marque = p.marque.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70);
@@ -5370,7 +5377,7 @@ ${FEUILLE_JOURNAL}</head><body><header><a href="${escHtml(base)}/">${escHtml(nom
     for (const p of produits) {
       const image = p.image ? `${urlPublique}/api/public/${encodeURIComponent(b.slug)}/image/${encodeURIComponent(p.id)}` : '';
       const pre = p.precommande && String(p.expeditionPrevue || '') >= jour && p.stock > 0;
-      const commun = (id, titre, prixV, stock, ean, groupe, attributs = '', varianteId = '') => `<item><g:id>${x(id)}</g:id><title>${x(String(titre).slice(0, 150))}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}${varianteId ? `?variante=${encodeURIComponent(varianteId)}` : ''}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(p.marque || config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${attributs}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}</item>`;
+      const commun = (id, titre, prixV, stock, ean, groupe, attributs = '', varianteId = '') => `<item><g:id>${x(id)}</g:id><title>${x(String(titre).slice(0, 150))}</title><description>${x(String(p.description || p.nom).slice(0, 4900))}</description><link>${x(`${base}/p/${encodeURIComponent(p.id)}${varianteId ? `?variante=${encodeURIComponent(varianteId)}` : ''}`)}</link>${image ? `<g:image_link>${x(image)}</g:image_link>` : ''}<g:price>${prixG(prixV)}</g:price><g:availability>${pre ? 'preorder' : p.type === 'drop' || stock > 0 ? 'in stock' : 'out of stock'}</g:availability>${pre ? `<g:availability_date>${x(p.expeditionPrevue)}T12:00:00Z</g:availability_date>` : ''}<g:condition>new</g:condition><g:brand>${x(p.marque || config.boutique.nom)}</g:brand>${ean ? `<g:gtin>${x(ean)}</g:gtin>` : '<g:identifier_exists>no</g:identifier_exists>'}${groupe ? `<g:item_group_id>${x(groupe)}</g:item_group_id>` : ''}${attributs}${p.categorie ? `<g:product_type>${x(p.categorie)}</g:product_type>` : ''}${(() => { const pu = p.contenance && Unites.prixUnitaire(prixV, p.contenance, p.unite); return pu ? `<g:unit_pricing_measure>${x(`${p.contenance}${Unites.google(p.unite)}`)}</g:unit_pricing_measure><g:unit_pricing_base_measure>${x(`${pu.qte}${Unites.google(pu.unite)}`)}</g:unit_pricing_base_measure>` : ''; })()}</item>`;
       // Variantes : identifiant court et stable (empreinte des valeurs, 50 caractères au plus), et ce qui les distingue
       // (taille, couleur, matière) dans les attributs attendus par Google.
       const attributDe = nom => /taille|size|gr[öo](ss|ß)e|pointure|taglia/i.test(nom) ? 'size' : /couleur|colou?r|farbe|colore/i.test(nom) ? 'color' : /mati[eè]re|material|stoff/i.test(nom) ? 'material' : 'pattern';

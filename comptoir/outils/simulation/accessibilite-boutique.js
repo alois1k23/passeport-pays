@@ -49,7 +49,7 @@ const AUDIT = () => {
     const j = (m, u, c) => fetch(u, { method: m, headers: { 'Content-Type': 'application/json' }, body: c ? JSON.stringify(c) : undefined }).then(r => r.json());
     await j('POST', '/api/auth/inscription', { email: 'a11y@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Atelier Lin', pays: 'ch', secteur: 'maison' }, entreprise: { raison: 'Lin Sàrl', adresse: 'Rue 1, 1003 Lausanne', email: 'a11y@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } } });
     const ids = [];
-    for (const [nom, prix, extra] of [['Torchon en lin', 18, { reassortJours: 30 }], ['Nappe brodée', 60, {}], ['Plaid', 90, { precommande: true, expeditionPrevue: new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10) }]]) ids.push((await j('POST', '/api/admin/produits', { produit: { nom, prix, stock: 5, description: 'Lin lavé, tissé au Portugal.', ...extra } })).id);
+    for (const [nom, prix, extra] of [['Torchon en lin', 18, { reassortJours: 30, contenance: 250, unite: 'g' }], ['Nappe brodée', 60, {}], ['Plaid', 90, { precommande: true, expeditionPrevue: new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10) }]]) ids.push((await j('POST', '/api/admin/produits', { produit: { nom, prix, stock: 5, description: 'Lin lavé, tissé au Portugal.', ...extra } })).id);
     await j('POST', '/api/admin/articles', { titre: 'Entretenir le lin', corps: '## Lavage\nÀ 30 °C.', publie: true, produits: ids.slice(0, 2) });
     return { slug: (await j('GET', '/api/admin/etat')).serveur.slug, ids };
   });

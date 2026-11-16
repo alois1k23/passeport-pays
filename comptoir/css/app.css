@@ -1517,3 +1517,4 @@ details.en-ligne form { margin-top: 6px; }
 .liste-nouveautes .ou { display: block; font-size: .78rem; color: var(--faint); }
 .liste-nouveautes a { display: inline-block; padding: 3px 0; }   /* cible de 24 px au moins sur téléphone */
 .confirm a.sf-btn { display: block; text-align: center; text-decoration: none; }   /* « Commander à nouveau » : lien présenté comme un bouton */
+.sf-unitaire { display: block; font-size: .78rem; color: color-mix(in srgb, var(--sf-text) 65%, transparent); margin: 2px 0 0; }

@@ -897,3 +897,21 @@ Aucune faille. Le double encodage des variantes fait correctement l'aller-retour
   - le composeur de lien de panier oublie les lignes de produits masqués ou de variantes renommées depuis ;
   - « Commander à nouveau » fusionne les lignes identiques.
 - 256 tests sur 256, parcours de bout en bout 57/57.
+
+### Cycle 47 (01 h 00) : prix à l'unité de mesure (chantier 106)
+
+- **Pourquoi** : en Suisse comme dans l'Union européenne, beaucoup de marchandises préemballées vendues au poids ou au volume doivent afficher leur prix au kilo, au litre ou à l'unité. Google Shopping l'accepte aussi.
+- **Module partagé** `js/unites.js` (serveur et boutique) :
+  - unités g, kg, ml, cl, l, m et pièces ;
+  - petites quantités au 100 g ou 100 ml, sinon au kilo ou au litre ;
+  - rien pour une seule pièce.
+- **Fiche produit** : champs « Contenance » et « Unité ». Le serveur refuse une contenance négative ou une unité inconnue.
+- **Boutique** :
+  - la carte et la fiche affichent « 250 g · CHF 1.68 / 100 g » ;
+  - sur un produit à variantes, la ligne suit le prix de la variante choisie ;
+  - le contraste du texte a été contrôlé par l'audit de la boutique.
+- **Flux Google et Meta** : `unit_pricing_measure` (250g) et `unit_pricing_base_measure` (100g).
+- **Tests** : bases de référence, une seule pièce, contenance invalide refusée, champs du flux.
+- **Vérifié dans Chromium**, bureau et mobile : saisie dans la fiche, affichage sur la carte et sur la fiche. Aucune erreur.
+- **Limite honnête** : Comptoir n'impose pas la contenance. Savoir quels produits doivent l'afficher reste de la responsabilité du marchand ; l'aide de la fiche le rappelle.
+- 258 tests sur 258, parcours de bout en bout 57/57.
