@@ -19,15 +19,16 @@ function base(contenance, unite) {
 /* Prix unitaire d'un prix pour une contenance donnée, ou null (contenance absente ou invalide, lot d'une seule pièce). */
 function prixUnitaire(prix, contenance, unite) {
   const c = Number(contenance);
-  if (!UNITES[unite] || !Number.isFinite(c) || c <= 0 || !Number.isFinite(Number(prix))) return null;
+  if (!Object.hasOwn(UNITES, String(unite)) || !Number.isFinite(c) || c <= 0 || !Number.isFinite(Number(prix))) return null;
   if (unite === 'piece' && c <= 1) return null;
-  const b = base(c, unite);
+  const b = base(c, unite); if (!b) return null;
   return { prix: Math.round(Number(prix) * b.facteur * 100) / 100, base: `${b.qte === 1 ? '' : b.qte + ' '}${b.unite}`.trim(), qte: b.qte, unite: b.unite };
 }
 // Contenance lisible (« 250 g », « 1,5 l », « 6 pièces »).
-const libelle = (contenance, unite) => !UNITES[unite] ? '' : `${String(Number(contenance)).replace('.', ',')} ${unite === 'piece' ? (Number(contenance) > 1 ? 'pièces' : 'pièce') : UNITES[unite]}`;
+const libelle = (contenance, unite) => !Object.hasOwn(UNITES, String(unite)) ? '' : `${String(Number(contenance)).replace('.', ',')} ${unite === 'piece' ? (Number(contenance) > 1 ? 'pièces' : 'pièce') : UNITES[unite]}`;
 // Unités de Google Shopping (unit_pricing_measure) : g, kg, ml, cl, l, m, ct.
-const google = unite => ({ g: 'g', kg: 'kg', ml: 'ml', cl: 'cl', l: 'l', m: 'm', piece: 'ct', 'pièce': 'ct' })[unite] || null;
+const GOOGLE = { g: 'g', kg: 'kg', ml: 'ml', cl: 'cl', l: 'l', m: 'm', piece: 'ct', 'pièce': 'ct' };
+const google = unite => (Object.hasOwn(GOOGLE, String(unite)) ? GOOGLE[unite] : null);
 
 /* Les 14 allergènes à déclarer (droit suisse et européen), dans l'ordre habituel. Partagé aussi par le serveur et la boutique. */
 const ALLERGENES = { gluten: 'céréales contenant du gluten', crustaces: 'crustacés', oeufs: 'œufs', poissons: 'poissons', arachides: 'arachides', soja: 'soja', lait: 'lait (y compris lactose)', fruitsCoque: 'fruits à coque', celeri: 'céleri', moutarde: 'moutarde', sesame: 'graines de sésame', sulfites: 'anhydride sulfureux et sulfites', lupin: 'lupin', mollusques: 'mollusques' };

@@ -52,3 +52,21 @@ test('denrées alimentaires : ingrédients, allergènes (liste fermée), origine
     assert.deepEqual(pub.allergenes, ['gluten', 'lait', 'fruitsCoque'], 'publié pour la boutique');
   } finally { s.close(); }
 });
+
+test('unités : les clés héritées de l’objet (toString, __proto__…) sont refusées sans faire planter le rendu', async () => {
+  for (const u of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+    assert.equal(U.prixUnitaire(5, 250, u), null, u);
+    assert.equal(U.libelle(250, u), '', u);
+    assert.equal(U.google(u), null, u);
+  }
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'pr@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Proto', pays: 'ch' } } });
+    for (const unite of ['toString', 'constructor', '__proto__']) assert.equal((await c('POST', '/api/admin/produits', { produit: { nom: 'X', prix: 5, stock: 1, contenance: 250, unite } })).s, 400, unite);
+    assert.equal((await c('POST', '/api/admin/produits', { produit: { nom: 'X', prix: 5, stock: 1, contenance: 0.0001, unite: 'g' } })).s, 400, 'nulle après arrondi');
+  } finally { s.close(); }
+});

@@ -89,14 +89,15 @@ async function demarrer() {
     if (lignes.length) {
       // Ajouté au panier existant (rien n'est perdu) : même article, quantités additionnées, toujours plafonnées au stock.
       for (const { p, v, n } of lignes) {
-        const max = p.type === 'drop' ? 20 : Math.min(20, v ? v.stock : p.stock), l = vue.panier.find(x => x.produitId === p.id && (x.varianteId || '') === (v ? v.id : '') && !x.offre);
+        const max = p.type === 'drop' ? 20 : v ? v.stock : p.stock, l = vue.panier.find(x => x.produitId === p.id && (x.varianteId || '') === (v ? v.id : '') && !x.offre);
         if (l) l.qte = Math.min(max, l.qte + n); else vue.panier.push(v ? ligneVariante(p, v, Math.min(n, max)) : { produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(n, max) });
       }
       garderPanier(); vue.ouvert = true; mesurer('panier', { valeur: 'lien' });
     }
     // Articles du lien qui ne sont plus en vente (variante renommée, produit retiré, épuisé) : le client le sait.
     const demandes = q.get('panier').split(',').filter(Boolean).length;
-    if (lignes.length < Math.min(20, demandes)) vue.message = lignes.length ? '<p>Certains articles de ce lien ne sont plus disponibles : les autres sont dans votre panier.</p>' : '<p>Les articles de ce lien ne sont plus disponibles.</p>';
+    // Avis affiché au-dessus des lignes du panier (le panier reste visible et payable) ; effacé à la fermeture du tiroir.
+    if (lignes.length < Math.min(20, demandes)) { vue.avisLien = lignes.length ? 'Certains articles de ce lien ne sont plus disponibles : les autres sont dans votre panier.' : 'Les articles de ce lien ne sont plus disponibles.'; vue.ouvert = true; }
     history.replaceState(null, '', location.pathname + (q.get('lang') ? `?lang=${encodeURIComponent(q.get('lang'))}` : ''));
     if (q.get('code')) { rendre(); appliquerCode(q.get('code').slice(0, 40)); return; }
   }
@@ -222,7 +223,7 @@ function rendreBrut() {
       <div class="tiroir-fond" data-c="fermer"></div>
       <aside class="tiroir-corps" data-vars="${varsTheme(th)}" role="dialog" aria-modal="true" aria-labelledby="titre-tiroir">
         <div class="carte-tete"><h2 id="titre-tiroir" tabindex="-1">${vue.message ? 'Votre commande' : 'Panier'}</h2><button class="icone" data-c="fermer">Fermer</button></div>
-        ${vue.message ? vue.message : vue.panier.length ? `
+        ${vue.message ? vue.message : `${vue.avisLien ? `<p class="avis-lien" role="status">${esc(vue.avisLien)}</p>` : ''}${vue.panier.length ? `
           <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span data-sans-traduction>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
             <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span data-sans-traduction>${esc(l.nom)}</span>
             <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId), vr = pr && l.varianteId && aVariantes(pr) ? pr.variantes.find(x => x.id === l.varianteId) : null; return pr && l.qte >= (pr.type === 'drop' ? 20 : vr ? vr.stock : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
@@ -263,7 +264,7 @@ function rendreBrut() {
             ${!adresseVendeur() ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
             <button class="sf-btn plein" ${vue.envoi || !adresseVendeur() || donnees.paiementsActifs === false ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : partCarte && !aPayer ? 'Payer avec la carte cadeau' : `Payer ${euros(aPayer)}`}</button>
             <p class="mini">${donnees.paiement === 'stripe' ? (ch && (!donnees.moyens || donnees.moyens.twint) ? 'Paiement sécurisé par TWINT ou carte.' : donnees.boutique.pays === 'be' && (!donnees.moyens || donnees.moyens.bancontact) ? 'Paiement sécurisé par Bancontact ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
-          </form>` : '<p>Votre panier est vide.</p>'}
+          </form>` : '<p>Votre panier est vide.</p>'}`}
       </aside>
     </div>
     ${vue.legal ? `<div id="modal"><div class="modal-fond" data-c="legal-fermer"></div><div class="modal-corps" role="dialog" aria-modal="true"><button class="icone modal-x" data-c="legal-fermer">Fermer</button><article class="doc-legal" ${['commandes', 'carte-cadeau', 'pro'].includes(vue.legal) ? '' : 'data-legal'}>${texteLegal(vue.legal)}</article></div></div>` : ''}`;
@@ -423,7 +424,7 @@ document.addEventListener('click', e => {
       const max = p.type === 'drop' ? 20 : v ? v.stock : p.stock;
       if (l) l.qte = Math.min(max, l.qte + q); else vue.panier.push(v ? ligneVariante(p, v, Math.min(max, q)) : { produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(max, q) });
       vue.declencheur = `[data-sf="ajouter"][data-id="${CSS.escape(p.id)}"]`;
-      garderPanier(); if (vue.fiche) fermerFiche({ rendu: false }); vue.message = null; vue.ouvert = true; rendre();
+      garderPanier(); if (vue.fiche) fermerFiche({ rendu: false }); vue.message = null; vue.avisLien = null; vue.ouvert = true; rendre();
       const n = vue.panier.reduce((a, x) => a + x.qte, 0);
       annoncer(`${p.nom}${v ? ` (${v.valeurs.join(' / ')})` : ''} ajouté au panier. ${n} article${n > 1 ? 's' : ''} dans le panier.`);
     } else if (sf.dataset.sf === 'panier') { vue.declencheur = '[data-sf="panier"]'; vue.ouvert = true; rendre(); }
@@ -451,7 +452,7 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-c]');
   if (!el) return;
   const c = el.dataset.c;
-  if (c === 'fermer') { if (vue.message && !vue.panier.length) vue.message = null; if (!vue.fiche) history.replaceState(null, '', racineBoutique); fermerTiroir(); }
+  if (c === 'fermer') { vue.avisLien = null; if (vue.message && !vue.panier.length) vue.message = null; if (!vue.fiche) history.replaceState(null, '', racineBoutique); fermerTiroir(); }
   else if (c === 'recommander') {
     // Même panier qu'une commande passée : seuls les articles encore en vente, au prix d'aujourd'hui, dans la limite du stock.
     let lignes = []; try { lignes = JSON.parse(el.dataset.lignes); } catch { /* ignoré */ }

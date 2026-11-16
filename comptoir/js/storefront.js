@@ -297,6 +297,7 @@ function renduBoutique(etat, { mode = 'live', selection = null, panier = [], fic
     const premierHtml = mode === 'edition'
       ? `<div class="sf-bloc${selection === premier.id ? ' choisi' : ''}" data-section="${premier.id}" tabindex="0"><span class="sf-etiquette">${esc(TYPES_SECTIONS.annonce.nom)}</span>${renduSection(premier, etat, mode)}</div>`
       : renduSection(premier, etat, mode);
+    recentsPlaces = false;   // les sections ont déjà été parcourues une fois ci-dessus
     const resteHtml = reste.map(s => {
       const html = avecRecents(s, renduSection(s, etat, mode));
       return mode !== 'edition' ? html : `<div class="sf-bloc${selection === s.id ? ' choisi' : ''}" data-section="${s.id}" tabindex="0"><span class="sf-etiquette">${esc(TYPES_SECTIONS[s.type].nom)}</span>${html}</div>`;

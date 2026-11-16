@@ -946,3 +946,19 @@ Aucune faille. Le double encodage des variantes fait correctement l'aller-retour
 - **Module pur** `js/export-catalogue.js`. Test aller-retour (export, puis import de Comptoir) : prix, prix barré, stock, code-barres, marque, catégorie, description, variantes avec leurs prix et codes, statut brouillon, formule neutralisée.
 - **Vérifié dans Chromium**, bureau et mobile : fichier téléchargé (« catalogue-2026-11-16.csv »), puis importé dans une autre boutique. Aperçu : 2 produits, dont un à 2 variantes, aucune erreur.
 - **Limites** : les fichiers des produits numériques et les données propres à Comptoir (lots, précommandes, rappels, contenance, allergènes) ne passent pas par ce format. L'export complet de la boutique (JSON, Paramètres › Données) les garde.
+
+### Cycle 50 (01 h 15) : relecture des chantiers 105 à 107
+
+Relecture indépendante (Vus récemment, prix unitaire, informations alimentaires, Commander à nouveau). Constats corrigés :
+
+- **Grave : le panier était masqué après un lien incomplet.** Si un lien de panier contenait un article retiré, le message « certains articles ne sont plus disponibles » remplaçait tout le tiroir, sans retour possible : le client ne voyait plus son panier et ne pouvait plus payer. Le message est maintenant un avis au-dessus des lignes du panier, qui reste payable, et il disparaît quand on ferme le tiroir.
+- **Grave : « Vus récemment » n'apparaissait jamais** quand l'annonce était en tête de page et qu'un pied de page existait, une mise en page courante. Une variable restait marquée « déjà placé » d'un premier parcours des sections.
+- **Moyen : la clé d'unité n'était pas vérifiée contre le prototype de l'objet.** `unite: "toString"` passait la validation, puis faisait planter le rendu de la boutique et le flux produits. La vérification utilise désormais `Object.hasOwn` dans le serveur et dans le module partagé, et `prixUnitaire` rend `null` par défaut.
+- **Faibles :**
+  - un lien de panier ne réduit plus une quantité déjà au-delà de 20 dans le panier (même plafond que les autres ajouts : le stock) ;
+  - une contenance minuscule (0,0001), nulle après l'arrondi, est refusée au lieu d'être effacée en silence ;
+  - l'aide du formulaire précise que la contenance vaut pour toutes les variantes.
+- **Vérifié dans Chromium**, bureau et mobile. Lien avec un article inconnu sur un panier de 25 savons : tiroir ouvert, avis visible, 28 savons, formulaire de paiement présent, avis effacé à la fermeture. Annonce et pied de page : 2 cartes « Vus récemment ». Aucune erreur.
+- **Laissé tel quel :**
+  - le panier n'est vidé au retour du paiement que dans l'onglet qui l'a lancé ;
+  - les anciennes demandes de rappel gardent leur ancienne clé (doublon possible pendant la transition).

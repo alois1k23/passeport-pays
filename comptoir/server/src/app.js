@@ -849,8 +849,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Contenance (250 g, 75 cl, 6 pièces…) : prix à l'unité de mesure affiché dans la boutique et transmis à Google.
     if (p.contenance !== undefined && p.contenance !== null && p.contenance !== '') {
       const c = Number(p.contenance);
-      if (!Unites.UNITES[p.unite] || !Number.isFinite(c) || c <= 0 || c > 100000) throw erreur(400, 'Contenance : un nombre positif et une unité (g, kg, ml, cl, l, m, pièces).', 'contenance_invalide');
-      propre.contenance = Math.round(c * 1000) / 1000; propre.unite = p.unite;
+      const arrondi = Math.round(c * 1000) / 1000;   // validé après l'arrondi : 0,0001 deviendrait 0
+      if (typeof p.unite !== 'string' || !Object.hasOwn(Unites.UNITES, p.unite) || !Number.isFinite(c) || arrondi <= 0 || c > 100000) throw erreur(400, 'Contenance : un nombre positif et une unité (g, kg, ml, cl, l, m, pièces).', 'contenance_invalide');
+      propre.contenance = arrondi; propre.unite = p.unite;
     }
     // Denrées alimentaires : ingrédients, allergènes (liste fermée des 14), origine ; affichés avant l'achat dans la boutique.
     if (typeof p.ingredients === 'string' && p.ingredients.trim()) propre.ingredients = p.ingredients.replace(/\r/g, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').trim().slice(0, 2000);
