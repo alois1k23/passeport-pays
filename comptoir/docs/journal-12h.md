@@ -984,3 +984,28 @@ Relecture indépendante (Vus récemment, prix unitaire, informations alimentaire
   - un clic ouvre la fiche du complément ;
   - après l'ajout du café au panier, la suggestion est la tasse ;
   - aucune erreur.
+
+### Cycle 52 (01 h 25) : relecture de l'export du catalogue (chantier 108)
+
+Relecture indépendante ; constats corrigés :
+
+- **Grave : le prix barré partait sans le contrôle de licéité.** L'export écrivait le prix de référence brut, même quand la boutique ne l'affiche pas, faute de 30 jours de pratique (règles suisses et européennes). Ce prix barré illicite pouvait ensuite s'afficher sur Shopify. Désormais :
+  - l'export passe par le même contrôle que la boutique (`PrixBarres.verifier`) ;
+  - le prix barré n'est écrit que sur les variantes au prix de base, jamais sur une variante moins chère, ce qui annoncerait une baisse inventée.
+- **Moyens** :
+  - un produit « à vérifier » (importé avec un prix hors taxes) sort en brouillon, plus en publié ;
+  - nouvelles colonnes Shopify : suivi du stock, politique de vente (dropshipping et précommandes : vente continue), expédition requise (non pour un produit numérique), et étiquettes « lot », « précommande », « numérique » pour ce que le format ne sait pas décrire ;
+  - le handle Shopify d'origine d'un produit importé est repris : son adresse et son référencement se retrouvent au retour sur Shopify ;
+  - l'apostrophe anti-formule n'est plus ajoutée qu'aux formules plausibles : = ou @, y compris en pleine chasse ou après une espace, et + ou - suivis d'un chiffre ou d'une fonction. « + de goût » reste intact, et l'import de Comptoir retire l'apostrophe à la relecture ;
+  - photos : l'adresse n'est écrite que pour un produit en vente, et le message prévient qu'elle reste lisible tant que la boutique est ouverte.
+- **Faibles** :
+  - handles en minuscules, chiffres et tirets, à partir d'une empreinte stable de l'identifiant ; un doublon reçoit un suffixe : deux « Tasse » ne fusionnent plus ;
+  - un code-barres invalide n'est pas écrit ;
+  - une variante au prix de base est placée en premier, ce qui garde le prix barré à la relecture ;
+  - l'import garde un produit à une seule valeur d'option ;
+  - le message compte les produits réellement exportés.
+- **Test de régression** couvrant ces cas. Vérifié de nouveau dans Chromium (bureau et mobile) : export, puis réimport sans erreur.
+- **Laissé ouvert** :
+  - les très gros catalogues (plus de 1,8 Mo ou plus de 20 000 lignes) dépassent la limite de l'import de Comptoir ; il faudrait découper le fichier ;
+  - la composition des lots, les allergènes et la contenance n'ont pas de colonne Shopify standard ;
+  - Excel abîme les codes-barres longs (notation scientifique) si on réenregistre le fichier.

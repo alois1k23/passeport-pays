@@ -80,7 +80,9 @@ function convertir(texte) {
   const entetes = lignes[0], format = detecterFormat(entetes);
   if (!format) return { format: null, produits: [], erreurs: [{ ligne: 1, message: 'Format non reconnu : utilisez l’export CSV de Shopify, WooCommerce ou PrestaShop, ou un tableur avec au moins les colonnes « nom » et « prix ».' }] };
   const idx = {}; entetes.forEach((e, i) => { const k = norm(e); if (!(k in idx)) idx[k] = i; });
-  const col = (r, ...noms) => { for (const n of noms) { const i = idx[norm(n)]; if (i !== undefined && r[i] !== undefined && String(r[i]).trim() !== '') return String(r[i]).trim(); } return ''; };
+  // Apostrophe de tête ajoutée par un export (le nôtre, ou un tableur) pour neutraliser une formule : retirée à la lecture.
+  const sansApostrophe = t => t.replace(/^'(?=\s*[=@\uFF1D\uFF20+\-\uFF0B\uFF0D\t\r])/, '');
+  const col = (r, ...noms) => { for (const n of noms) { const i = idx[norm(n)]; if (i !== undefined && r[i] !== undefined && String(r[i]).trim() !== '') return sansApostrophe(String(r[i]).trim()); } return ''; };
   const colDebut = (r, debut) => { const k = Object.keys(idx).find(x => x.startsWith(debut)); return k ? String(r[idx[k]] || '').trim() : ''; };
   const erreurs = [], produits = [];
   // Code-barres : gardé seulement s'il est valide (chiffre de contrôle) et pas déjà pris par un autre produit importé.
@@ -122,7 +124,7 @@ function convertir(texte) {
       if (base.prix === null) { erreurs.push({ ligne: t.ligne, message: `« ${nom.slice(0, 40)} » sans prix ignoré.` }); continue; }
       const p = { refImport: `shopify:${handle}`.slice(0, 80), nom, description: texteDepuisHtml(col(t.r, 'Body (HTML)')), categorie: col(t.r, 'Product Category', 'Type').split('>').pop().trim(), prix: base.prix, stock: variantes.reduce((a, v) => a + v.stock, 0), actif: col(t.r, 'Status') ? /^active$/i.test(col(t.r, 'Status')) : (col(t.r, 'Published') ? oui(col(t.r, 'Published')) : true), images: [...new Set(ls.flatMap(x => imagesDe(col(x.r, 'Image Src'))))].slice(0, 1) };
       if (base.barre && base.barre > base.prix) p.prixReference = base.barre;
-      if (optNoms.length && variantes.length > 1) {
+      if (optNoms.length && variantes.length >= 1 && variantes.some(v => v.valeurs.some(Boolean))) {
         p.options = optNoms.map((n, k) => ({ nom: n, valeurs: [...new Set(variantes.map(v => v.valeurs[k]).filter(Boolean))] }));
         p.variantes = variantes.map(v => ({ id: v.valeurs.join('/'), valeurs: v.valeurs, stock: v.stock, ...(v.prix !== base.prix ? { prix: v.prix } : {}), ...(eanVariante(p, v) ? { ean: eanVariante(p, v) } : {}), stockSaisi: true }));
       }

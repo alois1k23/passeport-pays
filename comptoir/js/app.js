@@ -1277,8 +1277,13 @@ document.addEventListener('click', e => {
     case 'exporter-catalogue': {
       // Photos : adresse publique (relue par un autre import) ; produits numériques sans leur fichier.
       const slugB = typeof SERVEUR !== 'undefined' && SERVEUR.slug;
-      const csv = ExportCatalogue.versShopify(etat.produits, { marqueParDefaut: etat.boutique.nom, urlImage: p => p.image && slugB ? `${location.origin}/api/public/${encodeURIComponent(slugB)}/image/${encodeURIComponent(p.id)}` : '' });
-      try { const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const a = Object.assign(document.createElement('a'), { href: url, download: `catalogue-${new Date().toISOString().slice(0, 10)}.csv` }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000); toast(`${etat.produits.length} produit${etat.produits.length > 1 ? 's' : ''} exporté${etat.produits.length > 1 ? 's' : ''} (format Shopify, relu par l’import de Comptoir).`); }
+      // Photo : adresse publique, servie seulement pour un produit en vente et tant que la boutique est ouverte.
+      // Prix barré : seulement s'il est licite (même contrôle que la boutique).
+      const nommes = etat.produits.filter(p => p && p.nom).length;
+      const csv = ExportCatalogue.versShopify(etat.produits, { marqueParDefaut: etat.boutique.nom,
+        prixBarre: p => (typeof PrixBarres === 'undefined' || !p.prixReference ? null : PrixBarres.verifier(p, estSuisse() ? 'ch' : 'ue').ok ? p.prixReference : null),
+        urlImage: p => p.image && slugB && p.actif !== false && !p.aVerifier ? `${location.origin}/api/public/${encodeURIComponent(slugB)}/image/${encodeURIComponent(p.id)}` : '' });
+      try { const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const a = Object.assign(document.createElement('a'), { href: url, download: `catalogue-${new Date().toISOString().slice(0, 10)}.csv` }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000); toast(`${nommes} produit${nommes > 1 ? 's' : ''} exporté${nommes > 1 ? 's' : ''} (format Shopify). Photos lisibles tant que la boutique est ouverte ; lots, précommandes et produits numériques repérés par une étiquette.`); }
       catch { toast('Export impossible dans cet aperçu.'); }
       break;
     }
