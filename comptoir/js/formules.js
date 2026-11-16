@@ -37,6 +37,7 @@
       // Toutes les clés, même absentes : une clé manquante reprendrait sinon sa valeur par défaut (active).
       for (const k of ['bienvenue', 'paiement', 'avis', 'reconquete']) a[k] = Object.assign({}, a[k] || {}, { actif: false });
       c.automatisations = a;
+      c.parrainage = Object.assign({}, c.parrainage || {}, { actif: false });   // le parrainage fait partie de la conversion
     }
     if (!permet(formule, 'magasin') && c.magasin) c.magasin = Object.assign({}, c.magasin, { clickCollect: false });
     return c;

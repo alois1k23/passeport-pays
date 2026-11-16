@@ -1250,7 +1250,7 @@ Un programme de parrainage intégré, sans extension.
 - **Contrôles du serveur** :
   - le code ne vaut que pour une première commande dans cette boutique, avec la même règle que le code de bienvenue (commandes en attente encore payables comprises) ;
   - il ne s'applique jamais à la propre adresse du parrain.
-- **Récompense** : un code « MERCI… » envoyé par e-mail au parrain 14 jours après le paiement du filleul, si la commande n'a été ni annulée ni remboursée. Payer, toucher la récompense puis se faire rembourser ne rapporte donc rien.
+- **Récompense** : un code « MERCI… » envoyé par e-mail au parrain 14 jours après le paiement du filleul, si la commande n'a été ni annulée ni remboursée (règle durcie au cycle 64 : 14 jours après la livraison).
   - Le code est à usage unique, réservé à l'adresse du parrain et valable un an.
   - Une commande de filleul ne donne qu'une récompense, même si la tâche horaire repasse.
 - **Discrétion** :
@@ -1274,3 +1274,46 @@ Un programme de parrainage intégré, sans extension.
   - B ouvre le lien, ajoute le vase : « Rabatt · Code AMI… (−10 %) −CHF 10.00 » ;
   - aucune erreur.
 - **Limites** : l'e-mail de récompense part en français seulement. Le délai de 14 jours est fixe.
+
+### Cycle 64 (04 h 05) : relecture du parrainage (chantier 115)
+
+Relecture indépendante, qui a reproduit les abus. Constats corrigés :
+
+- **Grave : la reprise du paiement contournait tous les contrôles.** Un filleul pouvait abandonner une commande avec le code, en passer une seconde, la payer, puis reprendre la première : deux remises, et deux récompenses pour le parrain. Un code « MERCI » servait de même deux fois. Désormais :
+  - à la reprise et au paiement, les limites du code de la commande sont reprises (récompense à usage unique, comptée depuis toujours) ;
+  - la règle « première commande » est revérifiée.
+  
+  Les deux scénarios sont reproduits dans le test.
+- **Grave : l'auto-parrainage par alias rapportait des récompenses sans limite.** `ana+1@…` ou `a.na@gmail.com` profitaient du propre code d'Ana, et une babiole à 1 CHF suffisait. Désormais :
+  - **adresse canonique** : pour ces contrôles, l'adresse est ramenée à sa forme canonique (sans « +étiquette » ; chez Gmail, sans les points ; googlemail ramené à gmail). Le parrain ne peut pas se parrainer par un alias, et un filleul ne revient pas avec un alias ;
+  - **montant minimum** de la commande du filleul, réglable (20 par défaut) ;
+  - **plafond** : 10 récompenses au plus par parrain et par an ;
+  - **une seule récompense par filleul.**
+- **Moyens :**
+  - **délai de rétractation** : la récompense part 14 jours après la LIVRAISON ou le retrait, et non plus après le paiement. Elle est annulée si la commande a un retour, même partiel, ou un litige (cas du retour partiel testé) ;
+  - **dropshipping** : les commandes au statut « fournisseur » ne perdent plus la récompense, et donnent droit au lien ;
+  - **paiement manuel** : une commande marquée payée à la main, ou une facture QR payée tard, est récompensée aussi (le suivi part du statut, plus de l'heure du paiement en ligne). Les lignes jamais payées sont purgées après 60 jours ;
+  - **suppression d'une boutique** : ses données de parrainage sont effacées ;
+  - **formule d'abonnement** : sans la fonction Conversion, le parrainage est désactivé, comme les codes promo ;
+  - **boutique fermée** (abonnement terminé) : la récompense attend sa réouverture, au lieu de partir vers un lien mort.
+- **Faibles :**
+  - passage à « crédité » et création du code faits ensemble (tout ou rien) ;
+  - code refusé pour cette adresse retiré du panier et de la mémoire de l'onglet ;
+  - un seul message d'erreur dans le bloc, et réponse non JSON gérée ;
+  - pas de lien pour un achat de carte cadeau ;
+  - le bloc dit quand le code arrive ;
+  - la carte marchand précise la validité, le plafond, et que désactiver n'annule pas les récompenses en cours ;
+  - récompenses expirées depuis un an supprimées ;
+  - effacement d'un client : code, récompenses et index canonique.
+- **Tests :**
+  - alias refusés, minimum ;
+  - pas de récompense tant que la commande n'est pas livrée, puis 14 jours après la livraison ;
+  - retour partiel ;
+  - reprises (filleul et récompense) ;
+  - effacement.
+- **Vérifié de nouveau** dans Chromium, bureau en français et mobile en allemand.
+- **Laissé ouvert :**
+  - **clé de chiffrement :** une rotation de la clé ne réindexe pas encore les tables du parrainage. Les rappels de réassort ont la même limite. À traiter avec la rotation, en une fois ;
+  - **e-mail de récompense :** en français seulement ;
+  - **même réseau :** la commande du filleul n'est pas comparée au réseau du parrain ;
+  - **caisse :** les codes ne s'y utilisent pas.

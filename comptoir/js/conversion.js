@@ -218,12 +218,13 @@ function statsRegle(r) {
 /* Parrainage : un client partage son lien ; son filleul a une remise sur sa première commande, et lui un code de
    remerciement 14 jours après le paiement du filleul (si la commande n'a été ni annulée ni remboursée). */
 function blocParrainage() {
-  const p = { actif: false, filleul: 10, parrain: 10, ...(etat.parrainage || {}) };
+  const p = { actif: false, filleul: 10, parrain: 10, minimum: 20, ...(etat.parrainage || {}) };
   return `<section class="carte">
       <div class="carte-tete"><h2>Parrainage</h2><label class="interrupteur petit"><input type="checkbox" data-parrainage="actif" ${p.actif ? 'checked' : ''}><span>${p.actif ? 'Actif' : 'Inactif'}</span></label></div>
-      <p class="sous">Après une commande payée, le client obtient son lien personnel sur la page de suivi. La personne qui l’ouvre a une remise sur sa première commande ; le client reçoit par e-mail un code de remerciement 14 jours après le paiement de cette commande, si elle n’a été ni annulée ni remboursée.</p>
+      <p class="sous">Après une commande payée, le client obtient son lien personnel sur la page de suivi. La personne qui l’ouvre a une remise sur sa première commande ; le client reçoit par e-mail un code de remerciement (valable un an, une fois) 14 jours après la réception de cette commande, si elle n’a été ni annulée, ni remboursée, ni retournée, ni contestée. Une seule récompense par filleul, 10 au plus par parrain et par an. Désactiver le programme n’annule pas les récompenses en cours.</p>
       <div class="deux"><label class="champ"><span>Remise du filleul (%)</span><input type="number" min="5" max="30" step="1" value="${p.filleul}" data-parrainage="filleul"></label>
       <label class="champ"><span>Code de remerciement du parrain (%)</span><input type="number" min="5" max="30" step="1" value="${p.parrain}" data-parrainage="parrain"></label></div>
+      <label class="champ"><span>Commande minimum du filleul (${devise()}, articles après remise)</span><input type="number" min="0" max="500" step="5" value="${p.minimum}" data-parrainage="minimum"></label>
       ${p.actif && typeof SERVEUR !== 'undefined' && SERVEUR.parrainage ? `<p class="sous">${SERVEUR.parrainage.parrains} parrain${SERVEUR.parrainage.parrains > 1 ? 's' : ''} · ${SERVEUR.parrainage.recompenses} remerciement${SERVEUR.parrainage.recompenses > 1 ? 's' : ''} envoyé${SERVEUR.parrainage.recompenses > 1 ? 's' : ''} · ${SERVEUR.parrainage.enAttente} en attente du délai de 14 jours</p>` : ''}
     </section>`;
 }
@@ -283,8 +284,10 @@ document.addEventListener('change', e => {
     etatConversion(); etat.offres[t.dataset.offre] = t.checked; sauver(); rendre();
   } else if (t.dataset.parrainage) {
     // Remises bornées comme sur le serveur (5 à 30 %) ; affichées telles qu'elles seront gardées.
-    const p = etat.parrainage = { actif: false, filleul: 10, parrain: 10, ...(etat.parrainage || {}) }, k = t.dataset.parrainage;
-    if (k === 'actif') p.actif = t.checked; else p[k] = Math.max(5, Math.min(30, Math.round(Number(t.value) || 10)));
+    const p = etat.parrainage = { actif: false, filleul: 10, parrain: 10, minimum: 20, ...(etat.parrainage || {}) }, k = t.dataset.parrainage;
+    if (k === 'actif') p.actif = t.checked;
+    else if (k === 'minimum') p.minimum = Math.max(0, Math.min(500, Math.round(Number(t.value) || 0)));
+    else p[k] = Math.max(5, Math.min(30, Math.round(Number(t.value) || 10)));
     sauver(); rendre();
   } else if (t.dataset.palier) {
     const { o } = etatConversion();

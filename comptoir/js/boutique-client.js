@@ -68,14 +68,18 @@ async function obtenirParrainage(bouton) {
   bouton.disabled = true;
   try {
     const r = await fetch(`/api/public/${encodeURIComponent(slug)}/parrainage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandeId: bouton.dataset.id, jeton: bouton.dataset.jeton }) });
-    const j = await r.json(); if (!r.ok) throw new Error(j.erreur || 'Lien indisponible pour l’instant.');
+    const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.erreur || 'Lien indisponible pour l’instant.');
     const lien = new URL(j.lien); if (typeof Traductions !== 'undefined' && Traductions.langue !== 'fr') lien.searchParams.set('lang', Traductions.langue);
     const html = `<label class="champ"><span>Votre lien de parrainage (code ${esc(j.code)})</span><input readonly value="${esc(lien.toString())}" data-lien-parrainage></label><button type="button" class="sf-btn" data-c="partager-parrainage">${navigator.share ? 'Partager' : 'Copier le lien'}</button>`;
     // Gardé dans le message de suivi : un nouvel affichage (panier ouvert, langue) ne le fait pas disparaître.
     if (vue.message) vue.message = vue.message.replace(/<button type="button" class="sf-btn sf-btn-ligne" data-c="parrainage"[^>]*>[^<]*<\/button>/, html);
     bouton.insertAdjacentHTML('afterend', html); bouton.remove();
     const i = bloc.querySelector('[data-lien-parrainage]'); i.focus(); i.select();
-  } catch (e) { bouton.disabled = false; bloc.insertAdjacentHTML('beforeend', `<p class="erreur-form" role="alert">${esc(trad(e.message))}</p>`); }
+  } catch (e) {
+    bouton.disabled = false;
+    let p = bloc.querySelector('.erreur-form'); if (!p) { p = document.createElement('p'); p.className = 'erreur-form'; p.setAttribute('role', 'alert'); bloc.append(p); }   // un seul message, remplacé
+    p.textContent = trad(e.message);
+  }
 }
 async function partagerParrainage() {
   const i = document.querySelector('[data-lien-parrainage]'); if (!i) return;
@@ -416,12 +420,14 @@ async function envoyerCommande(form) {
     // Code de fidélité expiré ou déjà utilisé : retour à la demande d'un nouveau code (sinon le client resterait bloqué).
     if (!rep.ok && json.code === 'fidelite_code') { vue.fid = null; vue.fidMessage = json.erreur; }
     if (!rep.ok && (json.code === 'creneau_pris' || json.code === 'creneau_limite')) { vue.creneaux = null; vue.creneau = null; vue.creneauMessage = json.erreur; }   // liste à relire : le créneau vient d'être pris
-    if (!rep.ok) throw new Error(json.erreur || 'La commande n’a pas pu être créée.');
+    if (!rep.ok) throw Object.assign(new Error(json.erreur || 'La commande n’a pas pu être créée.'), { code: json.code });
     try { if (json.commandeId) sessionStorage.setItem('comptoir-paiement-' + json.commandeId, '1'); } catch { /* ignoré */ }
     if (json.factureUrl) { vue.panier = []; try { localStorage.removeItem('comptoir-panier-' + slug); } catch { /* ignoré */ } location.href = json.factureUrl; return; }   // facture QR : la facture s'ouvre, à payer avec l'application bancaire
     location.href = json.paiementUrl;
   } catch (e) {
     vue.envoi = false; rendre();
+    // Code refusé pour cette adresse (parrainage sur soi, déjà parrainé, récompense d'un autre, épuisé) : retiré, pour ne pas revenir à chaque visite.
+    if (['parrainage_soi', 'code_premiere_commande', 'recompense_autre', 'code_epuise'].includes(e.code)) { vue.code = null; try { sessionStorage.removeItem(CLE_CODE); } catch { /* ignoré */ } }
     const p = $('#erreur'); p.textContent = trad(e.message); p.hidden = false;   // traduit tout de suite (zone « alert » lue à l'insertion)
     // Garde la saisie
     const f = $('#commande');
@@ -467,7 +473,7 @@ async function suivreCommande(id, jeton, annule) {
         <ul class="lignes-panier">${c.lignes.map(l => `<li><span data-sans-traduction>${esc(l.nom)}</span><b>${l.qte}</b><span class="num">${euros(l.prix * l.qte)}</span></li>`).join('')}</ul>
         <div class="totaux">${c.port ? `<div><span>Livraison</span><span>${euros(c.port)}</span></div>` : ''}<div class="total"><span>${c.statut === 'attente' ? 'Total' : 'Total payé'}</span><span>${euros(c.total)}</span></div></div>
         ${c.statut !== 'attente' && c.livraison !== 'carte' ? (() => { const ls = c.lignes.filter(l => l.produitId && donnees.produits.some(p => p.id === l.produitId)); return ls.length ? `<p><a class="sf-btn sf-btn-ligne" href="${esc(racineBoutique)}?panier=${encodeURIComponent([...ls.reduce((m, l) => { const k = `${l.produitId}:${l.varianteId || ''}`; m.set(k, { ...l, qte: (m.get(k) ? m.get(k).qte : 0) + l.qte }); return m; }, new Map()).values()].slice(0, 20).map(l => `${l.produitId}:${Math.min(20, l.qte)}${l.varianteId ? `:${encodeURIComponent(l.varianteId)}` : ''}`).join(','))}">Commander à nouveau</a></p>` : ''; })() : ''}
-        ${donnees.parrainage && ['payee', 'preparation', 'expediee', 'livree', 'prete', 'retiree'].includes(c.statut) && c.livraison !== 'carte' ? `<div class="sf-parrainage" id="bloc-parrainage"><h4>Offrez −${donnees.parrainage.filleul} % à vos proches</h4><p>Partagez votre lien : ils ont −${donnees.parrainage.filleul} % sur leur première commande, et vous recevez un code de −${donnees.parrainage.parrain} % quand ils ont commandé.</p><button type="button" class="sf-btn sf-btn-ligne" data-c="parrainage" data-id="${esc(id)}" data-jeton="${esc(jeton)}">Obtenir mon lien</button></div>` : ''}
+        ${donnees.parrainage && ['payee', 'preparation', 'fournisseur', 'expediee', 'livree', 'prete', 'retiree'].includes(c.statut) && c.livraison !== 'carte' ? `<div class="sf-parrainage" id="bloc-parrainage"><h4>Offrez −${donnees.parrainage.filleul} % à vos proches</h4><p>Partagez votre lien : ils ont −${donnees.parrainage.filleul} % sur leur première commande, et vous recevez un code de −${donnees.parrainage.parrain} % quand ils ont commandé.</p><p class="mini">Votre code est envoyé par e-mail 14 jours après la réception de leur commande, si elle est gardée.</p><button type="button" class="sf-btn sf-btn-ligne" data-c="parrainage" data-id="${esc(id)}" data-jeton="${esc(jeton)}">Obtenir mon lien</button></div>` : ''}
         ${c.suivi ? `<p>Numéro de suivi : <b class="mono">${esc(c.suivi)}</b></p>` : ''}<p class="mini">${c.statut === 'attente' ? 'Vous recevrez un e-mail de confirmation dès que le paiement sera reçu, avec le lien pour suivre votre commande.' : 'Un e-mail de confirmation vous est envoyé, avec le lien pour suivre votre commande.'}</p>
         ${documentsCommande(c, id, jeton)}
         ${c.retour && c.retour.statut === 'demande' ? `<p class="encart">Retour demandé le ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : renvoyez les articles à l’adresse reçue par e-mail.</p>` : c.retourPossible ? `${c.retour ? `<p class="encart">Retour du ${new Date(c.retour.date).toLocaleDateString('fr-CH')} : remboursé.</p>` : ''}<details class="retour-client"><summary>Demander un retour</summary><form data-retour="${esc(id)}" data-jeton="${esc(jeton)}">
