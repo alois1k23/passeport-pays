@@ -915,3 +915,21 @@ Aucune faille. Le double encodage des variantes fait correctement l'aller-retour
 - **Vérifié dans Chromium**, bureau et mobile : saisie dans la fiche, affichage sur la carte et sur la fiche. Aucune erreur.
 - **Limite honnête** : Comptoir n'impose pas la contenance. Savoir quels produits doivent l'afficher reste de la responsabilité du marchand ; l'aide de la fiche le rappelle.
 - 258 tests sur 258, parcours de bout en bout 57/57.
+
+### Cycle 48 (01 h 05) : denrées alimentaires, ingrédients, allergènes et origine (chantier 107)
+
+- **Pourquoi** : pour la vente en ligne de denrées alimentaires, les informations obligatoires (dont les ingrédients et les allergènes) doivent être disponibles avant l'achat.
+- **Fiche produit** : un bloc « Denrée alimentaire » regroupe :
+  - l'origine (pays de production) ;
+  - les ingrédients ;
+  - les 14 allergènes à déclarer (case à cocher, liste fermée partagée par le serveur et la boutique).
+  
+  Le serveur nettoie les textes et ignore toute valeur hors de la liste, `__proto__` compris (testé).
+- **Boutique** : la fiche affiche « Origine : … », « Allergènes : contient … » et un dépliant « Ingrédients ». Les intitulés sont traduits.
+- **Tests** : nettoyage de l'origine et des ingrédients, liste fermée sans doublon, données publiées pour la boutique.
+- **Vérifié dans Chromium**, bureau et mobile : saisie, puis affichage sur la fiche. Aucune erreur.
+- **Limites honnêtes** :
+  - les noms des allergènes et le texte des ingrédients restent en français dans la boutique traduite ;
+  - les autres mentions obligatoires (dénomination légale, poids net, conservation, producteur) restent à écrire par le marchand dans la description ;
+  - Comptoir ne contrôle pas l'exhaustivité.
+- 259 tests sur 259, parcours de bout en bout 57/57.

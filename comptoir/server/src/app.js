@@ -852,6 +852,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       if (!Unites.UNITES[p.unite] || !Number.isFinite(c) || c <= 0 || c > 100000) throw erreur(400, 'Contenance : un nombre positif et une unité (g, kg, ml, cl, l, m, pièces).', 'contenance_invalide');
       propre.contenance = Math.round(c * 1000) / 1000; propre.unite = p.unite;
     }
+    // Denrées alimentaires : ingrédients, allergènes (liste fermée des 14), origine ; affichés avant l'achat dans la boutique.
+    if (typeof p.ingredients === 'string' && p.ingredients.trim()) propre.ingredients = p.ingredients.replace(/\r/g, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').trim().slice(0, 2000);
+    if (Array.isArray(p.allergenes)) { const a = [...new Set(p.allergenes.filter(x => typeof x === 'string' && Object.hasOwn(Unites.ALLERGENES, x)))]; if (a.length) propre.allergenes = a; }
+    if (typeof p.origine === 'string' && p.origine.trim()) propre.origine = p.origine.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
     // Marque (fabricant) : reprise par Google Shopping et les données structurées ; sinon, le nom de la boutique.
     if (typeof p.marque === 'string' && p.marque.trim()) propre.marque = p.marque.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70);
     // Code-barres (EAN-8, UPC-A, EAN-13, GTIN-14), chiffre de contrôle vérifié : lu au scanner en caisse, repris dans les

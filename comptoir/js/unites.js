@@ -29,7 +29,10 @@ const libelle = (contenance, unite) => !UNITES[unite] ? '' : `${String(Number(co
 // Unités de Google Shopping (unit_pricing_measure) : g, kg, ml, cl, l, m, ct.
 const google = unite => ({ g: 'g', kg: 'kg', ml: 'ml', cl: 'cl', l: 'l', m: 'm', piece: 'ct', 'pièce': 'ct' })[unite] || null;
 
-const api = { UNITES, prixUnitaire, libelle, google };
+/* Les 14 allergènes à déclarer (droit suisse et européen), dans l'ordre habituel. Partagé aussi par le serveur et la boutique. */
+const ALLERGENES = { gluten: 'céréales contenant du gluten', crustaces: 'crustacés', oeufs: 'œufs', poissons: 'poissons', arachides: 'arachides', soja: 'soja', lait: 'lait (y compris lactose)', fruitsCoque: 'fruits à coque', celeri: 'céleri', moutarde: 'moutarde', sesame: 'graines de sésame', sulfites: 'anhydride sulfureux et sulfites', lupin: 'lupin', mollusques: 'mollusques' };
+
+const api = { UNITES, ALLERGENES, prixUnitaire, libelle, google };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 else racine.Unites = api;
 })(typeof window !== 'undefined' ? window : globalThis);

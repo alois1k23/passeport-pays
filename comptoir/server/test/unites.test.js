@@ -34,3 +34,21 @@ test('contenance : validée, transmise au flux', async () => {
     assert.match(xml, /<g:unit_pricing_measure>250g<\/g:unit_pricing_measure><g:unit_pricing_base_measure>100g<\/g:unit_pricing_base_measure>/);
   } finally { s.close(); }
 });
+
+test('denrées alimentaires : ingrédients, allergènes (liste fermée), origine', async () => {
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const c = async (m, chemin, corps) => { const r = await fetch(base + chemin, { method: m, headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'al@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Biscuits', pays: 'ch' } } });
+    const id = (await c('POST', '/api/admin/produits', { produit: { nom: 'Biscuits', prix: 6, stock: 5, origine: '  Suisse\u0007 ', ingredients: 'Farine de blé, beurre,\nnoisettes\u202e', allergenes: ['gluten', 'lait', 'fruitsCoque', 'lait', '__proto__', 'poison'] } })).j.id;
+    const p = (await c('GET', '/api/admin/etat')).j.produits.find(x => x.id === id);
+    assert.equal(p.origine, 'Suisse');
+    assert.equal(p.ingredients, 'Farine de blé, beurre,\nnoisettes');
+    assert.deepEqual(p.allergenes, ['gluten', 'lait', 'fruitsCoque'], 'liste fermée, sans doublon');
+    const pub = (await c('GET', `/api/public/${(await c('GET', '/api/admin/etat')).j.serveur.slug}`)).j.produits.find(x => x.id === id);
+    assert.deepEqual(pub.allergenes, ['gluten', 'lait', 'fruitsCoque'], 'publié pour la boutique');
+  } finally { s.close(); }
+});

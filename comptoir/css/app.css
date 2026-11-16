@@ -1518,3 +1518,8 @@ details.en-ligne form { margin-top: 6px; }
 .liste-nouveautes a { display: inline-block; padding: 3px 0; }   /* cible de 24 px au moins sur téléphone */
 .confirm a.sf-btn { display: block; text-align: center; text-decoration: none; }   /* « Commander à nouveau » : lien présenté comme un bouton */
 .sf-unitaire { display: block; font-size: .78rem; color: color-mix(in srgb, var(--sf-text) 65%, transparent); margin: 2px 0 0; }
+.sf-alim { display: grid; gap: 4px; font-size: .9rem; border-top: 1px solid color-mix(in srgb, var(--sf-text) 12%, transparent); padding-top: 10px; }
+.sf-alim p { margin: 0; }
+.sf-ingredients { white-space: pre-line; margin: 6px 0 0; }
+.pf-allergenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; border: 0; padding: 0; margin: 6px 0; }
+.sf-alim summary { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; display: list-item; }
