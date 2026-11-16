@@ -67,7 +67,7 @@ function preparer(saisie, produits, config) {
   const client = {
     raison: texte(c.raison, 150, 'Raison sociale', { requis: true }), contact: texte(c.contact, 100, 'Contact'), email,
     adresse: texte(c.adresse, 200, 'Adresse'), npa: texte(c.npa, 10, 'Code postal'), ville: texte(c.ville, 100, 'Ville'),
-    pays: /^(fr|ch|be|de|it|lu|at|es|nl)$/.test(String(c.pays || '')) ? c.pays : config.boutique.pays, tva: texte(c.tva, 30, 'N° de TVA du client')
+    pays: /^(fr|ch|be|ca|de|it|lu|at|es|nl)$/.test(String(c.pays || '')) ? c.pays : config.boutique.pays, tva: texte(c.tva, 30, 'N° de TVA du client')
   };
   // Client d'un autre pays : TVA intracommunautaire (exonération, autoliquidation) ou export pas encore gérés ici.
   if (client.pays !== config.boutique.pays) throw erreur(400, 'Devis pour un client d’un autre pays : le régime de TVA (exonération intracommunautaire, autoliquidation, export) n’est pas encore géré par Comptoir. Établissez ce devis avec votre fiduciaire.', 'pays_client');

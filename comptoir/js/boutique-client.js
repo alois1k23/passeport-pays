@@ -24,7 +24,9 @@ function mesurer(type, extra = {}) {
 const CLE_PANIER = `comptoir-panier-${slug}`;
 // Favoris : sur cet appareil seulement (rien n'est envoyé à la boutique), 100 au plus.
 const CLE_FAVORIS = `comptoir-favoris-${slug}`;
-const CLE_CODE = `comptoir-code-${slug}`;   // code reçu par lien, gardé pendant la visite (sessionStorage)
+const CLE_CODE = `comptoir-code-${slug}`;
+// Délais de livraison (jours ouvrables) des modes qui ne suivent pas le délai courant de 2 à 3 jours (Postes Canada : délais annoncés des modes).
+const DELAIS_MODES = { 'poste-prio': [1, 1], 'postes-xpress': [1, 3], 'postes-regulier': [2, 9] };   // code reçu par lien, gardé pendant la visite (sessionStorage)
 const FAVORIS = (() => { try { const v = JSON.parse(localStorage.getItem(CLE_FAVORIS) || '[]'); return new Set(Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 100) : []); } catch { return new Set(); } })();
 // Vus récemment : sur cet appareil seulement (rien n'est envoyé), 12 au plus.
 const CLE_RECENTS = `comptoir-recents-${slug}`;
@@ -333,7 +335,7 @@ function rendreBrut() {
           ${datePre ? `<p class="sf-note"><b>Précommande</b> : expédition prévue le ${esc(dateIsoCourte(datePre))}, toute la commande en une fois.</p>` : ''}
           ${numerique ? '<p class="sf-note">Livraison : <b>envoi par e-mail</b>. Vos fichiers arrivent dès le paiement, sans frais de port.</p>' : ''}<fieldset class="modes-livraison"${numerique ? ' hidden' : ''}><legend>Livraison</legend>${Object.entries(donnees.livraisons).map(([k, m]) => `
             <label class="${vue.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${esc(k)}" data-c="livraison" ${vue.livraison === k ? 'checked' : ''}>
-            <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : datePre ? `Expédition prévue le ${esc(dateIsoCourte(datePre))}` : esc(fenetreLivraison(k === 'poste-prio' && !delai ? [1, 1] : delai || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
+            <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : datePre ? `Expédition prévue le ${esc(dateIsoCourte(datePre))}` : esc(fenetreLivraison(delai || DELAIS_MODES[k] || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
           <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div>${remiseFid ? `<div class="remise"><span>Points de fidélité</span><span>−${euros(remiseFid)}</span></div>` : ''}<div class="total"><span>Total</span><span>${euros(total - remiseFid + port)}</span></div>${partCarte ? `<div class="remise"><span>Carte cadeau ····${esc(vue.carte.fin)}</span><span>−${euros(partCarte)}</span></div><div class="total"><span>À payer</span><span>${euros(aPayer)}</span></div>` : ''}</div>
           ${manque > 0 ? `<p class="sf-note sf-minimum" id="note-minimum"><span>Commande minimum : ${euros(donnees.minimum.montant)} d’articles.</span> <span>Il manque</span> <b>${euros(manque)}</b><span>${retraitPropose ? ', ou choisissez le retrait en magasin.' : '.'}</span></p>` : ''}
           <form id="commande">
@@ -462,7 +464,7 @@ async function suivreCommande(id, jeton, annule) {
       // Date de livraison estimée : délai le plus long des articles, ou celui du mode choisi ; retrait : adresse du magasin.
       const prods = c.lignes.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(Boolean);
       const drops = prods.filter(p => p.type === 'drop' && p.delai);
-      const delai = drops.length ? [Math.max(...drops.map(p => p.delai[0])), Math.max(...drops.map(p => p.delai[1]))] : c.livraison === 'poste-prio' ? [1, 1] : [2, 3];
+      const delai = drops.length ? [Math.max(...drops.map(p => p.delai[0])), Math.max(...drops.map(p => p.delai[1]))] : DELAIS_MODES[c.livraison] || [2, 3];
       const mode = donnees.livraisons[c.livraison];
       const retrait = c.livraison === 'retrait';
       const pointRetrait = !retrait && mode && /pickpost|relais|point/i.test(c.livraison + ' ' + mode.nom);

@@ -71,5 +71,13 @@ test('Canada (relecture) : devis, adresse de facture, carte cadeau sans limite, 
     assert.equal(pdf.status, 200, 'facture PDF produite avec une adresse canadienne : ' + (pdf.status !== 200 ? await pdf.clone().text() : ''));
     const texte = Buffer.from(await pdf.arrayBuffer()).toString('latin1');
     assert.doesNotMatch(texte, /293 B|SIRET|L441-10/, 'pas de mention française');
+    const lienVerif = db.prepare("SELECT corps FROM emails WHERE destinataire = 'qc2@exemple.ca' AND sujet LIKE 'Confirmez%'").get().corps.match(/verifier-email=([\w-]+)/)[1];
+    assert.equal((await c('POST', '/api/auth/verifier-email', { jeton: lienVerif })).s, 200);
+    // Devis canadien (client au Canada) : accepté, mention du petit fournisseur, jamais le CGI français.
+    const cree = await c('POST', '/api/admin/devis', { client: { raison: 'Café du Port inc.', email: 'achats@cafe.ca', adresse: '8 rue Ontario', npa: 'H2X 1Y6', ville: 'Montréal', pays: 'ca' }, lignes: [{ nom: 'Sirop en gros', qte: 10, prixHt: 15 }] });
+    assert.ok(cree.j.devis && cree.j.devis.client.pays === 'ca', JSON.stringify(cree.j));
+    const env = await c('POST', `/api/admin/devis/${cree.j.devis.id}/envoyer`); assert.ok(env.j && env.j.lien, JSON.stringify(env.j));
+    const html = await (await fetch(env.j.lien)).text();
+    assert.match(html, /Petit fournisseur/); assert.doesNotMatch(html, /293 B du CGI/);
   } finally { s.close(); }
 });

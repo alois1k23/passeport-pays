@@ -1518,3 +1518,14 @@ Relecture indépendante : le noyau fiscal du serveur était juste, mais plusieur
   - le formulaire de devis n'a pas le Canada ;
   - l'abonnement est facturé en euros ;
   - pas de lien de suivi Postes Canada.
+
+### Cycle 75 (07 h 45) : délais de Postes Canada et devis canadiens (chantier 120)
+
+- **Délais de livraison** : la date estimée affichée au panier et sur la page de suivi suit maintenant le délai annoncé de chaque mode : colis régulier de 2 à 9 jours ouvrables, Xpresspost de 1 à 3. Avant, c'était le délai courant de 2 à 3 jours, en contradiction avec les conditions de vente. Table `DELAIS_MODES`, partagée par le panier et le suivi (« Priority » de La Poste : 1 jour, comme avant).
+- **Devis** :
+  - le Canada figure dans la liste des pays du client ; le serveur l'accepte, et un client d'un autre pays reste refusé comme avant ;
+  - le champ s'appelle « Numéro de taxes TPS/TVQ » pour une boutique canadienne, au lieu de « N° de TVA intracommunautaire » ;
+  - la page publique du devis porte la mention du petit fournisseur (cycle 74).
+- **Test** : devis d'un client canadien créé, envoyé (adresse vérifiée) et consulté, avec « Petit fournisseur » et sans « 293 B du CGI ».
+- **Vérifié dans Chromium** : panier canadien en français (« Livré entre le mer. 18 nov. et le ven. 27 nov. ») et en anglais (« Estimated delivery: Wed 18 Nov – Fri 27 Nov ») ; aucune erreur.
+- **Limite** : le calcul des jours ouvrables suit toujours les jours fériés suisses.
