@@ -77,15 +77,32 @@ test('e-mails de la carte cadeau dans la langue de l’acheteur ; code masqué d
   assert.equal(EmailsClients.carteCadeauCode('fr', o), null); assert.equal(EmailsClients.carteCadeauCode(undefined, o), null);
 });
 
-test('erreurs fixes de toutes les routes publiques de la boutique : traduites en allemand, italien et anglais', () => {
+test('erreurs de toutes les routes publiques de la boutique : traduites en allemand, italien et anglais', () => {
   const T = require('../../js/traductions.js');
-  const src = fs.readFileSync(path.join(__dirname, '../src/app.js'), 'utf8');
-  // Chaque route publique (/api/public/…, /s/…) jusqu'à la route suivante.
-  const routes = [...src.matchAll(/\n  r\.(?:get|post|put|delete)\('(\/api\/public\/[^']*|\/s\/[^']*)'/g)].map(m => [m[1], src.slice(m.index, src.indexOf('\n  r.', m.index + 10))]);
-  assert.ok(routes.length >= 20, `routes relevées : ${routes.length}`);
-  // Messages littéraux seulement (entre apostrophes droites) ; ceux avec des valeurs sont couverts par des modèles testés plus haut.
-  const messages = routes.flatMap(([r, code]) => [...code.matchAll(/erreur\(4\d\d, '((?:[^'\\]|\\.)+)'/g)].map(m => `${r} | ${m[1]}`));
-  assert.ok(messages.length >= 40, `messages relevés : ${messages.length}`);
-  const manquants = messages.filter(x => ['de', 'it', 'en'].some(l => !T.couvert(x.split(' | ')[1], l)));
+  const lire = f => fs.readFileSync(path.join(__dirname, '../src', f), 'utf8');
+  const src = lire('app.js');
+  // Chaque route publique jusqu'à la route suivante (déclaration tolérante : espaces, guillemets, patch).
+  const reRoute = /\br\.(?:get|post|put|patch|delete)\(\s*(['"`])(\/api\/public\/[^'"`]*)\1/g;
+  const routes = [...src.matchAll(reRoute)].map(m => [m[2], src.slice(m.index, (src.slice(m.index + 10).search(/\n {2}r\.(?:get|post|put|patch|delete)\(/) + m.index + 10) || src.length)]);
+  assert.ok(routes.length >= 25, `routes relevées : ${routes.length}`);
+  // Messages littéraux (apostrophes, guillemets, gabarits sans valeur) des erreurs 4xx et 5xx, et des limites de fréquence.
+  const litteraux = code => [
+    ...[...code.matchAll(/erreur\(\s*[45]\d\d,\s*(['"`])((?:(?!\1)[^\\]|\\.)+)\1/g)].map(m => m[2]),
+    ...[...code.matchAll(/limiter\([^;]*?,\s*(['"`])((?:(?!\1)[^\\]|\\.)+)\1\s*\)/g)].map(m => m[2])
+  ].filter(t => !t.includes('${'));
+  // Fonctions appelées par ces routes mais définies ailleurs : validation des champs, connexion pro, cartes cadeaux, lignes.
+  const ailleurs = ['http.js', 'auth.js', 'cartes-cadeaux.js', 'prix.js'].flatMap(f => litteraux(lire(f)).map(t => `${f} | ${t}`))
+    .filter(x => !/mot de passe|Session|session|administrat|marchand|Requête|JSON|volumineuse|Adresse invalide/i.test(x));   // côté marchand ou routeur (avant la boutique)
+  const helpers = ['const nomSur', 'const sansLien', 'function controlerLots', 'function limiteCode', 'function ouvrirPaiement'].map(n => { const i = src.indexOf(n); assert.ok(i > 0, n); return [n, src.slice(i, src.indexOf('\n  }', i) + 4)]; });
+  const messages = [...routes, ...helpers].flatMap(([r, code]) => litteraux(code).map(t => `${r} | ${t}`)).concat(ailleurs, ['500 | Erreur interne. Réessayez dans un instant.']);
+  assert.ok(messages.length >= 60, `messages relevés : ${messages.length}`);
+  const manquants = [...new Set(messages)].filter(x => ['de', 'it', 'en'].some(l => !T.couvert(x.split(' | ').pop(), l)));
   assert.deepEqual(manquants, []);
+  // Messages construits avec des valeurs : exemples réels de chaque gabarit affiché au client.
+  const exemples = ['Le code ETE a atteint son nombre d’utilisations.', 'Le code ETE ne s’utilise qu’une fois par client. Passez une nouvelle commande sans lui.',
+    '« Vase » n’est plus disponible dans cette quantité : passez une nouvelle commande.', 'Paiement impossible : les points de fidélité utilisés ont été dépensés entre-temps. Passez une nouvelle commande.',
+    'Stock insuffisant pour « Coffret » (lot compris).', 'Stock insuffisant pour « T-shirt (Rouge / M) ».', 'Choisissez une variante pour « T-shirt ».',
+    'Le nom est obligatoire.', 'La ville doit faire entre 1 et 100 caractères.', 'L’adresse ne peut pas contenir de lien ni d’adresse de site.',
+    'Ce code s’applique dès CHF 30.00 d’achat.', 'Commande minimum : CHF 30.00 d’articles (sauf retrait en magasin).', 'Plafond de facture atteint (CHF 2’000.00, dont CHF 500.00 encore à régler) : payez en ligne ou réglez une facture.'];
+  assert.deepEqual(exemples.filter(x => ['de', 'it', 'en'].some(l => !T.couvert(x, l))), []);
 });

@@ -341,7 +341,7 @@ async function envoyerCommande(form) {
     location.href = json.paiementUrl;
   } catch (e) {
     vue.envoi = false; rendre();
-    const p = $('#erreur'); p.textContent = e.message; p.hidden = false;
+    const p = $('#erreur'); p.textContent = trad(e.message); p.hidden = false;   // traduit tout de suite (zone « alert » lue à l'insertion)
     // Garde la saisie
     const f = $('#commande');
     for (const [k, v] of d) if (f.elements[k]) f.elements[k].value = v;
@@ -409,7 +409,9 @@ async function suivreCommande(id, jeton, annule) {
 /* Annonce aux lecteurs d'écran (zone « status » hors de l'application, jamais redessinée) : ajout au panier, etc. */
 function annoncer(texte) {
   const z = document.getElementById('annonces'); if (!z) return;
-  const t = typeof Traductions !== 'undefined' && Traductions.traduireAnnonce ? Traductions.traduireAnnonce(texte) : texte;
+  // Annonces avec un nom de produit (modèles dédiés) d'abord, sinon le même passage que le texte affiché (messages du serveur).
+  const a = typeof Traductions !== 'undefined' && Traductions.traduireAnnonce ? Traductions.traduireAnnonce(texte) : texte;
+  const t = a !== texte ? a : (typeof Traductions !== 'undefined' && Traductions.traduireTexte(String(texte))) || texte;
   z.textContent = ''; setTimeout(() => { z.textContent = t; }, 60);
 }
 /* Fermeture du panier : le focus revient sur le bouton qui l'avait ouvert (ou sur le bouton du panier). */
@@ -643,7 +645,7 @@ async function envoyerAvis(form) {
     // Le formulaire reste tel quel (notes et commentaires) : l'erreur s'affiche dedans.
     let err = form.querySelector('.erreur-avis');
     if (!err) { err = document.createElement('p'); err.className = 'erreur-avis'; err.setAttribute('role', 'alert'); form.querySelector('button').before(err); }
-    err.textContent = e.message || 'Envoi impossible. Réessayez dans un instant.';
+    err.textContent = trad(e.message || 'Envoi impossible. Réessayez dans un instant.');
   }
 }
 

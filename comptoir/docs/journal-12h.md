@@ -1167,6 +1167,34 @@ Relecture indépendante. Constats corrigés :
 ### Cycle 59 (02 h 05) : erreurs de toutes les routes publiques traduites (chantier 113)
 
 - **Suite du cycle 58**, qui ne couvrait que la route de commande. 25 routes publiques ont été parcourues (avis, retours, reprise du paiement, alertes de retour en stock, compte pro, complément après achat, images). 21 messages fixes n'étaient traduits dans aucune langue, par exemple « Le délai de retour de cette commande est dépassé. », « Avis déjà enregistré pour cette commande. » ou « Le créneau de retrait choisi n'est plus disponible… ». Ils le sont maintenant en allemand, italien et anglais.
-- **Le test statique couvre toutes les routes publiques** (`/api/public/…` et `/s/…`) : il échoue si un nouveau message fixe n'est pas traduit dans les trois langues.
+- **Le test statique couvre les routes publiques** `/api/public/…` (les pages `/s/…` passent par un repli et n'ont pas de route propre ; voir le cycle 60, qui l'a renforcé).
 - **Vérifié dans Chromium**, boutique en allemand (bureau) et en anglais (mobile) : un message d'erreur du serveur placé dans le panier est traduit à l'affichage (« Dieser Abholtermin wurde soeben vergeben… », « This pickup slot has just been taken… »).
 - **Limite** : les messages construits avec des valeurs ne sont couverts que si un modèle existe. Ceux de la commande le sont ; pour les autres routes, il faudrait les relever un par un.
+
+### Cycle 60 (02 h 15) : relecture des erreurs traduites (chantier 113)
+
+Relecture indépendante. Aucun constat ne cassait une fonction. Mais le test donnait une fausse assurance, et des messages courants restaient en français. Corrigé :
+
+- **Le test laissait passer des messages réellement affichés.** Désormais :
+  - il reconnaît les routes déclarées autrement (espaces, guillemets, `patch`) ;
+  - il lit les statuts 4xx et 5xx, les gabarits sans valeur et les messages des limites de fréquence (`limiter`) ;
+  - il lit aussi les fonctions appelées par ces routes mais définies ailleurs : validation des champs (http.js), connexion pro (auth.js), cartes cadeaux, lignes de commande (prix.js), et `nomSur`, `sansLien`, `controlerLots`, `limiteCode`, `ouvrirPaiement` ;
+  - il vérifie l'erreur interne 500 ;
+  - il vérifie une liste d'exemples réels pour chaque message construit avec des valeurs.
+
+  Le premier passage a trouvé 17 messages de plus, en plus de ceux de la relecture : limites de fréquence, commandes sur facture, codes envoyés, cartes cadeaux.
+- **Messages courants restés en français, maintenant traduits en allemand, italien et anglais :**
+  - « Adresse e-mail invalide. », sans doute le plus fréquent : le navigateur accepte « ana@gmail », pas le serveur ;
+  - « Indiquez votre nom. », champs obligatoires ou trop longs, liens interdits dans le nom, l'adresse ou la ville ;
+  - code promo épuisé ou déjà utilisé, y compris à la reprise du paiement ;
+  - article plus disponible dans cette quantité ; paiement impossible, avec son motif (carte cadeau, points) ;
+  - stock insuffisant d'un lot, variante à choisir ;
+  - trop d'essais de connexion, demandes complètes, erreur interne, montant de carte.
+- **Lecteurs d'écran :** les annonces (fidélité, carte cadeau, code promo) étaient lues en français, car la zone d'annonce est hors traduction. Elles passent maintenant par la même traduction que le texte affiché.
+- **Zones d'erreur (`role="alert"`) :** le message est traduit avant d'être inséré. Avant, le français était inséré d'abord, puis traduit à l'image suivante : la région pouvait l'annoncer en français, et un onglet en arrière-plan le gardait.
+- **Choix de mots :**
+  - « Code ungültig oder abgelaufen » et « … für die Rücksendung aus » ;
+  - « è già stato pagato », « senza usarlo » ;
+  - « offerta aggiuntiva » et « add-on offer », comme ailleurs dans le dictionnaire.
+- **Vérifié de nouveau :** aucune clé en double dans les dictionnaires ; audit de la boutique à 0 manquant sur 115 textes ; message d'erreur traduit dans Chromium (allemand sur bureau, anglais sur mobile).
+- **Laissé ouvert :** les messages du routeur (« JSON invalide », « Requête trop volumineuse ») ne surviennent qu'avec une requête fabriquée. L'étiquette « Créneau de retrait » emploie encore « Abholzeit » alors que les messages disent « Abholtermin ».
