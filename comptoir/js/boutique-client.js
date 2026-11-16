@@ -43,7 +43,7 @@ function lienListe() {
   return u.toString();
 }
 async function partagerFavoris() {
-  const url = lienListe(), titre = `${donnees.boutique.nom} : ${trad('ma liste')}`;
+  const url = lienListe(), titre = `${donnees.boutique.nom} – ${trad('ma liste')}`;
   try { if (navigator.share) { await navigator.share({ title: titre, url }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
   try { await navigator.clipboard.writeText(url); annoncer('Lien de la liste copié.'); afficherLienListe(url, true); return; } catch { /* presse-papiers refusé : lien affiché */ }
   afficherLienListe(url, false);
@@ -54,20 +54,33 @@ function afficherLienListe(url, copie) {
   z.innerHTML = `<label class="champ"><span>${copie ? 'Lien copié : collez-le dans un message' : 'Copiez ce lien'}</span><input readonly value="${esc(url)}"></label>`;
   const i = z.querySelector('input'); i.focus(); i.select();
 }
-function fermerListe() { vueVitrine.liste = null; const u = new URL(location.href); u.searchParams.delete('liste'); history.replaceState(history.state, '', u.pathname + u.search); }
+/* Adresse de retour à la boutique : garde la liste partagée affichée (?liste=) et la langue choisie (?lang=). */
+function urlRacine(chemin = racineBoutique) {
+  const u = new URL(chemin, location.origin), ici = new URLSearchParams(location.search);
+  if (Array.isArray(vueVitrine.liste) && vueVitrine.liste.length) u.searchParams.set('liste', vueVitrine.liste.join(','));
+  if (ici.get('lang')) u.searchParams.set('lang', ici.get('lang'));
+  return u.pathname + u.search;
+}
+function fermerListe() { vueVitrine.liste = null; vueVitrine.listeAvis = null; const u = new URL(location.href); u.searchParams.delete('liste'); history.replaceState(history.state, '', u.pathname + u.search); }
 function ajouterListeAuPanier() {
   // Produits simples en stock : ajoutés (1 de chaque, sans dépasser le stock) ; à variantes : la taille ou la couleur reste à choisir.
-  let ajoutes = 0, aChoisir = 0;
+  let ajoutes = 0, aChoisir = 0, epuises = 0;
   for (const id of vueVitrine.liste || []) {
     const p = donnees.produits.find(x => x.id === id); if (!p) continue;
-    if (aVariantes(p)) { aChoisir++; continue; }
-    const max = p.type === 'drop' ? 20 : p.stock; if (max <= 0) continue;
+    if (aVariantes(p)) { if (p.type === 'drop' || p.variantes.some(v => v.stock > 0)) aChoisir++; else epuises++; continue; }
+    const max = p.type === 'drop' ? 20 : Math.min(20, p.stock); if (max <= 0) { epuises++; continue; }   // 20 au plus par ligne (comme le serveur)
     const l = vue.panier.find(x => x.produitId === p.id && !x.varianteId && !x.offre);
     if (l) { if (l.qte < max) { l.qte++; ajoutes++; } } else { vue.panier.push({ produitId: p.id, nom: p.nom, prix: p.prix, qte: 1 }); ajoutes++; }
   }
-  garderPanier(); vue.message = null;
-  vue.avisLien = aChoisir ? `${aChoisir} produit${aChoisir > 1 ? 's' : ''} de la liste ${aChoisir > 1 ? 'ont' : 'a'} des variantes : choisissez la taille ou la couleur sur leur fiche.` : null;
-  vue.ouvert = true; rendre(); mesurer('panier', { valeur: 'liste' });
+  const avis = [aChoisir ? `${aChoisir} produit${aChoisir > 1 ? 's' : ''} de la liste ${aChoisir > 1 ? 'ont' : 'a'} des variantes : choisissez la taille ou la couleur sur leur fiche.` : '', epuises ? `${epuises} produit${epuises > 1 ? 's' : ''} de la liste ${epuises > 1 ? 'sont épuisés' : 'est épuisé'}.` : ''].filter(Boolean);
+  if (!ajoutes) {
+    // Rien d'ajoutable : pas de tiroir vide, l'explication s'affiche sous la liste.
+    vueVitrine.listeAvis = avis.join('\n') || 'Ces produits sont déjà dans votre panier.';   // une phrase par ligne (traduites une à une)
+    rendre(); annoncer(vueVitrine.listeAvis.split('\n')[0]); document.querySelector('[data-sf="liste-panier"]')?.focus(); return;
+  }
+  vueVitrine.listeAvis = null;
+  garderPanier(); vue.message = null; vue.avisLien = avis.length ? avis.join('\n') : null;
+  vue.declencheur = '[data-sf="liste-panier"]'; vue.ouvert = true; rendre(); mesurer('panier', { valeur: 'liste' });
   annoncer(`${ajoutes} produit${ajoutes > 1 ? 's' : ''} ajouté${ajoutes > 1 ? 's' : ''} au panier.`);
 }
 function garderFavoris() { try { localStorage.setItem(CLE_FAVORIS, JSON.stringify([...FAVORIS].slice(-100))); } catch { /* ignoré */ } }
@@ -117,8 +130,10 @@ async function demarrer() {
   if (q.get('commande')) suivreCommande(q.get('commande'), q.get('jeton'), q.get('annule'));
   // Liste de favoris partagée : identifiants séparés par des virgules (50 au plus) ; les produits retirés sont ignorés à l'affichage.
   if (q.get('liste')) {
-    vueVitrine.liste = [...new Set(q.get('liste').split(',').map(x => x.trim()).filter(x => /^[\w-]{1,64}$/.test(x)))].slice(0, 50);
-    setTimeout(() => { const t = document.querySelector('#sf-collection h2'); if (t && vueVitrine.liste) { t.setAttribute('tabindex', '-1'); t.scrollIntoView({ block: 'start' }); t.focus({ preventScroll: true }); } }, 0);   // sous une grande bannière
+    const ids = [...new Set(q.get('liste').split(',').map(x => x.trim()).filter(x => /^[\w-]{1,64}$/.test(x) && donnees.produits.some(p => p.id === x)))].slice(0, 50);
+    vueVitrine.liste = ids.length ? ids : null;   // aucun produit encore en vente : boutique normale
+    // Sous une grande bannière : la page descend jusqu'à la liste, sauf si un panier, une fiche ou une fenêtre est ouvert.
+    setTimeout(() => { const t = document.querySelector('#sf-collection h2'); if (t && vueVitrine.liste && !vue.ouvert && !vue.fiche && !vue.legal && document.querySelector('[data-sf="liste-panier"]')) { t.scrollIntoView({ block: 'start' }); t.focus({ preventScroll: true }); } }, 0);
   }
   // Lien de panier envoyé par le marchand (WhatsApp, Instagram, SMS) ou « Commander à nouveau » : ?panier=id:qte[:variante],…[&code=…]
   // (variante encodée en plus : ses valeurs peuvent contenir « , » ou « : »).
@@ -139,7 +154,7 @@ async function demarrer() {
     const demandes = q.get('panier').split(',').filter(Boolean).length;
     // Avis affiché au-dessus des lignes du panier (le panier reste visible et payable) ; effacé à la fermeture du tiroir.
     if (lignes.length < Math.min(20, demandes)) { vue.avisLien = lignes.length ? 'Certains articles de ce lien ne sont plus disponibles : les autres sont dans votre panier.' : 'Les articles de ce lien ne sont plus disponibles.'; vue.ouvert = true; }
-    history.replaceState(null, '', location.pathname + (q.get('lang') ? `?lang=${encodeURIComponent(q.get('lang'))}` : ''));
+    history.replaceState(null, '', urlRacine(location.pathname));
     if (q.get('code')) { rendre(); appliquerCode(q.get('code').slice(0, 40)); return; }
   }
   rendre();
@@ -271,7 +286,7 @@ function rendreBrut() {
       <div class="tiroir-fond" data-c="fermer"></div>
       <aside class="tiroir-corps" data-vars="${varsTheme(th)}" role="dialog" aria-modal="true" aria-labelledby="titre-tiroir">
         <div class="carte-tete"><h2 id="titre-tiroir" tabindex="-1">${vue.message ? 'Votre commande' : 'Panier'}</h2><button class="icone" data-c="fermer">Fermer</button></div>
-        ${vue.message ? vue.message : `${vue.avisLien ? `<p class="avis-lien" role="status">${esc(vue.avisLien)}</p>` : ''}${vue.panier.length ? `
+        ${vue.message ? vue.message : `${vue.avisLien ? `<p class="avis-lien" role="status">${vue.avisLien.split('\n').map(x => `<span>${esc(x)}</span>`).join(' ')}</p>` : ''}${vue.panier.length ? `
           <ul class="lignes-panier">${calc.lignes.map(l => l.offre ? `<li><span data-sans-traduction>${esc(l.nom)} <small class="mini">offre −${Math.round((1 - l.prix / l.prixInitial) * 100)} %</small></span>
             <button class="bouton-lien" data-c="retirer-offre">Retirer</button><span class="num">${euros(l.prix)}</span></li>` : `<li><span data-sans-traduction>${esc(l.nom)}</span>
             <div class="qte"><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="-1" aria-label="Retirer un">−</button><b>${l.qte}</b><button data-c="qte" data-id="${esc(l.produitId)}" data-v="${esc(l.varianteId || '')}" data-d="1" aria-label="Ajouter un" ${(() => { const pr = donnees.produits.find(x => x.id === l.produitId), vr = pr && l.varianteId && aVariantes(pr) ? pr.variantes.find(x => x.id === l.varianteId) : null; return pr && l.qte >= (pr.type === 'drop' ? 20 : vr ? vr.stock : pr.stock) ? 'disabled title="Stock maximum atteint"' : ''; })()}>+</button></div>
@@ -403,7 +418,7 @@ async function suivreCommande(id, jeton, annule) {
   vue.ouvert = true;
   // Paiement annulé : la carte cadeau éventuellement réservée par cette commande est rendue tout de suite (nouvel essai possible).
   if (annule && id && jeton) fetch(`/api/public/${encodeURIComponent(slug)}/commandes/${encodeURIComponent(id)}/abandonner`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jeton }) }).catch(() => {});
-  if (annule) { vue.message = '<p>Le paiement a été annulé. Votre panier est conservé : vous pouvez réessayer.</p>'; history.replaceState(null, '', racineBoutique); vue.message += '<button class="sf-btn" data-c="retour-panier">Revenir au panier</button>'; return; }
+  if (annule) { vue.message = '<p>Le paiement a été annulé. Votre panier est conservé : vous pouvez réessayer.</p>'; history.replaceState(null, '', urlRacine()); vue.message += '<button class="sf-btn" data-c="retour-panier">Revenir au panier</button>'; return; }
   const libelles = { attente: 'Paiement en cours de confirmation…', payee: 'Paiement reçu. Nous préparons votre commande.', fournisseur: 'Paiement reçu. Votre commande est en préparation chez notre partenaire.', preparation: 'Votre commande est en préparation.', expediee: 'Votre colis est en route.', livree: 'Votre colis a été livré.', prete: 'Votre commande vous attend en boutique.', retiree: 'Commande retirée. Merci !', annulee: 'Commande annulée.', remboursee: 'Commande remboursée.' };
   for (let i = 0; i < 20; i++) {
     try {
@@ -495,10 +510,10 @@ document.addEventListener('click', e => {
     else if (sf.dataset.sf === 'partager-favoris') partagerFavoris();
     else if (sf.dataset.sf === 'liste-favoris') {
       for (const id of vueVitrine.liste || []) if (donnees.produits.some(p => p.id === id)) FAVORIS.add(id);
-      garderFavoris(); fermerListe(); vueVitrine.favoris = true; rendre(); document.querySelector('[data-sf="favoris"]')?.focus(); annoncer('Ajouté aux favoris.');
+      garderFavoris(); fermerListe(); vueVitrine.favoris = true; rendre(); document.querySelector('[data-sf="favoris"]')?.focus(); annoncer('Produits ajoutés aux favoris.');
     }
     else if (sf.dataset.sf === 'liste-panier') ajouterListeAuPanier();
-    else if (sf.dataset.sf === 'liste-fermer') { fermerListe(); rendre(); document.querySelector('.sf-produits h2')?.focus(); }
+    else if (sf.dataset.sf === 'liste-fermer') { fermerListe(); rendre(); const h = document.querySelector('.sf-produits h2'); if (h) { h.setAttribute('tabindex', '-1'); h.focus(); } }
     else if (sf.dataset.sf === 'fiche') { noterVu(sf.dataset.id); vue.fiche = sf.dataset.id; history.pushState({ fiche: sf.dataset.id }, '', urlFiche(sf.dataset.id)); const pf = donnees.produits.find(x => x.id === sf.dataset.id); if (pf) document.title = `${pf.nom} · ${donnees.boutique.nom}`; rendre(); document.querySelector('.sf-fiche-fermer')?.focus(); }
     else if (sf.dataset.sf === 'fermer-fiche') fermerFiche();
     else if (sf.dataset.sf === 'nav') allerSection(document, sf.dataset.v);
@@ -510,7 +525,7 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-c]');
   if (!el) return;
   const c = el.dataset.c;
-  if (c === 'fermer') { vue.avisLien = null; if (vue.message && !vue.panier.length) vue.message = null; if (!vue.fiche) history.replaceState(null, '', racineBoutique); fermerTiroir(); }
+  if (c === 'fermer') { vue.avisLien = null; if (vue.message && !vue.panier.length) vue.message = null; if (!vue.fiche) history.replaceState(null, '', urlRacine()); fermerTiroir(); }
   else if (c === 'recommander') {
     // Même panier qu'une commande passée : seuls les articles encore en vente, au prix d'aujourd'hui, dans la limite du stock.
     let lignes = []; try { lignes = JSON.parse(el.dataset.lignes); } catch { /* ignoré */ }
@@ -523,7 +538,7 @@ document.addEventListener('click', e => {
       if (!dispo) { absents++; continue; }
       vue.panier.push(v ? ligneVariante(p, v, Math.min(qte, dispo)) : { produitId: p.id, nom: p.nom, prix: p.prix, qte: Math.min(qte, dispo) });
     }
-    garderPanier(); vue.message = null; vue.ouvert = true; history.replaceState(null, '', racineBoutique); rendre();
+    garderPanier(); vue.message = null; vue.ouvert = true; history.replaceState(null, '', urlRacine()); rendre();
     if (absents) setTimeout(() => alert(trad('Certains articles ne sont plus disponibles : le panier contient le reste.')), 50);
   }
   else if (c === 'retirer-offre') { vue.panier = vue.panier.filter(x => !x.offre); garderPanier(); rendre(); }
@@ -662,7 +677,7 @@ async function reprendrePaiement(id, jeton) {
     const json = await rep.json();
     if (!rep.ok) throw new Error(json.erreur);
     location.href = json.paiementUrl;
-  } catch (e) { vue.message = `<p>${esc(e.message || 'Impossible de reprendre cette commande.')}</p>`; history.replaceState(null, '', racineBoutique); rendre(); }
+  } catch (e) { vue.message = `<p>${esc(e.message || 'Impossible de reprendre cette commande.')}</p>`; history.replaceState(null, '', urlRacine()); rendre(); }
 }
 
 async function formulaireAvis(id, jeton) {
@@ -678,7 +693,7 @@ async function formulaireAvis(id, jeton) {
         <textarea name="texte-${esc(p.produitId)}" rows="3" maxlength="1000" placeholder="Qu’avez-vous aimé ? Qu’est-ce qui pourrait être mieux ?"></textarea></fieldset>`).join('')}
       <button class="sf-btn plein">Publier mon avis</button></form>` : '<p>Vous avez déjà donné votre avis pour cette commande. Merci !</p>';
   } catch (e) { vue.message = `<p>${esc(e.message || 'Lien d’avis invalide.')}</p>`; }
-  history.replaceState(null, '', racineBoutique);
+  history.replaceState(null, '', urlRacine());
   rendre();
 }
 async function envoyerAvis(form) {
@@ -706,7 +721,7 @@ function titreAccueil() { const b = donnees.boutique; return b.slogan ? `${b.nom
 function fermerFiche({ rendu = true } = {}) {
   vue.fiche = null; vue.varianteUrl = ''; document.title = titreAccueil();
   if (history.state && history.state.fiche && /\/p\//.test(location.pathname)) { history.back(); return; }   // popstate redessine
-  history.replaceState(null, '', racineBoutique);
+  history.replaceState(null, '', urlRacine());
   if (rendu) rendre();
 }
 

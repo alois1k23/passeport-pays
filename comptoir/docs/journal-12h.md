@@ -1218,3 +1218,24 @@ Relecture indépendante. Aucun constat ne cassait une fonction. Mais le test don
   - « Tout ajouter » met 1 vase et 1 bol au panier, avec l'avis pour le pull à variantes ;
   - B garde la liste dans ses favoris (3), et l'adresse est nettoyée ;
   - pas de débordement, aucune erreur. L'outil sort en erreur au moindre écart.
+
+### Cycle 62 (03 h 00) : relecture de la liste partagée (chantier 114)
+
+Relecture indépendante : ni XSS, ni fuite de donnée personnelle, ni produit d'une autre boutique. Constats corrigés :
+
+- **Moyens :**
+  - **recherche, « Tout voir » et catégories :** ils ne faisaient rien pendant que la liste était affichée, et la recherche annonçait un nombre faux. Ils sont masqués tant que la liste partagée est à l'écran ; « Voir tous les produits » ramène la boutique normale ;
+  - **focus au chargement :** il partait derrière un panier, une fiche ou une fenêtre ouverts. La page ne descend plus vers la liste que si rien n'est ouvert ;
+  - **adresse :** elle perdait `?liste=` (et `?lang=`) à la fermeture du panier ou d'une fiche, alors que la liste restait affichée. Les six retours à la boutique gardent maintenant la liste et la langue (`urlRacine`) ;
+  - **« Tout ajouter » quand rien ne peut être ajouté :** le tiroir s'ouvrait vide, sans explication. L'explication s'affiche maintenant sous la liste (« 1 produit de la liste est épuisé. », « Ces produits sont déjà dans votre panier. »), et les produits épuisés sont signalés aussi quand d'autres ont été ajoutés. Un produit à variantes entièrement épuisé compte comme épuisé.
+- **Faibles :**
+  - focus gardé sur le titre après « Voir tous les produits » ;
+  - un lien sans aucun produit en vente donne la boutique normale ;
+  - focus rendu à « Tout ajouter » à la fermeture du panier ;
+  - 20 au plus par ligne, comme le serveur ;
+  - annonce au pluriel « Produits ajoutés aux favoris. » ;
+  - titre de partage sans espace avant les deux-points ;
+  - « Alle Produkte anzeigen » et « Mostra tutti i prodotti », comme ailleurs ;
+  - avis de plusieurs phrases affichés phrase par phrase, chacune traduite.
+- **L'outil `liste-partagee.js`** vérifie désormais vraiment que l'adresse garde la liste après fermeture du panier (le contrôle précédent passait toujours). Il vérifie aussi le libellé du lien, un lien sans produit valide, et une liste de produits épuisés (pas de tiroir vide, avis traduit en allemand). 0 écart ; audit des traductions : 131 textes, 0 manquant.
+- **Laissé ouvert :** le partage natif du téléphone (`navigator.share`) n'existe pas dans Chromium sans interface et n'est donc pas testé. Le lien impose la langue de celui qui partage.
