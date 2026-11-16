@@ -89,12 +89,12 @@ function fraisImportClient(p, prix = p.prix) {
 
 function tauxTvaReduit() {
   const r = etat.entreprise.regime;
-  return r === 'ch-assujetti' ? 0.026 : r === 'normal' ? (etat.boutique.pays === 'be' ? 0.06 : 0.055) : 0;
+  return etat.boutique.pays === 'ca' ? 0 : r === 'ch-assujetti' ? 0.026 : r === 'normal' ? (etat.boutique.pays === 'be' ? 0.06 : 0.055) : 0;
 }
 function tauxTvaProduit(p) { return p && p.tauxReduit ? tauxTvaReduit() : tauxTvaVente(); }
 function tauxTvaVente() {
   const r = etat.entreprise.regime;
-  return r === 'ch-assujetti' ? TVA_CH : r === 'normal' ? droitPays().tva : 0;
+  return etat.boutique.pays === 'ca' ? 0 : r === 'ch-assujetti' ? TVA_CH : r === 'normal' ? droitPays().tva : 0;
 }
 
 /* Marge nette par vente. Toutes les valeurs sont dans la devise de la boutique (estimations). */

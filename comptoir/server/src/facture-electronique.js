@@ -40,7 +40,10 @@ function ventiler(c, defaut = 0) {
 function decouperAdresse(texte) {
   const t = String(texte || '').trim();
   const mt = /^(.*?)[,\s]+(\d{4,5})\s+(.+)$/.exec(t);
-  return mt ? { rue: mt[1].trim(), npa: mt[2], ville: mt[3].trim() } : { rue: t, npa: '', ville: '' };
+  if (mt) return { rue: mt[1].trim(), npa: mt[2], ville: mt[3].trim() };
+  // Canada : « 12 rue Saint-Paul, Montréal QC H2Y 1H1 » (code postal à la fin, après la ville et la province).
+  const ca = /^(.*?),\s*(.+?)\s+([A-Z]\d[A-Z] ?\d[A-Z]\d)$/i.exec(t);
+  return ca ? { rue: ca[1].trim(), npa: ca[3].toUpperCase(), ville: ca[2].trim() } : { rue: t, npa: '', ville: '' };
 }
 
 /* Identifiant légal du vendeur (BT-30) et son schéma ISO 6523 : SIREN (0002) en France, numéro d'entreprise (0208)

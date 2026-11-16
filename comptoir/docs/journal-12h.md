@@ -1487,3 +1487,34 @@ Relecture indépendante, sans constat grave. Corrigé :
   - aucune erreur.
 - **Vérification complète** : les 7 étapes passent.
 - **Limite assumée** : un marchand canadien inscrit aux taxes (au-delà de 30 000 $ de ventes) ne peut pas encore utiliser Comptoir correctement ; c'est dit dans l'avis.
+
+### Cycle 74 (07 h 35) : relecture du Canada (chantier 119)
+
+Relecture indépendante : le noyau fiscal du serveur était juste, mais plusieurs documents et écrans restaient français. Corrigé :
+
+- **Graves :**
+  - **devis** : un devis canadien affichait « TVA non applicable, art. 293 B du CGI ». Il affiche maintenant la mention de petit fournisseur ;
+  - **factures PDF et Factur-X impossibles avec une adresse canadienne** : le code postal « H2Y 1H1 » (après la ville et la province) n'était pas reconnu. Il est accepté côté serveur et dans l'espace marchand. L'identifiant devient « NE » au lieu de « SIRET », et la mention de franchise est celle du petit fournisseur ;
+  - **pénalités de retard** : celles du Code de commerce français (40 €, art. L441-10) étaient ajoutées aux factures de devis hors de France, Belgique comprise. Elles sont réservées à la France, comme côté serveur ;
+  - **cartes cadeaux** : une expiration de 12 mois au moins était imposée, alors qu'au Canada une carte cadeau ne peut en principe pas expirer (Québec, Ontario). « Sans limite » est maintenant accepté et proposé par défaut, en ligne comme en caisse, et l'e-mail dit « valable sans limite de durée » dans les quatre langues ;
+  - **dropshipping** : un entrepôt européen passait pour local. Pour une boutique canadienne, tout entrepôt est à l'étranger, avec « taxes et frais de dédouanement possibles à la livraison », sans chiffre non vérifié.
+- **Moyens :**
+  - **boutiques canadiennes existantes**, ou passées au Canada par un chemin qui restaure l'ancien régime : le régime de petit fournisseur s'applique aussi à la lecture de la configuration, donc plus jamais de taxe (testé avec un régime « normal » stocké) ;
+  - **Xpresspost** : il n'est plus offert côté navigateur au-delà du seuil (comme côté serveur) ;
+  - **taux** : plus de taux réduit français côté navigateur ;
+  - **code postal** : clavier alphabétique pour le code postal canadien sur mobile.
+- **Avis de Paramètres complété** : il dit ce qui reste pensé pour l'Europe (page Conformité et mentions légales, dates de livraison estimées, prix barrés, conseils du catalogue fournisseurs) et demande de faire vérifier les pages légales.
+- **Tests ajoutés** :
+  - adresse canadienne découpée (suisse inchangée) ;
+  - régime forcé à la lecture ;
+  - carte cadeau sans limite acceptée ;
+  - facture PDF produite avec l'adresse canadienne, sans mention française.
+- **Vérification complète** : les 7 étapes passent.
+- **Laissé ouvert, et dit au marchand :**
+  - la page Conformité, les mentions légales et le tableau de bord (médiateur) restent français ;
+  - la date de livraison estimée suit les jours fériés suisses ;
+  - les règles de prix barrés sont européennes ;
+  - les retours suivent le délai européen de 14 jours ;
+  - le formulaire de devis n'a pas le Canada ;
+  - l'abonnement est facturé en euros ;
+  - pas de lien de suivi Postes Canada.

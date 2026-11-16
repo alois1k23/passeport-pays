@@ -239,7 +239,7 @@ const LIVRAISONS_BE = {
 /* Canada : Postes Canada (tarifs indicatifs, en dollars canadiens). */
 const LIVRAISONS_CA = {
   'postes-regulier': { nom: 'Postes Canada, colis régulier', court: 'Régulier', prix: 15, delai: '2 à 9 jours ouvrables', transporteur: 'Postes Canada' },
-  'postes-xpress': { nom: 'Postes Canada, Xpresspost', court: 'Xpresspost', prix: 25, delai: '1 à 3 jours ouvrables', transporteur: 'Postes Canada' },
+  'postes-xpress': { nom: 'Postes Canada, Xpresspost', court: 'Xpresspost', prix: 25, delai: '1 à 3 jours ouvrables', transporteur: 'Postes Canada', jamaisOffert: true },
   retrait: LIVRAISONS.retrait
 };
 // Commande née d'un devis : livraison et frais fixés dans le devis (pas un mode proposé dans la boutique).
@@ -252,7 +252,7 @@ function fraisPort(mode, sousTotal) {
   const l = TOUTES_LIVRAISONS[mode] || LIVRAISONS.colissimo;
   if (mode === 'retrait') return 0;
   const seuil = seuilPort();
-  if (seuil > 0 && mode !== 'chronopost' && mode !== 'poste-prio' && sousTotal >= seuil) return 0;
+  if (seuil > 0 && !['chronopost', 'poste-prio', 'postes-xpress'].includes(mode) && sousTotal >= seuil) return 0;   // envois express jamais offerts (comme le serveur)
   return l.prix;
 }
 
@@ -483,7 +483,7 @@ const DROIT_PAYS = {
   fr: { id: 'SIRET', idCourt: 'SIRET', idExemple: '123 456 789 00012', tva: 0.2, tvaTexte: '20 %', franchise: 'TVA non applicable, art. 293 B du CGI', franchiseNom: 'Franchise en base', formes: ['Micro-entreprise', 'EI', 'EURL', 'SASU', 'SARL', 'SAS'], tvaExemple: 'FR12345678901', recouvrement: true, retractation: 'art. L221-18 du Code de la consommation' },
   // Canada : prise en charge partielle. Seul le petit fournisseur (taxes de vente TPS/TVH/TVQ non perçues) ; pas de règles
   // de droit de la consommation propres aux provinces : les conditions de vente sont un modèle à faire vérifier.
-  ca: { id: 'Numéro d’entreprise (NE ou NEQ)', idCourt: 'NE', idExemple: '123456789', tva: 0, tvaTexte: '—', franchise: 'Petit fournisseur : taxes de vente (TPS/TVQ) non perçues', franchiseNom: 'Petit fournisseur (taxes non perçues)', formes: ['Entreprise individuelle', 'Société par actions', 'Société en nom collectif'], tvaExemple: '', recouvrement: false, retractation: '', partiel: true },
+  ca: { id: 'Numéro d’entreprise (NE ou NEQ)', idCourt: 'NE', idExemple: '123456789', tva: 0, tvaTexte: '—', franchise: 'Petit fournisseur : taxes de vente (TPS/TVH/TVQ) non perçues', franchiseNom: 'Petit fournisseur (taxes non perçues)', formes: ['Entreprise individuelle', 'Société par actions', 'Société en nom collectif'], tvaExemple: '', recouvrement: false, retractation: '', partiel: true },
   be: { id: 'Numéro d’entreprise (BCE)', idCourt: 'BCE', idExemple: '0123.456.789', tva: 0.21, tvaTexte: '21 %', franchise: 'Régime particulier de franchise des petites entreprises', franchiseNom: 'Franchise des petites entreprises', formes: ['Personne physique', 'SRL', 'SA', 'SC'], tvaExemple: 'BE0123456789', recouvrement: false, retractation: 'art. VI.47 du Code de droit économique' }
 };
 /* Mention de prix selon le régime de TVA : « TTC » n'a de sens que si l'entreprise facture la TVA. */

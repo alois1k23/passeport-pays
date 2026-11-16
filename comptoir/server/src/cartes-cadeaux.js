@@ -53,8 +53,9 @@ function creer(db, cles) {
     ecrireReglagesVente(bid, s, pays) {
       const montants = [...new Set((Array.isArray(s.montants) ? s.montants : []).map(m => Math.round(Number(m) * 100) / 100))].filter(m => Number.isFinite(m)).sort((a, b) => a - b);
       if (s.actif === true && (!montants.length || montants.length > 8 || montants.some(m => m < 5 || m > 1000 || Math.abs(Math.round(m * 100) - m * 100) > 1e-6))) throw erreur(400, 'Montants proposés : de 1 à 8 montants entre 5 et 1000.', 'invalide');
-      const mois = Number(s.validiteMois ?? 24);
-      if (!Number.isInteger(mois) || mois < (pays === 'be' ? 24 : 12) || mois > 120) throw erreur(400, `Validité : entre ${pays === 'be' ? 24 : 12} et 120 mois.`, 'invalide');
+      // Canada : une carte cadeau ne peut en principe pas expirer (Québec, Ontario…) : 0 = sans limite, proposé par défaut.
+      const mois = Number(s.validiteMois ?? (pays === 'ca' ? 0 : 24));
+      if (!Number.isInteger(mois) || (!(pays === 'ca' && mois === 0) && (mois < (pays === 'be' ? 24 : 12) || mois > 120))) throw erreur(400, pays === 'ca' ? 'Validité : 0 (sans limite) ou entre 12 et 120 mois.' : `Validité : entre ${pays === 'be' ? 24 : 12} et 120 mois.`, 'invalide');
       const r = { actif: s.actif === true, montants: montants.length ? montants : VENTE_DEFAUT.montants, validiteMois: mois };
       db.prepare('INSERT INTO cartes_vente (boutique_id, donnees) VALUES (?, ?) ON CONFLICT (boutique_id) DO UPDATE SET donnees = excluded.donnees').run(bid, JSON.stringify(r));
       return r;

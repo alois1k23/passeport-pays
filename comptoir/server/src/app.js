@@ -134,7 +134,9 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const deviseDe = b => lireConfig(b).boutique.pays === 'ch' ? 'CHF' : 'EUR';
 
   /* ---------- Accès aux données ---------- */
-  const lireConfig = b => JSON.parse(b.config);
+  // Canada : régime « petit fournisseur » appliqué aussi à la lecture (boutiques enregistrées avant la règle, ou passées
+  // au Canada par un chemin qui restaure l'ancien régime) : jamais de TVA française sur une boutique canadienne.
+  const lireConfig = b => { const c = JSON.parse(b.config); if (c && c.boutique && c.boutique.pays === 'ca' && c.entreprise && c.entreprise.regime !== 'franchise') c.entreprise = { ...c.entreprise, regime: 'franchise' }; return c; };
   // Ancienne faille (avant le cycle 40) : un domaine pouvait être déclaré actif dès l'inscription, sans vérification,
   // y compris avec une fausse date de vérification. Une seule fois : tous les domaines actifs repassent par la
   // vérification DNS et TXT (le marchand clique à nouveau sur « Vérifier »), le vrai propriétaire peut le revendiquer.
@@ -1070,7 +1072,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
     const d = new Date(); d.setMonth(d.getMonth() + reg.validiteMois);
     const dest = (c.client && c.client.destinataire) || {};
-    const { carte, code } = Cartes.emettre(bid, { montant: c.total, devise: c.devise || config.boutique.devise || 'EUR', expireLe: d.getTime(), destinataire: dest.nom ? texteSur(dest.nom, 100) : null, origine: 'vente', commandeId: c.id });
+    // Validité 0 : carte sans limite de durée (Canada).
+    const { carte, code } = Cartes.emettre(bid, { montant: c.total, devise: c.devise || config.boutique.devise || 'EUR', expireLe: reg.validiteMois ? d.getTime() : null, destinataire: dest.nom ? texteSur(dest.nom, 100) : null, origine: 'vente', commandeId: c.id });
     c.carteEmise = { id: carte.id, fin: carte.fin }; delete c.carteRetenue;
     integ.emettre(bid, 'carte.emise', { id: carte.id, fin: carte.fin, montant: carte.initial, devise: carte.devise, expireLe: carte.expireLe ? new Date(carte.expireLe).toISOString() : null, origine: 'vente', commande: { id: c.id, numero: c.numero } });   // jamais le code
     const a = dest.email || c.client.email, offerte = !!dest.email && dest.email !== c.client.email;
@@ -1079,7 +1082,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const oCarte = { nomBoutique: config.boutique.nom, offerte, acheteur, montant: formatMontant(c.total, config), code, expireLe: carte.expireLe, url: urlBoutique(b), message, nomDest: dest.nom ? texteSur(dest.nom, 60) : '', email: dest.email, contact: config.entreprise && config.entreprise.email };
     const traduite = EmailsClients.carteCadeauCode(c.langue, oCarte), avisTraduit = offerte ? EmailsClients.carteCadeauAvis(c.langue, oCarte) : null;
     c.carteEmise.email = traduite ? envoyerEmail(bid, a, traduite.sujet, traduite.corps, { langue: c.langue }) : envoyerEmail(bid, a, offerte ? `Une carte cadeau ${config.boutique.nom} pour vous` : `Votre carte cadeau ${config.boutique.nom}`,
-      `Bonjour${dest.nom ? ` ${texteSur(dest.nom, 60)}` : ''},\n\n${offerte ? `Vous recevez une carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}, offerte par ${acheteur}.` : `Voici votre carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.`}\n\nCode : ${code}\nValable jusqu’au ${new Date(carte.expireLe).toLocaleDateString('fr-FR')}, en ligne (${urlBoutique(b)}) et en boutique.\nGardez ce code : il vaut de l’argent. ${config.boutique.nom} ne vous demandera jamais de le communiquer.${message ? `\n\n— Message de ${acheteur} (texte libre, non vérifié par la boutique) :\n${message}` : ''}\n\n${config.boutique.nom}`);
+      `Bonjour${dest.nom ? ` ${texteSur(dest.nom, 60)}` : ''},\n\n${offerte ? `Vous recevez une carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}, offerte par ${acheteur}.` : `Voici votre carte cadeau de ${formatMontant(c.total, config)} chez ${config.boutique.nom}.`}\n\nCode : ${code}\n${carte.expireLe ? `Valable jusqu’au ${new Date(carte.expireLe).toLocaleDateString('fr-FR')}` : 'Valable sans limite de durée'}, en ligne (${urlBoutique(b)}) et en boutique.\nGardez ce code : il vaut de l’argent. ${config.boutique.nom} ne vous demandera jamais de le communiquer.${message ? `\n\n— Message de ${acheteur} (texte libre, non vérifié par la boutique) :\n${message}` : ''}\n\n${config.boutique.nom}`);
     if (avisTraduit) envoyerEmail(bid, c.client.email, avisTraduit.sujet, avisTraduit.corps, { langue: c.langue });
     else if (offerte) envoyerEmail(bid, c.client.email, `Votre carte cadeau ${config.boutique.nom} est partie`, `Bonjour ${acheteur},\n\nLa carte cadeau de ${formatMontant(c.total, config)} a été envoyée à ${dest.email}.\nSi cette adresse est erronée, contactez ${config.entreprise && config.entreprise.email ? config.entreprise.email : 'la boutique'} : la carte peut être annulée et renvoyée.\n\n${config.boutique.nom}`);
     historique(c, `Carte cadeau ····${carte.fin} émise, envoi par e-mail en file${offerte ? ' (au destinataire)' : ''}`);
@@ -4100,7 +4103,7 @@ ${d.lignes.map(l => `<tr><td>${escHtml(l.nom)}</td><td class="num">${l.qte}</td>
 ${d.remise ? `<tr><td>Remise ${String(d.remisePct).replace('.', ',')} %</td><td></td><td></td>${sansTva ? '' : '<td></td>'}<td class="num">−${m(d.remise)}</td></tr>` : ''}
 ${d.port ? `<tr><td>Livraison</td><td class="num">1</td><td></td>${sansTva ? '' : '<td class="num">au prorata</td>'}<td class="num">${m(d.port)}</td></tr>` : ''}</tbody></table>
 <div class="totaux">${sansTva ? '' : vent.map(v => `<div><span>Base HT ${pct(v.taux)}</span><span>${m(v.ht)}</span></div><div><span>TVA ${pct(v.taux)}</span><span>${m(v.tva)}</span></div>`).join('')}<div class="total"><span>Total ${sansTva ? '' : 'TTC'}</span><span>${m(d.total)}</span></div></div>
-${sansTva ? `<p class="sous">${escHtml(config.boutique.pays === 'ch' ? 'Entreprise non assujettie à la TVA.' : config.boutique.pays === 'be' ? 'Régime particulier de franchise des petites entreprises.' : 'TVA non applicable, art. 293 B du CGI.')}</p>` : ''}
+${sansTva ? `<p class="sous">${escHtml(config.boutique.pays === 'ch' ? 'Entreprise non assujettie à la TVA.' : config.boutique.pays === 'be' ? 'Régime particulier de franchise des petites entreprises.' : config.boutique.pays === 'ca' ? 'Petit fournisseur : taxes de vente (TPS/TVH/TVQ) non perçues.' : 'TVA non applicable, art. 293 B du CGI.')}</p>` : ''}
 ${d.conditions ? `<h2>Conditions</h2><p>${escHtml(d.conditions).replace(/\n/g, '<br>')}</p>` : ''}
 ${bloc}</main></body></html>`;
   }

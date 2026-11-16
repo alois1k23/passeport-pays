@@ -42,3 +42,34 @@ test('Canada : commande sans TVA, régime « petit fournisseur » gardé même s
     assert.ok(mail); assert.doesNotMatch(mail.corps, /L221-18|Code de la consommation|VI\.47/, 'pas de droit français ou belge');
   } finally { s.close(); }
 });
+
+test('Canada (relecture) : devis, adresse de facture, carte cadeau sans limite, régime forcé à la lecture', async () => {
+  const { decouperAdresse } = require('../src/facture-electronique.js');
+  assert.deepEqual(decouperAdresse('12 rue Saint-Paul, Montréal QC H2Y 1H1'), { rue: '12 rue Saint-Paul', npa: 'H2Y 1H1', ville: 'Montréal QC' });
+  assert.deepEqual(decouperAdresse('Rue 1, 1003 Lausanne'), { rue: 'Rue 1', npa: '1003', ville: 'Lausanne' }, 'Suisse inchangée');
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  let cookie = '';
+  const c = async (m, chemin, corps, avec = true) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && avec ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc && avec) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'qc2@exemple.ca', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Érablière', pays: 'ca' }, entreprise: { raison: 'Érablière inc.', siret: '123456789', adresse: '12 rue Saint-Paul, Montréal QC H2Y 1H1', email: 'qc2@exemple.ca', regime: 'franchise' } } });
+    // Boutique enregistrée avant la règle (régime « normal » stocké) : lue en petit fournisseur, sans taxe.
+    const row = db.prepare('SELECT id, config FROM boutiques').get(); const cfg = JSON.parse(row.config); cfg.entreprise.regime = 'normal';
+    db.prepare('UPDATE boutiques SET config = ? WHERE id = ?').run(JSON.stringify(cfg), row.id);
+    assert.equal((await c('GET', '/api/admin/etat')).j.entreprise.regime, 'franchise', 'régime forcé à la lecture');
+    // Carte cadeau en ligne : 0 = sans limite accepté au Canada (refusé ailleurs).
+    const v = await c('PUT', '/api/admin/cartes-cadeaux/vente', { actif: true, montants: [25, 50], validiteMois: 0 });
+    assert.equal(v.s, 200, JSON.stringify(v.j));
+    // Commande payée : facture PDF disponible avec l'adresse canadienne, sans mention française.
+    const sirop = (await c('POST', '/api/admin/produits', { produit: { nom: 'Sirop', prix: 20, stock: 9 } })).j.id;
+    const slug = (await c('GET', '/api/admin/etat')).j.serveur.slug;
+    const r = await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: sirop, qte: 1 }], livraison: 'postes-regulier', client: { nom: 'Léa Tremblay', email: 'lea@exemple.ca', adresse: '5 rue Ontario', npa: 'H2X 1Y6', ville: 'Montréal' } }, false);
+    assert.equal(r.s, 201, JSON.stringify(r.j)); assert.equal(r.j.total, 35, 'sans taxe malgré le régime « normal » stocké');
+    await fetch(r.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' });
+    const pdf = await fetch(`${base}/api/admin/commandes/${r.j.commandeId}/facture-pdf`, { headers: { Cookie: cookie } });
+    assert.equal(pdf.status, 200, 'facture PDF produite avec une adresse canadienne : ' + (pdf.status !== 200 ? await pdf.clone().text() : ''));
+    const texte = Buffer.from(await pdf.arrayBuffer()).toString('latin1');
+    assert.doesNotMatch(texte, /293 B|SIRET|L441-10/, 'pas de mention française');
+  } finally { s.close(); }
+});

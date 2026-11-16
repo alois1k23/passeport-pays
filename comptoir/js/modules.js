@@ -204,14 +204,14 @@ function documentFacture(c, avoir = false) {
         : `${t.parTaux.map(x => `<div><span>Base HT ${pctTva(x.taux)}</span><span>${m(x.ht)}</span></div><div><span>TVA ${pctTva(x.taux)}</span><span>${m(x.tva)}</span></div>`).join('')}
            <div><span>Total HT</span><span>${m(t.ht)}</span></div><div><span>Total TVA</span><span>${m(t.tva)}</span></div><div class="total"><span>Total TTC</span><span>${m(t.ttc)}</span></div>`}
         ${!avoir && c.arrondi ? `<div><span>Arrondi espèces</span><span>${euros(c.arrondi)}</span></div><div><span>Encaissé</span><span>${euros(c.encaisse)}</span></div>` : ''}</div>
-      ${!avoir && c.canal === 'devis' ? `<p class="sous">${c.devis ? `Selon le devis ${esc(c.devis.numero)} accepté. ` : ''}${c.echeance ? `Échéance de paiement : ${new Date(c.echeance).toLocaleDateString('fr-FR')}. ` : ''}${!ch ? 'Pas d’escompte pour paiement anticipé. En cas de retard, pénalités au taux de trois fois le taux d’intérêt légal et indemnité forfaitaire pour frais de recouvrement de 40 € (art. L441-10 du Code de commerce).' : ''}</p>` : ''}
+      ${!avoir && c.canal === 'devis' ? `<p class="sous">${c.devis ? `Selon le devis ${esc(c.devis.numero)} accepté. ` : ''}${c.echeance ? `Échéance de paiement : ${new Date(c.echeance).toLocaleDateString('fr-FR')}. ` : ''}${etat.boutique.pays === 'fr' ? 'Pas d’escompte pour paiement anticipé. En cas de retard, pénalités au taux de trois fois le taux d’intérêt légal et indemnité forfaitaire pour frais de recouvrement de 40 € (art. L441-10 du Code de commerce).' : ''}</p>` : ''}
       ${c.carteCadeau && !avoir ? `<p class="sous">Dont ${euros(c.carteCadeau.montant)} réglés par carte cadeau ····${esc(c.carteCadeau.fin)}.</p>` : ''}
       <footer>${ch ? (sansTva ? 'Entreprise non assujettie à la TVA. ' : '') + (avoir ? 'Montant remboursé.' : 'Paiement reçu. Merci pour votre achat.') : (sansTva ? droitPays().franchise + '. ' : '') + (avoir ? 'Montant remboursé.' : 'Paiement reçu.')}</footer>
     </article>`;
 }
 
-/* Adresse postale complète : rue, puis code postal (4 ou 5 chiffres) et localité. */
-const adressePostale = a => !!a && !/compléter/.test(a) && /\d{4,5}\s+\S/.test(a);
+/* Adresse postale complète : rue, puis code postal (4 ou 5 chiffres) et localité ; au Canada, code postal à la fin (H2Y 1H1). */
+const adressePostale = a => !!a && !/compléter/.test(a) && (/\d{4,5}\s+\S/.test(a) || /,.+\s[A-Z]\d[A-Z] ?\d[A-Z]\d$/i.test(a.trim()));
 const COMPLETER = { Impressum: 'en-adresse', 'Mentions légales': 'en-siret', 'Médiateur de la consommation': 'en-med', TVA: 'en-tva', 'Facture électronique': '', 'Transparence dropshipping': '' };
 function vueConformite() {
   const e = etat.entreprise;
@@ -620,12 +620,12 @@ function vueCartesCadeaux() {
     ${(() => { const v = (ui.cartesCadeaux || {}).vente; if (!v) return ''; return `<form data-form="carte-vente" class="encart">
       <label class="case"><input type="checkbox" name="actif" ${v.actif ? 'checked' : ''}> Vendre des cartes cadeaux dans la boutique en ligne</label>
       <div class="rangee"><label class="champ"><span>Montants proposés</span><input name="montants" value="${esc(v.montants.join(', '))}" placeholder="25, 50, 100"></label>
-      <label class="champ"><span>Validité (mois)</span><input name="validiteMois" type="number" min="${etat.boutique.pays === 'be' ? 24 : 12}" max="120" value="${v.validiteMois}" class="champ-court"></label>
+      <label class="champ"><span>Validité (mois${etat.boutique.pays === 'ca' ? ', 0 = sans limite' : ''})</span><input name="validiteMois" type="number" min="${etat.boutique.pays === 'ca' ? 0 : etat.boutique.pays === 'be' ? 24 : 12}" max="120" value="${etat.boutique.pays === 'ca' && v.validiteMois === undefined ? 0 : v.validiteMois}" class="champ-court"></label>
       <button class="btn petit">Enregistrer</button></div>
       <p class="sous">Le client choisit un montant, paie en ligne et la carte est envoyée par e-mail (à lui ou à la personne à qui il l’offre). Pas de facture : c’est un bon d’achat, la TVA porte sur les articles achetés avec.</p></form>`; })()}
     <form data-form="carte-cadeau" class="rangee">
       <label class="champ"><span>Montant</span><input name="montant" type="number" min="1" max="10000" step="0.01" inputmode="decimal" required></label>
-      <label class="champ"><span>Validité</span><select name="expireMois"><option value="">Sans limite</option>${etat.boutique.pays === 'be' ? '' : '<option value="12">1 an</option>'}<option value="24" selected>2 ans</option><option value="36">3 ans</option></select></label>
+      <label class="champ"><span>Validité</span><select name="expireMois"><option value="" ${etat.boutique.pays === 'ca' ? 'selected' : ''}>Sans limite</option>${['be', 'ca'].includes(etat.boutique.pays) ? '' : '<option value="12">1 an</option>'}<option value="24" ${etat.boutique.pays === 'ca' ? '' : 'selected'}>2 ans</option><option value="36">3 ans</option></select></label>
       <label class="champ"><span>Pour (facultatif)</span><input name="destinataire" maxlength="100" autocomplete="off"></label>
       <button class="btn">Émettre la carte</button>
     </form>

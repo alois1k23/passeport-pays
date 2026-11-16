@@ -247,8 +247,8 @@ function renduFiche(etat, p, qte = 1) {
         // Pays d'expédition (les CGV y renvoient) et, hors du pays du client, frais d'importation possibles.
         if (p.type !== 'drop' || !p.entrepot) return '';
         const ch = etat.boutique.pays === 'ch', nom = { CH: 'Suisse', UE: 'Union européenne', CN: 'Chine' }[p.entrepot] || p.entrepot;
-        const etranger = ch ? p.entrepot !== 'CH' : p.entrepot !== 'UE';
-        return `<p class="sf-fiche-note">Expédié depuis : ${esc(nom)}.${etranger ? (ch ? ' TVA d’importation et frais de dédouanement possibles à la livraison (au-delà de CHF 5 de TVA par envoi).' : ' Envoi de l’extérieur de l’UE : TVA d’importation et frais du transporteur possibles à la livraison.') : ''}</p>`;
+        const ca = etat.boutique.pays === 'ca', etranger = ca ? true : ch ? p.entrepot !== 'CH' : p.entrepot !== 'UE';   // Canada : tout entrepôt du catalogue est à l'étranger
+        return `<p class="sf-fiche-note">Expédié depuis : ${esc(nom)}.${etranger ? (ca ? ' Envoi de l’étranger : taxes et frais de dédouanement possibles à la livraison.' : ch ? ' TVA d’importation et frais de dédouanement possibles à la livraison (au-delà de CHF 5 de TVA par envoi).' : ' Envoi de l’extérieur de l’UE : TVA d’importation et frais du transporteur possibles à la livraison.') : ''}</p>`;
       })()}
       ${Array.isArray(p.options) && Array.isArray(p.variantes) && p.variantes.length ? `<div class="sf-options" data-sans-traduction>${p.options.map((o, i) => {
         // Variante demandée par le lien (?variante=…, depuis Google Shopping par exemple), sinon la première en stock.

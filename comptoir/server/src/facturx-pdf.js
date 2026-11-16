@@ -127,7 +127,7 @@ function composer(c, config, { avoir, devise }) {
   let yv = y - 4;
   for (const morceau of t.couper(`${e.raison || config.boutique.nom}${ei}`, 14, 300, 'b', 2)) { p.ecrire(MARGE, yv, morceau, { taille: 14, s: 'b' }); yv -= 17; }
   yv -= 1;
-  const idLegal = ch ? 'IDE' : pays === 'be' ? 'N° d’entreprise' : 'SIRET';
+  const idLegal = ch ? 'IDE' : pays === 'be' ? 'N° d’entreprise' : pays === 'ca' ? 'NE' : 'SIRET';
   for (const ligne of [[e.forme, e.siret ? `${idLegal} ${e.siret}` : ''].filter(Boolean).join(' · '), e.tvaIntra ? `N° TVA ${e.tvaIntra}` : '', e.adresse, e.email].filter(Boolean)) {
     for (const morceau of t.couper(ligne, 8.5, 280)) { p.ecrire(MARGE, yv, morceau, { taille: 8.5, couleur: gris }); yv -= 12; }
   }
@@ -210,7 +210,7 @@ function composer(c, config, { avoir, devise }) {
   y -= 18;
 
   // Mentions : régime de TVA, paiement, et présence des données structurées.
-  const franchise = { fr: 'TVA non applicable, art. 293 B du CGI', be: 'Régime particulier de franchise des petites entreprises (art. 56bis du Code de la TVA)', ch: 'Entreprise non assujettie à la TVA' }[pays] || 'TVA non applicable';
+  const franchise = { fr: 'TVA non applicable, art. 293 B du CGI', be: 'Régime particulier de franchise des petites entreprises (art. 56bis du Code de la TVA)', ch: 'Entreprise non assujettie à la TVA', ca: 'Petit fournisseur : taxes de vente (TPS/TVH/TVQ) non perçues' }[pays] || 'TVA non applicable';
   const mentions = [];
   if (sansTva) mentions.push(`${franchise}.`);
   if (avoir) mentions.push(paye ? 'Montant remboursé.' : 'Cet avoir solde la facture, qui n’a pas été payée.');
