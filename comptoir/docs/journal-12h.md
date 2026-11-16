@@ -1381,3 +1381,27 @@ Après le changement de schéma des commandes (index canonique rattrapé au dém
   - l'effacement retrouve et efface le code et le rappel.
   
   Le test échoue bien sans la correction (vérifié en la désactivant).
+
+### Cycle 68 (05 h 05) : relecture de la rotation de clé (chantier 116)
+
+Relecture indépendante, qui a reproduit deux bugs. Constats corrigés :
+
+- **Grave : un conflit arrêtait toute la réindexation, le repère était posé quand même, et l'effacement devenait incomplet.**
+  - **Scénario :** l'ancienne clé est oubliée un temps, et le parrain obtient un second code. Au redémarrage avec l'ancienne clé, la contrainte d'unicité cassait la boucle. Aucun rappel de réassort n'était réindexé, même ceux d'autres clients, et la tentative n'était jamais refaite. Effacer ces clients laissait leurs rappels en base.
+  - **Désormais :**
+    - **fusion :** le second code est fondu dans le plus ancien (filleuls et récompenses rattachés, doublon supprimé) ;
+    - **une erreur par ligne :** une ligne en échec n'arrête plus les autres ;
+    - **tables séparées :** parrainage et réassort sont traités à part, l'un n'arrête plus l'autre ;
+    - **compte rendu :** chaque table indique ce qui a été fait, ce qui était illisible et ce qui a échoué ;
+    - **repère :** il n'est posé que si tout est propre, sinon tout est retenté au démarrage suivant.
+- **Moyen : une rotation faite avant ce chantier n'était jamais rattrapée.** La réindexation tourne maintenant aussi tant qu'une ancienne clé est listée, comme pour les devis et les webhooks. Les lignes déjà à jour sont sautées (environ 0,3 s pour 20 000 parrains).
+- **Moyen : des lignes illisibles étaient perdues pour de bon.** Pendant qu'une clé manque :
+  - un rappel de réassort illisible n'est plus supprimé : il est repoussé d'un jour, sans bloquer les suivants ;
+  - une récompense dont le parrain est illisible attend, au lieu d'être annulée ;
+  - les illisibles empêchent la pose du repère, donc ils sont retentés.
+- **Moyen : le test ne prouvait pas tout.** Il vérifie maintenant directement l'index des filleuls, et qu'une récompense gagnée sous l'ancienne clé reste utilisable sous la nouvelle. Un nouveau test couvre le second code créé sans l'ancienne clé, puis fusionné : un seul code reste, et l'effacement retrouve les deux rappels. Il échoue bien sans la fusion (vérifié).
+- **Faible : performances.** Chaque table est réindexée dans une seule transaction, 4 fois plus rapide qu'une écriture par ligne d'après la mesure de la relecture.
+- **Vérification complète** (7 étapes, dont la simulation de 60 jours) : tout passe.
+- **Laissé ouvert :**
+  - une commande restée illisible relance son rattrapage d'index canonique à chaque démarrage (journal bavard, sans perte) ;
+  - les comptes pro et la fidélité restent lisibles grâce à l'ancienne clé, sans être rechiffrés.

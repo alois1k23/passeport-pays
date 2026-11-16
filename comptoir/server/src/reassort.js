@@ -45,6 +45,9 @@ function creerReassort({ db, pii, signer }) {
     const out = [];
     for (const r of db.prepare('SELECT * FROM reassorts WHERE prochain <= ? ORDER BY prochain LIMIT ?').all(maintenant, limite)) {
       const d = ouvrir(r.boutique_id, r.id, r.donnees);
+      // Chiffré mais illisible (ancienne clé absente de SECRET_CHIFFREMENT_ANCIENNES) : gardé et repoussé d'un jour, jamais
+      // supprimé ; une donnée en clair abîmée, elle, est supprimée.
+      if (!d && /^v\d\./.test(r.donnees)) { db.prepare('UPDATE reassorts SET prochain = ? WHERE id = ?').run(maintenant + 86400000, r.id); continue; }
       if (!d) { db.prepare('DELETE FROM reassorts WHERE id = ?').run(r.id); continue; }
       if (!Array.isArray(d.lignes)) { db.prepare('DELETE FROM reassorts WHERE id = ?').run(r.id); continue; }
       out.push({ id: r.id, boutiqueId: r.boutique_id, jours: r.jours, envois: r.envois, prochain: r.prochain, creeLe: r.cree_le, ...d, jeton: jetonDe(r.id) });
@@ -83,18 +86,24 @@ function creerReassort({ db, pii, signer }) {
   /* Rotation de la clé des données clients : demandes rechiffrées, index de l'adresse recalculé avec la clé courante
      (sinon l'effacement d'un client ne retrouverait plus ses rappels). */
   function renouvelerCle() {
-    const x = P(); if (!x) return 0;
-    let n = 0;
-    for (const r of db.prepare('SELECT id, boutique_id, email_index, donnees FROM reassorts').all()) {
-      const ctx = { boutique: r.boutique_id, commande: `reassort:${r.id}` };
-      let d, ancien = false;
-      try { d = /^v\d\./.test(r.donnees) ? x.dechiffrer(r.donnees, ctx) : JSON.parse(r.donnees); ancien = !/^v\d\./.test(r.donnees) || x.aRenouveler(r.donnees, ctx); } catch { continue; }
-      if (!d || !d.email) continue;
-      const idx = index(r.boutique_id, d.email);
-      if (!ancien && idx === r.email_index) continue;
-      db.prepare('UPDATE reassorts SET email_index = ?, donnees = ? WHERE id = ?').run(idx, fermer(r.boutique_id, r.id, d), r.id); n++;
-    }
-    return n;
+    const x = P(); const bilan = { faits: 0, illisibles: 0, erreurs: 0 };
+    if (!x) return bilan;
+    db.exec('SAVEPOINT renouveler_reassorts');
+    try {
+      for (const r of db.prepare('SELECT id, boutique_id, email_index, donnees FROM reassorts').all()) {
+        try {
+          const ctx = { boutique: r.boutique_id, commande: `reassort:${r.id}` };
+          let d, ancien = false;
+          try { d = /^v\d\./.test(r.donnees) ? x.dechiffrer(r.donnees, ctx) : JSON.parse(r.donnees); ancien = !/^v\d\./.test(r.donnees) || x.aRenouveler(r.donnees, ctx); } catch { bilan.illisibles++; continue; }
+          if (!d || !d.email) continue;
+          const idx = index(r.boutique_id, d.email);
+          if (!ancien && idx === r.email_index) continue;
+          db.prepare('UPDATE reassorts SET email_index = ?, donnees = ? WHERE id = ?').run(idx, fermer(r.boutique_id, r.id, d), r.id); bilan.faits++;
+        } catch { bilan.erreurs++; }
+      }
+      db.exec('RELEASE renouveler_reassorts');
+    } catch (e) { db.exec('ROLLBACK TO renouveler_reassorts'); db.exec('RELEASE renouveler_reassorts'); throw e; }
+    return bilan;
   }
   return { creer, dus, reserver, repousser, commandesActives, supprimerCommande, compterClient, supprimerId, deJeton, compter, supprimerClient, toutSupprimer, renouvelerCle, MAX_RAPPELS };
 }

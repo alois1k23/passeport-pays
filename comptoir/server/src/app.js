@@ -532,11 +532,20 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       });
     }
     // Clé changée : tables qui gardent un index aveugle de l'adresse (parrainage, rappels de réassort) réindexées aussi.
-    if (complet) try { const n = PAR.renouvelerCle() + RE.renouvelerCle(); if (n) journal.log(`[donnees-clients] ${n} parrainage(s) ou rappel(s) de réassort réindexé(s) avec la clé courante`); } catch (e) { journal.error('[donnees-clients] parrainage et réassort', e.message); }
+    // Aussi tant qu'une ancienne clé est listée (comme les devis et les webhooks) : une rotation faite avant cette
+    // réindexation est rattrapée ; les lignes déjà à jour sont sautées. Chaque table à part : l'une n'arrête pas l'autre.
+    let restes = 0;
+    if (complet || trousseau.length > 1) for (const [nom, f] of [['parrainage', () => PAR.renouvelerCle()], ['rappels de réassort', () => RE.renouvelerCle()]]) {
+      try {
+        const r = f(); restes += r.illisibles + r.erreurs;
+        if (r.faits) journal.log(`[donnees-clients] ${nom} : ${r.faits} ligne(s) réindexée(s) avec la clé courante`);
+        if (r.illisibles || r.erreurs) journal.error(`[donnees-clients] ${nom} : ${r.illisibles} ligne(s) illisible(s), ${r.erreurs} en échec, retentées au prochain démarrage`);
+      } catch (e) { restes++; journal.error(`[donnees-clients] ${nom}`, e.message); }
+    }
     db.exec('PRAGMA secure_delete = OFF');
     // Repère posé seulement si tout a pu être relu : une commande illisible (ancienne clé oubliée dans
     // SECRET_CHIFFREMENT_ANCIENNES) sera rechiffrée et réindexée au prochain démarrage, une fois la clé remise.
-    if (!illisibles) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('pii-cle', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(PII.empreinteCle);
+    if (!illisibles && !restes) db.prepare("INSERT INTO cles (nom, valeur) VALUES ('pii-cle', ?) ON CONFLICT (nom) DO UPDATE SET valeur = excluded.valeur").run(PII.empreinteCle);
     if (faits) {
       journal.log(`[donnees-clients] ${faits} commande(s) chiffrée(s) ou rechiffrée(s)`);
       // Anciennes pages en clair effacées du fichier (SQLite réutilise les pages libérées sans les remettre à zéro).

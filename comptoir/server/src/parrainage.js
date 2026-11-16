@@ -134,7 +134,8 @@ function creerParrainage({ db, pii }) {
       if (f.filleul_canon && db.prepare("SELECT 1 FROM filleuls WHERE boutique_id = ? AND filleul_canon = ? AND statut = 'credite' AND commande_id <> ?").get(f.boutique_id, f.filleul_canon, f.commande_id)) { annuler(f.commande_id); return null; }   // une récompense par filleul
       const p = db.prepare('SELECT * FROM parrains WHERE boutique_id = ? AND code = ?').get(f.boutique_id, f.code);
       const d = p && ouvrir(f.boutique_id, p.code, p.donnees);
-      if (!p || !d || !d.email) { annuler(f.commande_id); return null; }   // parrain effacé entre-temps
+      if (!p) { annuler(f.commande_id); return null; }   // parrain effacé entre-temps
+      if (!d || !d.email) return null;   // illisible (ancienne clé absente) : on attend, rien n'est perdu
       // Même réseau que le parrain (empreinte, jamais l'adresse IP) : la remise du filleul reste, pas de récompense.
       if (p.reseau && i.reseau && p.reseau === i.reseau) { annuler(f.commande_id); return null; }
       // Plafond par personne (tous les codes de la même adresse canonique).
@@ -169,23 +170,37 @@ function creerParrainage({ db, pii }) {
      réindexation des commandes) : adresses des parrains rechiffrées, index recalculés avec la clé courante, récompenses
      et traces de filleuls rattachées aux nouveaux index. Sans cela, effacement et contrôles anti-abus perdraient la trace. */
   function renouvelerCle() {
-    const x = P(); if (!x) return 0;
-    let n = 0;
-    for (const p of db.prepare('SELECT * FROM parrains').all()) {
-      const ctx = { boutique: p.boutique_id, commande: `parrain:${p.code}` };
-      let d, ancien = false;
-      try { d = /^v\d\./.test(p.donnees) ? x.dechiffrer(p.donnees, ctx) : JSON.parse(p.donnees); ancien = !/^v\d\./.test(p.donnees) || x.aRenouveler(p.donnees, ctx); } catch { continue; }   // illisible : ancienne clé absente, laissé
-      if (!d || !d.email) continue;
-      const idx = index(p.boutique_id, d.email), canon = indexCanon(p.boutique_id, d.email);
-      if (!ancien && idx === p.email_index && canon === p.canon) continue;
-      db.prepare('UPDATE recompenses SET email_index = ? WHERE boutique_id = ? AND (parrain_code = ? OR email_index = ?)').run(idx, p.boutique_id, p.code, p.email_index);
-      db.prepare('UPDATE parrains SET email_index = ?, canon = ?, donnees = ? WHERE boutique_id = ? AND code = ?').run(idx, canon, fermer(p.boutique_id, p.code, d), p.boutique_id, p.code);
-      n++;
-    }
-    // Filleuls : leur index canonique est celui de leur commande (déjà réindexée).
-    n += db.prepare(`UPDATE filleuls SET filleul_canon = (SELECT c.email_canon FROM commandes c WHERE c.id = filleuls.commande_id)
-      WHERE filleul_canon IS NOT NULL AND EXISTS (SELECT 1 FROM commandes c WHERE c.id = filleuls.commande_id AND c.email_canon IS NOT NULL AND c.email_canon <> filleuls.filleul_canon)`).run().changes;
-    return n;
+    const x = P(); const bilan = { faits: 0, illisibles: 0, erreurs: 0 };
+    if (!x) return bilan;
+    db.exec('SAVEPOINT renouveler_parrains');   // une seule transaction (bien plus rapide qu'une écriture par ligne)
+    try {
+      for (const p of db.prepare('SELECT * FROM parrains ORDER BY cree_le').all()) {
+        try {
+          const ctx = { boutique: p.boutique_id, commande: `parrain:${p.code}` };
+          let d, ancien = false;
+          try { d = /^v\d\./.test(p.donnees) ? x.dechiffrer(p.donnees, ctx) : JSON.parse(p.donnees); ancien = !/^v\d\./.test(p.donnees) || x.aRenouveler(p.donnees, ctx); } catch { bilan.illisibles++; continue; }   // ancienne clé absente : retenté au prochain démarrage
+          if (!d || !d.email) continue;
+          const idx = index(p.boutique_id, d.email), canon = indexCanon(p.boutique_id, d.email);
+          if (!ancien && idx === p.email_index && canon === p.canon) continue;
+          // Un second code créé pour la même adresse pendant que l'ancienne clé manquait : fusion dans le plus ancien
+          // (celui-ci, lu en premier), ses filleuls et récompenses rattachés, le doublon supprimé.
+          const double = db.prepare('SELECT code FROM parrains WHERE boutique_id = ? AND email_index = ? AND code <> ?').get(p.boutique_id, idx, p.code);
+          if (double) {
+            db.prepare('UPDATE filleuls SET code = ? WHERE boutique_id = ? AND code = ?').run(p.code, p.boutique_id, double.code);
+            db.prepare('UPDATE recompenses SET parrain_code = ? WHERE boutique_id = ? AND parrain_code = ?').run(p.code, p.boutique_id, double.code);
+            db.prepare('DELETE FROM parrains WHERE boutique_id = ? AND code = ?').run(p.boutique_id, double.code);
+          }
+          db.prepare('UPDATE recompenses SET email_index = ? WHERE boutique_id = ? AND (parrain_code = ? OR email_index = ?)').run(idx, p.boutique_id, p.code, p.email_index);
+          db.prepare('UPDATE parrains SET email_index = ?, canon = ?, donnees = ? WHERE boutique_id = ? AND code = ?').run(idx, canon, fermer(p.boutique_id, p.code, d), p.boutique_id, p.code);
+          bilan.faits++;
+        } catch { bilan.erreurs++; }   // une ligne en échec n'arrête pas les autres
+      }
+      // Filleuls : leur index canonique est celui de leur commande (déjà réindexée).
+      bilan.faits += db.prepare(`UPDATE filleuls SET filleul_canon = (SELECT c.email_canon FROM commandes c WHERE c.id = filleuls.commande_id)
+        WHERE filleul_canon IS NOT NULL AND EXISTS (SELECT 1 FROM commandes c WHERE c.id = filleuls.commande_id AND c.email_canon IS NOT NULL AND c.email_canon <> filleuls.filleul_canon)`).run().changes;
+      db.exec('RELEASE renouveler_parrains');
+    } catch (e) { db.exec('ROLLBACK TO renouveler_parrains'); db.exec('RELEASE renouveler_parrains'); throw e; }
+    return bilan;
   }
   function supprimerBoutique(bid) { for (const t of ['parrains', 'filleuls', 'recompenses']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(bid); }
 
