@@ -970,7 +970,7 @@ Relecture indépendante (Vus récemment, prix unitaire, informations alimentaire
   - Ensuite, les produits réellement achetés ensemble.
 - **Dans le panier**, la suggestion propose un complément des articles du panier, au lieu du premier produit disponible du catalogue.
 - **Achats groupés** : comptés en SQL sur les lignes des commandes payées des 12 derniers mois. Les commandes en attente, annulées et remboursées ne comptent pas. Seules les lignes de commande sont lues : les données des clients restent chiffrées et ne sont pas lues. Le calcul est gardé 10 minutes par boutique.
-- **Vie privée** : une paire n'est publiée qu'à partir de 3 commandes distinctes, pour qu'aucun bloc ne révèle l'achat d'un seul client.
+- **Vie privée** : une paire n'est publiée qu'à partir de 3 clients distincts (corrigé au cycle 54 : c'étaient d'abord 3 commandes).
 - **Contrôles** :
   - le serveur retire de la liste le produit lui-même, les doublons et les identifiants invalides, et en garde 3 au plus ;
   - à la publication, seuls les produits en vente restent : un produit masqué ou supprimé disparaît du bloc.
@@ -1032,3 +1032,29 @@ Relecture indépendante ; constats corrigés :
   - tout ou rien.
 - **Vérifié dans Chromium**, bureau et mobile : cocher n'ouvre pas la fiche ; -20 % avec prix barré donne Pull 64 (80) et Écharpe 32 (40), le Bonnet non coché reste à 25 ; « tout sélectionner » puis masquer : 3 masqués ; pas de débordement ; aucune erreur.
   - Bug trouvé et corrigé pendant la vérification : sur mobile, la case était recouverte par la vignette du produit. Elle est maintenant placée à côté.
+
+### Cycle 54 (01 h 35) : relecture de « Souvent achetés avec » (chantier 109)
+
+Relecture indépendante. Constats corrigés :
+
+- **Grave : un calcul quadratique et synchrone se faisait dans une route publique.** Avec 3 000 commandes de 100 lignes, il durait 70 s. node:sqlite étant synchrone, cela bloquait le serveur de toutes les boutiques, et une mémoire vidée en entier au-delà de 2 000 boutiques forçait des recalculs. Désormais :
+  - le calcul est borné : les 1 000 dernières commandes, 15 produits distincts par commande, puis une auto-jointure ;
+  - il est mesuré à 20 ms pour 50 000 commandes de 4 lignes, 191 ms pour 5 000 de 30 et 271 ms pour 3 000 de 100 ;
+  - une fois connu, le résultat est servi tel quel et recalculé après la réponse (`setImmediate`) ;
+  - la mémoire garde 500 boutiques au plus et fait sortir la plus ancienne.
+- **Moyens :**
+  - **Le seuil comptait des commandes, pas des clients.** Un client qui commandait trois fois la même paire la faisait publier. Le seuil porte maintenant sur 3 clients distincts (index aveugle de l'e-mail ; une vente anonyme compte pour un client). Le test vérifie qu'un client fidèle seul ne publie rien.
+  - **La coupe globale à 5 000 paires privait la longue traîne de compléments.** Elle est remplacée par un classement par produit (10 partenaires chacun).
+  - **Les choix étaient perdus quand le formulaire se redessinait** (ajout de photo, recherche). Les trois listes portaient le même nom et la restauration ne savait pas les distinguer. Elles ont maintenant des noms distincts, et la restauration distingue aussi les cases d'un même groupe : les allergènes avaient le même défaut, corrigé lui aussi.
+- **Faibles :**
+  - les lignes ajoutées par une offre ne comptent plus (elles s'auto-renforçaient) ;
+  - les compléments disponibles passent avant les épuisés ;
+  - le bouton annonce « Voir …, prix, épuisé » ;
+  - l'aide précise que la suggestion au panier dépend du réglage Conversion ;
+  - les doublons sont retirés aussi en mode démonstration.
+- **Vérifié de nouveau** dans Chromium, bureau et mobile : choix enregistrés, bloc, clic, suggestion au panier ; aucune erreur.
+- **Laissé ouvert :**
+  - les retours partiels et les litiges perdus comptent encore comme achats ;
+  - après un effacement de données client, la mémoire n'est pas vidée tout de suite (10 minutes au plus ; l'agrégat est pseudonyme) ;
+  - la vignette reste un `div` dans un bouton ; le même schéma existe déjà sur les cartes de la boutique ;
+  - les listes du formulaire d'une très grosse boutique (5 000 produits) sont lourdes à afficher.

@@ -3443,7 +3443,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     // Compléments : choix du marchand d'abord, puis les achats groupés réels ; seulement des produits en vente.
     const enVente = new Set(produits.map(p => p.id)), groupes = achetesEnsemble(b.id);
     for (const p of produits) {
-      const c = [...new Set([...(p.complements || []), ...(groupes.get(p.id) || [])])].filter(id => id !== p.id && enVente.has(id)).slice(0, 3);
+      // Produits disponibles d'abord (un complément épuisé ne prend pas la place d'un produit en stock).
+      const enStock = id => { const x = produits.find(y => y.id === id); return x && (x.type === 'drop' || x.stock > 0); };
+      const tous = [...new Set([...(p.complements || []), ...(groupes.get(p.id) || [])])].filter(id => id !== p.id && enVente.has(id));
+      const c = [...tous.filter(enStock), ...tous.filter(id => !enStock(id))].slice(0, 3);
       delete p.complements; if (c.length) p.complements = c;
     }
     const avisRecents = db.prepare('SELECT a.note, a.texte, a.prenom, a.ville, a.cree_le, a.reponse, a.produit_id FROM avis a WHERE a.boutique_id = ? AND a.texte <> \'\' ORDER BY a.cree_le DESC LIMIT 6').all(b.id);
@@ -3478,23 +3481,36 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     };
   });
   /* « Souvent achetés ensemble » : paires de produits présents dans les mêmes commandes payées des 12 derniers mois.
-     Une paire n'est retenue qu'à partir de 3 commandes distinctes : rien ne laisse deviner l'achat d'un seul client.
-     Calcul gardé 10 minutes par boutique. */
+     Vie privée : une paire n'est retenue qu'achetée par au moins 3 clients distincts (index aveugle de l'e-mail ; une vente
+     anonyme compte pour un client) : rien ne laisse deviner les habitudes d'une seule personne.
+     Coût borné (node:sqlite est synchrone) : les 1 000 dernières commandes, 15 produits distincts au plus par commande, lignes
+     d'offre exclues ; 10 partenaires au plus par produit (classement par produit, pas de coupe globale). Gardé 10 minutes
+     par boutique, 500 boutiques au plus en mémoire (la plus ancienne sort). Une fois connu, le résultat est servi tel quel
+     et recalculé après la réponse (setImmediate) : un visiteur n'attend jamais ce calcul, sauf la toute première fois. */
   const ensembles = new Map();
-  const achetesEnsemble = boutiqueId => {
-    const m = ensembles.get(boutiqueId);
-    if (m && Date.now() - m.le < 600000) return m.v;
-    const rows = db.prepare(`SELECT x, y, COUNT(*) n FROM (
-        SELECT DISTINCT c.id, json_extract(a.value, '$.produitId') x, json_extract(b.value, '$.produitId') y
-        FROM commandes c, json_each(c.donnees, '$.lignes') a, json_each(c.donnees, '$.lignes') b
-        WHERE c.boutique_id = ? AND c.date > ? AND c.statut NOT IN ('attente', 'annulee', 'remboursee')
-          AND json_type(c.donnees, '$.lignes') = 'array' AND x IS NOT NULL AND y IS NOT NULL AND x <> y)
-      GROUP BY x, y HAVING n >= 3 ORDER BY n DESC, y LIMIT 5000`).all(boutiqueId, Date.now() - 365 * 86400000);
+  const requeteEnsembles = db.prepare(`WITH recentes AS (
+        SELECT id, donnees, COALESCE(email_index, id) client FROM commandes
+        WHERE boutique_id = ? AND date > ? AND statut NOT IN ('attente', 'annulee', 'remboursee') AND json_type(donnees, '$.lignes') = 'array'
+        ORDER BY date DESC LIMIT 1000),
+      prods AS (
+        SELECT DISTINCT r.id, r.client, json_extract(l.value, '$.produitId') pid FROM recentes r, json_each(r.donnees, '$.lignes') l
+        WHERE l.key < 60 AND json_extract(l.value, '$.produitId') IS NOT NULL AND json_extract(l.value, '$.offre') IS NULL),
+      bornes AS (SELECT id, client, pid FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY id ORDER BY pid) k FROM prods) WHERE k <= 15),
+      paires AS (SELECT a.pid x, b.pid y, COUNT(DISTINCT a.client) n FROM bornes a JOIN bornes b ON a.id = b.id AND a.pid <> b.pid GROUP BY a.pid, b.pid HAVING n >= 3)
+    SELECT x, y FROM (SELECT x, y, n, ROW_NUMBER() OVER (PARTITION BY x ORDER BY n DESC, y) k FROM paires) WHERE k <= 10 ORDER BY x, k`);
+  const calculerEnsembles = boutiqueId => {
     const v = new Map();
-    for (const r of rows) { const l = v.get(r.x) || []; if (l.length < 6) l.push(r.y); v.set(r.x, l); }
-    if (ensembles.size > 2000) ensembles.clear();
+    for (const r of requeteEnsembles.all(boutiqueId, Date.now() - 365 * 86400000)) { const l = v.get(r.x) || []; l.push(r.y); v.set(r.x, l); }
+    ensembles.delete(boutiqueId);
+    if (ensembles.size >= 500) ensembles.delete(ensembles.keys().next().value);
     ensembles.set(boutiqueId, { v, le: Date.now() });
     return v;
+  };
+  const achetesEnsemble = boutiqueId => {
+    const m = ensembles.get(boutiqueId);
+    if (!m) return calculerEnsembles(boutiqueId);
+    if (Date.now() - m.le >= 600000 && !m.enCours) { m.enCours = true; setImmediate(() => { try { calculerEnsembles(boutiqueId); } catch (e) { m.enCours = false; journal.error(`[complements] ${e.message}`); } }); }
+    return m.v;
   };
   const compteursRisque = Risque.creerCompteurs(), paniersMoyens = new Map();
   const panierMoyen = boutiqueId => {

@@ -720,8 +720,8 @@ function vueProduits() {
         const autres = etat.produits.filter(x => x.id !== p.id && !x.supprime).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
         if (!autres.length) return '';
         const choix = p.complements || [];
-        return `<fieldset class="pf-complements"><legend>Produits complémentaires (facultatif)</legend><div class="trois">${[0, 1, 2].map(i => `<label class="champ"><span>Complément ${i + 1}</span><select name="complements" id="pf-complement-${i}"><option value="">—</option>${autres.map(x => `<option value="${esc(x.id)}" ${choix[i] === x.id ? 'selected' : ''}>${esc(x.nom)}</option>`).join('')}</select></label>`).join('')}</div>
-        <p class="sous">Proposés sous « Souvent achetés avec » sur la fiche et en suggestion dans le panier. Laissés vides, Comptoir propose les produits que vos clients achètent réellement ensemble (au moins 3 commandes).</p></fieldset>`;
+        return `<fieldset class="pf-complements"><legend>Produits complémentaires (facultatif)</legend><div class="trois">${[0, 1, 2].map(i => `<label class="champ"><span>Complément ${i + 1}</span><select name="complement${i}" id="pf-complement-${i}"><option value="">—</option>${autres.map(x => `<option value="${esc(x.id)}" ${choix[i] === x.id ? 'selected' : ''}>${esc(x.nom)}</option>`).join('')}</select></label>`).join('')}</div>
+        <p class="sous">Proposés sous « Souvent achetés avec » sur la fiche, et en suggestion dans le panier si elle est activée (Conversion). Laissés vides, Comptoir propose les produits que vos clients achètent réellement ensemble (au moins 3 commandes).</p></fieldset>`;
       })()}
       <label class="champ"><span>Marque (facultatif)</span><input id="pf-marque" name="marque" maxlength="70" value="${esc(p.marque || '')}" placeholder="Fabricant, sinon le nom de votre boutique"></label>
       <label class="champ"><span>Code-barres EAN / GTIN (facultatif)</span><input id="pf-ean" name="ean" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="20" value="${esc(p.ean || '')}" placeholder="ex. 7610000000000" aria-describedby="aide-ean"></label>
@@ -1173,10 +1173,11 @@ function avisContraste(th) {
 }
 function rendreEnGardantProduit() {
   const f = document.querySelector('[data-form="produit"]');
-  const v = f ? [...f.elements].filter(e => e.name).map(e => [e.name, e.type === 'checkbox' ? e.checked : e.value]) : [];
+  // Par nom et valeur : les cases d'un même groupe (allergènes) portent le même nom.
+  const v = f ? [...f.elements].filter(e => e.name).map(e => [e.name, e.type === 'checkbox' ? e.value : null, e.type === 'checkbox' ? e.checked : e.value]) : [];
   rendre();
   const nf = document.querySelector('[data-form="produit"]');
-  if (nf) for (const [k, val] of v) { const el = nf.elements[k]; if (el) { if (el.type === 'checkbox') el.checked = val; else el.value = val; } }
+  if (nf) for (const [k, cv, val] of v) { const el = [...nf.elements].find(x => x.name === k && (cv === null || x.value === cv)); if (el) { if (el.type === 'checkbox') el.checked = val; else el.value = val; } }
 }
 document.addEventListener('change', async e => {
   if (e.target.id !== 'pf-photo' || !ui.produitEdite) return;
@@ -1424,7 +1425,7 @@ document.addEventListener('submit', e => {
   const f = e.target;
   if (f.dataset.form === 'produit') {
     const d = new FormData(f);
-    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined, tauxReduit: d.get('tauxReduit') === 'on', numerique: d.get('numerique') === 'on', precommande: d.get('precommande') === 'on', expeditionPrevue: d.get('expeditionPrevue') || undefined, reassortJours: d.get('reassortJours') ? Number(d.get('reassortJours')) : undefined, ean: (d.get('ean') || '').trim() || undefined, marque: (d.get('marque') || '').trim() || undefined, origine: (d.get('origine') || '').trim() || undefined, ingredients: (d.get('ingredients') || '').trim() || undefined, complements: d.getAll('complements').filter(Boolean), allergenes: d.getAll('allergenes'), contenance: d.get('contenance') ? Number(d.get('contenance')) : undefined, unite: d.get('contenance') ? d.get('unite') : undefined, composants: typeof lireComposants === 'function' ? lireComposants(d) : undefined };
+    const p = { ...ui.produitEdite, nom: d.get('nom'), description: d.get('description'), prix: Number(d.get('prix')), stock: Number(d.get('stock')), cout: d.get('cout') === '' || d.get('cout') === null ? undefined : Number(d.get('cout')), categorie: d.get('categorie'), actif: d.get('actif') === 'on', aVerifier: false, prixReference: Number(d.get('prixReference')) || undefined, tauxReduit: d.get('tauxReduit') === 'on', numerique: d.get('numerique') === 'on', precommande: d.get('precommande') === 'on', expeditionPrevue: d.get('expeditionPrevue') || undefined, reassortJours: d.get('reassortJours') ? Number(d.get('reassortJours')) : undefined, ean: (d.get('ean') || '').trim() || undefined, marque: (d.get('marque') || '').trim() || undefined, origine: (d.get('origine') || '').trim() || undefined, ingredients: (d.get('ingredients') || '').trim() || undefined, complements: [...new Set([0, 1, 2].map(i => d.get('complement' + i)).filter(Boolean))], allergenes: d.getAll('allergenes'), contenance: d.get('contenance') ? Number(d.get('contenance')) : undefined, unite: d.get('contenance') ? d.get('unite') : undefined, composants: typeof lireComposants === 'function' ? lireComposants(d) : undefined };
     p.historiquePrix = PrixBarres.noterPrix(ui.produitEdite.historiquePrix, p.prix);
     const i = etat.produits.findIndex(x => x.id === p.id);
     if (i >= 0) etat.produits[i] = p; else etat.produits.push(p);

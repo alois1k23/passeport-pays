@@ -26,20 +26,23 @@ test('compléments : choix du marchand, puis achats groupés à partir de 3 comm
     assert.deepEqual(p[cafe], [tasse, filtre], 'le produit masqué est retiré');
     assert.equal(p[sucre], undefined, 'pas encore d’achats groupés');
     // Achats groupés : sucre + tasse dans 2 commandes payées : pas assez ; une 3e : la paire apparaît.
-    const commander = async () => {
-      const r = await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: sucre, qte: 1 }, { produitId: tasse, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Ana Rossi', email: 'ana@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, false);
+    let n = 0;
+    const commander = async (email = `client${++n}@exemple.ch`) => {
+      const r = await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: sucre, qte: 1 }, { produitId: tasse, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Ana Rossi', email, adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, false);
       await fetch(r.j.paiementUrl + '/confirmer', { method: 'POST' });
     };
-    await commander(); await commander();
+    // Un seul client qui commande trois fois la même paire : ses habitudes ne sont pas publiées.
+    await commander('fidele@exemple.ch'); await commander('fidele@exemple.ch'); await commander('fidele@exemple.ch');
+    await commander();
     // Une commande non payée ne compte pas.
     await c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: sucre, qte: 1 }, { produitId: tasse, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Bo', email: 'bo@exemple.ch', adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' } }, false);
     const neuve = () => { s.removeAllListeners('request'); s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } })); };
     neuve();   // le calcul est gardé 10 minutes : une nouvelle application relit la base
-    assert.equal((await pub())[sucre], undefined, '2 commandes payées (et une impayée) : rien n’est publié');
+    assert.equal((await pub())[sucre], undefined, '2 clients distincts (dont un qui a commandé 3 fois), et une commande impayée : rien n’est publié');
     await commander();
     neuve();
     p = await pub();
-    assert.deepEqual(p[sucre], [tasse], '3 commandes payées : la paire est publiée');
+    assert.deepEqual(p[sucre], [tasse], '3 clients distincts : la paire est publiée');
     assert.deepEqual(p[tasse], [sucre], 'dans les deux sens');
     assert.deepEqual(p[cafe], [tasse, filtre], 'le choix du marchand reste en tête');
   } finally { s.close(); }
