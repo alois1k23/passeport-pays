@@ -1348,3 +1348,13 @@ Seconde relecture, ciblée sur les corrections du cycle 64 : elles tiennent (auc
 - **Limites assumées :**
   - les relais d'adresse (iCloud Hide My Email, Firefox Relay…) et les adresses jetables restent hors de portée. Le minimum, le plafond, le délai après livraison et le signal réseau en limitent le gain ;
   - après l'effacement d'un client à sa demande, la même personne peut redevenir filleul : le droit à l'effacement passe avant.
+
+### Cycle 66 (04 h 25) : vérification complète (npm run verifier)
+
+Après le changement de schéma des commandes (index canonique rattrapé au démarrage), la vérification complète passe ses 7 étapes :
+- tests automatiques ;
+- parcours de bout en bout ;
+- achat au clavier, et espace marchand au clavier ;
+- simulation de 60 jours avec 100 marchands ;
+- fuzzing HTTP de toutes les routes ;
+- charge réduite (100 boutiques).
