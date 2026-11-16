@@ -165,9 +165,31 @@ function creerParrainage({ db, pii }) {
     db.prepare('DELETE FROM parrains WHERE boutique_id = ? AND (email_index = ? OR canon = ?)').run(bid, idx, canon);
     db.prepare("UPDATE filleuls SET filleul_canon = NULL WHERE boutique_id = ? AND filleul_canon = ?").run(bid, canon);
   }
+  /* Rotation de la clé de chiffrement des données clients (appelée au démarrage quand la clé a changé, après la
+     réindexation des commandes) : adresses des parrains rechiffrées, index recalculés avec la clé courante, récompenses
+     et traces de filleuls rattachées aux nouveaux index. Sans cela, effacement et contrôles anti-abus perdraient la trace. */
+  function renouvelerCle() {
+    const x = P(); if (!x) return 0;
+    let n = 0;
+    for (const p of db.prepare('SELECT * FROM parrains').all()) {
+      const ctx = { boutique: p.boutique_id, commande: `parrain:${p.code}` };
+      let d, ancien = false;
+      try { d = /^v\d\./.test(p.donnees) ? x.dechiffrer(p.donnees, ctx) : JSON.parse(p.donnees); ancien = !/^v\d\./.test(p.donnees) || x.aRenouveler(p.donnees, ctx); } catch { continue; }   // illisible : ancienne clé absente, laissé
+      if (!d || !d.email) continue;
+      const idx = index(p.boutique_id, d.email), canon = indexCanon(p.boutique_id, d.email);
+      if (!ancien && idx === p.email_index && canon === p.canon) continue;
+      db.prepare('UPDATE recompenses SET email_index = ? WHERE boutique_id = ? AND (parrain_code = ? OR email_index = ?)').run(idx, p.boutique_id, p.code, p.email_index);
+      db.prepare('UPDATE parrains SET email_index = ?, canon = ?, donnees = ? WHERE boutique_id = ? AND code = ?').run(idx, canon, fermer(p.boutique_id, p.code, d), p.boutique_id, p.code);
+      n++;
+    }
+    // Filleuls : leur index canonique est celui de leur commande (déjà réindexée).
+    n += db.prepare(`UPDATE filleuls SET filleul_canon = (SELECT c.email_canon FROM commandes c WHERE c.id = filleuls.commande_id)
+      WHERE filleul_canon IS NOT NULL AND EXISTS (SELECT 1 FROM commandes c WHERE c.id = filleuls.commande_id AND c.email_canon IS NOT NULL AND c.email_canon <> filleuls.filleul_canon)`).run().changes;
+    return n;
+  }
   function supprimerBoutique(bid) { for (const t of ['parrains', 'filleuls', 'recompenses']) db.prepare(`DELETE FROM ${t} WHERE boutique_id = ?`).run(bid); }
 
-  return { codePour, trouver, noterFilleul, dejaParraine, annulerFilleul, oublierCommande, echeances, stats, effacer, supprimerBoutique, index, indexCanon, normaliser };
+  return { codePour, trouver, noterFilleul, dejaParraine, annulerFilleul, oublierCommande, echeances, stats, effacer, supprimerBoutique, renouvelerCle, index, indexCanon, normaliser };
 }
 
 module.exports = { creerParrainage, nettoyerReglages, canonique, STATUTS_PAYES, DELAI_RECOMPENSE };

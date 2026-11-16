@@ -1313,7 +1313,7 @@ Relecture indépendante, qui a reproduit les abus. Constats corrigés :
   - effacement.
 - **Vérifié de nouveau** dans Chromium, bureau en français et mobile en allemand.
 - **Laissé ouvert :**
-  - **clé de chiffrement :** une rotation de la clé ne réindexe pas encore les tables du parrainage. Les rappels de réassort ont la même limite. À traiter avec la rotation, en une fois ;
+  - **clé de chiffrement :** une rotation de la clé ne réindexait pas les tables du parrainage ni les rappels de réassort (corrigé au cycle 67) ;
   - **e-mail de récompense :** en français seulement ;
   - **même réseau :** la commande du filleul n'est pas comparée au réseau du parrain ;
   - **caisse :** les codes ne s'y utilisent pas.
@@ -1358,3 +1358,26 @@ Après le changement de schéma des commandes (index canonique rattrapé au dém
 - simulation de 60 jours avec 100 marchands ;
 - fuzzing HTTP de toutes les routes ;
 - charge réduite (100 boutiques).
+
+### Cycle 67 (04 h 45) : rotation de la clé pour le parrainage et les rappels de réassort (chantier 116)
+
+- **Le problème** (laissé ouvert au cycle 64) : quand l'exploitant change `SECRET_CHIFFREMENT` (l'ancienne clé passe dans `SECRET_CHIFFREMENT_ANCIENNES`), les commandes étaient rechiffrées et réindexées au démarrage, mais pas les autres tables qui gardent un index aveugle de l'adresse. Conséquences :
+  - un parrain recevait un second code ;
+  - ses récompenses étaient refusées ;
+  - les contrôles « première commande » et « soi-même » ne voyaient plus les anciennes commandes ;
+  - l'effacement d'un client ne retrouvait plus son code de parrain ni ses rappels de réassort.
+- **La correction**, au démarrage quand la clé a changé :
+  - l'index canonique des commandes est recalculé avec le reste ;
+  - les parrains sont rechiffrés, leurs index (exact et canonique) recalculés, et leurs récompenses rattachées au nouvel index ;
+  - les traces de filleuls reprennent l'index canonique de leur commande ;
+  - les rappels de réassort sont rechiffrés et réindexés.
+  
+  Une donnée illisible (ancienne clé absente) est laissée telle quelle.
+- **Démarrage d'une ancienne base** : la colonne `email_canon` est créée avant la réécriture des commandes qui l'utilise.
+- **Test** `rotation-parrainage.test.js`, avec un parrain, un filleul et un rappel de réassort sous la clé K1, puis un redémarrage avec K2 :
+  - index recalculés ;
+  - le parrain retrouve son code (pas de second) ;
+  - un alias du parrain reste refusé, le filleul ne revient pas sous un alias ;
+  - l'effacement retrouve et efface le code et le rappel.
+  
+  Le test échoue bien sans la correction (vérifié en la désactivant).

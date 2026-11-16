@@ -80,7 +80,23 @@ function creerReassort({ db, pii, signer }) {
   const compter = bid => db.prepare('SELECT COUNT(*) n FROM reassorts WHERE boutique_id = ?').get(bid).n;
   const supprimerClient = (bid, email) => db.prepare('DELETE FROM reassorts WHERE boutique_id = ? AND email_index = ?').run(bid, index(bid, email)).changes;
   const toutSupprimer = bid => db.prepare('DELETE FROM reassorts WHERE boutique_id = ?').run(bid);
-  return { creer, dus, reserver, repousser, commandesActives, supprimerCommande, compterClient, supprimerId, deJeton, compter, supprimerClient, toutSupprimer, MAX_RAPPELS };
+  /* Rotation de la clé des données clients : demandes rechiffrées, index de l'adresse recalculé avec la clé courante
+     (sinon l'effacement d'un client ne retrouverait plus ses rappels). */
+  function renouvelerCle() {
+    const x = P(); if (!x) return 0;
+    let n = 0;
+    for (const r of db.prepare('SELECT id, boutique_id, email_index, donnees FROM reassorts').all()) {
+      const ctx = { boutique: r.boutique_id, commande: `reassort:${r.id}` };
+      let d, ancien = false;
+      try { d = /^v\d\./.test(r.donnees) ? x.dechiffrer(r.donnees, ctx) : JSON.parse(r.donnees); ancien = !/^v\d\./.test(r.donnees) || x.aRenouveler(r.donnees, ctx); } catch { continue; }
+      if (!d || !d.email) continue;
+      const idx = index(r.boutique_id, d.email);
+      if (!ancien && idx === r.email_index) continue;
+      db.prepare('UPDATE reassorts SET email_index = ?, donnees = ? WHERE id = ?').run(idx, fermer(r.boutique_id, r.id, d), r.id); n++;
+    }
+    return n;
+  }
+  return { creer, dus, reserver, repousser, commandesActives, supprimerCommande, compterClient, supprimerId, deJeton, compter, supprimerClient, toutSupprimer, renouvelerCle, MAX_RAPPELS };
 }
 
 const joursValides = j => { const n = Math.round(Number(j)); return Number.isFinite(n) && n >= JOURS_MIN && n <= JOURS_MAX ? n : null; };

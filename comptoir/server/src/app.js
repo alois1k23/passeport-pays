@@ -487,6 +487,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   // Secrets de double authentification : déchiffrés avec la première clé du trousseau qui convient.
   const dechiffrerSecret2fa = enveloppe => { for (const k of trousseau) { try { return { secret: totp.dechiffrer(k, enveloppe), ancien: !k.equals(cleChiffrement) }; } catch { /* clé suivante */ } } throw new Error('secret de double authentification illisible'); };
   try { db.exec('ALTER TABLE commandes ADD COLUMN email_index TEXT'); } catch { /* déjà là */ }
+  try { db.exec('ALTER TABLE commandes ADD COLUMN email_canon TEXT'); } catch { /* déjà là */ }   // index de l'adresse canonique (parrainage, bienvenue)
+  db.exec('CREATE INDEX IF NOT EXISTS commandes_canon ON commandes(boutique_id, email_canon)');
   // Index du client avec la date : la dernière commande d'un client (liste des clients de l'API) sans parcourir la boutique.
   // Il remplace l'ancien index (boutique, client), dont il couvre aussi les recherches.
   db.exec('CREATE INDEX IF NOT EXISTS commandes_client_date ON commandes (boutique_id, email_index, date)');
@@ -514,7 +516,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     const complet = !repere || repere.valeur !== PII.empreinteCle;
     db.exec('PRAGMA secure_delete = ON');   // pendant la mise à niveau : les pages libérées (anciennes données en clair) sont remises à zéro
     const lire = db.prepare(`SELECT rowid, id, boutique_id, donnees FROM commandes WHERE rowid > ? ${complet ? '' : "AND (CASE WHEN json_valid(donnees) THEN json_extract(donnees, '$.client') END) IS NOT NULL"} ORDER BY rowid LIMIT 1000`);
-    const ecrire = db.prepare('UPDATE commandes SET donnees = ?, email_index = ? WHERE rowid = ?');
+    const ecrire = db.prepare('UPDATE commandes SET donnees = ?, email_index = ?, email_canon = ? WHERE rowid = ?');
     let dernier = 0, faits = 0, illisibles = 0, abimees = 0;
     for (;;) {
       const lot = lire.all(dernier); if (!lot.length) break;
@@ -525,10 +527,12 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
           const ctx = { boutique: r.boutique_id, commande: r.id };
           if (d.clientChiffre) { try { if (!PII.aRenouveler(d.clientChiffre, ctx) && !complet) continue; } catch { illisibles++; continue; } d = PII.depuisStockage(d, ctx); }
           else if (!('client' in d)) continue;
-          ecrire.run(stockerDonneesCommande(d, r.boutique_id, r.id), indexEmail(d, r.boutique_id) ?? null, r.rowid); faits++;
+          ecrire.run(stockerDonneesCommande(d, r.boutique_id, r.id), indexEmail(d, r.boutique_id) ?? null, indexCanonCommande(d, r.boutique_id), r.rowid); faits++;
         }
       });
     }
+    // Clé changée : tables qui gardent un index aveugle de l'adresse (parrainage, rappels de réassort) réindexées aussi.
+    if (complet) try { const n = PAR.renouvelerCle() + RE.renouvelerCle(); if (n) journal.log(`[donnees-clients] ${n} parrainage(s) ou rappel(s) de réassort réindexé(s) avec la clé courante`); } catch (e) { journal.error('[donnees-clients] parrainage et réassort', e.message); }
     db.exec('PRAGMA secure_delete = OFF');
     // Repère posé seulement si tout a pu être relu : une commande illisible (ancienne clé oubliée dans
     // SECRET_CHIFFREMENT_ANCIENNES) sera rechiffrée et réindexée au prochain démarrage, une fois la clé remise.
@@ -545,8 +549,6 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (abimees) journal.error(`[donnees-clients] ${abimees} commande(s) aux données illisibles (JSON abîmé), laissées telles quelles`);
   }
   // Index canonique des commandes (parrainage, code de bienvenue) : colonne ajoutée, rattrapée une fois pour les anciennes.
-  try { db.exec('ALTER TABLE commandes ADD COLUMN email_canon TEXT'); } catch { /* déjà là */ }
-  db.exec('CREATE INDEX IF NOT EXISTS commandes_canon ON commandes(boutique_id, email_canon)');
   try {
     const ecrire = db.prepare('UPDATE commandes SET email_canon = ? WHERE rowid = ?'); let n = 0;
     for (const r of db.prepare("SELECT rowid, id, boutique_id, donnees FROM commandes WHERE email_canon IS NULL AND email_index IS NOT NULL").all()) {
