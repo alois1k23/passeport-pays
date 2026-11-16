@@ -1,8 +1,8 @@
 // Lancer : node outils/simulation/traductions-boutique.js (Playwright et Chromium requis).
 // Audit des traductions de la boutique : affiche la boutique en français (accueil, fiche produit avec toutes les
 // options, panier, retrait, contenu numérique, commande minimum), relève chaque texte visible et chaque libellé
-// (aria-label, placeholder, title) hors des zones du marchand, pour quatre boutiques (Suisse assujettie et non
-// assujettie à la TVA, France en franchise, Belgique), (data-sans-traduction), puis vérifie qu'il est couvert en
+// (aria-label, placeholder, title) hors des zones du marchand (data-sans-traduction), pour six boutiques (Suisse
+// assujettie et non assujettie à la TVA, France en franchise, Belgique assujettie et en franchise, Canada), puis vérifie qu'il est couvert en
 // allemand, italien et anglais (dictionnaire ou modèle). Sortie : les textes manquants par langue ; code 1 s'il en reste.
 const http = require('node:http');
 const R = require('node:path').join(__dirname, '../../server/src/') + '/';
@@ -31,12 +31,14 @@ const RELEVE = () => {
   const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
   s.on('request', creerApp({ db, env: { ABONNEMENT_OBLIGATOIRE: 'non', LIMITES_FACTEUR: '100' }, urlPublique: base, journal: { log() {}, error() {} } }));
   const b = await chromium.launch();
-  // Quatre boutiques : les mentions de prix, de TVA et de droit changent selon le pays et le régime.
+  // Six boutiques : les mentions de prix, de TVA et de droit changent selon le pays et le régime.
   const CONFIGS = [
     { email: 't1@exemple.ch', pays: 'ch', regime: 'ch-assujetti', tva: 'CHE-123.456.789 TVA', adresse: 'Rue 2, 1003 Lausanne' },
     { email: 't2@exemple.ch', pays: 'ch', regime: 'ch-non', adresse: 'Rue 2, 1003 Lausanne' },
     { email: 't3@exemple.fr', pays: 'fr', regime: 'franchise', adresse: '14 rue des Tanneurs, 69001 Lyon' },
-    { email: 't4@exemple.be', pays: 'be', regime: 'normal', tva: 'BE0123456789', adresse: 'Rue Haute 2, 1000 Bruxelles' }
+    { email: 't4@exemple.be', pays: 'be', regime: 'normal', tva: 'BE0123456749', adresse: 'Rue Haute 2, 1000 Bruxelles' },
+    { email: 't5@exemple.be', pays: 'be', regime: 'franchise', adresse: 'Rue Haute 2, 1000 Bruxelles' },
+    { email: 't6@exemple.ca', pays: 'ca', regime: 'franchise', adresse: '12 rue Saint-Paul, Montréal QC H2Y 1H1' }
   ];
   const textes = new Set();
   for (const cfg of CONFIGS) {
@@ -81,10 +83,10 @@ const RELEVE = () => {
   await b.close(); s.close();
 
   const manque = {};
-  for (const l of ['de', 'it', 'en']) manque[l] = [...textes].filter(x => { const [k, t] = [x.slice(0, 1), x.slice(2)]; return !T.couvert(t, l, k === 'A') && !/^[−-]?\s*(?:CHF|€)?\s*[\d’'.,\s−-]+(?:CHF|€)?$/.test(t) && !/^\S+@\S+$/.test(t); }).map(x => x.slice(2));
+  for (const l of ['de', 'it', 'en']) manque[l] = [...textes].filter(x => { const [k, t] = [x.slice(0, 1), x.slice(2)]; return !T.couvert(t, l, k === 'A') && !/^[−-]?\s*(?:CHF|€)?\s*[\d’'.,\s−-]+(?:CHF|€|\$\s?CA|CA\s?\$|\$)?$/.test(t) && !/^\S+@\S+$/.test(t); }).map(x => x.slice(2));
   // Noms du marchand (boutique, produits, catégories, options) : jamais traduits.
   // Noms de transporteurs et de modes de livraison (noms propres du service).
-  const noms = new Set(['La Poste Economy', 'La Poste Priority', 'Calendrier', 'Épicerie Nord', 'Rue 2, 1003 Lausanne', '14 rue des Tanneurs, 69001 Lyon', 'Rue Haute 2, 1000 Bruxelles', 'Thé vert', 'Tasse', 'Pull', 'Bol', 'Maison', 'Japon', 'S', 'M', 'Taille', 'E Sàrl', 'Rue 2, 1003 Lausanne', 'Rue 1, 1003 Lausanne']);
+  const noms = new Set(['La Poste Economy', 'La Poste Priority', 'Calendrier', 'Épicerie Nord', '14 rue des Tanneurs, 69001 Lyon', 'Rue Haute 2, 1000 Bruxelles', '12 rue Saint-Paul, Montréal QC H2Y 1H1', 'Thé vert', 'Tasse', 'Pull', 'Bol', 'Maison', 'Japon', 'S', 'M', 'Taille', 'E Sàrl', 'Rue 2, 1003 Lausanne', 'Rue 1, 1003 Lausanne']);
   let total = 0;
   for (const l of Object.keys(manque)) { manque[l] = manque[l].filter(t => !noms.has(t)); total += manque[l].length; }
   console.log(`${textes.size} textes relevés.`);

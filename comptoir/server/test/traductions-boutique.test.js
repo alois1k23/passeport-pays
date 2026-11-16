@@ -46,7 +46,7 @@ const TEXTES = [
   'Choisissez un créneau de retrait.', 'Ce créneau de retrait vient d’être pris ou n’est plus disponible : choisissez-en un autre.',
   'Pour utiliser vos points, commandez avec l’adresse ana@exemple.ch.', 'Retrait PickPost / My Post 24',
   // Boutiques françaises et belges (cycle 71) : bouton de paiement en euros (espace insécable avant €), mentions de TVA, livraisons.
-  'Payer 23,90\u00a0€', 'Payer 23,90\u202f€', 'TVA non applicable, art. 293 B du CGI', 'Régime particulier de franchise des petites entreprises',
+  'Payer 23,90\u00a0€', 'Payer 23,90\u202f€', 'Payer 1\u202f234,50\u00a0€', 'Payer 23,90\u00a0$CA', 'TVA non applicable, art. 293 B du CGI', 'Régime particulier de franchise des petites entreprises',
   'Colissimo à domicile', 'Mondial Relay en point relais', 'Retrait en boutique', 'bpost à domicile', 'bpost en point d’enlèvement'
 ];
 
@@ -60,6 +60,8 @@ for (const langue of ['de', 'it', 'en']) {
     assert.doesNotMatch(t('contient soja, lait (y compris lactose).'), /lait|soja,/, 'noms des allergènes traduits');
     // Textes du marchand jamais réécrits par un modèle trop large.
     assert.match(t('Payer 23,90\u00a0€'), /23,90\u00a0€/, 'montant gardé tel quel');
+    assert.equal(t('Payer 10\u00a0€ en 3 fois'), null, 'texte proche, non traduit'); assert.equal(t('Payer 2026'), null);
+    assert.match(t('TVA non applicable, art. 293 B du CGI'), /\(TVA non applicable, art\. 293 B du CGI\)/, 'mention fiscale d’origine gardée');
     assert.equal(t('Notre thé en favori'), null); assert.equal(t('contient 3 sachets de thé.'), null);
     assert.doesNotMatch(t('Code ETE appliqué : −10 %. Valable sur une première commande.'), /première/, 'condition du code traduite');
     // Annonces pour lecteur d'écran : traduites à part ; jamais appliquées au texte du marchand.

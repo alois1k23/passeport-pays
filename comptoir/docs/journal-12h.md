@@ -1443,3 +1443,17 @@ Relecture indépendante, sans constat grave. Corrigé :
 - **Audit** : 154 textes relevés sur les quatre boutiques, 0 manquant en allemand, italien et anglais.
 - **Test** des traductions complété : bouton en euros avec les deux espaces insécables, montant gardé tel quel, mentions et modes de livraison.
 - **Vérifié dans Chromium** sur une boutique belge : bureau en anglais (« Pay 46,50 € », « bpost home delivery ») et mobile en allemand (« 46,50 € bezahlen », « bpost nach Hause ») ; aucune erreur.
+
+### Cycle 72 (07 h 05) : relecture des traductions françaises et belges (chantier 118)
+
+Relecture indépendante, sans constat grave. Corrigé :
+
+- **Moyen : le bouton des boutiques canadiennes restait en français.** Les montants y sortent en « 23,90 $CA ». Le modèle accepte maintenant €, « $CA », « CA$ » et « $ ». Il exige aussi un montant avec des décimales : « Payer 2026 » et « Payer 10 € en 3 fois » ne sont plus pris.
+- **Moyen : boutiques non couvertes par l'audit.** L'audit parcourt maintenant six boutiques, en ajoutant une boutique belge en franchise (sa mention n'était jamais affichée) et une boutique canadienne. 187 textes relevés, 0 manquant dans les trois langues.
+- **Moyen : mentions fiscales traduites sans l'original.** C'était contraire à la règle du fichier : la version française fait foi. La formule d'origine est maintenant gardée entre parenthèses, par exemple « MwSt. nicht anwendbar (TVA non applicable, art. 293 B du CGI) ». La précision « (Frankreich) », fausse pour une boutique hors de France, est retirée.
+- **Faibles :**
+  - test complété : milliers avec espace fine, $CA, deux textes proches qui ne doivent pas être traduits, mention d'origine gardée ;
+  - en-tête de l'outil réparé et liste de noms ignorés dédoublonnée ;
+  - numéro de TVA belge d'exemple avec une clé juste ;
+  - « Hauszustellung » et « Chronopost Express ».
+- **Signalé, à traiter à part** (antérieur au chantier) : une boutique canadienne n'a pas de règles de droit propres (`DROIT_PAYS` n'a pas d'entrée `ca`). Elle affiche la mention française de franchise et propose Colissimo, Mondial Relay et Chronopost.
