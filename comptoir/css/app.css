@@ -942,6 +942,8 @@ li.fait a { color: var(--muted); text-decoration: line-through; text-decoration-
   .table-cartes td.col-case { position: absolute; top: 12px; right: 12px; width: auto; }
   .table-cartes td.vignette { position: absolute; top: 12px; right: 14px; width: 36px; }
   .table-cartes tr:has(td.vignette) td.carte-titre { padding-right: 48px !important; }
+  .table-cartes tr:has(td.vignette) td.col-case { right: 60px; top: 22px; }
+  .table-cartes tr:has(td.vignette):has(td.col-case) td.carte-titre { padding-right: 84px !important; }
   .table-cartes tr:has(td.col-case) td.carte-titre { padding-right: 32px !important; }
   .table-cartes tr.choisi { background: var(--surface-2); }
   .pagination { justify-content: center; }
@@ -1537,3 +1539,10 @@ details.en-ligne form { margin-top: 6px; }
 .pf-complements legend { font-weight: 600; margin-bottom: 6px; }
 .pf-complements .trois { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .pf-complements select { width: 100%; min-width: 0; }
+/* Modification groupée des produits */
+.barre-groupe { display: grid; gap: 8px; padding: 12px 14px; margin-bottom: 12px; border: 1px solid var(--accent); }
+.barre-groupe p { margin: 0; }
+.barre-groupe-champs { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.barre-groupe-champs .champ { margin: 0; min-width: 0; flex: 1 1 160px; max-width: 260px; }
+.barre-groupe-champs .case { align-self: center; }
+@media (max-width: 640px) { .barre-groupe-champs .champ { max-width: none; flex-basis: 100%; } }

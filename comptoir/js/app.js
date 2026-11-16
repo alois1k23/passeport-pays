@@ -672,12 +672,13 @@ function vueProduits() {
     <input id="recherche-produits" type="search" placeholder="Rechercher un produit…" value="${esc(ui.rechercheProduit || '')}" data-champ="recherche-produit" aria-label="Rechercher un produit">
     <div class="segment" role="group" aria-label="Filtrer les produits">${FILTRES_PRODUITS.map(([k, n]) => `<button class="${(ui.filtreProduit || 'tous') === k ? 'actif' : ''}" data-action="filtre-produit" data-v="${k}">${n} <span class="sous">${etat.produits.filter(FILTRES_FN[k]).length}</span></button>`).join('')}</div>
   </div>
+  ${typeof barreGroupe === 'function' ? barreGroupe(produitsFiltres()) : ''}
   <div class="maitre-detail ${p ? 'ouvert' : ''}">
     <section class="carte sans-pad"><div class="table-wrap"><table class="table table-cartes">
-      <thead><tr><th></th><th>Produit</th><th>Approvisionnement</th><th class="num">Prix</th><th class="num">Marge nette</th><th class="num">Stock</th><th>Statut</th></tr></thead>
+      <thead><tr>${typeof enteteGroupe === 'function' ? enteteGroupe(produitsFiltres()) : ''}<th></th><th>Produit</th><th>Approvisionnement</th><th class="num">Prix</th><th class="num">Marge nette</th><th class="num">Stock</th><th>Statut</th></tr></thead>
       <tbody>${produitsFiltres().map(x => `
         <tr data-action="editer-produit" data-id="${x.id}" tabindex="0" class="${p && p.id === x.id ? 'choisi' : ''}">
-          <td class="vignette">${visuelProduit(x)}</td><td class="carte-titre" data-label="Produit">${esc(x.nom)}<div class="sous">${esc(x.categorie)}</div></td>
+          ${typeof caseGroupe === 'function' ? caseGroupe(x) : ''}<td class="vignette">${visuelProduit(x)}</td><td class="carte-titre" data-label="Produit">${esc(x.nom)}<div class="sous">${esc(x.categorie)}</div></td>
           <td data-label="Approvisionnement">${x.type === 'drop' ? `<span class="pill ${ENTREPOTS[x.entrepot] ? ENTREPOTS[x.entrepot].ton : 'info'}">Dropshipping ${x.entrepot || ''}</span>` : '<span class="pill muted">Mon stock</span>'}</td>
           <td class="num" data-label="Prix">${euros(x.prix)}</td>
           <td class="num ${margeProduit(x).nette < 0 ? 'neg' : ''}" data-label="Marge nette">${euros(margeProduit(x).nette)}</td>

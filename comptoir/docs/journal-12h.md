@@ -1009,3 +1009,26 @@ Relecture indépendante ; constats corrigés :
   - les très gros catalogues (plus de 1,8 Mo ou plus de 20 000 lignes) dépassent la limite de l'import de Comptoir ; il faudrait découper le fichier ;
   - la composition des lots, les allergènes et la contenance n'ont pas de colonne Shopify standard ;
   - Excel abîme les codes-barres longs (notation scientifique) si on réenregistre le fichier.
+
+### Cycle 53 (01 h 30) : modification groupée des produits (chantier 110)
+
+- **Dans Produits**, chaque ligne a une case à cocher. La case de l'en-tête sélectionne les produits affichés ; sur mobile, où l'en-tête est caché, le bouton « Sélectionner les N affichés » fait de même.
+- **Une barre d'actions** apparaît dès qu'un produit est sélectionné :
+  - changer les prix d'un pourcentage (de -90 % à +500 %) ;
+  - fixer un prix ;
+  - changer de catégorie (avec les catégories existantes en suggestion) ;
+  - mettre en ligne ou masquer.
+- **Soldes en un clic** : une baisse peut garder l'ancien prix comme prix barré. La boutique ne l'affiche que s'il a été pratiqué au moins 30 jours (même contrôle que partout ailleurs), et la barre le rappelle. Une hausse retire un prix barré devenu inférieur au prix.
+- **Variantes** : leurs prix propres suivent le pourcentage ; un prix fixé s'applique à toutes.
+- **Serveur** : `POST /api/admin/produits/groupe`, 500 produits au plus.
+  - Chaque produit repasse par la même validation que la fiche (`nettoyerProduit`, lots).
+  - Tout ou rien : un produit en erreur, par exemple un prix au-delà du plafond, annule tout, et le message le nomme.
+  - Un identifiant inconnu est ignoré ; le stock n'est pas touché (il passe par l'inventaire).
+- **En démonstration** (sans serveur), le même calcul est appliqué dans le navigateur.
+- **Test** :
+  - validation ;
+  - -25 % avec prix barré (variantes comprises), et prix barré absent de la boutique sans 30 jours ;
+  - hausse, prix fixé, catégorie, masquage ;
+  - tout ou rien.
+- **Vérifié dans Chromium**, bureau et mobile : cocher n'ouvre pas la fiche ; -20 % avec prix barré donne Pull 64 (80) et Écharpe 32 (40), le Bonnet non coché reste à 25 ; « tout sélectionner » puis masquer : 3 masqués ; pas de débordement ; aucune erreur.
+  - Bug trouvé et corrigé pendant la vérification : sur mobile, la case était recouverte par la vignette du produit. Elle est maintenant placée à côté.

@@ -2590,6 +2590,43 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     transaction(db, () => { db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(ctx.params.id, verifierLot(ctx.boutique.id, protegerComposant(ctx.boutique.id, ctx.params.id, nettoyerProduit(fusion, avant.historiquePrix || [])), ctx.params.id)), ctx.params.id); reconcilierProduit(ctx.boutique.id, ctx.params.id); });   // fiche et emplacements ensemble
     return { ok: true };
   });
+  /* Modification groupée (500 produits au plus) : prix en pourcentage ou fixé, catégorie, mise en ligne ou masquage.
+     Chaque produit repasse par la même validation que la fiche (nettoyerProduit, lots). Tout ou rien : une erreur sur un
+     produit annule l'ensemble et nomme le produit. Une baisse peut garder l'ancien prix comme prix barré : la boutique ne
+     l'affiche que s'il est licite (pratiqué au moins 30 jours, PrixBarres). Le stock se règle par l'inventaire. */
+  r.post('/api/admin/produits/groupe', exigerMarchand, ctx => {
+    const { ids, action, valeur, barrer } = ctx.corps || {};
+    if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some(x => typeof x !== 'string' || x.length > 64)) throw erreur(400, 'Choisissez de 1 à 500 produits.', 'groupe_ids');
+    if (!['pourcent', 'prix', 'categorie', 'activer', 'masquer'].includes(action)) throw erreur(400, 'Action inconnue.', 'groupe_action');
+    const n = Number(valeur);
+    if (action === 'pourcent' && (!Number.isFinite(n) || n === 0 || n < -90 || n > 500)) throw erreur(400, 'Variation de prix : entre -90 % et +500 %, et pas 0.', 'groupe_valeur');
+    if (action === 'prix' && (!Number.isFinite(n) || !(prix.arrondi(n) >= 0.01) || n > 100000)) throw erreur(400, 'Prix : entre 0,01 et 100 000.', 'groupe_valeur');
+    if (action === 'categorie' && (typeof valeur !== 'string' || valeur.length > 60)) throw erreur(400, 'Catégorie : 60 caractères au plus.', 'groupe_valeur');
+    const nouveau = x => prix.arrondi(Math.max(0.01, action === 'pourcent' ? x * (1 + n / 100) : n));
+    let faits = 0;
+    transaction(db, () => {
+      for (const id of [...new Set(ids)]) {
+        const row = db.prepare('SELECT donnees FROM produits WHERE id = ? AND boutique_id = ? AND supprime = 0').get(id, ctx.boutique.id);
+        if (!row) continue;   // supprimé entre-temps : ignoré
+        const avant = JSON.parse(row.donnees), maj = { ...avant };
+        if (action === 'pourcent' || action === 'prix') {
+          maj.prix = nouveau(avant.prix);
+          // Prix propres des variantes : même variation en pourcentage ; un prix fixé s'applique à toutes (prix propre retiré).
+          if (Array.isArray(avant.variantes)) maj.variantes = avant.variantes.map(v => typeof v.prix === 'number' ? (action === 'pourcent' ? { ...v, prix: nouveau(v.prix) } : (({ prix: _p, ...r }) => r)(v)) : v);
+          if (barrer === true && maj.prix < avant.prix) maj.prixReference = Math.max(avant.prix, avant.prixReference || 0);
+          else if (maj.prix >= (avant.prixReference || 0)) delete maj.prixReference;   // un prix barré inférieur au nouveau prix n'a plus de sens
+        } else if (action === 'categorie') maj.categorie = valeur.trim();
+        else maj.actif = action === 'activer';
+        let propre;
+        try { propre = verifierLot(ctx.boutique.id, protegerComposant(ctx.boutique.id, id, nettoyerProduit(maj, avant.historiquePrix || [])), id); }
+        catch (e) { throw erreur(e.statut || 400, `« ${String(avant.nom || '').slice(0, 60)} » : ${e.message}`, e.code || 'groupe_produit'); }
+        db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(id, propre), id);
+        reconcilierProduit(ctx.boutique.id, id);
+        faits++;
+      }
+    });
+    return { ok: true, modifies: faits };
+  });
   /* Inventaire : le marchand compte ses articles (au scanner ou à la main) puis applique. Chaque ligne porte le stock vu au
      début du comptage : si une vente l'a changé entre-temps, la ligne n'est pas appliquée et revient en conflit (à
      recompter, ou à forcer). Tout ou rien, dans une transaction ; lots, dropshipping et produits numériques exclus. */
