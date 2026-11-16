@@ -43,6 +43,55 @@ Ordre de priorité : ce qui fait venir un marchand d'une autre plateforme, puis 
 79. **Précommandes, suite** : rappel au marchand avant la date d'expédition annoncée.
 80. **Abonnements de produits** (livraison récurrente : café, cosmétiques, fleurs), sans extension.
 
+**Chantiers réalisés au fil des cycles** (index ; le détail, les relectures et les limites sont dans chaque cycle) :
+
+- **77** : facture d'un client pro (cycle 7)
+- **78** : produits numériques, suite (cycle 8)
+- **79** : rappel des précommandes au marchand (cycle 10)
+- **80** : rappels de réassort (cycle 12)
+- **81** : produits sous les articles du journal (cycle 13)
+- **82** : précommandes dans « À faire » (cycle 14)
+- **83** : audit d'accessibilité automatique de la boutique (cycle 16)
+- **84** : rappels de réassort visibles et maîtrisés (cycle 17)
+- **85** : favoris dans la boutique (cycle 18)
+- **86** : codes-barres, de la fiche à la caisse (cycle 19)
+- **87** : un code-barres par variante (cycle 21)
+- **88** : étiquettes code-barres et codes internes (cycle 22)
+- **89** : flux produits pour Google Shopping et Meta (cycle 23)
+- **90** : emballage cadeau et message (cycle 26)
+- **91** : deux tests sensibles à la charge rendus fiables (cycle 25)
+- **92** : inventaire au lecteur de codes-barres (cycle 27)
+- **93** : créneaux de retrait en magasin (cycle 29)
+- **94** : marque du produit (cycle 30)
+- **95** : stock du flux aligné sur celui de la commande (cycle 31)
+- **96** : créneaux dans la langue du client (cycle 33)
+- **97** : inventaire par emplacement (cycle 35)
+- **98** : mesure des performances de la boutique (cycle 36)
+- **99** : carte « Nouveautés » (cycle 38)
+- **100** : lien vers une variante (cycle 39)
+- **101** : flux produits limité et gardé en mémoire (cycle 40)
+- **102** : « Commander à nouveau » et liens de panier avec variantes (cycle 42)
+- **103** : variantes dans le composeur de lien de panier (cycle 43)
+- **104** : rappels de réassort pour les produits à variantes (cycle 44)
+- **105** : « Vus récemment » dans la boutique (cycle 45)
+- **106** : prix à l'unité de mesure (cycle 47)
+- **107** : denrées alimentaires, ingrédients, allergènes et origine (cycle 48)
+- **108** : export du catalogue (cycle 49)
+- **109** : « Souvent achetés avec » (cycle 51)
+- **110** : modification groupée des produits (cycle 53)
+- **111** : commande minimum (cycle 55)
+- **112** : audit automatique des traductions de la boutique (cycle 57)
+- **113** : erreurs de toutes les routes publiques traduites (cycle 59)
+- **114** : liste de favoris partagée (cycle 61)
+- **115** : parrainage (cycle 63)
+- **116** : rotation de la clé pour le parrainage et les rappels de réassort (cycle 67)
+- **117** : e-mail de remerciement du parrainage dans la langue du parrain (cycle 69)
+- **118** : traductions des boutiques françaises et belges (cycle 71)
+- **119** : boutiques canadiennes cohérentes et honnêtes (cycle 73)
+- **120** : délais de Postes Canada et devis canadiens (cycle 75)
+
+Le chantier 80 de la feuille de route (abonnements de produits avec débit automatique) n'a pas été fait sous cette forme. Il a été remplacé par des rappels de réassort sans débit : garder un moyen de paiement et un mandat demanderait une autre infrastructure (voir le cycle 12).
+
 ## Cycles
 
 ### Cycle 1 (21 h 40) : import du catalogue depuis une autre plateforme (chantier 70)
@@ -309,7 +358,7 @@ La relecture du chantier 74 avait noté que la facture d'un client pro ne montra
 - 244 tests sur 244.
 
 
-### Cycle 8 (22 h 40) : produits numériques, suite (chantier 78)
+### Cycle 8 (22 h 55) : produits numériques, suite (chantier 78)
 
 - **Langue du client** : une commande passée en allemand, en italien ou en anglais reçoit ses liens de téléchargement dans sa langue.
 - **Vente en caisse** :
@@ -322,7 +371,7 @@ La relecture du chantier 74 avait noté que la facture d'un client pro ne montra
 - **Vérifié dans Chromium**, bureau et mobile : champ affiché, refus sans adresse, vente encaissée, e-mail envoyé au client.
 - 244 tests sur 244, parcours de bout en bout 57/57.
 
-### Cycle 9 (22 h 50) : comparaison sourcée (chantier 76)
+### Cycle 9 (22 h 55) : comparaison sourcée (chantier 76)
 
 - **`docs/COMPARAISON.md`** compare Comptoir à Shopify, Wix, WooCommerce, PrestaShop et Infomaniak. Les données ont été relevées le 15 novembre 2026 sur les pages officielles, avec les liens. Ce qui n'a pas pu être confirmé est noté « non vérifié ».
 - **Correction d'une affirmation du journal** : il était dit que le B2B de Shopify était réservé à Plus. C'est faux depuis avril 2026 : les bases du B2B existent dès Basic. Seuls les prix propres à chaque entreprise restent sur Plus.
@@ -1545,3 +1594,12 @@ Relecture indépendante : rien de grave, aucune régression pour la Suisse, la F
 - Sur la page publique d'un devis canadien, le numéro de l'entreprise et celui du client sont libellés « N° de taxes », et non plus « N° TVA ».
 - L'émission manuelle d'une carte cadeau ne propose plus de durée au Canada : seulement « Sans limite ».
 - 275 tests passent ; parcours de bout en bout : 57 contrôles, aucune anomalie.
+
+### Cycle 78 (08 h 50) : journal mis au propre, vérification complète
+
+- Aucun nouveau chantier : il reste moins de 35 minutes avant l'arrêt de 9 h 15, trop peu pour un chantier avec sa relecture indépendante.
+- **Journal mis au propre :**
+  - un index des chantiers 77 à 120 est ajouté sous la feuille de route ;
+  - une note explique que le chantier 80 (abonnements à débit automatique) a été remplacé par les rappels de réassort ;
+  - les heures des cycles 8 et 9 sont corrigées d'après l'heure de leurs commits.
+- **Vérification complète** (`npm run verifier`) : les 7 étapes passent (275 tests, parcours de bout en bout, achats au clavier, simulation de 60 jours avec 100 marchands, fuzzing HTTP, charge réduite).
