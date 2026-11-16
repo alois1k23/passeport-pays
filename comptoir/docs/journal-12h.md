@@ -1164,7 +1164,7 @@ Relecture indépendante. Constats corrigés :
   - les erreurs des autres routes publiques (avis, retours, cartes cadeaux), à étendre au même test ;
   - le parcours reste limité au régime suisse assujetti.
 
-### Cycle 59 (02 h 10) : erreurs de toutes les routes publiques traduites (chantier 113)
+### Cycle 59 (02 h 05) : erreurs de toutes les routes publiques traduites (chantier 113)
 
 - **Suite du cycle 58**, qui ne couvrait que la route de commande. 25 routes publiques ont été parcourues (avis, retours, reprise du paiement, alertes de retour en stock, compte pro, complément après achat, images). 21 messages fixes n'étaient traduits dans aucune langue, par exemple « Le délai de retour de cette commande est dépassé. », « Avis déjà enregistré pour cette commande. » ou « Le créneau de retrait choisi n'est plus disponible… ». Ils le sont maintenant en allemand, italien et anglais.
 - **Le test statique couvre toutes les routes publiques** (`/api/public/…` et `/s/…`) : il échoue si un nouveau message fixe n'est pas traduit dans les trois langues.
