@@ -77,14 +77,15 @@ test('e-mails de la carte cadeau dans la langue de l’acheteur ; code masqué d
   assert.equal(EmailsClients.carteCadeauCode('fr', o), null); assert.equal(EmailsClients.carteCadeauCode(undefined, o), null);
 });
 
-test('erreurs fixes de la route de commande publique : traduites en allemand, italien et anglais', () => {
+test('erreurs fixes de toutes les routes publiques de la boutique : traduites en allemand, italien et anglais', () => {
   const T = require('../../js/traductions.js');
   const src = fs.readFileSync(path.join(__dirname, '../src/app.js'), 'utf8');
-  const debut = src.indexOf("r.post('/api/public/:slug/commandes'"), fin = src.indexOf('\n  r.', debut + 10);
-  const route = src.slice(debut, fin);
+  // Chaque route publique (/api/public/…, /s/…) jusqu'à la route suivante.
+  const routes = [...src.matchAll(/\n  r\.(?:get|post|put|delete)\('(\/api\/public\/[^']*|\/s\/[^']*)'/g)].map(m => [m[1], src.slice(m.index, src.indexOf('\n  r.', m.index + 10))]);
+  assert.ok(routes.length >= 20, `routes relevées : ${routes.length}`);
   // Messages littéraux seulement (entre apostrophes droites) ; ceux avec des valeurs sont couverts par des modèles testés plus haut.
-  const messages = [...route.matchAll(/erreur\(4\d\d, '((?:[^'\\]|\\.)+)'/g)].map(m => m[1]);
-  assert.ok(messages.length >= 8, `messages relevés : ${messages.length}`);
-  const manquants = messages.filter(x => ['de', 'it', 'en'].some(l => !T.couvert(x, l)));
+  const messages = routes.flatMap(([r, code]) => [...code.matchAll(/erreur\(4\d\d, '((?:[^'\\]|\\.)+)'/g)].map(m => `${r} | ${m[1]}`));
+  assert.ok(messages.length >= 40, `messages relevés : ${messages.length}`);
+  const manquants = messages.filter(x => ['de', 'it', 'en'].some(l => !T.couvert(x.split(' | ')[1], l)));
   assert.deepEqual(manquants, []);
 });
