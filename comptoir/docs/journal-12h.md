@@ -1530,7 +1530,7 @@ Relecture indépendante : le noyau fiscal du serveur était juste, mais plusieur
 - **Vérifié dans Chromium** : panier canadien en français (« Livré entre le mer. 18 nov. et le ven. 27 nov. ») et en anglais (« Estimated delivery: Wed 18 Nov – Fri 27 Nov ») ; aucune erreur.
 - **Limite** : le calcul des jours ouvrables suit toujours les jours fériés suisses.
 
-### Cycle 76 (07 h 55) : relecture des cycles 74 et 75 (Canada)
+### Cycle 76 (07 h 50) : relecture des cycles 74 et 75 (Canada)
 
 Relecture indépendante : rien de grave, aucune régression pour la Suisse, la France ou la Belgique. Corrigé :
 
@@ -1540,7 +1540,7 @@ Relecture indépendante : rien de grave, aucune régression pour la Suisse, la F
 - **Faible** : un commentaire mal placé a été remis en face de sa ligne.
 - **Les deux points laissés ouverts ici ont été réglés au cycle 77.**
 
-### Cycle 77 (08 h 00) : derniers libellés canadiens
+### Cycle 77 (07 h 55) : derniers libellés canadiens
 
 - Sur la page publique d'un devis canadien, le numéro de l'entreprise et celui du client sont libellés « N° de taxes », et non plus « N° TVA ».
 - L'émission manuelle d'une carte cadeau ne propose plus de durée au Canada : seulement « Sans limite ».
