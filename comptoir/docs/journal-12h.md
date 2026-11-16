@@ -1538,6 +1538,10 @@ Relecture indépendante : rien de grave, aucune régression pour la Suisse, la F
 - **Moyen : l'assertion sur le PDF ne prouvait rien.** Les flux du PDF sont compressés. Le test vérifie maintenant la facture électronique (XML) : code postal « H2Y 1H1 », pays CA, aucune mention française. Il couvre aussi une vraie carte cadeau achetée en ligne : sans date, et e-mail « Valable sans limite de durée ».
 - **Moyen : adresse canadienne mal découpée.** Dans « Bureau 200, 1500 boul. René-Lévesque, Montréal QC H3B 1A1 », le numéro civique était pris pour un code postal. La forme canadienne, sans ambiguïté en fin d'adresse, est maintenant essayée en premier. Le tiret (« H3B-1A1 ») et un « , Canada » final sont acceptés. Les adresses suisses et françaises sont inchangées (vérifié).
 - **Faible** : un commentaire mal placé a été remis en face de sa ligne.
-- **Laissé ouvert :**
-  - le numéro du client reste libellé « N° TVA » sur la page publique d'un devis canadien ;
-  - l'émission manuelle de carte propose encore « 2 ans » et « 3 ans » au Canada (« Sans limite » est sélectionné par défaut).
+- **Les deux points laissés ouverts ici ont été réglés au cycle 77.**
+
+### Cycle 77 (08 h 00) : derniers libellés canadiens
+
+- Sur la page publique d'un devis canadien, le numéro de l'entreprise et celui du client sont libellés « N° de taxes », et non plus « N° TVA ».
+- L'émission manuelle d'une carte cadeau ne propose plus de durée au Canada : seulement « Sans limite ».
+- 275 tests passent ; parcours de bout en bout : 57 contrôles, aucune anomalie.

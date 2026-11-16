@@ -625,7 +625,7 @@ function vueCartesCadeaux() {
       <p class="sous">Le client choisit un montant, paie en ligne et la carte est envoyée par e-mail (à lui ou à la personne à qui il l’offre). Pas de facture : c’est un bon d’achat, la TVA porte sur les articles achetés avec.</p></form>`; })()}
     <form data-form="carte-cadeau" class="rangee">
       <label class="champ"><span>Montant</span><input name="montant" type="number" min="1" max="10000" step="0.01" inputmode="decimal" required></label>
-      <label class="champ"><span>Validité</span><select name="expireMois"><option value="" ${etat.boutique.pays === 'ca' ? 'selected' : ''}>Sans limite</option>${['be', 'ca'].includes(etat.boutique.pays) ? '' : '<option value="12">1 an</option>'}<option value="24" ${etat.boutique.pays === 'ca' ? '' : 'selected'}>2 ans</option><option value="36">3 ans</option></select></label>
+      <label class="champ"><span>Validité</span><select name="expireMois"><option value="" ${etat.boutique.pays === 'ca' ? 'selected' : ''}>Sans limite</option>${etat.boutique.pays === 'ca' ? '' : `${etat.boutique.pays === 'be' ? '' : '<option value="12">1 an</option>'}<option value="24" selected>2 ans</option><option value="36">3 ans</option>`}</select></label>
       <label class="champ"><span>Pour (facultatif)</span><input name="destinataire" maxlength="100" autocomplete="off"></label>
       <button class="btn">Émettre la carte</button>
     </form>
