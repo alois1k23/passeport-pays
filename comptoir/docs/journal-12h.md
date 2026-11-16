@@ -1072,3 +1072,28 @@ Relecture indépendante. Constats corrigés :
   - borne à 1 000 ; 0 ne fixe plus de minimum.
 - **Vérifié dans Chromium**, bureau et mobile : réglage enregistré et publié ; message et bouton fermé en livraison ; plus de message et bouton ouvert au retrait ; aucune erreur.
   - Corrigé pendant la vérification : le message était d'abord tout en bas du formulaire. Il est remonté sous le total, pour que le client le voie avant de saisir son adresse.
+
+### Cycle 56 (01 h 45) : relecture de la modification groupée (chantier 110)
+
+Relecture indépendante. Constats corrigés :
+
+- **Grave : la requête figeait tout le serveur.** 500 produits figeaient le serveur 3,2 s, et 12 s dans un catalogue de 2 000 : chaque produit relançait les contrôles de lots et de codes-barres sur tout le catalogue. Or l'action ne touche ni codes-barres, ni type, ni variantes, ni composants. Seul `nettoyerProduit` est appelé désormais. Le test vérifie 500 produits à variantes en moins de 2,5 s.
+- **Moyens :**
+  - un produit gratuit (échantillon) reste à 0 sous une variation en pourcentage, au lieu de passer à 0,01 ;
+  - un lot dont un composant a été supprimé ne bloque plus l'ensemble : on peut le masquer (cas testé) ;
+  - un double clic sur « Appliquer » n'applique plus deux fois -20 % : il y a un verrou et le bouton est désactivé pendant la requête ;
+  - la fiche ouverte d'un produit modifié se ferme : l'enregistrer ensuite aurait annulé la modification groupée ;
+  - le mode démonstration applique les mêmes bornes que le serveur (prix de 0,01 à 100 000) : tout ou rien, et le produit fautif est nommé.
+- **Faibles :**
+  - **prix barré dans l'UE :** la référence est le prix d'avant cette baisse (prix le plus bas des 30 jours) ; en Suisse, une démarque précédente garde sa référence ;
+  - **case décochée :** une baisse retire le prix barré existant, et l'étiquette le dit ;
+  - **journal du compte :** l'action est notée (`produits-groupe`) ;
+  - **validation :** les valeurs doivent être des nombres pour les prix, et la catégorie ne peut pas être vide ;
+  - **toast :** les messages sont annoncés aux lecteurs d'écran (`role="status"`), dans toute l'application ;
+  - **interface :**
+    - le champ de valeur a un identifiant, et garde le focus au redessin ;
+    - la case « tout sélectionner » montre un état intermédiaire ;
+    - les cases font 24 px sur mobile ;
+    - le gestionnaire de clic ne vise plus que les cases de la modification groupée.
+- **Vérifié de nouveau** dans Chromium, bureau et mobile, sans erreur.
+- **Laissé ouvert :** une précommande dont la date est passée redevient un produit en stock quand on l'enregistre, par la fiche comme en groupe. C'est le comportement actuel de `nettoyerProduit` ; il serait à signaler au marchand.

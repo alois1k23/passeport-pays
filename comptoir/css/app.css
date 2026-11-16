@@ -942,7 +942,8 @@ li.fait a { color: var(--muted); text-decoration: line-through; text-decoration-
   .table-cartes td.col-case { position: absolute; top: 12px; right: 12px; width: auto; }
   .table-cartes td.vignette { position: absolute; top: 12px; right: 14px; width: 36px; }
   .table-cartes tr:has(td.vignette) td.carte-titre { padding-right: 48px !important; }
-  .table-cartes tr:has(td.vignette) td.col-case { right: 60px; top: 22px; }
+  .table-cartes tr:has(td.vignette) td.col-case { right: 60px; top: 20px; }
+  .table-cartes td.col-case input[data-groupe-case] { width: 24px; height: 24px; }
   .table-cartes tr:has(td.vignette):has(td.col-case) td.carte-titre { padding-right: 84px !important; }
   .table-cartes tr:has(td.col-case) td.carte-titre { padding-right: 32px !important; }
   .table-cartes tr.choisi { background: var(--surface-2); }

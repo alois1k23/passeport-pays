@@ -270,6 +270,12 @@ const Traductions = (() => {
     new MutationObserver(() => { if (attente) return; attente = true; requestAnimationFrame(() => { attente = false; passe(); }); }).observe(document.body, { childList: true, subtree: true, characterData: true });
     return langue;
   }
-  return { demarrer, traduireTexte, traduireAnnonce, get langue() { return langue; }, D };
+  // Le texte français est-il couvert dans la langue l (dictionnaire ou modèle) ? Pour l'audit des traductions.
+  function couvert(t, l, attribut = false) {
+    const brut = String(t).trim(); if (!brut || !D[l]) return false;
+    if (D[l][brut] || (attribut && D[l]['@' + brut])) return true;
+    return MODELES[l].some(([re]) => re.test(brut));
+  }
+  return { demarrer, traduireTexte, traduireAnnonce, couvert, get langue() { return langue; }, D };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Traductions;

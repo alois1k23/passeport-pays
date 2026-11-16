@@ -2599,10 +2599,13 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some(x => typeof x !== 'string' || x.length > 64)) throw erreur(400, 'Choisissez de 1 à 500 produits.', 'groupe_ids');
     if (!['pourcent', 'prix', 'categorie', 'activer', 'masquer'].includes(action)) throw erreur(400, 'Action inconnue.', 'groupe_action');
     const n = Number(valeur);
+    if ((action === 'pourcent' || action === 'prix') && typeof valeur !== 'number') throw erreur(400, 'Valeur : un nombre.', 'groupe_valeur');
     if (action === 'pourcent' && (!Number.isFinite(n) || n === 0 || n < -90 || n > 500)) throw erreur(400, 'Variation de prix : entre -90 % et +500 %, et pas 0.', 'groupe_valeur');
     if (action === 'prix' && (!Number.isFinite(n) || !(prix.arrondi(n) >= 0.01) || n > 100000)) throw erreur(400, 'Prix : entre 0,01 et 100 000.', 'groupe_valeur');
-    if (action === 'categorie' && (typeof valeur !== 'string' || valeur.length > 60)) throw erreur(400, 'Catégorie : 60 caractères au plus.', 'groupe_valeur');
-    const nouveau = x => prix.arrondi(Math.max(0.01, action === 'pourcent' ? x * (1 + n / 100) : n));
+    if (action === 'categorie' && (typeof valeur !== 'string' || !valeur.trim() || valeur.length > 60)) throw erreur(400, 'Catégorie : de 1 à 60 caractères.', 'groupe_valeur');
+    // Un produit gratuit (échantillon) le reste sous une variation en pourcentage.
+    const nouveau = x => (action === 'pourcent' && Number(x) === 0 ? 0 : prix.arrondi(Math.max(0.01, action === 'pourcent' ? x * (1 + n / 100) : n)));
+    const ue = lireConfig(ctx.boutique).boutique.pays !== 'ch';
     let faits = 0;
     transaction(db, () => {
       for (const id of [...new Set(ids)]) {
@@ -2613,18 +2616,23 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
           maj.prix = nouveau(avant.prix);
           // Prix propres des variantes : même variation en pourcentage ; un prix fixé s'applique à toutes (prix propre retiré).
           if (Array.isArray(avant.variantes)) maj.variantes = avant.variantes.map(v => typeof v.prix === 'number' ? (action === 'pourcent' ? { ...v, prix: nouveau(v.prix) } : (({ prix: _p, ...r }) => r)(v)) : v);
-          if (barrer === true && maj.prix < avant.prix) maj.prixReference = Math.max(avant.prix, avant.prixReference || 0);
-          else if (maj.prix >= (avant.prixReference || 0)) delete maj.prixReference;   // un prix barré inférieur au nouveau prix n'a plus de sens
+          // Prix barré : seulement si demandé. Dans l'UE, la référence est le prix le plus bas des 30 derniers jours : le prix
+          // d'avant cette baisse ; en Suisse, le prix pratiqué auparavant (une démarque précédente garde sa référence).
+          if (barrer === true && maj.prix < avant.prix) maj.prixReference = ue ? avant.prix : Math.max(avant.prix, avant.prixReference || 0);
+          else delete maj.prixReference;
         } else if (action === 'categorie') maj.categorie = valeur.trim();
         else maj.actif = action === 'activer';
+        // Seulement nettoyerProduit : l'action ne touche ni codes-barres, ni type, ni variantes, ni composants (les contrôles de
+        // lot et d'unicité des codes, coûteux sur tout le catalogue, n'ont rien à vérifier ici et bloqueraient un lot abîmé).
         let propre;
-        try { propre = verifierLot(ctx.boutique.id, protegerComposant(ctx.boutique.id, id, nettoyerProduit(maj, avant.historiquePrix || [])), id); }
+        try { propre = nettoyerProduit(maj, avant.historiquePrix || []); }
         catch (e) { throw erreur(e.statut || 400, `« ${String(avant.nom || '').slice(0, 60)} » : ${e.message}`, e.code || 'groupe_produit'); }
         db.prepare('UPDATE produits SET donnees = ? WHERE id = ?').run(serialiserProduit(id, propre), id);
         reconcilierProduit(ctx.boutique.id, id);
         faits++;
       }
     });
+    noterActivite(ctx.marchand.id, 'produits-groupe', `${action}${action === 'categorie' ? '' : action === 'activer' || action === 'masquer' ? '' : ` ${n}`} sur ${faits} produit(s)`, ctx);
     return { ok: true, modifies: faits };
   });
   /* Inventaire : le marchand compte ses articles (au scanner ou à la main) puis applique. Chaque ligne porte le stock vu au
