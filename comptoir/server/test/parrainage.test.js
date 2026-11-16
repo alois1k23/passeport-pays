@@ -128,3 +128,33 @@ test('parrainage : lien, remise du filleul, refus sur soi et après une premièr
     assert.equal(db.prepare('SELECT COUNT(*) n FROM recompenses').get().n, 0);
   } finally { s.close(); }
 });
+
+test('parrainage : e-mail de remerciement dans la langue de la commande du parrain', async () => {
+  const EmailsClients = require('../src/emails-clients');
+  assert.equal(EmailsClients.recompenseParrainage('fr', {}), null, 'français : texte d’origine');
+  assert.equal(EmailsClients.recompenseParrainage('__proto__', {}), null);
+  const db = ouvrir(':memory:');
+  const s = http.createServer(); await new Promise(ok => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${s.address().port}`;
+  s.on('request', creerApp({ db, env: { LIMITE_ESSAIS: '1000', LIMITES_FACTEUR: '1000', ABONNEMENT_OBLIGATOIRE: 'non' }, urlPublique: base, journal: { log() {}, error() {} } }));
+  const gerer = s.listeners('request')[0];
+  let cookie = '';
+  const c = async (m, chemin, corps, avec = true) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && avec ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc && avec) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
+  try {
+    await c('POST', '/api/auth/inscription', { email: 'de@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Laden', pays: 'ch', langues: ['fr', 'de'] }, entreprise: { raison: 'L GmbH', adresse: 'Rue 1, 1003 Lausanne', email: 'de@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } } });
+    const vase = (await c('POST', '/api/admin/produits', { produit: { nom: 'Vase', prix: 100, stock: 50 } })).j.id;
+    const etat = (await c('GET', '/api/admin/etat')).j, slug = etat.serveur.slug;
+    await c('PUT', '/api/admin/config', { config: { boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, livraisons: etat.livraisons, offres: etat.offres, reglages: etat.reglages, parrainage: { actif: true, filleul: 10, parrain: 12, minimum: 0 } } });
+    const commander = (email, extra = {}) => c('POST', `/api/public/${slug}/commandes`, { lignes: [{ produitId: vase, qte: 1 }], livraison: 'poste-eco', client: { nom: 'Lena Muster', email, adresse: 'Rue 3', npa: '1003', ville: 'Lausanne' }, ...extra }, false);
+    const payer = async r => { assert.equal(r.s, 201, JSON.stringify(r.j)); await fetch(r.j.paiementUrl + '/confirmer', { method: 'POST', redirect: 'manual' }); return r.j; };
+    const lena = await payer(await commander('lena@exemple.ch', { langue: 'de' }));
+    const code = (await c('POST', `/api/public/${slug}/parrainage`, { commandeId: lena.commandeId, jeton: lena.jeton }, false)).j.code;
+    const max = await payer(await commander('max@exemple.ch', { code }));
+    db.prepare("UPDATE parrains SET reseau = 'autre'").run();
+    db.prepare("UPDATE commandes SET statut = 'livree' WHERE id = ?").run(max.commandeId);
+    gerer.automatisationsEcheances(Date.now() + 86400000);
+    gerer.automatisationsEcheances(Date.now() + 16 * 86400000);
+    const m = db.prepare("SELECT sujet, corps FROM emails WHERE destinataire = 'lena@exemple.ch' AND sujet LIKE 'Danke!%'").get();
+    assert.ok(m, 'e-mail en allemand');
+    assert.match(m.sujet, /Rabatt von 12 % bei Laden/); assert.match(m.corps, /^Guten Tag Lena,/); assert.match(m.corps, /Dankeschön-Code: MERCI[A-Z2-9]{6}/); assert.match(m.corps, /&lang=de/);
+  } finally { s.close(); }
+});

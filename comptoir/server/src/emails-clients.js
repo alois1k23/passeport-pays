@@ -112,6 +112,17 @@ function carteCadeauAvis(langue, o) {
   const t = T[lng(langue)]; if (!t) return null;
   return { sujet: t.carteAvisSujet(o.nomBoutique), corps: `${t.bonjour(o.acheteur)},\n\n${t.carteAvis(o.montant, o.email, o.contact)}\n\n${o.nomBoutique}` };
 }
+/* Récompense de parrainage, dans la langue du parrain (celle de sa commande) ; null en français (texte d'origine dans app.js).
+   o : { nomBoutique, prenom, code, remise, jusquau (date lisible), url }. */
+const PARRAIN = {
+  de: { sujet: (r, s) => `Danke! Ihr Rabatt von ${r} % bei ${s}`, corps: o => `${o.prenom ? `Guten Tag ${o.prenom}` : 'Guten Tag'},\n\nEine Person, der Sie ${o.nomBoutique} empfohlen haben, hat ihre erste Bestellung aufgegeben. Danke!\n\nIhr Dankeschön-Code: ${o.code}\n−${o.remise} % auf Ihre nächste Bestellung, einmal mit dieser E-Mail-Adresse einlösbar, bis zum ${o.jusquau}.\n\n${o.url}?code=${o.code}&lang=de\n\n${o.nomBoutique}` },
+  it: { sujet: (r, s) => `Grazie! Il tuo sconto del ${r} % presso ${s}`, corps: o => `${o.prenom ? `Buongiorno ${o.prenom}` : 'Buongiorno'},\n\nUna persona a cui hai consigliato ${o.nomBoutique} ha effettuato il suo primo ordine. Grazie!\n\nIl tuo codice di ringraziamento: ${o.code}\n−${o.remise} % sul tuo prossimo ordine, da usare una volta con questo indirizzo e-mail, fino al ${o.jusquau}.\n\n${o.url}?code=${o.code}&lang=it\n\n${o.nomBoutique}` },
+  en: { sujet: (r, s) => `Thank you! Your ${r}% discount at ${s}`, corps: o => `${o.prenom ? `Hello ${o.prenom}` : 'Hello'},\n\nSomeone you recommended ${o.nomBoutique} to has placed their first order. Thank you!\n\nYour thank-you code: ${o.code}\n−${o.remise}% off your next order, to use once with this email address, until ${o.jusquau}.\n\n${o.url}?code=${o.code}&lang=en\n\n${o.nomBoutique}` }
+};
+function recompenseParrainage(langue, o) {
+  const t = Object.hasOwn(PARRAIN, String(langue)) ? PARRAIN[langue] : null; if (!t) return null;
+  return { sujet: t.sujet(o.remise, o.nomBoutique), corps: t.corps(o) };
+}
 function remboursementPartiel(c, o) { const t = T[langueDe(c)]; return { sujet: t.rembourse(c.numero), corps: `${t.bonjour(c.client.nom)},\n\n${t.rembourseCorps(o.montant, o.lignes, o.carte, o.manuel, o.avoir)}\n\n${t.votreCommande} : ${o.lienCommande}\n\n${o.nomBoutique}` }; }
 function relance(c, o) { const t = T[langueDe(c)]; return { sujet: t.relance(o.nomBoutique, o.i), corps: `${t.bonjour(c.client.nom)},\n\n${t.relanceCorps(c.numero, o.formatMontant(c.total), o.lien)}${o.remise ? t.relanceCode(o.remise, o.code) : ''}\n\n${t.equipe(o.nomBoutique)}` }; }
 const noteReassort = (c, j, stop, pre = false) => { const t = T[langueDe(c)]; return t ? t.noteReassort(j, stop, pre) : `Comme vous l’avez demandé, nous vous rappellerons de recommander ${pre ? `${j} jours après l’expédition` : `dans ${j} jours`} (rien n’est débité). Pas de rappel : ${stop}`; };
@@ -151,4 +162,4 @@ function mesCommandes(langue, o) {
 }
 const avecLangue = (url, c) => langueDe(c) ? `${url}${url.includes('?') ? '&' : '?'}lang=${c.langue}` : url;
 const textesPied = langue => lng(langue) ? { contact: T[langue].piedContact, commande: T[langue].piedCommande, nouvelles: T[langue].piedNouvelles } : null;
-module.exports = { noteReassort, reassort, telechargements, codeFidelite, mesCommandes, pages, pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, remboursementPartiel, carteCadeauCode, carteCadeauAvis, relance, avis, avecLangue, LANGUES: Object.keys(T) };
+module.exports = { recompenseParrainage, noteReassort, reassort, telechargements, codeFidelite, mesCommandes, pages, pageOptin, textesPied, langueDe, optin, bienvenue, reconquete, confirmation, expedition, factureQr, pret, partiel, remboursementPartiel, carteCadeauCode, carteCadeauAvis, relance, avis, avecLangue, LANGUES: Object.keys(T) };

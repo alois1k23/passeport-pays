@@ -1405,3 +1405,13 @@ Relecture indépendante, qui a reproduit deux bugs. Constats corrigés :
 - **Laissé ouvert :**
   - une commande restée illisible relance son rattrapage d'index canonique à chaque démarrage (journal bavard, sans perte) ;
   - les comptes pro et la fidélité restent lisibles grâce à l'ancienne clé, sans être rechiffrés.
+
+### Cycle 69 (05 h 50) : e-mail de remerciement du parrainage dans la langue du parrain (chantier 117)
+
+- **Le problème** (laissé ouvert aux cycles 63 et 64) : l'e-mail qui porte le code « MERCI… » partait toujours en français.
+- **La correction** :
+  - la langue de la commande du parrain (allemand, italien ou anglais) est gardée avec son adresse chiffrée ; elle est mise à jour à chaque nouvelle demande de lien ;
+  - l'e-mail part dans cette langue : salutation avec le prénom, code, remise, date limite au format local (fuseau de Zurich) ;
+  - le lien rouvre la boutique dans la même langue ;
+  - le français garde le texte d'origine.
+- **Test** : un parrain qui a commandé en allemand reçoit « Danke! Ihr Rabatt von 12 % bei Laden », qui commence par « Guten Tag Lena, », avec son code et le lien `&lang=de`. Une langue inconnue (`__proto__`) ou le français renvoient au texte d'origine.

@@ -4691,7 +4691,7 @@ ${bloc}</main></body></html>`;
     const c = lireCommande(row);
     if (c.livraison === 'carte') throw erreur(404, 'Commande introuvable.', 'commande_introuvable');   // achat de carte cadeau : pas de lien
     if (!c.client || c.client.illisible || !c.client.email) throw erreur(409, 'Votre lien de parrainage est disponible une fois la commande payée.', 'parrainage_attente');
-    const code = PAR.codePour(b.id, c.client.email, c.client.nom, Date.now(), c.reseau);
+    const code = PAR.codePour(b.id, c.client.email, c.client.nom, Date.now(), c.reseau, EmailsClients.langueDe(c));
     if (!code) throw erreur(503, 'Les demandes sont momentanément complètes pour cette boutique. Réessayez plus tard.', 'complet');
     const racine = urlBoutique(b).replace(/\/?$/, '/');
     return { code, lien: `${racine}?code=${code}`, filleul: reg.filleul, parrain: reg.parrain };
@@ -5197,8 +5197,11 @@ ${bloc}</main></body></html>`;
     for (const r of PAR.echeances(infoDe, reglagesDe, peutEnvoyer, maintenant, (msg) => journal.error('[parrainage]', msg))) {
       const b = db.prepare('SELECT * FROM boutiques WHERE id = ?').get(r.bid); if (!b) continue;
       const config = lireConfig(b), url = urlBoutique(b).replace(/\/?$/, '/');
-      envoyerEmail(b.id, r.email, `Merci ! Votre remise de ${r.remise} % chez ${config.boutique.nom}`,
-        `Bonjour${r.nom ? ' ' + r.nom.split(' ')[0] : ''},\n\nUne personne à qui vous avez recommandé ${config.boutique.nom} a passé sa première commande. Merci !\n\nVotre code de remerciement : ${r.code}\n−${r.remise} % sur votre prochaine commande, à utiliser une fois avec cette adresse e-mail, jusqu'au ${new Date(r.expire).toLocaleDateString('fr-CH')}.\n\n${url}?code=${r.code}\n\n${config.boutique.nom}`);
+      const prenom = r.nom ? r.nom.split(' ')[0] : '';
+      const m = EmailsClients.recompenseParrainage(r.langue, { nomBoutique: config.boutique.nom, prenom, code: r.code, remise: r.remise, jusquau: new Date(r.expire).toLocaleDateString({ de: 'de-CH', it: 'it-CH', en: 'en-GB' }[r.langue] || 'fr-CH', { timeZone: 'Europe/Zurich' }), url });
+      if (m) envoyerEmail(b.id, r.email, m.sujet, m.corps);
+      else envoyerEmail(b.id, r.email, `Merci ! Votre remise de ${r.remise} % chez ${config.boutique.nom}`,
+        `Bonjour${r.nom ? ' ' + r.nom.split(' ')[0] : ''},\n\nUne personne à qui vous avez recommandé ${config.boutique.nom} a passé sa première commande. Merci !\n\nVotre code de remerciement : ${r.code}\n−${r.remise} % sur votre prochaine commande, à utiliser une fois avec cette adresse e-mail, jusqu'au ${new Date(r.expire).toLocaleDateString('fr-CH', { timeZone: 'Europe/Zurich' })}.\n\n${url}?code=${r.code}\n\n${config.boutique.nom}`);
     }
   }
   function automatisationsEcheances(maintenant = Date.now()) {
