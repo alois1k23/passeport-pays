@@ -11,6 +11,64 @@ Méthode, la même que pour le marathon de 24 heures (voir `journal-24h.md`). Ch
 
 Une relance automatique reprend le travail toutes les heures ; un rapport final est prévu le 16 novembre à 9 h 25.
 
+## Synthèse (16 novembre, 9 h 30)
+
+**En chiffres :**
+- 78 cycles et 51 chantiers (70 à 120) ;
+- 96 commits sur `claude/nice-mccarthy-59mfb5` (73 fichiers, environ 7 700 lignes ajoutées) ;
+- tests automatiques : de 237 à 275, tous passants ;
+- parcours de bout en bout : 57 contrôles sur 57 ;
+- simulation finale de 100 marchands sur 60 jours : 102 566 requêtes, médiane de 2 ms, aucune anomalie ni erreur du serveur ;
+- vérification complète (`npm run verifier`, 7 étapes : tests, bout en bout, achat et espace marchand au clavier, simulation, fuzzing HTTP, charge) : passée à chaque changement de fond, la dernière fois à 8 h 50.
+
+**Méthode :** chaque chantier a été relu par une relecture indépendante, et chaque constat a été corrigé ou noté comme laissé ouvert. Les relectures ont trouvé une quinzaine de défauts graves, tous corrigés et reproduits dans un test quand c'était possible. Les principaux :
+- l'export du catalogue écrivait un prix barré illicite ;
+- un calcul quadratique bloquait le serveur ;
+- la modification groupée gelait toutes les boutiques ;
+- avec le parrainage, la reprise d'un paiement donnait des remises en double, et des alias d'adresse permettaient de s'auto-parrainer ;
+- la rotation de la clé de chiffrement s'arrêtait sur un conflit, ce qui rendait l'effacement incomplet ;
+- une boutique canadienne facturait 20 % de TVA française, et ses factures ne pouvaient pas être produites.
+
+**Ajouté pendant la nuit** (détail dans l'index ci-dessous) :
+- **migration** : import du catalogue depuis Shopify, WooCommerce, PrestaShop ou un tableur ; export au format Shopify ;
+- **types de vente** : produits numériques ; précommandes ; lots et coffrets ; clients professionnels sur facture ; journal (blog) ;
+- **catalogue** : codes-barres et étiquettes ; inventaire au scanner, par emplacement ; modification groupée des prix (soldes avec prix barré licite) ;
+- **canaux** : flux Google Shopping et Meta ; créneaux de retrait en magasin ;
+- **boutique** : emballage cadeau ; favoris ; liste de favoris partagée ; « Vus récemment » ; « Souvent achetés avec » ; prix à l'unité de mesure ; ingrédients, allergènes et origine ; commande minimum ;
+- **fidélisation** : rappels de réassort ; parrainage avec récompense après la livraison ;
+- **langues** : traduction de la boutique en allemand, italien et anglais, vérifiée par un audit automatique de six boutiques (189 textes, 0 manquant) et par un test qui couvre toutes les erreurs des routes publiques ;
+- **pays** : Belgique et France complétées ; Canada pris en charge en partie.
+
+**Sécurisé :**
+- adresses chiffrées et index aveugles dans toutes les nouvelles tables, réindexés lors d'une rotation de clé ;
+- limites de fréquence sur les nouvelles routes publiques ;
+- anti-abus du parrainage : adresse canonique, réseau, montant minimum, plafond, délai de rétractation ;
+- prix barrés toujours contrôlés (30 jours) ;
+- cellules CSV neutralisées contre les formules ;
+- jamais de taxe française appliquée hors de France.
+
+**Ce qui reste** (chaque cycle donne ses limites, ce sont les principales) :
+- **Canada** : les taxes TPS/TVH/TVQ ne sont pas calculées (seul le petit fournisseur est pris en charge) ; la page Conformité, les mentions légales, les prix barrés et le délai de retour restent européens. C'est dit au marchand ;
+- **paiement** : pas d'abonnement de produits à débit automatique (remplacé par les rappels de réassort) ;
+- **parrainage** : les relais d'adresse et les adresses jetables échappent à l'anti-abus ;
+- **matériel** : les étiquettes code-barres n'ont pas été lues par un vrai scanner ;
+- **traductions** : les messages construits avec des valeurs ne sont traduits que si un modèle existe ;
+- **e-mails** : le partage natif du téléphone (liste de favoris, parrainage) n'est pas testable sans interface.
+
+**Comparaison honnête avec les autres plateformes.** La comparaison sourcée est dans `docs/COMPARAISON.md` (relevé du 15 novembre sur les pages officielles, avec une section « Ajouté à Comptoir depuis le relevé »). Sur le papier, Comptoir couvre désormais sans extension plusieurs fonctions qui demandent ailleurs une application tierce ou une formule supérieure :
+- import et export du catalogue ;
+- parrainage ;
+- rappels de réassort ;
+- liste de favoris partagée ;
+- créneaux de retrait ;
+- inventaire au scanner ;
+- prix à l'unité et allergènes ;
+- QR-facture et TWINT.
+
+Il ne prend aucune commission.
+
+Cela ne dit rien de la maturité. Shopify, Wix, WooCommerce et PrestaShop servent des millions de boutiques, avec des places de marché d'extensions, des intégrations de transporteurs et de paiement bien plus nombreuses et des années d'exploitation réelle. Comptoir n'a été éprouvé que par ses tests, ses simulations et ses relectures. « Mieux et plus complet que toutes les autres plateformes » n'est donc pas une affirmation qu'on peut faire honnêtement. Ce qu'on peut dire : Comptoir est plus complet sur les besoins d'une petite boutique suisse ou francophone (TVA suisse, QR-facture, quatre langues, caisse, dropshipping, conformité), et il reste à le valider avec de vrais marchands.
+
 ## Point de départ
 
 Comptoir couvre déjà beaucoup de choses : boutique en quatre langues, variantes, caisse, TWINT et QR-facture, cartes cadeaux, fidélité, devis, retours partiels, codes promo, stock multi-emplacements, API et webhooks, factures électroniques, chiffrement des données des clients, sécurité des comptes très poussée.
