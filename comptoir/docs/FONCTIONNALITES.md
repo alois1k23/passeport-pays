@@ -90,6 +90,7 @@ Ce document décrit ce qui existe et a été testé. Les limites connues sont in
 - **Export complet** des données de la boutique (JSON) : le marchand peut partir avec tout, même abonnement terminé.
 - **Souvent achetés avec** : compléments choisis par le marchand ou calculés sur les achats réels (paire publiée à partir de 3 commandes payées), sur la fiche produit et en suggestion dans le panier.
 - **Modification groupée des produits** : prix en pourcentage ou fixé (avec ancien prix barré, affiché seulement s'il est licite), catégorie, mise en ligne ou masquage, sur 500 produits au plus, tout ou rien.
+- **Commande minimum** (montant d'articles, retrait en magasin dispensé ou non) : vérifiée par le serveur, montant manquant indiqué dans le panier.
 - **Export du catalogue** au format CSV de Shopify (variantes, prix, stock, codes-barres, marque, photos), relu par l'import de Comptoir et par d'autres plateformes. Les cellules sont neutralisées contre les formules de tableur.
 - Aucune ressource tierce dans les boutiques : ni traceur, ni police Google.
 - En-têtes de sécurité stricts (CSP sans script externe), cookie de session `__Host-`. Les navigateurs signalent ce qu'ils bloquent (tentative d'injection), sans donnée personnelle.

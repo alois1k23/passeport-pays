@@ -69,7 +69,11 @@ function vueParametres() {
         <p class="sous">Commandes passées après 14 h : expédiées le jour ouvrable suivant. Pour les produits en dropshipping, le délai affiché est celui du fournisseur.</p></div></section>
       <section class="carte"><div class="carte-tete"><h2>Emballage cadeau</h2>${statut(!!(etat.reglages && etat.reglages.emballageCadeau), 'Proposé', 'Non proposé')}</div>
         <p class="sous">Au moment de commander, le client peut demander un emballage cadeau (offert) et écrire un message de 300 caractères au plus. Le message figure sur le bon de préparation, sans les prix.</p>
-        <label class="case"><input type="checkbox" data-reglage="emballageCadeau" ${etat.reglages && etat.reglages.emballageCadeau ? 'checked' : ''}> Proposer l’emballage cadeau</label></section>`;
+        <label class="case"><input type="checkbox" data-reglage="emballageCadeau" ${etat.reglages && etat.reglages.emballageCadeau ? 'checked' : ''}> Proposer l’emballage cadeau</label></section>
+      <section class="carte"><div class="carte-tete"><h2>Commande minimum</h2>${etat.reglages && etat.reglages.minimumCommande > 0 ? `<span class="pill good">Dès ${euros(etat.reglages.minimumCommande)}</span>` : '<span class="pill muted">Aucune</span>'}</div>
+        <p class="sous">Utile quand chaque livraison coûte (épicerie, fleurs, boulangerie). Montant des articles après code promo, hors frais de port. Le panier indique ce qui manque et le paiement reste fermé en dessous.</p>
+        <label class="champ"><span>Montant minimum (${devise()}, 0 = aucun)</span><input type="number" min="0" max="1000" step="5" value="${(etat.reglages && etat.reglages.minimumCommande) || 0}" data-reglage="minimumCommande"></label>
+        <label class="case"><input type="checkbox" data-reglage="minimumRetrait" ${etat.reglages && etat.reglages.minimumRetrait ? 'checked' : ''}> Appliquer aussi au retrait en magasin</label></section>`;
   } else if (s === 'emails') {
     const service = enLigne() ? SERVEUR.emails : null;
     const notif = typeof Notification === 'undefined' ? 'indisponible' : Notification.permission;

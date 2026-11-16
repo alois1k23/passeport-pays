@@ -757,7 +757,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       boutique: b,
       entreprise: config.entreprise || {},
       magasin: config.magasin || {},
-      reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8, factureQr: !!(config.reglages && config.reglages.factureQr), rapportHebdo: !(config.reglages && config.reglages.rapportHebdo === false), emballageCadeau: !!(config.reglages && config.reglages.emballageCadeau), echeanceJours: Math.max(10, Math.min(60, Math.round(Number(config.reglages && config.reglages.echeanceJours) || 30))) },
+      reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8, factureQr: !!(config.reglages && config.reglages.factureQr), rapportHebdo: !(config.reglages && config.reglages.rapportHebdo === false), emballageCadeau: !!(config.reglages && config.reglages.emballageCadeau), minimumCommande: Math.max(0, Math.min(1000, Math.round(Number(config.reglages && config.reglages.minimumCommande) || 0))), minimumRetrait: !!(config.reglages && config.reglages.minimumRetrait), echeanceJours: Math.max(10, Math.min(60, Math.round(Number(config.reglages && config.reglages.echeanceJours) || 30))) },
       campagnes: config.campagnes || {},
       rdv: config.rdv || null,
       cookies: config.cookies || null,
@@ -3475,6 +3475,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       paiementsActifs: paiementsActifs(b) || factureQrPossible(config),
       factureQr: factureQrPossible(config) ? { echeanceJours: config.reglages.echeanceJours, enLigne: paiementsActifs(b) } : null,
       cadeau: !!(config.reglages && config.reglages.emballageCadeau),   // emballage cadeau offert, avec message
+      minimum: (r => (Number(r.minimumCommande) > 0 ? { montant: Math.round(Math.min(1000, Number(r.minimumCommande))), retrait: !!r.minimumRetrait } : null))(config.reglages || {}),
       creneaux: Creneaux.regles(config).actif && !!config.magasin.clickCollect,   // retrait sur créneau : liste à part (toujours fraîche)
       moyens: paiement.nom === 'stripe' ? (moyensDe(b.id) || {}) : null,   // TWINT ou Bancontact : annoncés seulement s'ils sont activés   // sinon la boutique prévient avant que le client remplisse le panier
       hebergeur: env.HEBERGEUR || null   // identité de l'hébergeur (obligatoire dans les mentions légales en France)
@@ -3512,6 +3513,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     if (Date.now() - m.le >= 600000 && !m.enCours) { m.enCours = true; setImmediate(() => { try { calculerEnsembles(boutiqueId); } catch (e) { m.enCours = false; journal.error(`[complements] ${e.message}`); } }); }
     return m.v;
   };
+  const minimumDe = (config, livraison) => { const r = config.reglages || {}, m = Math.max(0, Math.min(1000, Math.round(Number(r.minimumCommande) || 0))); return m && (livraison !== 'retrait' || r.minimumRetrait) ? m : 0; };
   const compteursRisque = Risque.creerCompteurs(), paniersMoyens = new Map();
   const panierMoyen = boutiqueId => {
     const m = paniersMoyens.get(boutiqueId);
@@ -3634,6 +3636,10 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
       fidelite = { points: res.points, montant: res.remise / 100 };
     }
     const port = prix.fraisPort(mode, calcul.apresRemise, Remises.offresDe(config).seuilPort);   // seuil de port offert : avant les points
+    // Montant minimum de commande (articles après code promo, avant les points et hors port, comme le seuil de port offert) ;
+    // le retrait en magasin en est dispensé, sauf si le marchand l'y soumet.
+    const minimum = minimumDe(config, ctx.corps.livraison);
+    if (minimum && calcul.apresRemise < minimum) throw erreur(400, `Commande minimum : ${minimum.toFixed(2)} ${config.boutique.devise || 'EUR'} d’articles${config.reglages.minimumRetrait ? '' : ' (sauf retrait en magasin)'}.`, 'minimum_commande');
     const total = prix.arrondi(apresRemise + port);
     if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(port)) throw erreur(400, 'Montant de la commande invalide.', 'montant_invalide');
     const devise = config.boutique.devise || 'EUR';

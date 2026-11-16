@@ -1058,3 +1058,17 @@ Relecture indépendante. Constats corrigés :
   - après un effacement de données client, la mémoire n'est pas vidée tout de suite (10 minutes au plus ; l'agrégat est pseudonyme) ;
   - la vignette reste un `div` dans un bouton ; le même schéma existe déjà sur les cartes de la boutique ;
   - les listes du formulaire d'une très grosse boutique (5 000 produits) sont lourdes à afficher.
+
+### Cycle 55 (01 h 40) : commande minimum (chantier 111)
+
+- **Paramètres › Livraison**, nouvelle carte « Commande minimum » : un montant de 0 à 1 000 (0 = aucun). Le retrait en magasin en est dispensé, sauf si la case « Appliquer aussi au retrait » est cochée. C'est utile quand chaque livraison coûte (épicerie, fleurs, boulangerie).
+- **Le montant compte** les articles après code promo et remise de quantité, hors frais de port et avant les points de fidélité : la même base que le seuil de livraison offerte.
+- **Côté serveur**, une commande en dessous est refusée (`minimum_commande`) avec un message clair. Le réglage est nettoyé : arrondi, borné à 1 000.
+- **Dans le panier**, sous le total : « Commande minimum : CHF 30.00 d'articles. Plus que CHF 22.00, ou choisissez le retrait en magasin. » Le bouton de paiement reste fermé, et relié à ce message pour les lecteurs d'écran.
+- **Test** :
+  - refus en dessous, y compris après la remise de quantité (4 roses font 32 CHF, soit 28.80 après -10 %) ;
+  - acceptation au-dessus ;
+  - retrait dispensé, puis soumis au minimum ;
+  - borne à 1 000 ; 0 ne fixe plus de minimum.
+- **Vérifié dans Chromium**, bureau et mobile : réglage enregistré et publié ; message et bouton fermé en livraison ; plus de message et bouton ouvert au retrait ; aucune erreur.
+  - Corrigé pendant la vérification : le message était d'abord tout en bas du formulaire. Il est remonté sous le total, pour que le client le voie avant de saisir son adresse.

@@ -213,6 +213,8 @@ function rendreBrut() {
   // Précommande dans le panier : date d'expédition la plus tardive (la commande part en une fois).
   const datePre = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && enPrecommande(p)).map(p => p.expeditionPrevue).sort().pop() || null;
   const retrait = vue.livraison === 'retrait';
+  // Commande minimum (articles après code promo, hors port) ; le retrait en magasin en est dispensé sauf réglage contraire.
+  const manque = donnees.minimum && (!retrait || donnees.minimum.retrait) ? Math.round(Math.max(0, donnees.minimum.montant - total) * 100) / 100 : 0;
   // Rappel de réassort : délai le plus court parmi les produits du panier qui le proposent (case jamais cochée d'office).
   const joursReassort = vue.panier.map(l => donnees.produits.find(p => p.id === l.produitId)).filter(p => p && p.reassortJours).map(p => p.reassortJours).sort((a, b) => a - b)[0] || null;
   const th = donnees.boutique.theme;
@@ -246,6 +248,7 @@ function rendreBrut() {
             <label class="${vue.livraison === k ? 'actif' : ''}"><input type="radio" name="livraison" value="${esc(k)}" data-c="livraison" ${vue.livraison === k ? 'checked' : ''}>
             <span>${esc(m.nom)}<small>${k === 'retrait' ? esc(donnees.magasin.adresse) : datePre ? `Expédition prévue le ${esc(dateIsoCourte(datePre))}` : esc(fenetreLivraison(k === 'poste-prio' && !delai ? [1, 1] : delai || [2, 3]))}</small></span><b>${fraisPortClient(k, total) ? euros(fraisPortClient(k, total)) : 'Offert'}</b></label>`).join('')}</fieldset>
           <div class="totaux"><div><span>Sous-total</span><span>${euros(calc.sousTotal)}</span></div>${calc.remise ? `<div class="remise"><span>Remise · ${esc(calc.motif.libelle)}</span><span>−${euros(calc.remise)}</span></div>` : ''}<div><span>Livraison</span><span>${port ? euros(port) : 'Offerte'}</span></div>${remiseFid ? `<div class="remise"><span>Points de fidélité</span><span>−${euros(remiseFid)}</span></div>` : ''}<div class="total"><span>Total</span><span>${euros(total - remiseFid + port)}</span></div>${partCarte ? `<div class="remise"><span>Carte cadeau ····${esc(vue.carte.fin)}</span><span>−${euros(partCarte)}</span></div><div class="total"><span>À payer</span><span>${euros(aPayer)}</span></div>` : ''}</div>
+          ${manque > 0 ? `<p class="sf-note sf-minimum" id="note-minimum" role="status">Commande minimum : ${euros(donnees.minimum.montant)} d’articles. Plus que <b>${euros(manque)}</b>${!donnees.minimum.retrait && donnees.magasin && donnees.magasin.clickCollect ? ', ou choisissez le retrait en magasin' : ''}.</p>` : ''}
           <form id="commande">
             <label class="champ"><span>Nom et prénom</span><input name="nom" required autocomplete="name"></label>
             <label class="champ"><span>E-mail</span><input name="email" type="email" required autocomplete="email"></label>
@@ -265,7 +268,7 @@ function rendreBrut() {
             <label class="case-sf"><input type="checkbox" name="consentement"> Recevoir les nouveautés et offres par e-mail (facultatif, désinscription à tout moment)</label>
             <p class="erreur-form" id="erreur" role="alert" hidden></p>
             ${!adresseVendeur() ? '<p class="sf-note" role="status">Cette boutique termine la saisie de ses informations légales : les commandes ouvrent très bientôt.</p>' : donnees.paiementsActifs === false ? '<p class="sf-note" role="status">Cette boutique termine l’activation de ses paiements en ligne : les commandes ouvrent très bientôt.</p>' : ''}
-            <button class="sf-btn plein" ${vue.envoi || !adresseVendeur() || donnees.paiementsActifs === false ? 'disabled' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : partCarte && !aPayer ? 'Payer avec la carte cadeau' : `Payer ${euros(aPayer)}`}</button>
+            <button class="sf-btn plein" ${vue.envoi || !adresseVendeur() || donnees.paiementsActifs === false || manque > 0 ? 'disabled' : ''}${manque > 0 ? ' aria-describedby="note-minimum"' : ''}>${vue.envoi ? 'Redirection vers le paiement…' : partCarte && !aPayer ? 'Payer avec la carte cadeau' : `Payer ${euros(aPayer)}`}</button>
             <p class="mini">${donnees.paiement === 'stripe' ? (ch && (!donnees.moyens || donnees.moyens.twint) ? 'Paiement sécurisé par TWINT ou carte.' : donnees.boutique.pays === 'be' && (!donnees.moyens || donnees.moyens.bancontact) ? 'Paiement sécurisé par Bancontact ou carte.' : 'Paiement sécurisé par carte.') : 'Mode test : le paiement est simulé, aucun montant n’est débité.'} En payant, vous acceptez les <button type="button" class="bouton-lien" data-c="legal" data-v="cgv">CGV</button>.</p>
           </form>` : '<p>Votre panier est vide.</p>'}`}
       </aside>
