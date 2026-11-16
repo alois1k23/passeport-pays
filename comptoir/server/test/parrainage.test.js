@@ -140,7 +140,7 @@ test('parrainage : e-mail de remerciement dans la langue de la commande du parra
   let cookie = '';
   const c = async (m, chemin, corps, avec = true) => { const r = await fetch(base + chemin, { method: m, redirect: 'manual', headers: { 'Content-Type': 'application/json', ...(cookie && avec ? { Cookie: cookie } : {}) }, body: corps ? JSON.stringify(corps) : undefined }); const sc = r.headers.getSetCookie().map(x => x.split(';')[0]).join('; '); if (sc && avec) cookie = sc; return { s: r.status, j: await r.json().catch(() => null) }; };
   try {
-    await c('POST', '/api/auth/inscription', { email: 'de@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Laden', pays: 'ch', langues: ['fr', 'de'] }, entreprise: { raison: 'L GmbH', adresse: 'Rue 1, 1003 Lausanne', email: 'de@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } } });
+    await c('POST', '/api/auth/inscription', { email: 'de@exemple.ch', motDePasse: 'un mot de passe solide', config: { boutique: { nom: 'Laden', pays: 'ch', langues: ['fr', 'de', 'it'] }, entreprise: { raison: 'L GmbH', adresse: 'Rue 1, 1003 Lausanne', email: 'de@exemple.ch', regime: 'ch-assujetti', tvaIntra: 'CHE-123.456.789 TVA' } } });
     const vase = (await c('POST', '/api/admin/produits', { produit: { nom: 'Vase', prix: 100, stock: 50 } })).j.id;
     const etat = (await c('GET', '/api/admin/etat')).j, slug = etat.serveur.slug;
     await c('PUT', '/api/admin/config', { config: { boutique: etat.boutique, entreprise: etat.entreprise, magasin: etat.magasin, livraisons: etat.livraisons, offres: etat.offres, reglages: etat.reglages, parrainage: { actif: true, filleul: 10, parrain: 12, minimum: 0 } } });
@@ -155,6 +155,18 @@ test('parrainage : e-mail de remerciement dans la langue de la commande du parra
     gerer.automatisationsEcheances(Date.now() + 16 * 86400000);
     const m = db.prepare("SELECT sujet, corps FROM emails WHERE destinataire = 'lena@exemple.ch' AND sujet LIKE 'Danke!%'").get();
     assert.ok(m, 'e-mail en allemand');
-    assert.match(m.sujet, /Rabatt von 12 % bei Laden/); assert.match(m.corps, /^Guten Tag Lena,/); assert.match(m.corps, /Dankeschön-Code: MERCI[A-Z2-9]{6}/); assert.match(m.corps, /&lang=de/);
+    assert.match(m.sujet, /Rabatt von 12 % bei Laden/); assert.match(m.corps, /^Guten Tag Lena,/); assert.match(m.corps, /Dankeschön-Code: MERCI[A-Z2-9]{6}/);
+    assert.match(m.corps, new RegExp(`/s/${slug}/\\?code=MERCI[A-Z2-9]{6}&lang=de`), 'lien complet');
+    assert.match(m.corps, /\d{1,2}\.\d{1,2}\.\d{4}/, 'date au format suisse allemand');
+    // Nouvelle demande de lien depuis une commande en italien : la langue suit ; le pied aussi.
+    const lena2 = await payer(await commander('lena@exemple.ch', { langue: 'it' }));
+    assert.equal((await c('POST', `/api/public/${slug}/parrainage`, { commandeId: lena2.commandeId, jeton: lena2.jeton }, false)).j.code, code);
+    db.prepare("UPDATE parrains SET reseau = 'autre'").run();   // la nouvelle demande a repris le réseau (même poste dans le test)
+    const zoe = await payer(await commander('zoe@exemple.ch', { code }));
+    db.prepare("UPDATE commandes SET statut = 'livree' WHERE id = ?").run(zoe.commandeId);
+    gerer.automatisationsEcheances(Date.now() + 17 * 86400000);
+    gerer.automatisationsEcheances(Date.now() + 32 * 86400000);
+    const mi = db.prepare("SELECT sujet, corps FROM emails WHERE destinataire = 'lena@exemple.ch' AND sujet LIKE 'Grazie!%'").get();
+    assert.ok(mi, 'e-mail en italien'); assert.match(mi.corps, /Contatto/, 'pied en italien'); assert.doesNotMatch(mi.corps, /Contact :/);
   } finally { s.close(); }
 });

@@ -1415,3 +1415,20 @@ Relecture indépendante, qui a reproduit deux bugs. Constats corrigés :
   - le lien rouvre la boutique dans la même langue ;
   - le français garde le texte d'origine.
 - **Test** : un parrain qui a commandé en allemand reçoit « Danke! Ihr Rabatt von 12 % bei Laden », qui commence par « Guten Tag Lena, », avec son code et le lien `&lang=de`. Une langue inconnue (`__proto__`) ou le français renvoient au texte d'origine.
+
+### Cycle 70 (06 h 00) : relecture de l'e-mail de remerciement (chantier 117)
+
+Relecture indépendante, sans constat grave. Corrigé :
+
+- **Moyen : le pied de l'e-mail restait en français.** On y lisait « Contact : … » dans un e-mail italien. La langue est maintenant transmise à l'envoi, comme pour les autres e-mails traduits : « Contatto », « Kontakt ».
+- **Faibles :**
+  - lors d'une création simultanée du code par deux processus, la langue et le réseau ne sont plus perdus ;
+  - le commentaire dit exactement quelle langue est gardée (celle de la commande depuis laquelle le lien a été demandé en dernier) ;
+  - anglais « 12% off » (sans le signe moins), italien « utilizzabile una sola volta ».
+- **Test élargi :**
+  - lien complet ;
+  - date au format suisse allemand ;
+  - nouvelle demande de lien depuis une commande en italien : le code est le même, et l'e-mail suivant part en italien (« Grazie! »), pied compris.
+  
+  En chemin, une vérification de comportement : une langue que la boutique ne propose pas n'est pas retenue, l'e-mail part alors en français.
+- **Laissé tel quel :** la date est affichée dans le fuseau de Zurich pour toutes les boutiques (y compris en France, en Belgique et au Canada).

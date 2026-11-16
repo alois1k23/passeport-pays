@@ -63,7 +63,7 @@ function creerParrainage({ db, pii }) {
     const r = db.prepare('SELECT code FROM parrains WHERE boutique_id = ? AND (email_index = ? OR canon = ?) ORDER BY cree_le LIMIT 1').get(bid, idx, canon);
     if (r) {
       if (reseau) db.prepare('UPDATE parrains SET reseau = ? WHERE boutique_id = ? AND code = ?').run(String(reseau).slice(0, 80), bid, r.code);
-      // Langue de la dernière commande : l'e-mail de remerciement la suit.
+      // Langue de la commande depuis laquelle le client a demandé son lien en dernier : l'e-mail de remerciement la suit.
       const q = db.prepare('SELECT donnees FROM parrains WHERE boutique_id = ? AND code = ?').get(bid, r.code), d = q && ouvrir(bid, r.code, q.donnees);
       const l = ['de', 'it', 'en'].includes(langue) ? langue : null;
       if (d && (d.langue || null) !== l) db.prepare('UPDATE parrains SET donnees = ? WHERE boutique_id = ? AND code = ?').run(fermer(bid, r.code, { ...d, ...(l ? { langue: l } : { langue: undefined }) }), bid, r.code);
@@ -73,7 +73,7 @@ function creerParrainage({ db, pii }) {
     for (let i = 0; i < 5; i++) {
       const code = 'AMI' + aleatoire(6);
       try { db.prepare('INSERT INTO parrains (boutique_id, code, email_index, donnees, cree_le, canon, reseau) VALUES (?, ?, ?, ?, ?, ?, ?)').run(bid, code, idx, fermer(bid, code, { email: String(email).trim().toLowerCase(), nom: String(nom || '').slice(0, 120), ...(['de', 'it', 'en'].includes(langue) ? { langue } : {}) }), maintenant, canon, reseau ? String(reseau).slice(0, 80) : null); return code; }
-      catch (e) { if (!/UNIQUE/.test(e.message)) throw e; if (db.prepare('SELECT 1 FROM parrains WHERE boutique_id = ? AND email_index = ?').get(bid, idx)) return codePour(bid, email, nom, maintenant); }
+      catch (e) { if (!/UNIQUE/.test(e.message)) throw e; if (db.prepare('SELECT 1 FROM parrains WHERE boutique_id = ? AND email_index = ?').get(bid, idx)) return codePour(bid, email, nom, maintenant, reseau, langue); }
     }
     return null;
   }

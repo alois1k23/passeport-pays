@@ -5199,7 +5199,7 @@ ${bloc}</main></body></html>`;
       const config = lireConfig(b), url = urlBoutique(b).replace(/\/?$/, '/');
       const prenom = r.nom ? r.nom.split(' ')[0] : '';
       const m = EmailsClients.recompenseParrainage(r.langue, { nomBoutique: config.boutique.nom, prenom, code: r.code, remise: r.remise, jusquau: new Date(r.expire).toLocaleDateString({ de: 'de-CH', it: 'it-CH', en: 'en-GB' }[r.langue] || 'fr-CH', { timeZone: 'Europe/Zurich' }), url });
-      if (m) envoyerEmail(b.id, r.email, m.sujet, m.corps);
+      if (m) envoyerEmail(b.id, r.email, m.sujet, m.corps, { langue: r.langue });   // pied (contact, mentions) dans la même langue
       else envoyerEmail(b.id, r.email, `Merci ! Votre remise de ${r.remise} % chez ${config.boutique.nom}`,
         `Bonjour${r.nom ? ' ' + r.nom.split(' ')[0] : ''},\n\nUne personne à qui vous avez recommandé ${config.boutique.nom} a passé sa première commande. Merci !\n\nVotre code de remerciement : ${r.code}\n−${r.remise} % sur votre prochaine commande, à utiliser une fois avec cette adresse e-mail, jusqu'au ${new Date(r.expire).toLocaleDateString('fr-CH', { timeZone: 'Europe/Zurich' })}.\n\n${url}?code=${r.code}\n\n${config.boutique.nom}`);
     }
