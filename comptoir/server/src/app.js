@@ -699,6 +699,7 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
   const infoRetractation = (bq, c, config) => {
     const pays = config.boutique.pays;
     if (pays === 'ch' || c.canal === 'magasin' || c.canal === 'devis') return '';   // vente en personne ou à un professionnel : pas de droit de rétractation
+    if (pays === 'ca') return '';   // Canada : pas de règle de droit français ou belge ; les conditions de vente renvoient au droit de la province
     const article = pays === 'be' ? 'art. VI.47 du Code de droit économique' : 'art. L221-18 du Code de la consommation';
     const e = config.entreprise || {};
     const vendeur = [e.raison || config.boutique.nom, e.adresse, e.email].filter(Boolean).join(', ');
@@ -780,7 +781,8 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     b.sections = b.sections.slice(0, 40).map(s => ({ id: String(s.id).slice(0, 20), type: String(s.type).slice(0, 20), props: Object.fromEntries(Object.entries(s.props || {}).slice(0, 20).map(([k, v]) => [String(k).slice(0, 20), String(v ?? '').slice(0, 2000)])) }));
     return {
       boutique: b,
-      entreprise: config.entreprise || {},
+      // Canada : seul le régime « petit fournisseur » est pris en charge (jamais de TVA française sur une facture canadienne).
+      entreprise: b.pays === 'ca' ? { ...(config.entreprise || {}), regime: 'franchise' } : (config.entreprise || {}),
       magasin: config.magasin || {},
       reglages: { autoTransmission: config.reglages ? config.reglages.autoTransmission !== false : true, cpa: Number(config.reglages && config.reglages.cpa) || 8, factureQr: !!(config.reglages && config.reglages.factureQr), rapportHebdo: !(config.reglages && config.reglages.rapportHebdo === false), emballageCadeau: !!(config.reglages && config.reglages.emballageCadeau), minimumCommande: Math.max(0, Math.min(1000, Math.round(Number(config.reglages && config.reglages.minimumCommande) || 0))), minimumRetrait: !!(config.reglages && config.reglages.minimumRetrait), echeanceJours: Math.max(10, Math.min(60, Math.round(Number(config.reglages && config.reglages.echeanceJours) || 30))) },
       campagnes: config.campagnes || {},

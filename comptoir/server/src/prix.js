@@ -23,12 +23,18 @@ const LIVRAISONS = {
     'bpost-point': { nom: 'bpost en point d’enlèvement', prix: 5.5, transporteur: 'bpost' },
     'relais-be': { nom: 'Mondial Relay en point relais', prix: 4.2, transporteur: 'Mondial Relay' },
     retrait: { nom: 'Retrait en boutique', prix: 0, transporteur: null }
+  },
+  // Canada : Postes Canada (tarifs indicatifs, en dollars canadiens).
+  ca: {
+    'postes-regulier': { nom: 'Postes Canada, colis régulier', prix: 15, transporteur: 'Postes Canada' },
+    'postes-xpress': { nom: 'Postes Canada, Xpresspost', prix: 25, transporteur: 'Postes Canada', jamaisOffert: true },
+    retrait: { nom: 'Retrait en boutique', prix: 0, transporteur: null }
   }
 };
 const SEUIL_PORT_OFFERT = 60;
 
 function modesLivraison(config) {
-  const pays = config.boutique.pays === 'ch' ? 'ch' : config.boutique.pays === 'be' ? 'be' : 'fr';
+  const pays = ['ch', 'be', 'ca'].includes(config.boutique.pays) ? config.boutique.pays : 'fr';
   // Objet sans prototype : une clé comme « toString » ou « __proto__ » envoyée par un client n'est jamais un mode.
   const modes = Object.assign(Object.create(null), LIVRAISONS[pays]);
   // Retrait proposé seulement avec une adresse de magasin (sinon le client ne saurait pas où aller).
@@ -48,7 +54,8 @@ const arrondi = n => Math.round(n * 100) / 100;
 function tauxReduit(config) {
   const r = config.entreprise && config.entreprise.regime;
   const pays = config.boutique && config.boutique.pays;
-  return r === 'ch-assujetti' ? 0.026 : r === 'normal' ? (pays === 'be' ? 0.06 : 0.055) : 0;
+  // Canada : seul le régime « petit fournisseur » (taxes de vente non perçues) est pris en charge, donc jamais de taux.
+  return pays === 'ca' ? 0 : r === 'ch-assujetti' ? 0.026 : r === 'normal' ? (pays === 'be' ? 0.06 : 0.055) : 0;
 }
 /* Taux figé sur chaque ligne au moment de la vente (une facture peut mêler deux taux). */
 function figerTaux(c, config) {
@@ -60,7 +67,7 @@ function figerTaux(c, config) {
 function tauxTva(config) {
   const r = config.entreprise && config.entreprise.regime;
   const pays = config.boutique && config.boutique.pays;
-  return r === 'ch-assujetti' ? 0.081 : r === 'normal' ? (pays === 'be' ? 0.21 : 0.2) : 0;
+  return pays === 'ca' ? 0 : r === 'ch-assujetti' ? 0.081 : r === 'normal' ? (pays === 'be' ? 0.21 : 0.2) : 0;
 }
 
 /* Construit les lignes d'une commande à partir des produits en base. */

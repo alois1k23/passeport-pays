@@ -253,7 +253,7 @@ function vueConformite() {
       <div class="deux"><label class="champ"><span>Forme juridique</span><select id="en-forme" data-entreprise="forme">${(ch ? ['Raison individuelle', 'Sàrl', 'SA'] : droitPays().formes).map(f => `<option ${f === e.forme ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
       <label class="champ"><span>${ch ? 'Numéro IDE' : droitPays().id}</span><input id="en-siret" value="${esc(e.siret)}" data-entreprise="siret" placeholder="${ch ? 'CHE-123.456.789' : droitPays().idExemple}"></label></div>
       <label class="champ"><span>Adresse postale complète</span><input id="en-adresse" value="${esc(e.adresse)}" data-entreprise="adresse" placeholder="Rue du Lac 12, 1003 Lausanne" autocomplete="street-address"></label>${e.adresse && !adressePostale(e.adresse) ? '<p class="sous erreur-champ">Ajoutez le code postal et la localité (ex. « Rue du Lac 12, 1003 Lausanne ») : l’adresse figure sur vos factures et vos mentions légales.</p>' : ''}
-      <div class="deux"><label class="champ"><span>Régime de TVA</span><select id="en-regime" data-entreprise="regime">${(ch ? [['ch-non', 'Non assujetti'], ['ch-assujetti', 'Assujetti (8,1 %)']] : [['franchise', droitPays().franchiseNom], ['normal', `Assujetti (${droitPays().tvaTexte})`]]).map(([v, n]) => `<option value="${v}" ${e.regime === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <div class="deux"><label class="champ"><span>Régime de TVA</span><select id="en-regime" data-entreprise="regime">${(ch ? [['ch-non', 'Non assujetti'], ['ch-assujetti', 'Assujetti (8,1 %)']] : (droitPays().partiel ? [['franchise', droitPays().franchiseNom]] : [['franchise', droitPays().franchiseNom], ['normal', `Assujetti (${droitPays().tvaTexte})`]])).map(([v, n]) => `<option value="${v}" ${e.regime === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="champ"><span>${ch ? 'Numéro TVA' : 'Numéro de TVA'}</span><input id="en-tva" value="${esc(e.tvaIntra)}" data-entreprise="tvaIntra" placeholder="${ch ? 'CHE-123.456.789 TVA' : droitPays().tvaExemple}"></label></div>
       <label class="champ"><span>E-mail de contact</span><input id="en-email" value="${esc(e.email)}" data-entreprise="email"></label>
       ${ch ? '' : `<label class="champ"><span>Téléphone${etat.boutique.pays === 'be' ? ' (facultatif)' : ''}</span><input id="en-tel" type="tel" value="${esc(e.telephone || '')}" data-entreprise="telephone"></label>`}
@@ -310,6 +310,14 @@ function texteMentions() {
 function texteCGV() {
   const e = etat.entreprise, b = etat.boutique;
   const modes = Object.values(livraisonsPays(b.pays)).filter(l => l.transporteur || retraitPossible());
+  // Canada : modèle court sans renvoi au droit français ; à faire vérifier selon la province (au Québec : Loi sur la protection du consommateur).
+  if (b.pays === 'ca') return `<h2>Conditions générales de vente</h2>
+  <p class="sous">Modèle de base, à faire vérifier selon votre province avant de vendre.</p>
+  <p><strong>1. Objet.</strong> Les présentes conditions régissent les ventes conclues sur le site de ${esc(b.nom)}, exploité par ${esc(e.raison)} (${droitPays().idCourt} ${esc(e.siret || '[à compléter]')}), ${esc(e.adresse || '[adresse à compléter]')}.</p>
+  <p><strong>2. Prix.</strong> Les prix sont indiqués en dollars canadiens. ${esc(droitPays().franchise)}.</p>
+  <p><strong>3. Livraison.</strong> ${modes.map(l => `${l.nom} : ${l.prix ? euros(l.prix) : 'gratuit'}, ${l.delai}`).join(' ; ')}.</p>
+  <p><strong>4. Annulation et retours.</strong> Vos droits d’annulation et de retour sont ceux que prévoit la loi de votre province ; contactez-nous à ${esc(e.email || '[e-mail à compléter]')} pour toute demande.</p>
+  <p><strong>5. Garanties.</strong> Les produits bénéficient des garanties légales applicables dans votre province.</p>`;
   if (estSuisse()) {
     const drops = etat.produits.filter(p => p.type === 'drop' && p.delai);
     return `<h2>Conditions générales de vente</h2>

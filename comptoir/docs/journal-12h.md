@@ -1457,3 +1457,33 @@ Relecture indépendante, sans constat grave. Corrigé :
   - numéro de TVA belge d'exemple avec une clé juste ;
   - « Hauszustellung » et « Chronopost Express ».
 - **Signalé, à traiter à part** (antérieur au chantier) : une boutique canadienne n'a pas de règles de droit propres (`DROIT_PAYS` n'a pas d'entrée `ca`). Elle affiche la mention française de franchise et propose Colissimo, Mondial Relay et Chronopost.
+
+### Cycle 73 (07 h 10) : boutiques canadiennes cohérentes et honnêtes (chantier 119)
+
+- **Le problème** (signalé au cycle 72) : le Canada est proposé aux marchands (pays principal, assistant), mais il héritait des règles françaises. Concrètement :
+  - le régime proposé était « Assujetti (20 %) », et le serveur appliquait 20 % de TVA française aux commandes et aux factures d'une boutique canadienne ;
+  - la mention de prix était celle de l'article 293 B du CGI ;
+  - les transporteurs proposés étaient Colissimo, Mondial Relay et Chronopost ;
+  - le droit de rétractation de 14 jours (art. L221-18 du Code de la consommation) apparaissait dans les conditions et dans les e-mails.
+- **La correction**, une prise en charge partielle et dite comme telle (Comptoir ne calcule pas les taxes TPS, TVH et TVQ par province) :
+  - **un seul régime**, « petit fournisseur » (taxes de vente non perçues), imposé par le serveur à l'inscription comme à l'enregistrement : le taux est toujours nul, normal comme réduit ;
+  - **mention de prix** : « Petit fournisseur : taxes de vente (TPS/TVQ) non perçues » ;
+  - **transporteurs** : Postes Canada, colis régulier et Xpresspost (tarifs indicatifs, en dollars canadiens), plus le retrait en boutique ;
+  - **conditions de vente** : un modèle court sans renvoi au droit français, où retours et garanties renvoient à la loi de la province. Il est signalé « à faire vérifier » dans l'espace marchand. Les e-mails ne citent plus le droit français ;
+  - **avis dans Paramètres** : la prise en charge est partielle, et au-delà du seuil de petit fournisseur Comptoir ne calcule pas encore ces taxes.
+- **Traductions** des modes et de la mention, avec la formule d'origine gardée. L'audit (six boutiques, dont la canadienne) relève 189 textes, 0 manquant.
+- **Test** `canada.test.js` :
+  - modes de livraison ;
+  - taux nul quel que soit le régime envoyé, sans changement pour la France ;
+  - régime imposé à l'inscription et à l'enregistrement ;
+  - commande à 35 $CA sans taxe (20 + 15 de port), rien de figé sur la commande ni sur les lignes ;
+  - e-mail de confirmation sans droit français ni belge.
+- **Vérifié dans Chromium**, bureau en français et mobile en anglais :
+  - avis dans Paramètres ;
+  - un seul régime dans la fiche entreprise ;
+  - mention sur la fiche produit ;
+  - Postes Canada dans le panier ;
+  - « Payer 35,00 $CA » et « Pay 35,00 $CA » ;
+  - aucune erreur.
+- **Vérification complète** : les 7 étapes passent.
+- **Limite assumée** : un marchand canadien inscrit aux taxes (au-delà de 30 000 $ de ventes) ne peut pas encore utiliser Comptoir correctement ; c'est dit dans l'avis.
