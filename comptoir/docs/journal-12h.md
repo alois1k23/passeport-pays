@@ -1433,7 +1433,7 @@ Relecture indépendante, sans constat grave. Corrigé :
   En chemin, une vérification de comportement : une langue que la boutique ne propose pas n'est pas retenue, l'e-mail part alors en français.
 - **Laissé tel quel :** la date est affichée dans le fuseau de Zurich pour toutes les boutiques (y compris en France, en Belgique et au Canada).
 
-### Cycle 71 (06 h 55) : traductions des boutiques françaises et belges (chantier 118)
+### Cycle 71 (06 h 45) : traductions des boutiques françaises et belges (chantier 118)
 
 - **L'audit des traductions** (`outils/simulation/traductions-boutique.js`) ne parcourait qu'une boutique suisse assujettie à la TVA (limite notée au cycle 58). Il parcourt maintenant quatre boutiques : Suisse assujettie, Suisse non assujettie, France en franchise de TVA (euros) et Belgique assujettie (euros).
 - **Il a trouvé de vrais trous**, 14 textes par langue, tous corrigés :
