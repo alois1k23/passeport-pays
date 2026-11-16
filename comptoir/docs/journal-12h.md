@@ -1416,7 +1416,7 @@ Relecture indépendante, qui a reproduit deux bugs. Constats corrigés :
   - le français garde le texte d'origine.
 - **Test** : un parrain qui a commandé en allemand reçoit « Danke! Ihr Rabatt von 12 % bei Laden », qui commence par « Guten Tag Lena, », avec son code et le lien `&lang=de`. Une langue inconnue (`__proto__`) ou le français renvoient au texte d'origine.
 
-### Cycle 70 (06 h 00) : relecture de l'e-mail de remerciement (chantier 117)
+### Cycle 70 (05 h 50) : relecture de l'e-mail de remerciement (chantier 117)
 
 Relecture indépendante, sans constat grave. Corrigé :
 
