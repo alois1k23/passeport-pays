@@ -8,6 +8,15 @@ node server/server.js --verifier
 
 Elle liste ce qui manque (✗) et ce qui est prêt (✓).
 
+## 0. Aperçu privé : en ligne, mais pour vous seul
+
+Pour essayer Comptoir sur Internet avec une vraie entreprise avant de l'ouvrir au public :
+
+1. Mettez un mot de passe d'au moins 12 caractères dans `ACCES_PRIVE` (fichier `.env`), puis redémarrez. Tout le site le demande alors une fois par appareil : espace marchand, boutiques et pages publiques. Les moteurs de recherche reçoivent l'ordre de ne rien indexer (`X-Robots-Tag: noindex` et un `robots.txt` qui interdit tout). Les webhooks de Stripe et du fournisseur restent ouverts, car ils sont signés et appelés par des serveurs.
+2. Pour ne pas payer votre propre formule pendant l'essai, mettez `ABONNEMENT_OBLIGATOIRE=non`.
+3. Gardez Stripe en **mode test** (section 1) tant que vous essayez : les paiements se font avec la carte `4242 4242 4242 4242`, sans argent réel.
+4. Pour ouvrir au public : videz `ACCES_PRIVE`, remettez `ABONNEMENT_OBLIGATOIRE=oui`, passez Stripe en mode réel, puis redémarrez. Google peut alors indexer les boutiques. Pour qu'il les trouve plus vite, déclarez le site dans Google Search Console.
+
 ## 1. Stripe : d'abord en mode test, gratuit et sans argent réel
 
 1. Créez un compte sur stripe.com, au nom de l'entreprise qui exploite Comptoir.

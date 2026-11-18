@@ -126,6 +126,16 @@ h1{font-size:16pt;margin:10mm 0 2mm}table{width:100%;border-collapse:collapse;ma
     }
   }
   const hotePrincipal = new URL(urlPublique).hostname.toLowerCase();
+  /* Aperçu privé (ACCES_PRIVE = mot de passe d'au moins 12 caractères) : tant qu'il est défini, tout le site (espace
+     marchand, boutiques, pages publiques) demande ce mot de passe une fois par appareil, et rien n'est indexé par les
+     moteurs de recherche (en-tête X-Robots-Tag et robots.txt qui interdit tout). Restent ouverts : les webhooks de
+     paiement et du fournisseur (signés, appelés par des serveurs) et les rapports CSP. Retirez la variable pour ouvrir. */
+  const ACCES_PRIVE = String(env.ACCES_PRIVE || '');
+  if (ACCES_PRIVE && ACCES_PRIVE.length < 12) throw new Error('ACCES_PRIVE : au moins 12 caractères.');
+  const jetonApercu = ACCES_PRIVE ? crypto.createHmac('sha256', ACCES_PRIVE).update('comptoir-apercu-prive').digest('base64url') : '';
+  const pageApercu = (erreurTexte, retour) => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>Aperçu privé</title>
+<style>body{font-family:system-ui,sans-serif;background:#f6f5f2;color:#1d1d1f;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}form{background:#fff;padding:28px;border-radius:12px;max-width:360px;width:100%;box-shadow:0 1px 3px rgba(0,0,0,.1);display:grid;gap:12px}input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #ccc}button{background:#1d1d1f;color:#fff;border:0;cursor:pointer}p{margin:0}.erreur{color:#b3261e}</style></head>
+<body><form method="post" action="/acces-prive"><h1 style="margin:0;font-size:1.3rem">Aperçu privé</h1><p>Ce site n’est pas encore ouvert au public.</p>${erreurTexte ? `<p class="erreur" role="alert">${escHtml(erreurTexte)}</p>` : ''}<label>Mot de passe d’aperçu<br><input type="password" name="mot" required autocomplete="current-password" autofocus style="width:100%;box-sizing:border-box"></label><input type="hidden" name="retour" value="${escHtml(retour)}"><button>Entrer</button></form></body></html>`;
   const originePublique = new URL(urlPublique).origin;
   // Facteur des limites de débit publiques (1 en production ; plus élevé pour les tests et simulations depuis une seule adresse).
   const facteurLimites = Math.max(1, Number(env.LIMITES_FACTEUR) || 1);
@@ -5856,6 +5866,29 @@ ${FEUILLE_4}</head>
     res.setHeader('Origin-Agent-Cluster', '?1');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     if (securise) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    if (ACCES_PRIVE) {
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      let ch = '/'; try { ch = new URL(req.url, 'http://local').pathname; } catch { /* traité plus bas */ }
+      if (ch === '/robots.txt') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('User-agent: *\nDisallow: /\n'); }
+      const ouvert = /^\/api\/webhooks\//.test(ch) || ch === '/csp-rapport';
+      if (ch === '/acces-prive' && req.method === 'POST') {
+        try { auth.limiter('apercu:' + ipClient(req), 20, 15 * 60000, 'Trop d’essais. Réessayez dans quelques minutes.'); }
+        catch (e) { res.writeHead(429, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(pageApercu(e.message, '/')); }
+        let f; try { f = new URLSearchParams((await lireCorps(req, 4096)).toString('utf8')); } catch { f = new URLSearchParams(); }
+        const retour = /^\/(?!\/)[^\s]{0,300}$/.test(f.get('retour') || '') ? f.get('retour') : '/';
+        const a = crypto.createHash('sha256').update(String(f.get('mot') || '')).digest(), b = crypto.createHash('sha256').update(ACCES_PRIVE).digest();
+        if (!crypto.timingSafeEqual(a, b)) { res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(pageApercu('Mot de passe incorrect.', retour)); }
+        res.writeHead(303, { Location: retour, 'Cache-Control': 'no-store', 'Set-Cookie': `comptoir_apercu=${jetonApercu}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${90 * 86400}${securise ? '; Secure' : ''}` });
+        return res.end();
+      }
+      const jeton = (lireCookies(req).comptoir_apercu || '');
+      const valide = jeton.length === jetonApercu.length && crypto.timingSafeEqual(Buffer.from(jeton), Buffer.from(jetonApercu));
+      if (!ouvert && !valide) {
+        if (/^\/api\//.test(ch)) { res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ erreur: 'Aperçu privé : entrez le mot de passe d’aperçu.', code: 'apercu_prive' })); }
+        res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(pageApercu('', req.method === 'GET' ? req.url : '/'));
+      }
+    }
     // HEAD : même réponse que GET, sans corps (Node l'omet de lui-même ; la réponse a déjà noté la méthode d'origine).
     const methodeOrigine = req.method;
     if (req.method === 'HEAD') req.method = 'GET';
